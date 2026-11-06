@@ -25,11 +25,12 @@ output is bounded and execution has a timeout. Root authorization and revocation
 - Browser interface on port **2334** with a generated access token. The server binds to loopback by default; LAN access can be explicitly enabled from the Android host screen.
 - Full diagnose with a copy button (read-only, covers every function). Six built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
+- **Screen control**: view and control the device's own screen from the web page (root `screencap` frames + root `input` events), e.g. from a second phone. A screenshot stream, not video. Needs LAN access enabled to use it from another device.
 - AT command execution through the bundled `sendat` executable (device/architecture compatibility required).
 - ZTE router API proxy for SMS and live signal information.
 - Boot receiver restarts the web host and runs the app-managed root startup script (when present); root access is separately authorized by `su`.
 
-The tools (AT Radio, Bypass, Device Status, Live Status, SMS, Signal Info) are embedded in `web/index.html` and load automatically.
+The tools (AT Radio, Bypass, Device Status, Live Status, Memory Cleaner, Network Debug, SMS, Signal Info, Screen Control) are embedded in `web/index.html` and load automatically.
 Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
 plugins execute with the privileges of the host bridge and should be treated as trusted code.
 

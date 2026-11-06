@@ -13,7 +13,7 @@ for i, js in enumerate(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, r
     path.write_text(js)
     subprocess.run(['node', '--check', str(path)], check=True)
 tools = re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">(.*?)</script>', html, re.S)
-assert len(tools) == 8, f'expected 8 embedded tools, found {len(tools)}'
+assert len(tools) == 9, f'expected 9 embedded tools, found {len(tools)}'
 for name, js in tools:
     path = Path('/tmp') / ('matchitool-tool-' + name)
     path.write_text(js)
@@ -44,9 +44,15 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.1.35'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.1.38'" in html, 'page version must match app version'
+screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
+assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
+stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
+assert 'screencap\\n' in stream and 'since' in server, 'smooth screen streamer missing'
+assert 'screencap -p' in screen and 'input tap' in screen and 'input swipe' in screen, 'screen capture / input helpers missing'
+assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n, _ in tools), 'Screen Control tool missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 145' in gradle and 'versionName = \"1.1.35\"' in gradle
-assert 'put(\"version\", \"1.1.35\")' in server
+assert 'versionCode = 148' in gradle and 'versionName = \"1.1.38\"' in gradle
+assert 'put(\"version\", \"1.1.38\")' in server
 print('Source validation passed: XML, web JavaScript, bundled plugins, root backend, loopback-first network security, firmware preflight, and version metadata.')
 PY

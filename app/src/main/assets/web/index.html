@@ -47,6 +47,33 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
 .mfoot{bottom:-14px;margin:8px -14px -14px;padding:8px 14px}
 .toast{padding:8px 12px;font-size:12.5px;border-radius:9px}#toasts{top:8px;gap:6px}
 @media(max-width:760px){header{padding:7px 12px;gap:8px}main{grid-template-columns:1fr;padding:10px 10px 30px;gap:10px}.card{padding:12px;border-radius:12px}.card.pop.open{width:calc(100vw - 16px)}.popfoot{bottom:-12px;margin:10px -12px -12px;padding:7px 12px;border-radius:0 0 12px 12px}.modal-bg{padding:8px}.modal{padding:12px}.mfoot{bottom:-12px;margin:8px -12px -12px;padding:7px 12px}}
+/* Phone popups: smaller, tighter windows for EVERY popup (card popups, tool windows, confirm box). Phone only (portrait, or landscape = short touch screen); PC is unchanged. Placed last, with !important, so it also wins over styles the tools inject later. */
+@media(max-width:760px),(max-height:500px) and (hover:none) and (pointer:coarse){
+.card.pop.open,#selftest.pop.open{width:min(calc(100vw - 28px),400px)!important;max-height:80vh!important;max-height:80dvh!important;padding:10px!important;border-radius:11px!important;font-size:12px!important;line-height:1.4!important}
+.card.pop.open h1,.card.pop.open h2,.card.pop.open h3{font-size:14px!important;margin:0 0 6px!important}
+.card.pop.open p{margin:4px 0 7px!important;font-size:12px!important}
+.card.pop.open>.mut:first-child{font-size:10.5px!important}
+.card.pop.open button{min-height:28px!important;padding:3px 9px!important;font-size:11.5px!important;border-radius:7px!important}
+.card.pop.open input,.card.pop.open select,.card.pop.open textarea{min-height:30px!important;padding:4px 8px!important;font-size:12px!important;border-radius:7px!important}
+.card.pop.open pre{padding:7px!important;font-size:10.5px!important;line-height:1.4!important;max-height:260px!important;border-radius:8px!important}
+.card.pop.open .row{padding:5px 0!important;gap:6px!important}.card.pop.open .row strong{font-size:10px!important;padding:1px 5px!important}
+.card.pop.open .btnrow,.card.pop.open .actions-buttons{gap:5px!important}
+.card.pop.open .popfoot{bottom:-10px!important;margin:8px -10px -10px!important;padding:6px 10px!important;border-radius:0 0 11px 11px!important}
+.card.pop.open .popx{min-height:28px!important;padding:3px 14px!important}
+.modal-bg{padding:8px!important}
+.modal-bg .modal{padding:10px!important;border-radius:11px!important;font-size:12px!important;line-height:1.4!important;max-height:80vh!important;max-height:80dvh!important}
+.modal-bg .modal h3{font-size:14px!important;margin:0 0 6px!important}
+.modal-bg .modal p{margin:4px 0 7px!important}
+.modal-bg .modal button{min-height:28px!important;padding:3px 9px!important;font-size:11.5px!important;border-radius:7px!important}
+.modal-bg .modal input:not([type=checkbox]):not([type=radio]),.modal-bg .modal select,.modal-bg .modal textarea{min-height:30px!important;padding:4px 8px!important;font-size:12px!important;border-radius:7px!important}
+.modal-bg .modal pre{padding:7px!important;font-size:10.5px!important;line-height:1.4!important;border-radius:8px!important}
+.modal-bg .modal .mfoot{bottom:-10px!important;margin:8px -10px -10px!important;padding:6px 10px!important}
+.modal-bg .modal .mbody[role],.modal-bg .modal[role=alertdialog] .mbody{font-size:13px!important;line-height:1.4!important}
+.modal-bg .modal[role=alertdialog]{max-width:300px!important}
+.modal-bg .modal .mbody{min-width:0!important;max-width:100%!important}
+.modal-bg .modal .mbody>*{max-width:100%!important;min-width:0}
+.modal-bg .modal[role=alertdialog] .mbody+div{margin-top:10px!important;gap:6px!important}
+}
 </style></head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -290,14 +317,32 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     }
   }
 
+  // Compact look for this window only: small switches in one row, smaller buttons / inputs / output box.
+  function atStyle() {
+    if (document.getElementById('matchi_at_css')) return;
+    const st = document.createElement('style'); st.id = 'matchi_at_css';
+    st.textContent = `
+#matchi_at_modal .modal{padding:12px}
+#matchi_at_modal .at-tg{display:flex;gap:14px;align-items:center;margin:0 0 8px}
+#matchi_at_modal .at-tg label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:1;cursor:pointer}
+#matchi_at_modal input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:30px;height:17px;min-height:0;padding:0;margin:0;border:0;border-radius:9px;background-color:rgba(255,255,255,.22);background-image:radial-gradient(circle,#fff 6px,transparent 6.5px);background-size:17px 17px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .18s,background-color .18s;cursor:pointer}
+#matchi_at_modal input[type=checkbox]:checked{background-color:rgba(100,230,164,.75);background-position:100% 50%}
+#matchi_at_modal input[type=checkbox]:disabled{opacity:.45;cursor:default}
+#matchi_at_modal select{min-height:28px;padding:2px 6px;font-size:12px;border-radius:7px}
+#matchi_at_modal button{min-height:28px;padding:3px 9px;font-size:12px;border-radius:7px}
+#matchi_at_modal input[type=text],#matchi_at_modal input:not([type]),#matchi_at_modal input[inputmode]{min-height:30px;padding:4px 9px;font-size:12.5px}
+#matchi_at_out{height:150px!important;padding:8px!important;font-size:11px;line-height:1.45;margin-top:8px!important}`;
+    document.head.appendChild(st);
+  }
   function open() {
+    atStyle();
     createModal({
       name: MODAL, title: 'AT & Radio', maxWidth: '560px', showConfirm: false, onClose: () => true,
       content:
         '<div style="display:flex;gap:8px;margin-bottom:8px"><select id="matchi_at_slot"><option value="0">SIM slot 0</option><option value="1">SIM slot 1</option></select></div>' +
-        '<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">' +
-        '<label><input type="checkbox" id="matchi_volte" disabled style="width:auto"> VoLTE</label>' +
-        '<label><input type="checkbox" id="matchi_vonr" disabled style="width:auto"> VoNR</label></div>' +
+        '<div class="at-tg">' +
+        '<label><input type="checkbox" id="matchi_volte" disabled> VoLTE</label>' +
+        '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
         '<button type="button" id="matchi_bands">NR bands</button></div>' +
@@ -3243,6 +3288,31 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       }
       #${MODAL_NAME} .bp-grid .bp-stat{min-height:2.5em;padding:4px 9px}
       #${MODAL_NAME} .bp-tabs{position:static;margin-bottom:8px}
+      @media (max-width:700px){
+        #${MODAL_NAME}{padding:8px !important}
+        #${MODAL_NAME} > .modal{max-width:420px !important;padding:10px !important}
+        #${MODAL_NAME} .modal>h3{font-size:14px !important;margin:0 0 6px !important}
+        #${MODAL_NAME} .bp-wrap{height:calc(100vh - 380px - var(--bp-bar,44px));height:calc(100svh - 340px - var(--bp-bar,44px));min-height:200px;gap:6px;line-height:1.2}
+        #${MODAL_NAME} .bp-card{padding:8px;border-radius:11px}
+        #${MODAL_NAME} .bp-section{gap:6px}
+        #${MODAL_NAME} .bp-h{font-size:.66rem;padding:3px 2px 0}
+        #${MODAL_NAME} .bp-title{font-size:.8rem}
+        #${MODAL_NAME} .bp-hero{padding:7px 10px;font-size:.8rem;border-radius:10px}
+        #${MODAL_NAME} .bp-value{font-size:.8rem}
+        #${MODAL_NAME} .bp-label{font-size:.62rem}
+        #${MODAL_NAME} .bp-note{font-size:.62rem}
+        #${MODAL_NAME} .bp-stat{padding:4px 8px;margin-top:4px}
+        #${MODAL_NAME} .bp-pill{padding:5px 8px}
+        #${MODAL_NAME} .bp-tab{padding:4px 6px;font-size:.72rem}
+        #${MODAL_NAME} .bp-seg .bp-qs{padding:5px 3px;font-size:.76rem}
+        #${MODAL_NAME} .bp-subt{min-height:28px !important;font-size:.68rem}
+        #${MODAL_NAME} .bp-srow .bp-rt{font-size:.76rem}
+        #${MODAL_NAME} .bp-row label{font-size:.72rem}
+        #${MODAL_NAME} button:not(.bp-switch):not(.bp-tab):not(.bp-qs):not(.bp-chip){min-height:28px;padding:3px 9px;font-size:.72rem}
+        #${MODAL_NAME} input[type=number],#${MODAL_NAME} input[type=text]{padding:4px 8px;font-size:.76rem;min-height:30px}
+        #${MODAL_NAME} .bp-pre{font-size:.55rem;max-height:150px}
+        #${MODAL_NAME} .bp-bar{padding-top:6px}
+      }
     `;
     document.head.appendChild(style);
   };
@@ -5562,6 +5632,219 @@ rm -rf "${DEVICE_TMP_DIR}"
 })();
 
 </script>
+<script type="text/plain" class="webtool" data-name="Screen_Control.js">
+/*
+ * Screen Control - MatchiTOOL built-in tool.
+ * Shows this device's screen in the browser and sends taps, swipes and keys back (a small scrcpy).
+ * Frames are JPEG screenshots taken as root and sent one by one, so expect a few frames per second, not video.
+ * Needs root. Open the MatchiTOOL page from another phone (LAN access on) to control the device with it.
+ */
+(() => {
+  'use strict';
+  const MODAL = 'matchi_screen_modal';
+  const BTN_ID = 'matchi_screen_btn';
+  if (document.getElementById(BTN_ID)) return;
+
+  const PRESETS = { low: { scale: 30, q: 45 }, med: { scale: 50, q: 60 }, high: { scale: 80, q: 75 } };
+  const KEYS = { back: 4, home: 3, recents: 187, power: 26, volup: 24, voldown: 25, enter: 66, del: 67 };
+  const st = { run: false, loopId: 0, W: 0, H: 0, quality: 'med', frames: 0, t0: 0, fps: 0, fails: 0, paused: false, chain: Promise.resolve(), lastWheel: 0, seq: 0, mode: '' };
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const setMsg = (t, bad) => { const m = $('matchi_scr_msg'); if (m) { m.textContent = t; m.style.color = bad ? '#ff647c' : ''; } };
+  const syncBtn = () => { const b = $('matchi_scr_toggle'); if (b) b.textContent = st.run ? 'Pause' : 'Start'; };
+
+  // Blob -> something drawImage accepts. createImageBitmap is missing on older Safari, so fall back to an <img>.
+  async function decode(blob) {
+    if (typeof createImageBitmap === 'function') {
+      const bmp = await createImageBitmap(blob);
+      return { img: bmp, w: bmp.width, h: bmp.height, done: () => { if (bmp.close) bmp.close(); } };
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('frame could not be decoded')); img.src = url; });
+      return { img, w: img.naturalWidth, h: img.naturalHeight, done: () => {} };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  // Ask the host for the next frame newer than the one on screen. The host keeps capturing in the background,
+  // so this returns as soon as a new frame exists. { same:true } = the screen did not change.
+  async function fetchFrame() {
+    const p = PRESETS[st.quality];
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const r = await fetch('/api/screen/frame?scale=' + p.scale + '&q=' + p.q + '&since=' + st.seq + '&t=' + Date.now(), { headers: { 'x-token': TOKEN }, cache: 'no-store', signal: ctl.signal });
+      if (r.status === 204) return { same: true };
+      if (!r.ok) {
+        let m = 'HTTP ' + r.status;
+        try { m = (await r.json()).error || m; } catch (_) { /* keep the status */ }
+        throw new Error(m);
+      }
+      const blob = await r.blob();
+      return { blob, w: parseInt(r.headers.get('X-Screen-W'), 10), h: parseInt(r.headers.get('X-Screen-H'), 10), seq: parseInt(r.headers.get('X-Frame-Seq'), 10) || 0, mode: r.headers.get('X-Capture-Mode') || '' };
+    } catch (e) {
+      throw new Error(e.name === 'AbortError' ? 'no answer from the device (timeout)' : e.message);
+    } finally { clearTimeout(timer); }
+  }
+
+  // Draw one fetched frame. Returns false when the window is gone.
+  async function show(f) {
+    const d = await decode(f.blob);
+    const c = $('matchi_scr_canvas');
+    if (!c) { d.done(); return false; }
+    if (c.width !== d.w || c.height !== d.h) { c.width = d.w; c.height = d.h; }
+    c.getContext('2d').drawImage(d.img, 0, 0);
+    d.done();
+    if (f.w > 0 && f.h > 0) { st.W = f.w; st.H = f.h; }
+    if (f.mode) st.mode = f.mode;
+    return true;
+  }
+
+  // Pipelined: the request for frame N+1 is already on its way while frame N is decoded and drawn.
+  async function loop(id) {
+    const live = () => st.run && st.loopId === id;
+    st.frames = 0; st.t0 = performance.now(); st.fails = 0;
+    let pending = fetchFrame();
+    pending.catch(() => {});
+    while (live()) {
+      let f;
+      try { f = await pending; } catch (e) {
+        st.fails++;
+        setMsg(e.message, true);
+        if (st.fails >= 5) { stop(); setMsg('Stopped after repeated errors: ' + e.message, true); break; }
+        await sleep(1200);
+        if (!live()) break;
+        pending = fetchFrame(); pending.catch(() => {});
+        continue;
+      }
+      st.fails = 0;
+      if (!live()) break;
+      if (f.same) { pending = fetchFrame(); pending.catch(() => {}); continue; }   // nothing changed on the screen
+      st.seq = f.seq;
+      pending = fetchFrame(); pending.catch(() => {});
+      try { if (!(await show(f))) { stop(); break; } } catch (e) { setMsg(e.message, true); continue; }
+      st.frames++;
+      const secs = (performance.now() - st.t0) / 1000;
+      if (secs >= 2) st.fps = st.frames / secs;
+      if (secs >= 6) { st.frames = 0; st.t0 = performance.now(); }
+      setMsg(st.W + 'x' + st.H + ' screen, ' + st.fps.toFixed(1) + ' frames/s' + (st.mode ? ' (' + st.mode + ')' : ''));
+    }
+  }
+
+  // One frame while not streaming (after a tap with the stream paused).
+  async function snapshot() {
+    st.seq = 0;
+    const f = await fetchFrame();
+    if (f && !f.same) await show(f);
+  }
+
+  function start() { if (st.run) return; st.run = true; st.seq = 0; const id = ++st.loopId; syncBtn(); loop(id); }
+  function stop() { st.run = false; st.loopId++; syncBtn(); }
+
+  // Input events go out one at a time, in order. When not streaming, one fresh frame follows each event.
+  function send(o) {
+    st.chain = st.chain.then(async () => {
+      try {
+        const r = await api('/api/screen/input', { method: 'POST', body: JSON.stringify(o) });
+        if (!r.success) setMsg('Input failed: ' + (r.output || 'unknown error'), true);
+      } catch (e) { setMsg('Input failed: ' + e.message, true); }
+    });
+    if (!st.run) st.chain = st.chain.then(async () => { await sleep(350); try { await snapshot(); } catch (_) { /* shown on next try */ } });
+    return st.chain;
+  }
+  const key = (name) => send({ type: 'key', code: KEYS[name] });
+
+  // Position on the canvas -> real screen pixels (the frame is shrunk, the real size comes from the host).
+  function map(cx, cy) {
+    const c = $('matchi_scr_canvas'), r = c.getBoundingClientRect();
+    const W = st.W || c.width, H = st.H || c.height;
+    const fx = Math.min(Math.max((cx - r.left) / (r.width || 1), 0), 1);
+    const fy = Math.min(Math.max((cy - r.top) / (r.height || 1), 0), 1);
+    return { x: Math.round(fx * (W - 1)), y: Math.round(fy * (H - 1)) };
+  }
+
+  function wireCanvas(c) {
+    let down = null;
+    c.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      try { c.setPointerCapture(e.pointerId); } catch (_) { /* not fatal */ }
+      down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    });
+    c.addEventListener('pointerup', (e) => {
+      if (!down) return;
+      const d = down; down = null;
+      e.preventDefault();
+      const a = map(d.x, d.y), b = map(e.clientX, e.clientY);
+      const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
+      const held = performance.now() - d.t;
+      if (moved < 10) send(held >= 500 ? { type: 'long', x: b.x, y: b.y } : { type: 'tap', x: b.x, y: b.y });
+      else send({ type: 'swipe', x: a.x, y: a.y, x2: b.x, y2: b.y, dur: Math.min(Math.max(Math.round(held), 80), 1500) });
+    });
+    c.addEventListener('pointercancel', () => { down = null; });
+    c.addEventListener('contextmenu', (e) => e.preventDefault());
+    // Mouse wheel = scroll: a short vertical swipe from the pointer position.
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const now = performance.now();
+      if (now - st.lastWheel < 450) return;
+      st.lastWheel = now;
+      const a = map(e.clientX, e.clientY), H = st.H || c.height;
+      const dy = Math.round(H * 0.25) * (e.deltaY > 0 ? -1 : 1);
+      send({ type: 'swipe', x: a.x, y: a.y, x2: a.x, y2: Math.min(Math.max(a.y + dy, 0), H - 1), dur: 250 });
+    }, { passive: false });
+  }
+
+  function open() {
+    createModal({
+      name: MODAL, title: 'Screen control', maxWidth: '460px', showConfirm: false,
+      onClose: () => { stop(); st.paused = false; return true; },
+      content:
+        '<div id="matchi_scr_msg" class="mut" style="font-size:12px;margin-bottom:6px">Starting…</div>' +
+        '<div style="display:flex;justify-content:center;background:#000;border:1px solid var(--bd);border-radius:10px;padding:4px">' +
+        '<canvas id="matchi_scr_canvas" width="270" height="480" style="max-width:100%;max-height:60vh;max-height:60dvh;touch-action:none;cursor:pointer;background:#000"></canvas></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">' +
+        '<button type="button" data-k="back">Back</button><button type="button" data-k="home">Home</button><button type="button" data-k="recents">Recents</button>' +
+        '<button type="button" id="matchi_scr_wake">Wake</button><button type="button" data-k="power">Power</button>' +
+        '<button type="button" data-k="voldown">Vol −</button><button type="button" data-k="volup">Vol +</button></div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
+        '<select id="matchi_scr_q" style="flex:1;min-width:0;background:#080f1c;color:var(--fg);border:1px solid #24405f;border-radius:8px;padding:5px 8px;font:inherit">' +
+        '<option value="low">Low quality (fastest)</option><option value="med" selected>Medium quality</option><option value="high">High quality (slower)</option></select>' +
+        '<button type="button" id="matchi_scr_toggle">Pause</button></div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px"><input id="matchi_scr_text" placeholder="Type text to send" autocomplete="off" autocapitalize="off" spellcheck="false">' +
+        '<button type="button" id="matchi_scr_send">Send</button><button type="button" data-k="enter">⏎</button><button type="button" data-k="del">⌫</button></div>' +
+        '<p class="mut" style="font-size:11px;margin:8px 0 0">Tap = click, drag = swipe, hold half a second = long press, mouse wheel = scroll. Text: letters, digits, spaces and . _ - @ : / + , = ! ? # only.</p>',
+    });
+    showModal(MODAL);
+    const root = $(MODAL);
+    root.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => key(b.dataset.k); });
+    $('matchi_scr_wake').onclick = () => send({ type: 'wake' });
+    $('matchi_scr_toggle').onclick = () => (st.run ? stop() : start());
+    $('matchi_scr_q').value = st.quality;
+    $('matchi_scr_q').onchange = (e) => { st.quality = PRESETS[e.target.value] ? e.target.value : 'med'; };
+    const sendText = () => { const i = $('matchi_scr_text'); const v = i.value; if (!v) return; send({ type: 'text', text: v }); i.value = ''; };
+    $('matchi_scr_send').onclick = sendText;
+    $('matchi_scr_text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendText(); } });
+    wireCanvas($('matchi_scr_canvas'));
+    start();
+  }
+
+  // Do not keep capturing while the tab is hidden (it only heats the device); resume when it is visible again.
+  document.addEventListener('visibilitychange', () => {
+    const shown = !!$(MODAL) && $(MODAL).classList.contains('show');
+    if (document.hidden && st.run) { st.paused = true; stop(); }
+    else if (!document.hidden && st.paused && shown) { st.paused = false; start(); }
+  });
+
+  const host = document.querySelector('.actions-buttons');
+  if (!host) return;
+  const b = document.createElement('button');
+  b.id = BTN_ID; b.textContent = 'Screen control'; b.onclick = open;
+  host.appendChild(b);
+})();
+
+</script>
 <script>
 const COLORS={red:'#c92a2a',orange:'#e8590c',green:'#2b8a3e',blue:'#1c7ed6'};
 function createToast(msg,color,ms){
@@ -5695,7 +5978,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.35';
+const PAGE_VERSION='1.1.38';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -5704,7 +5987,8 @@ const ST_TOOLS=[
   {file:'Signal_Info.js',btn:'matchi_signal_btn'},
   {file:'Live_Status.js',btn:'liv_inline'},
   {file:'Memory_Cleaner.js',btn:'matchi_memclean_btn'},
-  {file:'Network_Debug.js',btn:'matchi_netdbg_btn'}
+  {file:'Network_Debug.js',btn:'matchi_netdbg_btn'},
+  {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
 const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
@@ -5959,6 +6243,15 @@ async function runSelfTest(onStep){
   }),30000);
 
   add(S7,'Network Debug',()=>toolCheck(ST_TOOLS[7],async()=>R.ok('opens the router\'s own Network Debug page in a frame; nothing is sent')),15000);
+
+  add(S7,'Screen Control',()=>toolCheck(ST_TOOLS[8],async()=>{
+    if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
+    const r=await stSh('echo "cap=$(command -v screencap || echo MISSING)"; echo "inp=$(command -v input || echo MISSING)"; echo "disp=$(dumpsys power 2>/dev/null | grep -m1 -o \'mWakefulness=[A-Za-z]*\')"');
+    const k=stKV(r.text);
+    const miss=[k.cap==='MISSING'&&'screencap',k.inp==='MISSING'&&'input'].filter(Boolean);
+    if(miss.length)return R.fail('missing system command: '+miss.join(', '));
+    return R.ok('screencap and input available; '+(k.disp||'display state unknown')+'; not run (it only streams while its window is open)');
+  }),30000);
 
   /* 8. Firmware inspector */
   add('8. Firmware inspector','Manifest inspection (/api/firmware/inspect)',async()=>{

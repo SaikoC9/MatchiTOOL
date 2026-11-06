@@ -4,6 +4,7 @@ import android.content.Context
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.StringReader
 import org.xmlpull.v1.XmlPullParser
@@ -305,9 +306,41 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 .put("note", "USB gadget mode is firmware-dependent. Re-read USB status after switching; reconnect the cable if Android does not re-enumerate the USB device."))
     }
 
+    /** The next JPEG frame newer than ?since= (waits up to 3.5 s; 204 = screen unchanged). Real screen size goes back in X-Screen-W / X-Screen-H. */
+    private fun screenFrame(s: IHTTPSession): Response {
+        val scale = s.parameters["scale"]?.firstOrNull()?.toIntOrNull() ?: 50
+        val quality = s.parameters["q"]?.firstOrNull()?.toIntOrNull() ?: 60
+        val since = s.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
+        return try {
+            val shot = ScreenStreamer.next(ctx, since, scale, quality, 3_500L)
+            if (shot == null) {
+                newFixedLengthResponse(Response.Status.NO_CONTENT, "text/plain", "").also { it.addHeader("Cache-Control", "no-store") }
+            } else {
+                val f = shot.frame
+                newFixedLengthResponse(Response.Status.OK, "image/jpeg", ByteArrayInputStream(f.jpeg), f.jpeg.size.toLong()).also {
+                    it.addHeader("Cache-Control", "no-store")
+                    it.addHeader("X-Screen-W", f.width.toString())
+                    it.addHeader("X-Screen-H", f.height.toString())
+                    it.addHeader("X-Frame-Seq", shot.seq.toString())
+                    it.addHeader("X-Capture-Mode", ScreenStreamer.modeName())
+                }
+            }
+        } catch (e: Exception) {
+            json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", e.message ?: "screen capture failed"))
+        }
+    }
+
+    /** Inject a tap / swipe / key / text event: {"type":"tap","x":100,"y":200}. */
+    private fun screenInput(req: JSONObject): Response {
+        val r = ScreenCapture.input(ctx, req)
+        return json(Response.Status.OK, JSONObject().put("success", r.success).put("output", r.content))
+    }
+
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.35"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.38"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
+        uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
+        uri == "/api/screen/input" && s.method == Method.POST -> screenInput(body(s))
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
         uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
