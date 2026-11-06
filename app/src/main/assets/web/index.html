@@ -221,7 +221,7 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
 
   const PRESETS = [
     ['Signal quality', 'AT+CSQ'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
-    ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'ATI'],
+    ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
   ];
 
   function log(line) {
@@ -230,6 +230,10 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
   }
   async function run(cmd) {
     cmd = (cmd || '').trim(); if (!cmd) return;
+    if (cmd.includes('|')) {   // preset made of several commands: run each, keep going when one is not supported
+      for (const c of cmd.split('|')) { log('> ' + c); try { log(await at(c) || '(no output)'); } catch (e) { log('Error: ' + e.message); } }
+      return;
+    }
     log('> ' + cmd);
     try { log(await at(cmd) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
@@ -4753,7 +4757,20 @@ rm -rf "${DEVICE_TMP_DIR}"
       }
     };
     enqueue(idx, '/');
-    while (queue.length && seen.size < 80) {
+    // The router page is a RequireJS app: the real code is the data-main module and the modules it lists, which have
+    // no .js in their names, so the plain file search above never reached them.
+    let base = '/';
+    const dm = idx.match(/data-main\s*=\s*[\"']([^\"']+)[\"']/i);
+    if (dm) { const mp = norm(dm[1].replace(/\.js$/, '') + '.js'); base = mp.replace(/[^/]*$/, ''); if (!queue.includes(mp)) queue.unshift(mp); }
+    const modules = (t) => {
+      for (const m of t.matchAll(/[\"']((?:text!|i18n!)?[A-Za-z0-9_.\/-]{2,80})[\"']/g)) {
+        let n = m[1]; if (!n.includes('/') || /\.(css|png|gif|jpg|svg)$/.test(n)) continue;
+        const text = /^(text|i18n)!/.test(n); n = n.replace(/^(text|i18n)!/, '');
+        const cand = /\.(js|html|htm|json)$/.test(n) ? n : (text ? n : n + '.js');
+        for (const c of [norm(base + cand), norm(cand)]) if (!seen.has(c) && queue.length < 160) queue.push(c);
+      }
+    };
+    while (queue.length && seen.size < 120) {
       const u = queue.shift();
       if (seen.has(u)) continue;
       seen.add(u);
@@ -4761,6 +4778,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       files.push([u, t.length]);
       all += '\n' + t;
       enqueue(t, u.replace(/[^/]*$/, ''));
+      if (!/\/lib\//.test(u)) modules(t);
     }
     // The router's page may not hold the band lock at all. MatchiTOOL runs on the router with root, so also look for the
     // firmware's own web files on the device and read the ones that mention band lock / neighbor cells.
@@ -5042,33 +5060,40 @@ rm -rf "${DEVICE_TMP_DIR}"
   // then the modem storage, then Android's own SMS store. Every step is verified against the router's list.
   const norm = (t) => String(t || '').replace(/\s+/g, '');
   const sameText = (a, b) => { a = norm(a); b = norm(b); return !!a && !!b && (a === b || (a.length > 30 && b.length > 30 && (a.startsWith(b.slice(0, 30)) || b.startsWith(a.slice(0, 30))))); };
+  let routerDeadAt = 0;
+  const routerSetDead = () => Date.now() - routerDeadAt < 600000;
+  const markRouterDead = () => { routerDeadAt = Date.now(); };
   async function apiDelete(m) {
     const id = String(m.id), notes = [];
     const gone = async () => !(await apiList()).some((x) => String(x.id) === id);
-    const attempts = [[id + ';', 0], [id, 0], [id + ';', 1], [id + ';', 2]];   // [msg_id, retry level]
+    // The router answers every \"set\" with an empty body on some firmware (seen on the F50). One try finds out; after
+    // that the router is skipped for 10 minutes, which is what made Delete take 10-15 seconds.
+    const dead = routerSetDead();
+    const attempts = dead ? [] : [[id + ';', 0]];   // [msg_id, retry level]
     for (const [mid, retry] of attempts) {
       try {
         const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' }, retry);
         const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
         notes.push((res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
+        if (!res) { markRouterDead(); break; }
         if (/fail|error/i.test(res) && !/success/i.test(res)) continue;
         if (await gone()) return;   // verified gone
       } catch (e) { if (UNREACH.test(e.message)) break; notes.push(e.message); }
     }
     const text = decodeBody(m.content);
     const find = (list) => list.find((x) => samePhone(x.number, m.number) && sameText(x.text, text));
-    // Fallback 1: the same message in the modem storage (every store, loose text match).
-    try {
-      const hit = find(await atFetch(true));
-      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in modem but the router still lists it'); }
-      else notes.push('not found in modem storage');
-    } catch (e) { notes.push('modem: ' + e.message); }
-    // Fallback 2: Android's SMS store (where the router app keeps its copy on many builds).
+    // Fallback 1 (fast, works on the F50): Android's SMS store (where the router app keeps its copy on many builds).
     try {
       const hit = find(await providerFetch());
       if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in Android SMS store but the router still lists it'); }
       else notes.push('not found in Android SMS store');
     } catch (e) { notes.push('android: ' + e.message); }
+    // Fallback 2: the same message in the modem storage (every store, loose text match).
+    try {
+      const hit = find(await atFetch(true));
+      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in modem but the router still lists it'); }
+      else notes.push('not found in modem storage');
+    } catch (e) { notes.push('modem: ' + e.message); }
     throw new Error('Could not delete the message (router said: ' + notes.join(', ') + ')');
   }
 
@@ -5144,6 +5169,50 @@ rm -rf "${DEVICE_TMP_DIR}"
         if (!sent) throw new Error('Modem did not accept the message (sendat cannot pass the Ctrl-Z that AT+CMGS needs). ' + tried.join(' | '));
       }
     } finally { try { await at('AT+CMGF=1'); } catch (_) {} }   // back to text mode for reading
+  }
+  // Sends through Android's own telephony service (ISms), the way the phone app does, as the phone / shell user. Needed
+  // because the router refuses "set" calls here and sendat cannot pass the Ctrl-Z that AT+CMGS needs. The ISms
+  // transaction numbers differ between Android versions, so a few known forms are tried until one is accepted, and the
+  // result is checked in Android's sent box (the message is stored there) so nothing is sent twice.
+  const b64 = (t) => { const u = new TextEncoder().encode(t); let b = ''; for (const c of u) b += String.fromCharCode(c); return btoa(b); };
+  async function androidSendOne(number, text) {
+    if (!/^\+?\d{3,20}$/.test(number)) throw new Error('bad number');
+    const script = [
+      'N=' + number,
+      'T=$(echo ' + b64(text) + ' | base64 -d)',
+      'SUB=$(dumpsys telephony.registry 2>/dev/null | grep -o "mSubId=[0-9]*" | head -n 1 | cut -d= -f2)',
+      '[ -z "$SUB" ] || [ "$SUB" -lt 0 ] 2>/dev/null && SUB=1',
+      'echo "sdk=$(getprop ro.build.version.sdk) sub=$SUB"',
+      'before=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l)',
+      'mk() { printf "%s" "$1" > /data/local/tmp/mt_isms.sh; chmod 755 /data/local/tmp/mt_isms.sh; }',
+      'try() { # uid pkg code withtag',
+      '  U=$1; P=$2; C=$3; G=$4',
+      '  if [ "$G" = 1 ]; then TAG=\'s16 "null"\'; else TAG=; fi',
+      '  cat > /data/local/tmp/mt_isms.sh <<EOS',
+      'T=\\$(echo ' + b64(text) + ' | base64 -d)',
+      'service call isms $C i32 $SUB s16 "$P" $TAG s16 "$N" s16 "null" s16 "\\$T" s16 "null" s16 "null" i32 1 i64 0',
+      'EOS',
+      '  chmod 755 /data/local/tmp/mt_isms.sh',
+      '  if [ "$U" = 0 ]; then R=$(sh /data/local/tmp/mt_isms.sh 2>&1); else R=$(su $U -c "sh /data/local/tmp/mt_isms.sh" 2>&1); fi',
+      '  echo "uid=$U pkg=$P code=$C tag=$G -> $(echo "$R" | head -n 1 | cut -c1-60)"',
+      '  echo "$R" | grep -q "Parcel(00000000" && return 0',
+      '  return 1',
+      '}',
+      'for G in 1 0; do for C in 7 5 8 6; do',
+      '  for UP in "1001 com.android.phone" "2000 com.android.shell" "1001 com.android.mms.service"; do',
+      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); if [ "$after" -gt "$before" ]; then echo "SENT_OK sent_box $before -> $after"; else echo "SENT_UNSURE sent_box $before -> $after"; fi; rm -f /data/local/tmp/mt_isms.sh; exit 0; }',
+      '  done',
+      'done; done',
+      'rm -f /data/local/tmp/mt_isms.sh; echo SENT_FAIL',
+    ].join('\n');
+    const out = await sh(script, 60000);
+    if (/SENT_UNSURE/.test(out)) throw new Error('Android accepted the message but it is not in the sent box, so it was NOT retried (check the recipient before sending again): ' + out.split('\n').slice(0, 6).join(' | ').slice(0, 400));
+    if (!/SENT_OK/.test(out)) throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
+  }
+  async function androidSend(num, text) {
+    const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
+    if (!nums.length || nums.some((n) => !/^\+?[0-9]{3,20}$/.test(n))) throw new Error('Enter a valid number');
+    for (const n of nums) await androidSendOne(n, text);
   }
   async function atSend(num, text) {
     const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
@@ -5223,17 +5292,22 @@ rm -rf "${DEVICE_TMP_DIR}"
     const btn = el('matchi_sms_send'); btn.disabled = true;
     try {
       let ok = false, via = '', apiErr = '';
-      if (!useAt()) {
+      if (!useAt() && !routerSetDead()) {
         try {
           const d = await zte('set', { goformId: 'SEND_SMS', notCallback: 'true', Number: num, sms_time: smsTime(), MessageBody: textToHex(text), ID: '-1', encode_type: isGsm7(text) ? 'GSM7_default' : 'UNICODE' });
           ok = !!(d && typeof d === 'object' && d.result === 'success');
-          if (!ok) apiErr = 'router said ' + (d && d.result ? d.result : 'nothing') + (lastInfo ? ' [' + lastInfo + ']' : '');
+          if (!ok) { apiErr = 'router said ' + (d && d.result ? d.result : 'nothing') + (lastInfo ? ' [' + lastInfo + ']' : ''); if (!(d && d.result)) markRouterDead(); }
         } catch (e) { apiErr = e.message; if (UNREACH.test(e.message)) markAt(); }
       }
       if (!ok) {
         // The router refused or could not be reached: send through the modem instead (AT commands, as root).
-        try { await atSend(num, text); ok = true; via = ' (via modem)'; }
-        catch (e) { throw new Error(apiErr ? 'Send failed. Router: ' + apiErr + '. Modem: ' + e.message : e.message); }
+        let aErr = '';
+        try { await androidSend(num, text); ok = true; via = ' (via Android)'; }
+        catch (e) { aErr = e.message; }
+        if (!ok) {
+          try { await atSend(num, text); ok = true; via = ' (via modem)'; }
+          catch (e) { throw new Error('Send failed. ' + (apiErr ? 'Router: ' + apiErr + '. ' : '') + 'Android: ' + aErr + '. Modem: ' + e.message); }
+        }
       }
       createToast('Message sent' + via, 'green');
       el('matchi_sms_text').value = ''; setTimeout(load, 1500);
