@@ -69,11 +69,24 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return JSONObject(b["postData"] ?: "{}")
     }
 
+    // The page is read once and answered from memory. NanoHTTPD gzips text/* itself when the browser accepts it,
+    // so it is NOT compressed here (that would be compressed twice). ETag makes a reload a 304.
+    private val pageBytes: ByteArray by lazy { ctx.assets.open("web/index.html").use { it.readBytes() } }
+    private val pageTag by lazy { "\"" + MessageDigest.getInstance("SHA-256").digest(pageBytes).take(8).joinToString("") { "%02x".format(it) } + "\"" }
+
+    private fun servePage(s: IHTTPSession): Response {
+        if (s.headers["if-none-match"] == pageTag)
+            return newFixedLengthResponse(Response.Status.NOT_MODIFIED, "text/html", "").also { it.addHeader("ETag", pageTag) }
+        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", ByteArrayInputStream(pageBytes), pageBytes.size.toLong()).also {
+            it.addHeader("ETag", pageTag)
+            it.addHeader("Cache-Control", "no-cache")
+        }
+    }
+
     override fun serve(s: IHTTPSession): Response {
         val uri = s.uri
         if (uri == "/" || uri == "/index.html") {
-            val html = ctx.assets.open("web/index.html").bufferedReader().readText()
-            return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", html)
+            return servePage(s)
         }
         if (!uri.startsWith("/api/")) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404")
 

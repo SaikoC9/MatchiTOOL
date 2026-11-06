@@ -19,23 +19,13 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
-/** Home screen: live signal, quick links and the three access & security switches. */
+/** Home screen: quick links and the three access & security switches. */
 class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var busy = false
     private var visible = false
 
     private lateinit var hostPill: StatusPill
-    private lateinit var netBadge: TextView
-    private lateinit var bars: SignalBarsView
-    private lateinit var dbm: TextView
-    private lateinit var dbmUnit: TextView
-    private lateinit var quality: TextView
-    private lateinit var operatorTv: TextView
-    private lateinit var regTv: TextView
-    private lateinit var rsrqTv: TextView
-    private lateinit var sinrTv: TextView
-    private lateinit var battTv: TextView
     private lateinit var webSub: TextView
     private lateinit var routerSub: TextView
     private lateinit var rootSub: TextView
@@ -43,7 +33,7 @@ class MainActivity : Activity() {
 
     private val tick = object : Runnable {
         override fun run() {
-            refreshLive()
+            refreshStatus()
             handler.postDelayed(this, 15000)
         }
     }
@@ -61,8 +51,7 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(20))
         }
         page.addView(buildHeader())
-        page.addView(buildLiveCard(), Ui.lp(-1, -2, 18, this))
-        page.addView(buildWebButton(), Ui.lp(-1, -2, 16, this))
+        page.addView(buildWebButton(), Ui.lp(-1, -2, 18, this))
         page.addView(buildRouterRow(), Ui.lp(-1, -2, 12, this))
         page.addView(Ui.label(this, "ACCESS & SECURITY", 11f, Ui.muted, true).apply { letterSpacing = 0.12f },
             Ui.lp(-2, -2, 24, this).apply { leftMargin = dp(4) })
@@ -119,66 +108,6 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun buildLiveCard(): View {
-        val card = Ui.cardBox(this, 18)
-
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(Ui.label(this, "LIVE SIGNAL", 11f, Ui.muted, true).apply { letterSpacing = 0.12f },
-            LinearLayout.LayoutParams(0, -2, 1f))
-        netBadge = Ui.pill(this, "", Ui.blueLight, Color.parseColor("#10264A"), Color.parseColor("#1F4F8F")).apply {
-            textSize = 11f
-            visibility = View.INVISIBLE
-        }
-        top.addView(netBadge)
-        card.addView(top)
-
-        val main = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        bars = SignalBarsView(this)
-        main.addView(bars, LinearLayout.LayoutParams(dp(56), dp(48)).apply { rightMargin = dp(16) })
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val numRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dbm = Ui.label(this, "—", 50f, Ui.green, true)
-        dbmUnit = Ui.label(this, "dBm", 18f, Ui.muted, true)
-        numRow.addView(dbm)
-        numRow.addView(dbmUnit, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(5) })
-        col.addView(numRow)
-        quality = Ui.label(this, "Reading…", 14f, Ui.muted, true)
-        col.addView(quality, Ui.lp(-2, -2, 4, this))
-        main.addView(col)
-        card.addView(main, Ui.lp(-1, -2, 14, this))
-
-        val opRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        operatorTv = Ui.label(this, "", 15f, Ui.text, true)
-        regTv = Ui.label(this, "", 14f, Ui.muted)
-        opRow.addView(operatorTv)
-        opRow.addView(regTv, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(4) })
-        card.addView(opRow, Ui.lp(-1, -2, 14, this))
-
-        val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        rsrqTv = Ui.label(this, "—", 19f, Ui.text, true)
-        sinrTv = Ui.label(this, "—", 19f, Ui.text, true)
-        battTv = Ui.label(this, "—", 19f, Ui.text, true)
-        tiles.addView(tile("RSRQ", rsrqTv, "dB"), LinearLayout.LayoutParams(0, -2, 1f))
-        tiles.addView(tile("SINR", sinrTv, "dB"), LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) })
-        tiles.addView(tile("Battery", battTv, "%"), LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(8) })
-        card.addView(tiles, Ui.lp(-1, -2, 14, this))
-        return card
-    }
-
-    private fun tile(name: String, value: TextView, unit: String): View {
-        val t = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = Ui.rounded(this@MainActivity, Ui.inner, Ui.innerStroke, 12f)
-        }
-        t.addView(Ui.label(this, name, 11f, Ui.muted, true))
-        val v = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        v.addView(value)
-        v.addView(Ui.label(this, unit, 11.5f, Ui.muted, true), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(3) })
-        t.addView(v, Ui.lp(-2, -2, 6, this))
-        return t
-    }
-
     private fun buildWebButton(): View {
         val btn = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -233,7 +162,7 @@ class MainActivity : Activity() {
         group.addView(row(R.drawable.ic_shield, Ui.ok, Color.parseColor("#0F3B2E"), "Root access", rootSub, rootBadge) {
             rootBadge.text = "Checking…"
             setBadge(rootBadge, Ui.muted)
-            refreshLive()
+            refreshStatus()
         })
         group.addView(divider())
 
@@ -283,68 +212,23 @@ class MainActivity : Activity() {
             Color.argb(110, Color.red(color), Color.green(color), Color.blue(color)), 20f)
     }
 
-    private fun refreshLive() {
+    /** Host state and root grant only (no modem / router polling). */
+    private fun refreshStatus() {
         if (busy) return
         busy = true
         Thread {
-            val s = try { LiveSignal.read(this) } catch (_: Exception) { null }
             val up = HostControl.isHostUp()
+            val root = try { RootShell.isRoot(this) } catch (_: Exception) { false }
             runOnUiThread {
                 busy = false
                 if (!visible || isFinishing) return@runOnUiThread
                 hostPill.set(if (up) "Host running" else "Host stopped", if (up) Ui.ok else Ui.bad)
-                if (s != null) bind(s)
+                rootBadge.text = if (root) "Granted" else "Not granted"
+                setBadge(rootBadge, if (root) Ui.ok else Ui.bad)
+                rootSub.text = if (root) "Tap to re-check" else "Install/allow Magisk, KernelSU or APatch"
             }
         }.start()
     }
-
-    private fun bind(s: SignalInfo) {
-        rootBadge.text = if (s.rootOk) "Granted" else "Not granted"
-        setBadge(rootBadge, if (s.rootOk) Ui.ok else Ui.bad)
-        rootSub.text = if (s.rootOk) "Tap to re-check" else "Install/allow Magisk, KernelSU or APatch"
-
-        battTv.text = s.battery?.toString() ?: "—"
-        if (!s.rootOk) {
-            bars.set(0, Ui.muted)
-            dbm.text = "—"
-            dbm.setTextColor(Ui.muted)
-            dbmUnit.visibility = View.GONE
-            quality.text = s.note
-            quality.setTextColor(Ui.warn)
-            netBadge.visibility = View.INVISIBLE
-            operatorTv.text = ""
-            regTv.text = ""
-            rsrqTv.text = "—"
-            sinrTv.text = "—"
-            return
-        }
-
-        val color = when (s.quality) {
-            "Excellent", "Good" -> Ui.green
-            "Fair" -> Ui.warn
-            "Poor" -> Ui.bad
-            else -> Ui.muted
-        }
-        bars.set(s.bars, color)
-        dbm.text = s.primary?.toString() ?: "—"
-        dbm.setTextColor(color)
-        dbmUnit.visibility = if (s.primary != null) View.VISIBLE else View.GONE
-        if (s.primary != null) {
-            quality.text = if (s.primaryLabel.isNotEmpty()) "${s.quality} · ${s.primaryLabel}" else s.quality
-            quality.setTextColor(color)
-        } else {
-            quality.text = if (s.note.isNotEmpty()) s.note else "No signal data"
-            quality.setTextColor(Ui.muted)
-        }
-        if (s.network.isNotEmpty()) { netBadge.text = s.network; netBadge.visibility = View.VISIBLE }
-        else netBadge.visibility = View.INVISIBLE
-        operatorTv.text = s.operator
-        regTv.text = if (s.operator.isNotEmpty() && s.registration.isNotEmpty()) "· ${s.registration}" else s.registration
-        rsrqTv.text = s.rsrq?.toString() ?: "—"
-        sinrTv.text = s.sinr?.toString() ?: "—"
-    }
-
-    // ---- actions ---------------------------------------------------------------------------------------
 
     private fun openAddress(address: String) {
         try {

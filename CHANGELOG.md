@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased - Lighter app home screen
+- Removed the LIVE SIGNAL card (bars, dBm, operator, RSRQ, SINR, battery) from the app home screen. The home screen now refreshes only host state and root access, so the router API is no longer polled every 15 s. The web console's Live Status and Signal Info tools are unchanged.
+- Removed the now-unused signal reader and signal-bars view, plus three unused icons.
+- The web console page is read once and cached in memory (ETag; NanoHTTPD does the gzip); heavy blur effects removed.
+
 ## 1.1.45 - Safe update import in the web console
 - **New "Update app" button** in the web console (Device overview). Choose a newer MatchiTOOL APK; the host checks it before anything is installed.
 - **Safety checks (on the device):** real ZIP/APK, max 120 MB, same package name, strictly newer versionCode (no downgrade or same-build reinstall), signed by the same key as the installed app (key-rotation lineage accepted). You see the version, size and SHA-256 and confirm in the page.

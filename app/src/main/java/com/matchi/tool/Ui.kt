@@ -182,28 +182,6 @@ class PillSwitch(c: Context) : View(c) {
     }
 }
 
-/** Five signal bars; [lit] of them are drawn in [color]. */
-class SignalBarsView(c: Context) : View(c) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    var lit = 0
-    var color = Ui.green
-    fun set(n: Int, col: Int) { lit = n.coerceIn(0, 5); color = col; invalidate() }
-
-    override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(Ui.dp(context, 56), Ui.dp(context, 48))
-
-    override fun onDraw(canvas: Canvas) {
-        val bars = 5
-        val gap = Ui.dpf(context, 3f)
-        val bw = (width - gap * (bars - 1)) / bars
-        for (i in 0 until bars) {
-            val bh = height * (0.30f + 0.70f * (i + 1) / bars)
-            val left = i * (bw + gap)
-            paint.color = if (i < lit) color else Color.parseColor("#232F47")
-            canvas.drawRoundRect(RectF(left, height - bh, left + bw, height.toFloat()), bw / 3, bw / 3, paint)
-        }
-    }
-}
-
 /** "● Host running" style status pill. */
 class StatusPill(c: Context) : LinearLayout(c) {
     private val dot = View(c)
