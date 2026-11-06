@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.28 - Diagnostics, Full diagnose, USB and Firmware as popups
+- Device diagnostics, Full diagnose, USB controls and the Firmware manifest inspector are no longer on the main page. Control Center buttons open each as a popup (Close button, click outside, or Esc). Full diagnose uses a wider popup for the report.
+- Element ids are unchanged, so every control and the diagnose itself work as before.
+
+## 1.1.27 - Root terminal and plugins as popups
+- The Root terminal and Built-in tools / custom plugins cards are no longer on the main page. Control Center has two buttons, **Root terminal** and **Built-in tools & plugins**, that open each one as a popup (close with the Close button, a click outside, or Esc).
+- The cards keep their element ids, so the tools, plugin upload and Full diagnose work as before.
+
+## 1.1.26 - Bypass window footer always visible on desktop
+- On desktop widths the Bypass window overflowed by about 50 px (the scroll area's height ignored the footer bar), so Run check / Copy report / Close sat under the window's own scrollbar. The scroll area now takes the remaining space and the footer stays pinned. Phone layout unchanged.
+
+## 1.1.25 - Device diagnostics report clarity
+- Tool list now prints `name: path` for every tool (found paths had no name before). `sendat` and `nfqws` are looked up in their real app locations instead of PATH, so they no longer show as unavailable when installed.
+- Added policy routing rules, default routes in all tables and DNS properties (the main table has no default route on this firmware, which looked like a fault).
+- Storage section explains the bind-mount mount point and shows the real /data device.
+
 ## 1.1.24 - Top menu removed
 - Removed the duplicate top navigation bar (Overview, Diagnostics, Full diagnose, USB, Firmware, Terminal, Plugins); the Control Center buttons cover it. The Host connected status stays on the right.
 

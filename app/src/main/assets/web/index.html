@@ -16,6 +16,7 @@ button{background:linear-gradient(180deg,#142a46,#102039);color:var(--fg);border
 input{background:#080f1c;color:var(--fg);border:1px solid #24405f;border-radius:9px;padding:11px 12px;font:inherit;width:100%;min-height:43px}input[type=file]{padding:8px}input::placeholder{color:#6f829e}
 .row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--bd)}.row .n{flex:1;word-break:break-word}.row strong{font-size:12px;color:var(--acc2);background:#168cff17;border:1px solid #168cff38;padding:4px 8px;border-radius:7px}
 pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;color:#b5c9e4;font:12px/1.65 ui-monospace,monospace}
+.card.pop{display:none}.card.pop.open{display:block;position:fixed;z-index:950;left:50%;top:50%;transform:translate(-50%,-50%);grid-column:auto;width:min(680px,calc(100vw - 24px));max-height:86vh;overflow:auto;box-shadow:0 20px 60px #000c}#selftest.pop.open{width:min(900px,calc(100vw - 24px))}#popbg{display:none;position:fixed;inset:0;z-index:940;background:#02060ed1;backdrop-filter:blur(6px)}#popbg.show{display:block}.popx{float:right;min-height:0;padding:4px 12px}
 .modal-bg{position:fixed;inset:0;background:#02060ed1;display:none;align-items:center;justify-content:center;z-index:1000;padding:12px;backdrop-filter:blur(6px)}.modal-bg.show{display:flex}.modal{background:var(--panel);color:var(--fg);border:1px solid var(--bd);border-radius:16px;width:100%;overflow:auto;max-height:92vh;padding:18px;box-shadow:var(--shadow)}.modal h3{margin:0 0 12px}
 #toasts{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2000;display:flex;flex-direction:column;gap:8px;width:min(92vw,560px)}.toast{padding:11px 15px;border:1px solid #ffffff26;border-radius:11px;color:#fff;background:#126e50;box-shadow:var(--shadow)}
 #login{max-width:520px;margin:8vh auto}.empty-state{padding:14px;border:1px dashed var(--bd);border-radius:11px;color:var(--mut);font-size:14px}footer{max-width:1180px;margin:0 auto;padding:0 20px 28px;text-align:center;color:#647b9a;font-size:12px;letter-spacing:.08em}footer strong{color:var(--acc2)}
@@ -36,23 +37,23 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
     <div class="mut" style="margin-bottom:8px">CONTROL CENTER</div>
     <h2 style="margin:2px 0 4px;font-size:22px">Device overview</h2>
     <p class="mut">Manage device diagnostics, USB connectivity, firmware metadata, root access and installed extensions.</p>
-    <div class="actions-buttons"><button onclick="document.getElementById('diagnostics').scrollIntoView({behavior:'smooth'})">Open diagnostics</button><button onclick="document.getElementById('selftest').scrollIntoView({behavior:'smooth'})">Full diagnose</button><button onclick="document.getElementById('pluginmgr').scrollIntoView({behavior:'smooth'})">Manage plugins</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Built-in tools &amp; plugins</button></div>
   </div>
-  <div class="card" id="diagnostics" style="display:none">
-    <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
+  <div class="card pop" id="diagnostics">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Device diagnostics</div>
     <p class="mut">Read-only checks for root, Android build, network, storage and available tools.</p>
     <button id="diagbtn">Run diagnostics</button>
     <pre id="diagout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
   </div>
-  <div class="card" id="selftest" style="display:none">
-    <div class="mut" style="margin-bottom:8px">Full diagnose</div>
+  <div class="card pop" id="selftest">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Full diagnose</div>
     <p class="mut">Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the six built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.</p>
     <div class="btnrow"><button id="stbtn">Run full diagnose</button><button id="stcopy" disabled>Copy report</button><button id="stdl" disabled>Download .txt</button></div>
     <p id="stsum" class="mut" style="margin:10px 0 0"></p>
     <pre id="stout" style="display:none;max-height:520px"></pre>
   </div>
-  <div class="card" id="usbtools" style="display:none">
-    <div class="mut" style="margin-bottom:8px">USB controls</div>
+  <div class="card pop" id="usbtools">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">USB controls</div>
     <p class="mut">Manage Android USB debugging and USB tethering. These actions require granted root access and support varies by device and ROM.</p>
     <div class="row"><span class="n">USB debugging</span><strong id="adbstate">Unknown</strong></div>
     <div class="actions-buttons"><button id="adbon">Enable debugging</button><button id="adboff">Disable debugging</button></div>
@@ -61,20 +62,20 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
     <p class="mut">Choose RNDIS or CDC-ECM for USB Ethernet. MatchiTOOL keeps ADB in the USB function when debugging is enabled. Restore default returns to the firmware's saved USB configuration.</p>
     <pre id="usbout" style="display:none;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
   </div>
-  <div class="card" id="firmware" style="display:none">
-    <div class="mut" style="margin-bottom:8px">Firmware manifest inspector</div>
+  <div class="card pop" id="firmware">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Firmware manifest inspector</div>
     <p class="mut">Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.</p>
     <input id="fwfile" type="file" accept=".xml,.txt,.scatter,.cfg">
     <p><button id="fwinspect">Inspect manifest</button></p>
     <pre id="fwout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
   </div>
-  <div class="card" id="terminal" style="display:none">
-    <div class="mut" style="margin-bottom:8px">Root terminal</div>
+  <div class="card pop" id="terminal">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Root terminal</div>
     <input id="cmd" placeholder="Command, press Enter to run" autocomplete="off" autocapitalize="off" spellcheck="false">
     <pre id="out" style="display:none"></pre>
   </div>
-  <div class="card" id="pluginmgr" style="display:none">
-    <div class="mut" style="margin-bottom:8px">Built-in tools</div>
+  <div class="card pop" id="pluginmgr">
+    <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Built-in tools</div>
     <div id="builtinlist"></div>
     <div class="mut" style="margin:14px 0 8px">Custom plugins <span>(changes apply after reload)</span></div>
     <div id="pluglist"></div>
@@ -82,6 +83,7 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
   </div>
 </main>
 
+<div id="popbg" onclick="closePop()"></div>
 <div id="toasts"></div>
 <script type="text/plain" class="webtool" data-name="AT_Radio.js">
 /*
@@ -3043,6 +3045,11 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       }
       @media (min-width:701px){
         #${MODAL_NAME} .bp-wrap{height:calc(80vh - 76px - var(--bp-bar,48px));height:calc(80svh - 76px - var(--bp-bar,48px));min-height:240px;max-height:none;padding-bottom:16px}
+        /* desktop: the scroll area takes the space that is left, so the footer buttons (Run check / Copy report / Close) always stay visible */
+        #${MODAL_NAME} .modal{display:flex;flex-direction:column}
+        #${MODAL_NAME} .modal>h3,#${MODAL_NAME} .bp-tabs,#${MODAL_NAME} .bp-bar{flex:0 0 auto}
+        #${MODAL_NAME} .mbody{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+        #${MODAL_NAME} .bp-wrap{height:auto !important;flex:1 1 auto;min-height:120px;max-height:none !important}
       }
       #${MODAL_NAME} .bp-grid .bp-stat{min-height:2.5em;padding:4px 9px}
       #${MODAL_NAME} .bp-tabs{position:static;margin-bottom:8px}
@@ -4235,7 +4242,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.24';
+const PAGE_VERSION='1.1.28';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -4779,6 +4786,9 @@ document.getElementById('stdl').onclick=()=>{
   document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
 };
 
+function openPop(id){const c=document.getElementById(id);if(!c)return;closePop();c.classList.add('open');document.getElementById('popbg').classList.add('show');if(id==='terminal')setTimeout(()=>{const i=document.getElementById('cmd');if(i)i.focus()},50)}
+function closePop(){document.querySelectorAll('.card.pop.open').forEach(c=>c.classList.remove('open'));const b=document.getElementById('popbg');if(b)b.classList.remove('show')}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePop()});
 async function start(){
   const login=document.getElementById('login');
   login.style.display='none';
@@ -4788,7 +4798,7 @@ async function start(){
     document.getElementById('tokerr').textContent=e.message;
     return;
   }
-  for(const id of ['home','terminal','pluginmgr','diagnostics','selftest','usbtools','firmware'])document.getElementById(id).style.display='block';
+  for(const id of ['home'])document.getElementById(id).style.display='block';
   try{loadBuiltin()}catch(e){createToast('Built-in tools: '+e.message,'red',6000)}
   try{await loadPlugins()}catch(e){createToast('Plugin manager: '+e.message,'red',6000)}
   refreshUsb();

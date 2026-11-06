@@ -121,11 +121,16 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             echo '--- kernel ---'; uname -a
             echo '--- architecture ---'; getprop ro.product.cpu.abi; getprop ro.product.cpu.abilist
             echo '--- network ---'; ip -brief address 2>/dev/null || ip addr 2>/dev/null | head -80
-            echo '--- routes ---'; ip route 2>/dev/null; ip -6 route 2>/dev/null
+            echo '--- routes (main table) ---'; ip route 2>/dev/null; ip -6 route 2>/dev/null
+            echo '--- policy routing rules ---'; ip rule 2>/dev/null | head -30
+            echo '--- default routes in all tables ---'; ip route show table all 2>/dev/null | grep '^default' | head -10; echo '(empty = no default route in any table)'
+            echo '--- dns ---'; getprop 2>/dev/null | grep -iE 'dns[0-9]' | head -8
             echo '--- tool availability ---'
-            for x in sendat busybox ip nft iptables ip6tables tc bpftool nfqws; do command -v "${'$'}x" 2>/dev/null || echo "${'$'}x: unavailable"; done
+            for x in busybox ip nft iptables ip6tables tc bpftool; do p=$(command -v "${'$'}x" 2>/dev/null); echo "${'$'}x: ${'$'}{p:-unavailable}"; done
+            [ -x "${ctx.filesDir.absolutePath}/sendat" ] && echo "sendat: ${ctx.filesDir.absolutePath}/sendat" || echo "sendat: unavailable"
+            [ -x /data/local/matchitool/dpi/nfqws ] && echo "nfqws: /data/local/matchitool/dpi/nfqws" || echo "nfqws: not installed (optional)"
             echo '--- root capabilities ---'; [ "$(id -u)" = 0 ] && echo 'UID 0 confirmed' || echo 'root unavailable'
-            echo '--- storage ---'; df -h /data 2>/dev/null
+            echo '--- storage ---'; df -h /data 2>/dev/null; echo '(the mount point shown can be a bind mount such as Android/obb; it is the same /data partition)'; grep ' /data ' /proc/mounts | head -1 | cut -d' ' -f1-3
         """.trimIndent()
         val r = RootShell.run(ctx, script, 30_000)
         return json(Response.Status.OK, JSONObject().put("success", r.success).put("report", r.content).put("generatedAt", System.currentTimeMillis()))
@@ -265,7 +270,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.24"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.28"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
