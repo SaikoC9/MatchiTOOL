@@ -47,6 +47,13 @@ class HostService : Service() {
             )
             android.util.Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
         }.start()
+        // Put the user's chosen IMEI back if the firmware restored the factory one during boot (waits for the modem).
+        Thread {
+            try {
+                val r = ImeiGuard.apply(this, 40, false)
+                android.util.Log.i("MatchiTOOL", "IMEI keeper: ${r.take(600)}")
+            } catch (e: Exception) { android.util.Log.w("MatchiTOOL", "IMEI keeper failed: ${e.message}") }
+        }.apply { isDaemon = true; start() }
     }
 
     override fun onDestroy() { server?.stop(); server = null }

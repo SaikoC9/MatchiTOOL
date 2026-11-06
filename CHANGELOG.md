@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.34 - IMEI survives reboot, SMS send/delete fixes, Close buttons bottom-right
+- **IMEI kept after reboot.** The firmware can put the factory IMEI back at boot, so `AT+SPIMEI` alone did not last. Change IMEI / Restore first-seen now also save the chosen IMEI on the router (`/data/local/matchitool/imei_target.txt`). At every boot the app waits for the modem and, if it reports a different IMEI, writes the saved one again (max 3 tries per slot, then restarts the modem). New **Apply saved IMEI now** button runs the same keeper on demand and the AT & Radio window shows what is kept.
+- **Close buttons** are now at the bottom right of every window (Device diagnostics, Full diagnose, USB controls, Firmware inspector, Root terminal, Built-in tools and all tool popups) and stay visible while the content scrolls.
+- **Network debug detection** found nothing (`goformIds: (none)`, `lteSet:false`) because the router's index page and its scripts do not contain the band-lock commands. Detect now follows html / json / template files too (up to 80), accepts more goformId spellings, and when the page has no band-lock text it searches the router's own web files on the device as root and reads the ones that mention band lock or neighbor cells. The report lists every file read and every goformId on the page.
+- **SMS send (router):** requests now look like the router's own page (browser User-Agent / Accept headers, field order isTest first and AD last, `GSM7_default` for plain GSM text, `UNICODE` otherwise).
+- **SMS send (modem):** more Ctrl-Z forms are tried and the error lists the reply of every form, so the exact sendat answer can be seen.
+- **SMS delete (Android store):** when plain root is refused, delete is retried as the phone (1001) and system (1000) users and directly in the telephony database (if sqlite3 exists), each verified.
+
 ## 1.1.33 - SMS delete / send failures (empty router reply, modem "Unsupported escape sequence")
 - **Delete:** when the router answers a delete with an empty body, the host now retries with a fresh router login, then with the upper-case form of the AD token, and checks the message list after each try. If the router still refuses, the message is looked up in every modem storage (loose text match, so long or re-wrapped texts are found) and then in Android's SMS store, and deleted there. Success is only reported when the message is really gone from the router's list.
 - **Send via modem:** sendat rejected the command built with real CR / Ctrl-Z bytes (`500 Unsupported escape sequence`). The terminator is now also passed as `\x1a` / `\u001a` escapes that sendat decodes itself; the next form is only tried when sendat rejected the command text, so a message is never sent twice.

@@ -306,7 +306,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.33"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.34"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
@@ -319,6 +319,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
             val r = RootShell.run(ctx, command, t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
+        }
+        // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
+        uri == "/api/imei/apply" && s.method == Method.POST -> {
+            val req = body(s)
+            json(Response.Status.OK, JSONObject().put("result", ImeiGuard.apply(ctx, 0, req.optBoolean("force", true))))
         }
         // Run an AT command on the modem as root: {"command":"AT+CSQ","slot":0}
         uri == "/api/at" && s.method == Method.POST -> {

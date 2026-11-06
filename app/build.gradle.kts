@@ -9,8 +9,8 @@ android {
         applicationId = "com.matchi.tool"
         minSdk = 26
         targetSdk = 28   // old target: keeps legacy /sdcard + exec behaviour working on router firmware
-        versionCode = 143
-        versionName = "1.1.33"
+        versionCode = 144
+        versionName = "1.1.34"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

@@ -75,6 +75,10 @@ object ZteClient {
             c.setRequestProperty("Referer", "http://$host/index.html")
             c.setRequestProperty("Origin", "http://$host")
             c.setRequestProperty("X-Requested-With", "XMLHttpRequest")
+            // The firmware's own web page sends these; some ZTE builds ignore requests that do not look like a browser.
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
+            c.setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01")
+            c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             if (cookie.isNotEmpty()) c.setRequestProperty("Cookie", cookie)
             if (method == "POST") {
                 c.doOutput = true
@@ -199,8 +203,9 @@ object ZteClient {
     private fun send(ctx: Context, op: String, params: Map<String, String>, upper: Boolean = false): Resp =
         if (op == "get") http(ctx, "GET", GET_PATH, params + ("isTest" to "false"))
         else {
-            val p = LinkedHashMap(params)
-            p["isTest"] = "false"
+            val p = LinkedHashMap<String, String>()
+            p["isTest"] = "false"          // same field order as the router's own page: isTest, goformId, ..., AD
+            p.putAll(params.filterKeys { it != "isTest" })
             val ad = adToken(ctx, upper)
             ad?.let { p["AD"] = it }
             val r = http(ctx, "POST", SET_PATH, p)
