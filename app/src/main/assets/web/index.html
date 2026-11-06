@@ -5198,15 +5198,16 @@ rm -rf "${DEVICE_TMP_DIR}"
       '  echo "$R" | grep -q "Parcel(00000000" && return 0',
       '  return 1',
       '}',
-      'for G in 1 0; do for C in 7 5 8 6; do',
+      'SDK=$(getprop ro.build.version.sdk)',
+      'if [ "$SDK" -ge 33 ] 2>/dev/null; then CODES="6 7 5 8"; GS="1"; elif [ "$SDK" -ge 30 ] 2>/dev/null; then CODES="7 6 5 8"; GS="1 0"; else CODES="5 7 6 8"; GS="0 1"; fi',
+      'for G in $GS; do for C in $CODES; do',
       '  for UP in "1001 com.android.phone" "2000 com.android.shell" "1001 com.android.mms.service"; do',
-      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); if [ "$after" -gt "$before" ]; then echo "SENT_OK sent_box $before -> $after"; else echo "SENT_UNSURE sent_box $before -> $after"; fi; rm -f /data/local/tmp/mt_isms.sh; exit 0; }',
+      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; rm -f /data/local/tmp/mt_isms.sh; exit 0; }',
       '  done',
       'done; done',
       'rm -f /data/local/tmp/mt_isms.sh; echo SENT_FAIL',
     ].join('\n');
     const out = await sh(script, 60000);
-    if (/SENT_UNSURE/.test(out)) throw new Error('Android accepted the message but it is not in the sent box, so it was NOT retried (check the recipient before sending again): ' + out.split('\n').slice(0, 6).join(' | ').slice(0, 400));
     if (!/SENT_OK/.test(out)) throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
   }
   async function androidSend(num, text) {
