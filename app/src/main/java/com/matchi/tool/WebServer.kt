@@ -20,7 +20,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     private val MAX_FAILS = 8
     private val LOCK_MS = 60_000L
 
-    init { seedPlugins() }
+    init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
     /**
      * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The six tools
@@ -336,14 +336,44 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return json(Response.Status.OK, JSONObject().put("success", r.success).put("output", r.content))
     }
 
+    /** Multipart upload (field "apk"): saved to a temp file by NanoHTTPD, then size-capped, parsed and verified by ApkUpdater. */
+    private fun updateStage(s: IHTTPSession): Response {
+        val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
+        if (len < 0 || len > ApkUpdater.MAX_BYTES + 1_000_000L)
+            throw IllegalArgumentException("Upload must be at most ${ApkUpdater.MAX_BYTES / 1024 / 1024} MB")
+        val files = HashMap<String, String>()
+        s.parseBody(files)
+        val tmp = files["apk"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"apk\")")
+        val staged = try { ApkUpdater.stageFile(ctx, tmp) } finally { try { tmp.delete() } catch (_: Exception) {} }
+        return json(Response.Status.OK, JSONObject().put("ok", true)
+            .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
+            .put("newName", staged.newName).put("newCode", staged.newCode)
+            .put("size", staged.size).put("sha256", staged.sha256))
+    }
+
+    private fun updateInstall(req: JSONObject): Response {
+        ApkUpdater.installStaged(ctx, req.optString("sha256"))
+        return json(Response.Status.OK, JSONObject().put("ok", true).put("note", "Installing. The host restarts in a few seconds; reload the page when it comes back."))
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateStatus(s: IHTTPSession): Response {
+        val ver = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        return json(Response.Status.OK, JSONObject().put("version", ver.versionName ?: "").put("code", ver.versionCode)
+            .also { if (s.parameters["log"]?.firstOrNull() == "1") it.put("log", ApkUpdater.lastLog(ctx)) })
+    }
+
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.44"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.45"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
         uri == "/api/screen/input" && s.method == Method.POST -> screenInput(body(s))
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
         uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
+        uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
+        uri == "/api/update/install" && s.method == Method.POST -> updateInstall(body(s))
+        uri == "/api/update/status" && s.method == Method.GET -> updateStatus(s)
         uri == "/api/shell" && s.method == Method.POST -> {
             val req = body(s)
             val command = req.optString("cmd")

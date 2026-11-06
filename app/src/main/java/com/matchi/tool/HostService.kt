@@ -35,6 +35,16 @@ class HostService : Service() {
             try { Thread.sleep(4000) } catch (_: InterruptedException) { return@Thread }
             try { ZteClient.autoDetect(applicationContext) } catch (_: Exception) { }
         }.apply { isDaemon = true; start() }
+        // LAN mode: make sure clients connected to the ZTE hotspot can reach the console. The hotspot may come up late
+        // after boot and the firmware can rebuild its firewall, so the (idempotent) rule is re-checked a few times.
+        if (Prefs.lanAccess(this)) {
+            Thread {
+                for (wait in longArrayOf(3_000, 30_000, 90_000)) {
+                    try { Thread.sleep(wait) } catch (_: InterruptedException) { return@Thread }
+                    try { HostControl.openLanFirewall(applicationContext) } catch (_: Exception) {}
+                }
+            }.apply { isDaemon = true; start() }
+        }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
         return START_STICKY
     }

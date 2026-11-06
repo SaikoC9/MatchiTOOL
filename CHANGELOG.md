@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.45 - Safe update import in the web console
+- **New "Update app" button** in the web console (Device overview). Choose a newer MatchiTOOL APK; the host checks it before anything is installed.
+- **Safety checks (on the device):** real ZIP/APK, max 120 MB, same package name, strictly newer versionCode (no downgrade or same-build reinstall), signed by the same key as the installed app (key-rotation lineage accepted). You see the version, size and SHA-256 and confirm in the page.
+- **Tamper guard:** the upload is staged in the app's private cache; the install request must quote the exact SHA-256 that was shown, must come within 10 minutes, and the staged file is re-hashed and re-verified right before install. Only one file is staged at a time.
+- Installed with `pm install -r` through the root manager (never `-d`), so Android checks the signature again. The page waits for the new version to answer; the installer output is in `/data/local/tmp/matchi_update.log` and shown if the update stalls.
+- **Light on the router:** the upload is moved into place instead of copied again, read once for the hash and parsed once for the signature, runs at background priority, and the root installer runs at low priority (`nice`). While waiting, the page asks only for the version every 4 s (no root command); the installer log is fetched only after 45 s.
+- **Cleans up after itself:** the staged APK is deleted as soon as the install ends; after a successful update the installer log and old root temp files are removed too (on failure the log stays so you can see why). Stale upload files are also cleared whenever the host starts. Settings, token, plugins and saved IMEI data are never touched.
+- **LAN by default:** the web console now listens on the LAN from the first start (no switch needed). Only private/local source addresses (192.168.x, 10.x, 172.16-31.x, link-local, loopback) are accepted; public addresses are refused. The LAN switch stays, so local-only can still be chosen. If you had set it before, your saved choice is kept.
+- **Reachable from devices on the ZTE:** in LAN mode the host adds (once, best effort, needs root) an INPUT firewall accept rule for port 2334 on the hotspot/USB interfaces only (br0, usb0, rndis0, ecm0; never mobile data) at start and again 30 s and 90 s later, in case the firmware rebuilds its firewall. Open `http://192.168.0.1:2334` (the router address shown in the app) from a phone or PC on the ZTE Wi-Fi.
+- New routes (all need the session token, like every other API): `POST /api/update/stage`, `POST /api/update/install`, `GET /api/update/status`.
+
 ## 1.1.44 - Screen control fills the phone screen
 - **No more scrolling to reach the buttons.** The Screen control window now takes the whole visible height (phone or PC), the picture takes all the space between the title and the buttons, and the buttons and quality row stay in view at the bottom with Close.
 - **Bigger and centred.** The picture is scaled to the biggest size that fits with the screen's own proportions, centred in the window. It refits by itself when the phone is turned, the browser bars appear or hide, or the keyboard opens. Taps and swipes still land on the right spot.

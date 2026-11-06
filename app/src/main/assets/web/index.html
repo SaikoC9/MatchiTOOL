@@ -88,7 +88,7 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><div class="mut">CONTROL CENTER</div><button type="button" id="rebootbtn" style="color:#e03131;padding:4px 12px">Reboot</button></div>
     <h2 style="margin:2px 0 4px;font-size:22px">Device overview</h2>
     <p class="mut">Manage device diagnostics, USB connectivity, firmware metadata, root access and installed extensions.</p>
-    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Built-in tools &amp; plugins</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('appupdate')">Update app</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Built-in tools &amp; plugins</button></div>
   </div>
   <div class="card pop" id="diagnostics">
     <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
@@ -122,6 +122,14 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     <input id="fwfile" type="file" accept=".xml,.txt,.scatter,.cfg">
     <p><button id="fwinspect">Inspect manifest</button></p>
     <pre id="fwout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
+    <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
+  </div>
+  <div class="card pop" id="appupdate">
+    <div class="mut" style="margin-bottom:8px">Update MatchiTOOL</div>
+    <p class="mut">Import a newer MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself, a newer version (no downgrade), and signed with the same key as the installed app. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
+    <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
+    <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
+    <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="terminal">
@@ -6095,7 +6103,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.44';
+const PAGE_VERSION='1.1.45';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -6107,7 +6115,7 @@ const ST_TOOLS=[
   {file:'Network_Debug.js',btn:'matchi_netdbg_btn'},
   {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
-const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
+const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
 const ST_ERRS=[];window.addEventListener('error',e=>ST_ERRS.push(String(e.message||'error').slice(0,120)));window.addEventListener('unhandledrejection',e=>ST_ERRS.push('promise: '+String(e.reason&&e.reason.message||e.reason).slice(0,120)));
 const stSleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -6709,6 +6717,41 @@ document.getElementById('fwinspect').onclick=async()=>{
   if(f.size>2*1024*1024){out.textContent='File exceeds the 2 MB inspection limit';return}
   out.textContent='Inspecting manifest…';
   try{const r=await api('/api/firmware/inspect',{method:'POST',body:JSON.stringify({name:f.name,content:await f.text()})});out.textContent=JSON.stringify(r,null,2)}catch(e){out.textContent='Inspection failed: '+e.message}
+};
+document.getElementById('updcheck').onclick=async()=>{
+  const f=document.getElementById('updfile').files[0],out=document.getElementById('updout'),inst=document.getElementById('updinstall');
+  out.style.display='block';inst.style.display='none';inst.dataset.sha='';
+  if(!f){out.textContent='Choose an APK file first';return}
+  if(f.size>120*1024*1024){out.textContent='File is larger than 120 MB, so it is not a MatchiTOOL update';return}
+  out.textContent='Uploading and checking '+f.name+'…';
+  try{
+    const fd=new FormData();fd.append('apk',f,'update.apk');
+    const resp=await fetch('/api/update/stage',{method:'POST',headers:{'x-token':TOKEN},body:fd});
+    const raw=await resp.text();let r={};try{r=JSON.parse(raw)}catch(_){r={error:raw}}
+    if(!resp.ok)throw new Error(r.error||('Request failed ('+resp.status+')'));
+    out.textContent='Update file accepted\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n✓ Same app, newer version\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press Install update (valid for 10 minutes).';
+    inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.style.display='inline-block';
+  }catch(e){out.textContent='Update rejected: '+e.message}
+};
+document.getElementById('updinstall').onclick=async()=>{
+  const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha;
+  if(!sha)return;
+  if(!(await askConfirm('Install MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.','Install',true)))return;
+  inst.style.display='none';
+  out.textContent='Starting the installer…';
+  try{
+    await api('/api/update/install',{method:'POST',body:JSON.stringify({sha256:sha})});
+    out.textContent='Installing… the host restarts in a few seconds. Waiting for the new version…';
+    const want=inst.dataset.ver,t0=Date.now();
+    while(Date.now()-t0<120000){
+      await new Promise(r=>setTimeout(r,4000));
+      try{const st=await api('/api/update/status'+(Date.now()-t0>45000?'?log=1':''));
+        if(st.version===want){out.textContent='MatchiTOOL updated to '+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';createToast('MatchiTOOL updated to '+want,'green',8000);return}
+        if(Date.now()-t0>45000&&st.log)out.textContent='Still version '+st.version+'. Installer output:\n'+st.log;
+      }catch(_){/* host is restarting */}
+    }
+    out.textContent+='\n\nTimed out waiting for version '+want+'. Check the app on the device, or run in the Root terminal: cat /data/local/tmp/matchi_update.log';
+  }catch(e){out.textContent='Install failed: '+e.message}
 };
 document.getElementById('tokbtn').onclick=async()=>{
   const pw=document.getElementById('tok').value;
