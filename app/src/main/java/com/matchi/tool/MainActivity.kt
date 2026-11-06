@@ -249,7 +249,7 @@ class MainActivity : Activity() {
         group.addView(divider())
 
         pwSub = Ui.label(this, "", 12.5f, Ui.muted)
-        group.addView(row(R.drawable.ic_key, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "Web admin password", pwSub,
+        group.addView(row(R.drawable.ic_key, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "Router password", pwSub,
             Ui.icon(this, R.drawable.ic_chevron_right, Ui.muted, 22)) {
             startActivity(Intent(this, AccessSecurityActivity::class.java))
         })

@@ -134,12 +134,12 @@ class AccessSecurityActivity : Activity() {
     private fun buildPasswordCard(): View {
         val card = Ui.cardBox(this, 18)
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        head.addView(Ui.label(this, "Web admin password", 15f, Ui.text, true), LinearLayout.LayoutParams(0, -2, 1f))
+        head.addView(Ui.label(this, "Router password", 15f, Ui.text, true), LinearLayout.LayoutParams(0, -2, 1f))
         pwBadge = Ui.pill(this, "Set", Ui.ok, Color.parseColor("#0F3B2E"), Color.parseColor("#1F7A57"))
         head.addView(pwBadge)
         card.addView(head)
 
-        pwInput = input("New password (6+ characters)", true)
+        pwInput = input("192.168.0.1 admin password", true)
         card.addView(pwInput, Ui.lp(-1, -2, 12, this))
 
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -148,7 +148,7 @@ class AccessSecurityActivity : Activity() {
         buttons.addView(save, LinearLayout.LayoutParams(0, -2, 1.7f))
         buttons.addView(removeBtn, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(10) })
         card.addView(buttons, Ui.lp(-1, -2, 12, this))
-        card.addView(caption("Saving signs out existing web sessions."), Ui.lp(-1, -2, 10, this))
+        card.addView(caption("Same password as the router page. It signs you in to the web console and is used by the SMS and signal tools. Saving signs out existing web sessions."), Ui.lp(-1, -2, 10, this))
 
         save.setOnClickListener { savePassword() }
         pwInput.setOnEditorActionListener { _, action, _ ->
@@ -160,13 +160,14 @@ class AccessSecurityActivity : Activity() {
 
     private fun savePassword() {
         val pw = pwInput.text.toString()
-        if (pw.length < 6) {
-            Toast.makeText(this, "Use at least 6 characters", Toast.LENGTH_LONG).show()
+        if (pw.isEmpty()) {
+            Toast.makeText(this, "Enter the router's admin password", Toast.LENGTH_LONG).show()
             return
         }
         hideKeyboard()
         Thread {
             Prefs.setAdminPassword(this, pw)
+            ZteClient.reset()
             runOnUiThread {
                 pwInput.setText("")
                 refresh()
@@ -181,10 +182,11 @@ class AccessSecurityActivity : Activity() {
             return
         }
         AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Remove web admin password?")
-            .setMessage("The web console will sign in with the access token again. Existing web sessions are signed out.")
+            .setTitle("Remove router password?")
+            .setMessage("The web console will sign in with the access token again, and the SMS/signal tools lose router login. Existing web sessions are signed out.")
             .setPositiveButton("Remove") { _, _ ->
                 Prefs.clearAdminPassword(this)
+                ZteClient.reset()
                 refresh()
                 Toast.makeText(this, "Password removed - token login is active", Toast.LENGTH_LONG).show()
             }
@@ -252,7 +254,7 @@ class AccessSecurityActivity : Activity() {
         row.addView(copy, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
         row.addView(reset, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
         card.addView(row, Ui.lp(-1, -2, 12, this))
-        card.addView(caption("Used to sign in to the web console until a password is set."), Ui.lp(-1, -2, 10, this))
+        card.addView(caption("Used to sign in to the web console until a router password is saved."), Ui.lp(-1, -2, 10, this))
 
         copy.setOnClickListener {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

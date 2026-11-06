@@ -22,6 +22,9 @@ object ZteClient {
     private var cookie = ""
     private var lastLoginFail = 0L
 
+    /** Forget the cached router session so a newly saved password is used immediately. */
+    fun reset() = synchronized(lock) { cookie = ""; lastLoginFail = 0L }
+
     private class Resp(val code: Int, val body: String)
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

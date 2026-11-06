@@ -37,25 +37,19 @@ object Prefs {
     // Secure default: listen only on loopback. LAN access must be explicitly enabled by the user.
     fun lanAccess(c: Context): Boolean = sp(c).getBoolean("lan_access", false)
     fun setLanAccess(c: Context, enabled: Boolean) { sp(c).edit().putBoolean("lan_access", enabled).apply() }
-    // Web admin password (replaces typing the random token). Stored only as a salted PBKDF2 hash.
-    // Until one is set, the web login still accepts the access token.
-    private const val PW_ITER = 60_000
-    private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
-    private fun unhex(s: String) = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    private fun pbkdf2(pw: String, salt: ByteArray): ByteArray =
-        SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(PBEKeySpec(pw.toCharArray(), salt, PW_ITER, 256)).encoded
-    fun hasAdminPassword(c: Context): Boolean = sp(c).contains("admin_hash")
+    // Web console password = the router's own admin password (the one for 192.168.0.1). One password is stored
+    // and used both to sign in to the web console and by the SMS / signal tools to log in to the router.
+    // Until one is saved, the web login still accepts the access token.
+    fun hasAdminPassword(c: Context): Boolean = ztePass(c).isNotEmpty()
     fun setAdminPassword(c: Context, pw: String) {
-        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        sp(c).edit().putString("admin_salt", hex(salt)).putString("admin_hash", hex(pbkdf2(pw, salt))).apply()
+        setZtePass(c, pw)
+        sp(c).edit().remove("admin_salt").remove("admin_hash").apply()   // old separate web password, no longer used
         resetToken(c)   // signs out existing web sessions
     }
-    fun clearAdminPassword(c: Context) { sp(c).edit().remove("admin_salt").remove("admin_hash").apply(); resetToken(c) }
+    fun clearAdminPassword(c: Context) { setZtePass(c, ""); sp(c).edit().remove("admin_salt").remove("admin_hash").apply(); resetToken(c) }
     fun checkAdminPassword(c: Context, pw: String): Boolean {
-        val s = sp(c)
-        val salt = s.getString("admin_salt", null) ?: return false
-        val h = s.getString("admin_hash", null) ?: return false
-        return MessageDigest.isEqual(hex(pbkdf2(pw, unhex(salt))).toByteArray(), h.toByteArray())
+        val saved = ztePass(c)
+        return saved.isNotEmpty() && MessageDigest.isEqual(saved.toByteArray(Charsets.UTF_8), pw.toByteArray(Charsets.UTF_8))
     }
     const val PORT = 2334
 }
