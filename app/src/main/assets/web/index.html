@@ -4233,7 +4233,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.19';
+const PAGE_VERSION='1.1.20';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -4502,11 +4502,12 @@ async function runSelfTest(onStep){
     const r=await stSh(['IF=$(ip route get 8.8.8.8 2>/dev/null | grep -o "dev [^ ]*" | head -1 | cut -d" " -f2)','echo "uplink=${IF:-none}"',
       'if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 || ping -c 1 -w 4 8.8.8.8 >/dev/null 2>&1; then echo "plain=ok"; else echo "plain=fail"; fi',
       'if [ -n "$IF" ]; then if ping -I "$IF" -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then echo "viaif=ok"; else echo "viaif=fail"; fi; else echo "viaif=n/a"; fi',
-      'echo "default_routes=$(ip route show table all 2>/dev/null | grep -c ^default)"'].join('\n'),25000);
+      'echo "default_routes=$(ip route show table all 2>/dev/null | grep -c ^default)"','if [ -n "$IF" ]; then S=/sys/class/net/$IF; A=$(cat $S/statistics/rx_bytes); sleep 2; B=$(cat $S/statistics/rx_bytes); echo "rxd=$((B-A))"; U=$(ip -4 -o addr show $IF | sed "s/.*inet \\([0-9.]*\\).*/\\1/"); echo "conn=$(netstat -tn 2>/dev/null | grep -c "${U%.*}")"; fi'].join('\n'),25000);
     const k=stKV(r.text);
     const d='uplink '+(k.uplink||'?')+', default routes '+(k.default_routes||'?');
     if(k.plain==='ok')return R.ok('reachable. '+d);
     if(k.viaif==='ok')return R.ok('reachable through '+k.uplink+' ('+d+'); a plain ping from the root shell has no default route, which is normal on this firmware');
+    if(+k.rxd>0||+k.conn>0)return R.ok('ping is blocked but real traffic flows on '+k.uplink+' (rx '+k.rxd+' B in 2 s, '+k.conn+' connections)');
     return R.warn('no reply ('+d+'). Normal if the SIM has no data connection');
   },40000);
 
@@ -4547,7 +4548,7 @@ async function runSelfTest(onStep){
     const r=await sh('echo "memt=$(grep ^MemTotal /proc/meminfo | tr -s " " | cut -d" " -f2)"; echo "mema=$(grep ^MemAvailable /proc/meminfo | tr -s " " | cut -d" " -f2)"; echo "load=$(cut -d" " -f1 /proc/loadavg)"; echo "cores=$(grep -c ^processor /proc/cpuinfo)"; echo "dstate=$(ps -A -o STAT 2>/dev/null | grep -c ^D)"');
     const k=stKV(r.text),pct=100*(+k.mema)/(+k.memt),d='free memory '+(isFinite(pct)?pct.toFixed(0):'?')+'%, load '+k.load+' on '+k.cores+' cores, '+(k.dstate||0)+' blocked processes';
     if(pct<5){C('Out of memory');return R.fail(d+' - memory exhausted','Stop unused tools, reboot; apps will be killed by the kernel.')}
-    if(pct<10||+k.load>2*(+k.cores||1)||+k.dstate>3)return R.warn(d+' - system under pressure','Close extra tools/plugins; check the kernel log result below for I/O errors.');
+    if(pct<10||+k.load>2*(+k.cores||1)||+k.dstate>12)return R.warn(d+' - system under pressure','Close extra tools/plugins; check the kernel log result below for I/O errors.');
     return R.ok(d);
   });
   add(S10,'Filesystem: /data writable, space, inodes',async()=>{
@@ -4560,12 +4561,13 @@ async function runSelfTest(onStep){
   });
   add(S10,'Kernel and crash log scan',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog|bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 20 2>/dev/null | tail -12',30000);
+    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog|(^|[^a-z])bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 400 2>/dev/null | grep -E "FATAL EXCEPTION|Process: " | tail -6',30000);
     raw('Kernel / crash scan',r.text);
     if(/DMESG_DENIED/.test(r.text)&&!/--- crash ---\s*\S/.test(r.text))return R.warn('kernel log not readable here','Run dmesg in the Terminal card to inspect manually.');
     const hits=r.text.split('--- crash ---')[0].split('\n').filter(l=>l&&!/DMESG_/.test(l)),crash=(r.text.split('--- crash ---')[1]||'').trim();
     if(hits.length)return R.warn(hits.length+' kernel error line(s): '+hits[hits.length-1].slice(0,140),'Hardware/memory/storage fault signs; see raw output below. Repeated I/O errors mean failing flash.');
-    return crash?R.warn('recent app crash recorded: '+crash.split('\n')[0].slice(0,140),'See raw output below; reinstall the affected app or update it.'):R.ok('no recent kernel errors or crashes');
+    if(/com\.matchi\.tool/.test(crash))return R.warn('MatchiTOOL itself crashed recently: '+crash.split('\n').pop().slice(0,140),'Send this report; also exclude the app from battery optimization.');
+    return R.ok('no kernel errors'+(crash?'; another process crashed earlier (see raw output), not MatchiTOOL':' or crashes'));
   });
   add(S10,'Core services running',async()=>{
     const n=needRoot();if(n)return n;
@@ -4588,18 +4590,19 @@ async function runSelfTest(onStep){
   });
   add(S11,'Uplink health & DNS',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh(['IF=$(ip route get 8.8.8.8 2>/dev/null | grep -o "dev [^ ]*" | head -1 | cut -d" " -f2)','echo "if=${IF:-none}"','if [ -n "$IF" ]; then S=/sys/class/net/$IF; echo "mtu=$(cat $S/mtu)"; echo "oper=$(cat $S/operstate)"; echo "ip4=$(ip -4 -o addr show $IF | wc -l)"; echo "err=$(( $(cat $S/statistics/rx_errors) + $(cat $S/statistics/tx_errors) ))"; echo "ipok=$(ping -I $IF -c1 -W3 8.8.8.8 >/dev/null 2>&1 && echo 1 || echo 0)"; echo "dnsok=$(ping -I $IF -c1 -W4 www.google.com >/dev/null 2>&1 && echo 1 || echo 0)"; fi'].join('\n'),30000);
+    const r=await sh(['IF=$(ip route get 8.8.8.8 2>/dev/null | grep -o "dev [^ ]*" | head -1 | cut -d" " -f2)','echo "if=${IF:-none}"','if [ -n "$IF" ]; then S=/sys/class/net/$IF; echo "mtu=$(cat $S/mtu)"; echo "oper=$(cat $S/operstate)"; echo "ip4=$(ip -4 -o addr show $IF | wc -l)"; echo "err=$(( $(cat $S/statistics/rx_errors) + $(cat $S/statistics/tx_errors) ))"; echo "ipok=$(ping -I $IF -c1 -W3 8.8.8.8 >/dev/null 2>&1 && echo 1 || echo 0)"; echo "dnsok=$(ping -I $IF -c1 -W4 www.google.com >/dev/null 2>&1 && echo 1 || echo 0)"; A=$(cat $S/statistics/rx_bytes); sleep 2; B=$(cat $S/statistics/rx_bytes); echo "rxd=$((B-A))"; U=$(ip -4 -o addr show $IF | sed "s/.*inet \\([0-9.]*\\).*/\\1/"); echo "conn=$(netstat -tn 2>/dev/null | grep -c "${U%.*}")"; echo "pk=$(( $(cat $S/statistics/rx_packets) + $(cat $S/statistics/tx_packets) ))"; fi'].join('\n'),30000);
     const k=stKV(r.text);if(!k.if||k.if==='none')return R.warn('no uplink interface','No mobile data session: check SIM, registration and APN results above.');
     const d='uplink '+k.if+' ('+k.oper+'), MTU '+k.mtu+', IPv4 addrs '+k.ip4+', errors '+k.err+', IP ping '+(k.ipok==='1'?'ok':'fail')+', DNS '+(k.dnsok==='1'?'ok':'fail');
     if(k.ip4==='0')return R.fail(d,'Uplink has no IPv4 address: data session not established. Check APN and registration.');
+    if(k.ipok!=='1'&&(+k.rxd>0||+k.conn>0))return R.ok(d+' - ping (ICMP) is blocked or unsupported, but real traffic is flowing (rx '+k.rxd+' B in 2 s, '+k.conn+' connections): data works');
     if(k.ipok==='1'&&k.dnsok!=='1'){C('DNS failure');return R.fail(d,'Internet reachable by IP but names do not resolve: DNS servers are wrong/blocked. Check the APN DNS or set a public DNS.')}
     if(k.ipok!=='1')return R.warn(d,'Uplink exists but passes no traffic: data plan, APN or carrier block.');
-    return(+k.mtu<1280||+k.err>100)?R.warn(d+' - link quality issue','Low MTU or interface errors: check the APN MTU and signal.'):R.ok(d);
+    return(+k.mtu<1280||(+k.err>50&&+k.err/Math.max(1,+k.pk)>0.01))?R.warn(d+' - link quality issue','Low MTU or interface errors: check the APN MTU and signal.'):R.ok(d);
   },50000);
   add(S11,'Interface error counters',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh('for s in /sys/class/net/*; do n=$(basename $s); e=$(( $(cat $s/statistics/rx_errors 2>/dev/null || echo 0) + $(cat $s/statistics/tx_errors 2>/dev/null || echo 0) )); [ $e -gt 0 ] && echo "$n=$e"; done; echo done=1');
-    const k=stKV(r.text);delete k.done;const bad=Object.keys(k).filter(x=>+k[x]>50);
+    const r=await sh('for s in /sys/class/net/*; do n=$(basename $s); e=$(( $(cat $s/statistics/rx_errors 2>/dev/null || echo 0) + $(cat $s/statistics/tx_errors 2>/dev/null || echo 0) )); p=$(( $(cat $s/statistics/rx_packets 2>/dev/null || echo 0) + $(cat $s/statistics/tx_packets 2>/dev/null || echo 0) )); [ $e -gt 0 ] && echo "$n=$e/$p"; done; echo done=1');
+    const k=stKV(r.text);delete k.done;const bad=Object.keys(k).filter(x=>{const [e,p]=k[x].split('/').map(Number);return e>50&&e/Math.max(1,p)>0.01});
     return bad.length?R.warn(bad.map(x=>x+' '+k[x]+' errors').join(', '),'Check cables/USB/Wi-Fi interference for these interfaces.'):R.ok('no significant interface errors');
   });
 
@@ -4622,8 +4625,8 @@ async function runSelfTest(onStep){
     raw('Registration / attach / APN',[ereg,g5,creg,att,pdp,apn].join('\n'));
     const st=t=>{const m=t.match(/\+C(?:E|5G|)REG:\s*\d+,(\d)/);return m?+m[1]:null},vals=[st(ereg),st(g5),st(creg)].filter(v=>v!==null);
     const reg=vals.some(v=>v===1||v===5),denied=vals.includes(3),srch=vals.includes(2);
-    const attOk=/\+CGATT:\s*1/.test(att),pdpOk=/\+CGACT:\s*\d+,1/.test(pdp),apnSet=/\+CGDCONT:\s*\d+,"[^"]*","[^"]+"/.test(apn);
-    const d='registered '+(reg?'yes':'NO')+'; packet attach '+(attOk?'yes':'no')+'; PDP active '+(pdpOk?'yes':'no')+'; APN '+(apnSet?'configured':'none');
+    const attOk=/\+CGATT:\s*1/.test(att),pdpOk=/\+CGACT:\s*\d+,1/.test(pdp),apnSet=/\+CGDCONT:\s*\d+,"?[A-Za-z0-9]+"?,"?[^",\s]+/.test(apn);
+    X.reg=reg;const d='registered '+(reg?'yes':'NO')+'; packet attach '+(attOk?'yes':'no')+'; PDP active '+(pdpOk?'yes':'no')+'; APN '+(apnSet?'configured':'none');
     if(denied){C('Network registration denied');return R.fail(d,'Carrier denied registration: SIM not provisioned/blocked, or wrong network. Contact the carrier.')}
     if(!reg){C(srch?'Searching for network':'Not registered');return R.fail(d,srch?'Still searching: check antennas, signal and band lock settings.':'Not on any network: check SIM, coverage and network mode.')}
     if(!apnSet){C('No APN configured');return R.fail(d,'No APN is defined: set the carrier APN, otherwise there is no data.')}
@@ -4635,7 +4638,7 @@ async function runSelfTest(onStep){
     const t0=performance.now(),c=await stAt('AT+CSQ',0),ms=Math.round(performance.now()-t0),e=await stAt('AT+CESQ',0);
     const rs=+((c.text.match(/\+CSQ:\s*(\d+)/)||[])[1]),m=e.text.match(/\+CESQ:\s*(?:\d+,){5}(\d+)/),rsrp=m&&+m[1]<=97?+m[1]-141:null;
     const d='RSSI index '+rs+(rsrp!==null?', RSRP '+rsrp+' dBm':'')+', AT reply '+ms+' ms';
-    if(rs===99)return R.fail(d+' - no signal','No signal: check antennas/placement and registration.');
+    if(rs===99)return X.reg?(rsrp!==null&&rsrp<-110?R.warn(d+' - weak signal','Reposition or add external antennas.'):R.ok(d+' - AT+CSQ shows 99 (unknown) on 5G NR; the modem is registered, so this is not a fault')):R.fail(d+' - no signal','No signal and not registered: check antennas, SIM and coverage.');
     if(rs<10||(rsrp!==null&&rsrp<-110))return R.warn(d+' - weak signal','Move/reposition or attach external antennas; weak signal causes slow speed and drops.');
     return ms>5000?R.warn(d+' - modem responds slowly','Modem is busy or overheating; reboot.'):R.ok(d);
   },60000);

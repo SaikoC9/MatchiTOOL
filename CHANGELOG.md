@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.20 - Diagnose: false alarms removed (from a real F50 report)
+- APN check accepts the unquoted `+CGDCONT` format the modem prints.
+- `AT+CSQ` = 99 is no longer a "no signal" failure while registered (normal on 5G NR).
+- Kernel scan no longer matches `debug:`; the crash scan names the crashed process and only warns if it is MatchiTOOL.
+- Internet/uplink checks treat real traffic (rx bytes, live connections) as proof data works when ICMP ping is blocked; interface errors are judged by error ratio, not raw count.
+- Blocked-process threshold raised (kernel threads in D state are normal on this device).
 ## 1.1.19 - Full diagnose: real malfunction detection (32 -> 55 checks)
 - Every WARN/FAIL now carries a **Fix** line, and the report adds **Probable root causes** and **Since last run** (new / fixed problems).
 - New device-health checks: root speed, SELinux, clock drift, temperatures (all thermal zones + battery), battery health, memory/CPU/blocked processes, read-only or full `/data` and inodes, kernel/crash log scan, core services (system_server, netd, rild, dnsmasq, hostapd).
