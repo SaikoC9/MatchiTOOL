@@ -15,22 +15,29 @@
     'Z5g_rsrp','Z5g_rsrq','Z5g_SINR','nr5g_pci','nr5g_action_band','nr5g_action_channel',
     'pm_sensor_mdm','pm_modem_5g'
   ];
-  let timer=null;
+  let timer=null, busy=false;
   const card=(label,value,sub='')=>`<div style="background:var(--panel2);border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:0"><div class="mut" style="font-size:12px">${esc(label)}</div><div style="font-size:20px;font-weight:700;overflow-wrap:anywhere">${esc(value)}</div><div class="mut" style="font-size:11px">${esc(sub)}</div></div>`;
+  function stop(){ if(timer)clearInterval(timer); timer=null; }
   async function refresh(){
-    const root=document.getElementById(ID); if(!root)return;
+    const root=document.getElementById(ID);
+    if(!root||!root.classList.contains('show')){ stop(); return; }   // modal gone/closed: stop polling
+    if(busy)return;                                                   // previous poll still running: don't pile up requests
+    busy=true;
+    try { await poll(root); } finally { busy=false; }
+  }
+  async function poll(root){
     const status=root.querySelector('#mls_status'); if(status)status.textContent='Updating…';
-    let modem={}, android={};
+    let modem={}, android='', err='';
     try {
       const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params:{multi_data:'1',cmd:keys.join(',')}})});
       if(r.data && typeof r.data==='object')modem=r.data;
       else throw new Error('No modem data');
-    } catch(e) { if(status)status.textContent='Modem unavailable: '+e.message; }
+    } catch(e) { err='Modem unavailable: '+e.message; }
     try {
       const r=await api('/api/shell',{method:'POST',body:JSON.stringify({timeout:12000,cmd:
         `echo BATTERY; dumpsys battery 2>/dev/null | grep -E 'level:|status:|temperature:'; echo THERMAL; for f in /sys/class/thermal/thermal_zone*/temp; do [ -r "$f" ] && echo "$f=$(cat "$f" 2>/dev/null)"; done | head -12`})});
       android=r.content||'';
-    } catch(e) { android='Battery/thermal read unavailable: '+e.message; }
+    } catch(e) { android=''; err+=(err?' · ':'')+'Battery/thermal unavailable: '+e.message; }
     const pick=(...v)=>v.find(x=>x!==undefined&&x!==null&&String(x).trim()!=='')??'—';
     const bat=android.match(/level:\s*(\d+)/i)?.[1];
     const st=android.match(/status:\s*(\d+)/i)?.[1];
@@ -55,10 +62,10 @@
     const grid=root.querySelector('#mls_grid'); if(grid)grid.innerHTML=values.map(v=>card(v[0],v[1],v[2]||'')).join('');
     const lock=root.querySelector('#mls_lock_note');
     if(lock)lock.textContent='Band-lock controls are shown as unavailable until the exact firmware-specific lock command is verified. No band settings have been changed.';
-    if(status)status.textContent='Last updated '+new Date().toLocaleTimeString()+' · refreshes every 5 seconds';
+    if(status)status.textContent=(err?err+' · ':'')+'Last attempt '+new Date().toLocaleTimeString()+(timer?' · refreshes every 5 seconds':'');
   }
   function open(){
-    createModal({name:ID,title:'Live device status',maxWidth:'760px',showConfirm:false,onClose:()=>{if(timer)clearInterval(timer);timer=null;return true;},
+    createModal({name:ID,title:'Live device status',maxWidth:'760px',showConfirm:false,onClose:()=>{stop();return true;},
       content:`<div id="mls_status" class="mut" style="margin-bottom:10px">Connecting…</div>
       <div id="mls_grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px"></div>
       <div style="margin-top:14px;padding:12px;border:1px solid var(--bd);border-radius:10px">
@@ -68,8 +75,8 @@
       <div style="display:flex;gap:8px;margin-top:12px"><button type="button" id="mls_refresh">Refresh now</button><label class="mut"><input type="checkbox" id="mls_auto" checked style="width:auto"> Auto refresh (5 s)</label></div>`});
     showModal(ID);
     document.getElementById('mls_refresh').onclick=refresh;
-    document.getElementById('mls_auto').onchange=e=>{if(timer)clearInterval(timer);timer=e.target.checked?setInterval(refresh,5000):null;};
-    refresh();timer=setInterval(refresh,5000);
+    document.getElementById('mls_auto').onchange=e=>{stop();if(e.target.checked)timer=setInterval(refresh,5000);};
+    stop();timer=setInterval(refresh,5000);refresh();
   }
   const host=document.querySelector('.actions-buttons'); if(!host)return;
   const b=document.createElement('button');b.id=BTN;b.textContent='Live Status';b.onclick=open;host.appendChild(b);

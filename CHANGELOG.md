@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.7 - Web Live Status plugin and fixes
+- Added the read-only `Live_Status.js` dashboard plugin (modem signal/band, battery, thermal).
+- Fixed overlapping refreshes: polling now skips a tick while the previous request is still running, so slow modem/shell reads no longer pile up on the host.
+- Fixed polling continuing after the dialog closed; the timer now stops itself.
+- Fixed modem/shell errors being overwritten by the "Last updated" line; errors now stay visible.
+- Bumped versionCode to 117 / versionName to 1.1.7 (also `/api/ping` and `scripts/validate.sh`). Bundled plugins only refresh on installed devices when versionCode changes, so this bump is required for plugin fixes to reach the app.
+- CI now runs `bash scripts/validate.sh`, so it no longer depends on the file's executable bit.
+
 ## 1.1.6 - Version metadata alignment
 - Corrected Android versionName to 1.1.6 and incremented versionCode to 116.
 - Corrected the `/api/ping` version response to report 1.1.6.
