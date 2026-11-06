@@ -23,13 +23,13 @@ output is bounded and execution has a timeout. Root authorization and revocation
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
 
 - Browser interface on port **2334** with a generated access token. The server binds to loopback by default; LAN access can be explicitly enabled from the Android host screen.
-- Plugin upload, enable/disable, delete, and bundled plugin refresh on app updates.
+- Full diagnose with a copy button (read-only, covers every function). Six built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
 - AT command execution through the bundled `sendat` executable (device/architecture compatibility required).
 - ZTE router API proxy for SMS and live signal information.
 - Boot receiver restarts the web host and runs the app-managed root startup script (when present); root access is separately authorized by `su`.
 
-Bundled plugins include `AT_Radio.js`, `Bypass_v65_13.js`, `Device_Status.js`, `SMS.js`, and `Signal_Info.js`.
+The tools (AT Radio, Bypass, Device Status, Live Status, SMS, Signal Info) are embedded in `web/index.html` and load automatically.
 Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
 plugins execute with the privileges of the host bridge and should be treated as trusted code.
 
@@ -51,7 +51,7 @@ The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on
 1. Install the APK on an Android device that already has a supported root manager.
 2. Open MatchiTOOL and press **Request / check root access**. Approve the root prompt in the root manager.
 3. By default, connect using the local-only URL shown in the app. To connect from another device, explicitly enable LAN access on the host screen, read the warning, and use the displayed private-LAN URL.
-4. Upload or enable plugins from the plugin manager. Existing bundled plugin APIs are retained where practical.
+4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
 5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
 
 The Bypass plugin stores TTL/DPI helper state under `/data/local/matchitool/` and its boot entries in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to execute that file. This requires the root manager to retain MatchiTOOL's grant across reboot. If upgrading from an older UFI-based setup, first disable the old UFI boot entries and remove/stop the old helpers to avoid duplicate firewall management.

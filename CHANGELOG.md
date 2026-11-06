@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.1.17 - Full diagnose
+- New **Full diagnose** card on the web page (also in the top menu and on the home card). One button runs 32 read-only checks across every function: login/session, browser features, page controls, root shell, shell failure reporting, device info, storage, system commands, host diagnostics, USB status, USB/AT/plugin input validation, `sendat`, AT on both SIM slots, router web API and SMS storage, plugin manager, the six built-in tools (loaded, button present once, and the data path each one needs), the firmware inspector and internet reachability.
+- Results are PASS / WARN / FAIL / SKIP with a "Needs attention" list at the top. Each check has its own timeout, so one hung command cannot freeze the run.
+- **Copy report** puts the whole report on the clipboard (with a fallback for plain-HTTP LAN pages where the browser has no clipboard API, and an auto-select if the browser blocks copying). **Download .txt** saves it as a file.
+- Nothing is changed on the device: no USB/ADB switching, reboot, SMS send/delete, Bypass apply or router writes. The report never contains the token or any password.
+- The page now checks its own version against the app's, and warns if a cached old page is being shown.
+
+## 1.1.16 - Tools built into the web page
+- Bypass, Device Status, AT & Radio, SMS, Signal Info and Live Status are now embedded in the web page (`web/index.html`) and load automatically after login. No uploading, no `plugins/` folder, no APK-side tool files or `/api/builtin` endpoint.
+- The page lists them under **Built-in tools**; **Custom plugins** is only for scripts you upload yourself.
+- If copies of these tools were uploaded earlier (or left by old versions), the page removes them from the device so nothing loads twice.
+- Updating the tools means editing `index.html`; they arrive with the app because the page ships in the APK.
+
+## 1.1.15 - Tools are web-only again
+- Bypass, Device Status, AT & Radio, SMS, Signal Info and Live Status are no longer built into the APK. They live in the `plugins/` folder of the repo and are installed from the web page (Plugins card -> choose file, several can be selected at once).
+- Removed the `/api/builtin` endpoint, the `assets/builtin` folder and the "Built-in tools" section. The app no longer deletes plugin files on start.
+- To update a tool, upload its new `.js` (same file name replaces the old one). App updates no longer change tools.
+- The `sendat` binary stays in the APK because AT & Radio needs a native executable.
+
+## 1.1.14 - Built-in tools (no longer plugins)
+- Bypass, Device Status, AT & Radio, SMS, Signal Info and Live Status are now built into MatchiTOOL. They ship inside the APK (`assets/builtin`) and are served by a new `/api/builtin` endpoint, so an app update always updates them: no more copying to the device, no stale versions, and they can no longer be disabled or deleted by accident.
+- The web page lists them under **Built-in tools**; **Custom plugins** is now only for scripts you upload yourself.
+- Copies of the old bundled plugins left on the device by earlier versions are removed on start so nothing loads twice.
+- Bypass wording that referred to UFI-TOOLS now refers to MatchiTOOL.
+
 ## 1.1.13 - USB mode switching for the F50
 - On the F50, `svc usb setFunctions` is killed (exit 137). USB modes are now switched by setting `sys.usb.config` (trying `<fn>,mtp,adb` first, then `<fn>,adb`) so init applies the configfs change; `svc` is only a time-limited fallback.
 - Success is now verified in configfs (the function must be linked into the active gadget config) before the interface is bridged into `br0`.

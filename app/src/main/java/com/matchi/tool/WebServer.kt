@@ -22,18 +22,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     init { seedPlugins() }
 
     /**
-     * Copy bundled plugins to filesDir. Bundled plugins are refreshed whenever the app version changes
-     * (so updates actually reach the device); plugins the user uploaded under other names are never touched.
+     * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The six tools
+     * (Bypass, Device Status, AT & Radio, SMS, Signal Info, Live Status) are part of the web page itself (web/index.html).
      */
     private fun seedPlugins() {
         @Suppress("DEPRECATION")
         val ver = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode
         val refresh = Prefs.seededVersion(ctx) != ver
-        ctx.assets.list("plugins")?.forEach { n ->
-            val out = File(pluginDir, n)
-            if (refresh || !out.exists()) ctx.assets.open("plugins/$n").use { i -> out.outputStream().use { i.copyTo(it) } }
-        }
-        // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands
+        // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
         val sendat = File(ctx.filesDir, "sendat")
         if (refresh || !sendat.exists()) ctx.assets.open("bin/sendat").use { i -> sendat.outputStream().use { i.copyTo(it) } }
         sendat.setExecutable(true, false)
@@ -269,7 +265,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.13"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.17"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
