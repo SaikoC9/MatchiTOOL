@@ -337,7 +337,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.43"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.44"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
         uri == "/api/screen/input" && s.method == Method.POST -> screenInput(body(s))

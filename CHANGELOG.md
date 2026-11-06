@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.44 - Screen control fills the phone screen
+- **No more scrolling to reach the buttons.** The Screen control window now takes the whole visible height (phone or PC), the picture takes all the space between the title and the buttons, and the buttons and quality row stay in view at the bottom with Close.
+- **Bigger and centred.** The picture is scaled to the biggest size that fits with the screen's own proportions, centred in the window. It refits by itself when the phone is turned, the browser bars appear or hide, or the keyboard opens. Taps and swipes still land on the right spot.
+- The seven buttons (Back, Home, Recents, Wake, Power, Vol -, Vol +) are in one row.
+
 ## 1.1.43 - AT & Radio: Apply button
 - **New Apply button** next to the AT command box. It sends what is in the box, exactly like pressing Enter.
 - If the box still holds the placeholder `AT+SPIMEI=<slot>,"NEW"`, nothing is sent: the window asks you to type the 15-digit IMEI over NEW first.

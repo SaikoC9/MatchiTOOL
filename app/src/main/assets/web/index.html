@@ -5701,7 +5701,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     st.ctx.drawImage(d.img, 0, 0);
     d.done();
     f.ms = (f.dl || 0) + (performance.now() - t0);
-    if (f.w > 0 && f.h > 0) { st.W = f.w; st.H = f.h; }
+    if (f.w > 0 && f.h > 0) { if (st.W !== f.w || st.H !== f.h) { st.W = f.w; st.H = f.h; fit(); } }
     if (f.mode) st.mode = f.mode;
     return true;
   }
@@ -5881,19 +5881,50 @@ rm -rf "${DEVICE_TMP_DIR}"
     }, { passive: false });
   }
 
+  // Fills the phone screen: the window takes the whole visible height, the picture takes all the space left between the
+  // title and the buttons (as big as it fits, always centred), and the buttons stay in view, so nothing needs scrolling.
+  function screenCss() {
+    if ($('matchi_scr_css')) return;
+    const el = document.createElement('style'); el.id = 'matchi_scr_css';
+    el.textContent = `
+#${MODAL}.modal-bg{padding:6px!important;align-items:center!important;justify-content:center!important}
+#${MODAL}.modal-bg .modal{width:100%!important;max-width:640px!important;height:calc(100vh - 12px)!important;height:calc(100dvh - 12px)!important;max-height:min(calc(100vh - 12px),920px)!important;max-height:min(calc(100dvh - 12px),920px)!important;padding:8px!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+#${MODAL} .modal>h3{flex:0 0 auto;margin:0 0 3px!important}
+#${MODAL} .mbody{flex:1 1 auto!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;position:relative}
+#${MODAL} .mfoot{position:static!important;flex:0 0 auto;margin:6px 0 0!important;padding:0!important;border:0!important;background:none!important}
+#${MODAL} .scr-keys{display:flex;flex-wrap:nowrap;gap:4px;margin-top:6px;flex:0 0 auto}
+#${MODAL} .mbody button.sk{flex:1 1 auto!important;min-width:0!important;padding:3px 2px!important;font-size:11px!important;white-space:nowrap}`;
+    document.head.appendChild(el);
+  }
+  // Picture size = the biggest size with the screen's own proportions that fits the free space.
+  function fit() {
+    const c = $('matchi_scr_canvas'), stage = c && c.parentNode;
+    if (!stage || !stage.clientWidth) return;
+    const cs = getComputedStyle(stage);
+    const aw = stage.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const ah = stage.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    const W = st.W || c.width || 270, H = st.H || c.height || 480;
+    if (aw <= 0 || ah <= 0 || !W || !H) return;
+    const k = Math.min(aw / W, ah / H);
+    c.style.width = Math.max(1, Math.floor(W * k)) + 'px';
+    c.style.height = Math.max(1, Math.floor(H * k)) + 'px';
+  }
+  let fitObs = null;
+
   function open() {
+    screenCss();
     createModal({
       name: MODAL, title: 'Screen control', maxWidth: '460px', showConfirm: false,
-      onClose: () => { stop(); st.paused = false; return true; },
+      onClose: () => { stop(); st.paused = false; if (fitObs) { try { fitObs.disconnect(); } catch (_) { /* gone */ } fitObs = null; } window.removeEventListener('resize', fit); return true; },
       content:
-        '<div id="matchi_scr_msg" class="mut" style="font-size:12px;margin-bottom:6px">Starting…</div>' +
-        '<div style="position:relative;display:flex;justify-content:center;background:#000;border:1px solid var(--bd);border-radius:10px;padding:4px;overflow:hidden">' +
-        '<canvas id="matchi_scr_canvas" width="270" height="480" style="max-width:100%;max-height:60vh;max-height:60dvh;touch-action:none;cursor:pointer;background:#000"></canvas></div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">' +
-        '<button type="button" data-k="back">Back</button><button type="button" data-k="home">Home</button><button type="button" data-k="recents">Recents</button>' +
-        '<button type="button" id="matchi_scr_wake">Wake</button><button type="button" data-k="power">Power</button>' +
-        '<button type="button" data-k="voldown">Vol −</button><button type="button" data-k="volup">Vol +</button></div>' +
-        '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
+        '<div id="matchi_scr_msg" class="mut" style="font-size:11.5px;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Starting…</div>' +
+        '<div id="matchi_scr_stage" style="position:relative;display:flex;justify-content:center;align-items:center;flex:1 1 0;min-height:0;background:#000;border:1px solid var(--bd);border-radius:10px;padding:3px;overflow:hidden">' +
+        '<canvas id="matchi_scr_canvas" width="270" height="480" style="display:block;flex:0 0 auto;touch-action:none;cursor:pointer;background:#000"></canvas></div>' +
+        '<div class="scr-keys">' +
+        '<button type="button" class="sk" data-k="back">Back</button><button type="button" class="sk" data-k="home">Home</button><button type="button" class="sk" data-k="recents">Recents</button>' +
+        '<button type="button" class="sk" id="matchi_scr_wake">Wake</button><button type="button" class="sk" data-k="power">Power</button>' +
+        '<button type="button" class="sk" data-k="voldown">Vol −</button><button type="button" class="sk" data-k="volup">Vol +</button></div>' +
+        '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex:0 0 auto">' +
         '<select id="matchi_scr_q" style="flex:1;min-width:0;background:#080f1c;color:var(--fg);border:1px solid #24405f;border-radius:8px;padding:5px 8px;font:inherit">' +
         '<option value="auto" selected>Auto (smooth)</option><option value="low">Low quality (fastest)</option><option value="med">Medium quality</option><option value="high">High quality (slower)</option></select>' +
         '<button type="button" id="matchi_scr_kbtn">Keyboard</button><button type="button" id="matchi_scr_toggle">Pause</button></div>' +
@@ -5909,6 +5940,10 @@ rm -rf "${DEVICE_TMP_DIR}"
     wireCanvas($('matchi_scr_canvas'));
     wireKeyboard($('matchi_scr_kb'));
     $('matchi_scr_kbtn').onclick = () => { $('matchi_scr_kb').focus(); setMsg('Keyboard is on: type to send text to the device. Esc = Back.'); };
+    // keep the picture fitted when the window changes size (phone turned, browser bars shown / hidden, keyboard opened)
+    fit(); requestAnimationFrame(fit);
+    window.addEventListener('resize', fit);
+    if (window.ResizeObserver) { fitObs = new ResizeObserver(() => fit()); fitObs.observe($('matchi_scr_stage')); }
     start();
   }
 
@@ -6060,7 +6095,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.43';
+const PAGE_VERSION='1.1.44';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
