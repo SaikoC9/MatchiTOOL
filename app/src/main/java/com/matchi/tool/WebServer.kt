@@ -90,10 +90,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // This host is intended for a trusted local network, not internet exposure. Reject
         // public source addresses even if someone accidentally forwards the listening port.
         if (!isLocalAddress(ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "local network access only"))
-        if (locked(ip)) return json(tooMany, JSONObject().put("error", "too many bad tokens, wait a minute"))
-        if (uri == "/api/login" && s.method == Method.POST) return login(ip, s)
-        if (!authed(s)) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again")) }
-        ok(ip)
+        // Only password/token guesses at /api/login count toward the lockout. A browser tab still holding an old
+        // session token (after the password or token changed) used to rack up failures by polling, which then
+        // locked the real login out ("Too many attempts"). Session tokens are 96-bit random, so they need no lockout.
+        if (uri == "/api/login" && s.method == Method.POST) {
+            if (locked(ip)) return json(tooMany, JSONObject().put("error", "too many bad attempts, wait a minute"))
+            return login(ip, s)
+        }
+        if (!authed(s)) return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again"))
 
         return try { route(s, uri) } catch (e: Exception) {
             json(Response.Status.BAD_REQUEST, JSONObject().put("error", e.message ?: "bad request"))

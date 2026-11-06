@@ -5,6 +5,8 @@
 - New **Access & security** screen (opened from the Web admin password row): Router gateway, Web admin password (Save / Remove), LAN access switch with warning, Access token (masked, Copy / Reset).
 - The app now has a launcher icon (adaptive, plus themed/monochrome icon on Android 13+) and a proper notification icon, so it no longer shows the default Android icon after install.
 - **One password:** the separate web admin password is gone. The app now stores the router's own admin password (192.168.0.1) and uses it to sign in to the web console and for the SMS / signal tools. Any length is accepted (ZTE defaults can be short). The access token still works until a router password is saved.
+- **Login lockout fix:** only bad logins count toward the "Too many attempts" lockout. A browser tab with an old session token no longer locks out the real login after the password or token changes.
+- Scrollbars are hidden everywhere in the web console (page, popups, Full diagnose report, terminal). Scrolling still works.
 - Dark theme for all native screens. The web console, its logo and every tool are unchanged.
 
 ## 1.1.30 - Live device status on the Control Center

@@ -3,6 +3,9 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MatchiTOOL</title>
 <style>
+/* Hide every scrollbar (page, popups, report and terminal boxes); scrolling still works by wheel, touch and keys */
+*{scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{display:none;width:0;height:0}
 :root{color-scheme:dark;--bg:#070b14;--panel:#0d1524;--panel2:#111e32;--fg:#eaf2ff;--mut:#91a5c2;--acc:#168cff;--acc2:#55b6ff;--bd:#1c3452;--good:#28d99a;--danger:#ff647c;--shadow:0 18px 48px rgba(0,0,0,.32)}
 *{box-sizing:border-box;scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 12% -15%,rgba(0,125,255,.20),transparent 42%),var(--bg);color:var(--fg);font:14px/1.6 Inter,ui-sans-serif,system-ui,sans-serif}
 header{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:70px;padding:12px max(18px,calc((100vw - 1180px)/2));border-bottom:1px solid var(--bd);background:rgba(7,11,20,.93);backdrop-filter:blur(18px)}
@@ -29,7 +32,7 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
 <div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div></header>
 <main>
   <div class="card" id="login" style="display:none">
-    <p>Enter the admin password you set in the MatchiTOOL app. (Until you set one, use the access token.)</p>
+    <p>Enter the router admin password saved in the MatchiTOOL app (Access &amp; security). Until you save one, use the access token.</p>
     <input id="tok" type="password" placeholder="Admin password" autocomplete="current-password">
     <p><button id="tokbtn">Connect</button> <span id="tokerr" class="mut"></span></p>
   </div>
