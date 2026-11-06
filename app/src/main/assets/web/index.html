@@ -8,7 +8,7 @@
 header{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:20px;min-height:70px;padding:12px max(18px,calc((100vw - 1180px)/2));border-bottom:1px solid var(--bd);background:rgba(7,11,20,.93);backdrop-filter:blur(18px)}
 .brand{display:flex;align-items:center;gap:11px;font-weight:850;font-size:19px;white-space:nowrap}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(145deg,#168cff,#0751b5);box-shadow:0 0 24px #168cff55;color:white}
 nav{display:flex;gap:5px;flex:1;overflow-x:auto}nav a{color:var(--mut);text-decoration:none;padding:8px 10px;border-radius:8px;white-space:nowrap;font-size:13px;font-weight:650}nav a:hover{color:var(--fg);background:var(--panel2)}
-.host{display:flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid var(--bd);border-radius:999px;color:var(--mut);font-size:12px;font-weight:750;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:#64748b}.host.online{color:var(--good);border-color:#28d99a55}.host.online .dot{background:var(--good);box-shadow:0 0 12px var(--good)}.host.offline{color:var(--danger);border-color:#ff647c55}.host.offline .dot{background:var(--danger)}
+.host{margin-left:auto;display:flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid var(--bd);border-radius:999px;color:var(--mut);font-size:12px;font-weight:750;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:#64748b}.host.online{color:var(--good);border-color:#28d99a55}.host.online .dot{background:var(--good);box-shadow:0 0 12px var(--good)}.host.offline{color:var(--danger);border-color:#ff647c55}.host.offline .dot{background:var(--danger)}
 main{max-width:1180px;margin:0 auto;padding:26px 20px 64px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;align-items:start}
 .card{min-width:0;background:linear-gradient(150deg,#0f1b2e,#0a1321);border:1px solid var(--bd);border-radius:16px;padding:20px;box-shadow:var(--shadow);scroll-margin-top:94px}.card>.mut:first-child{font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acc2)}
 #home,#login,#terminal,#pluginmgr,#selftest{grid-column:1/-1}.btnrow{display:flex;flex-wrap:wrap;gap:9px}p{margin:9px 0 14px}.mut{color:var(--mut)}.actions-buttons{display:flex;flex-wrap:wrap;gap:9px}
@@ -25,7 +25,6 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
 </style></head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
-<nav aria-label="Main navigation"><a href="#home">Overview</a><a href="#diagnostics">Diagnostics</a><a href="#selftest">Full diagnose</a><a href="#usbtools">USB</a><a href="#firmware">Firmware</a><a href="#terminal">Terminal</a><a href="#pluginmgr">Plugins</a></nav>
 <div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div></header>
 <main>
   <div class="card" id="login" style="display:none">
@@ -2521,7 +2520,7 @@ ls -l $F 2>&1
         } else if (kv.RUN === '1') warn('queue 200 is not listed by the kernel (some kernels do not show it)');
       } else if (kv.RUN === '1') warn('nfqws is still running although the saved setting is off');
       if (kv.NET === '1') good(`internet works (${kv.NETM === 'https' ? 'HTTPS fetch' : 'ping only, so HTTPS was not tested'})`);
-      else { bad('internet test failed'); if (want) need('Internet fails while nfqws is on: switch nfqws off and try other arguments.'); }
+      else { bad('internet test failed'); if (want) need('Internet fails while nfqws is on. If the internet worked before you turned nfqws on, switch it off and try other arguments. If the SIM has no load/balance or data plan, nfqws is not the cause.'); }
       if (!todo) todo = 'Everything checked looks fine.';
       const text = `Summary\n${L.join('\n')}\n\nWhat to do: ${todo}\n\nDetails\n${kv.CMD ? `command line: ${kv.CMD}\n` : ''}${kv.ARGS ? `saved arguments: ${kv.ARGS}\n` : ''}${rest.join('\n').trim()}`;
       if (out) out.textContent = text;
@@ -2877,6 +2876,9 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       #${MODAL_NAME} input[type=checkbox]:checked{background-color:rgba(100,230,164,.75);background-position:100% 50%}
       #${MODAL_NAME} .bp-switch{width:36px;height:20px;padding:0 !important;border:0;border-radius:10px;flex:0 0 auto;background-color:rgba(255,255,255,.22);background-image:radial-gradient(circle,#fff 7px,transparent 7.5px);background-size:20px 20px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .15s,background-color .15s}
       #${MODAL_NAME} .bp-switch.on{background-color:rgba(100,230,164,.75);background-position:100% 50%}
+      /* desktop fix: the page's global button/input min-height and padding must not stretch the switches (only touch screens reset them before) */
+      #${MODAL_NAME} .bp-switch{min-height:0 !important;min-width:0 !important;box-sizing:border-box}
+      #${MODAL_NAME} input[type=checkbox]{min-height:0 !important;min-width:0 !important;padding:0 !important;box-sizing:border-box}
       #${MODAL_NAME} .bp-srow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0}
       #${MODAL_NAME} .bp-srow+.bp-srow{border-top:1px solid rgba(255,255,255,.08)}
       #${MODAL_NAME} .bp-rt{font-weight:750;font-size:.88rem}
@@ -4233,7 +4235,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.20';
+const PAGE_VERSION='1.1.24';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -4507,8 +4509,7 @@ async function runSelfTest(onStep){
     const d='uplink '+(k.uplink||'?')+', default routes '+(k.default_routes||'?');
     if(k.plain==='ok')return R.ok('reachable. '+d);
     if(k.viaif==='ok')return R.ok('reachable through '+k.uplink+' ('+d+'); a plain ping from the root shell has no default route, which is normal on this firmware');
-    if(+k.rxd>0||+k.conn>0)return R.ok('ping is blocked but real traffic flows on '+k.uplink+' (rx '+k.rxd+' B in 2 s, '+k.conn+' connections)');
-    return R.warn('no reply ('+d+'). Normal if the SIM has no data connection');
+    return R.warn('no reply ('+d+'). Registered but no reply usually means no load/balance or no active data plan');
   },40000);
 
   /* ===== 1.1.19 deep checks: real malfunctions, each with a fix hint ===== */
@@ -4561,12 +4562,13 @@ async function runSelfTest(onStep){
   });
   add(S10,'Kernel and crash log scan',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog|(^|[^a-z])bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 400 2>/dev/null | grep -E "FATAL EXCEPTION|Process: " | tail -6',30000);
+    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog.*(bite|timeout|expired|reset)|(soft|hard) lockup|(^|[^a-z])bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 400 2>/dev/null | grep -A3 -E "FATAL EXCEPTION|Process: " | tail -30',30000);
     raw('Kernel / crash scan',r.text);
     if(/DMESG_DENIED/.test(r.text)&&!/--- crash ---\s*\S/.test(r.text))return R.warn('kernel log not readable here','Run dmesg in the Terminal card to inspect manually.');
     const hits=r.text.split('--- crash ---')[0].split('\n').filter(l=>l&&!/DMESG_/.test(l)),crash=(r.text.split('--- crash ---')[1]||'').trim();
     if(hits.length)return R.warn(hits.length+' kernel error line(s): '+hits[hits.length-1].slice(0,140),'Hardware/memory/storage fault signs; see raw output below. Repeated I/O errors mean failing flash.');
     if(/com\.matchi\.tool/.test(crash))return R.warn('MatchiTOOL itself crashed recently: '+crash.split('\n').pop().slice(0,140),'Send this report; also exclude the app from battery optimization.');
+    const nc=(crash.match(/FATAL EXCEPTION/g)||[]).length;if(nc>=3)return R.warn(nc+' app crashes logged since boot (none identified as MatchiTOOL)','See the raw output below for the exception text; a crashing system app can break features.');
     return R.ok('no kernel errors'+(crash?'; another process crashed earlier (see raw output), not MatchiTOOL':' or crashes'));
   });
   add(S10,'Core services running',async()=>{
@@ -4594,9 +4596,9 @@ async function runSelfTest(onStep){
     const k=stKV(r.text);if(!k.if||k.if==='none')return R.warn('no uplink interface','No mobile data session: check SIM, registration and APN results above.');
     const d='uplink '+k.if+' ('+k.oper+'), MTU '+k.mtu+', IPv4 addrs '+k.ip4+', errors '+k.err+', IP ping '+(k.ipok==='1'?'ok':'fail')+', DNS '+(k.dnsok==='1'?'ok':'fail');
     if(k.ip4==='0')return R.fail(d,'Uplink has no IPv4 address: data session not established. Check APN and registration.');
-    if(k.ipok!=='1'&&(+k.rxd>0||+k.conn>0))return R.ok(d+' - ping (ICMP) is blocked or unsupported, but real traffic is flowing (rx '+k.rxd+' B in 2 s, '+k.conn+' connections): data works');
+    if(k.ipok!=='1'&&k.dnsok==='1')return R.ok(d+' - ICMP ping is blocked but DNS resolves: data works');
     if(k.ipok==='1'&&k.dnsok!=='1'){C('DNS failure');return R.fail(d,'Internet reachable by IP but names do not resolve: DNS servers are wrong/blocked. Check the APN DNS or set a public DNS.')}
-    if(k.ipok!=='1')return R.warn(d,'Uplink exists but passes no traffic: data plan, APN or carrier block.');
+    if(k.ipok!=='1'){C('No working internet although registered (check SIM load/balance, data plan, APN)');return R.fail(d,'Neither ping nor DNS works although the SIM is registered with an active data session. Most likely the SIM has no load/balance or no active data plan (carriers often keep the session but block traffic). Top up or check the plan, then the APN.')}
     return(+k.mtu<1280||(+k.err>50&&+k.err/Math.max(1,+k.pk)>0.01))?R.warn(d+' - link quality issue','Low MTU or interface errors: check the APN MTU and signal.'):R.ok(d);
   },50000);
   add(S11,'Interface error counters',async()=>{

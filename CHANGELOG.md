@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.24 - Top menu removed
+- Removed the duplicate top navigation bar (Overview, Diagnostics, Full diagnose, USB, Firmware, Terminal, Plugins); the Control Center buttons cover it. The Host connected status stays on the right.
+
+## 1.1.23 - Bypass toggle switches on desktop
+- The Block QUIC / Auto-apply switches were stretched into tall blocks on desktop browsers because the page's global `button`/`input` min-height and padding applied to them (only touch screens reset it). Switches now keep their 36x20 / 32x18 size on every screen.
+
+## 1.1.22 - Diagnose: no-load detection
+- Reverted the 1.1.20 rule that treated a little observed traffic as working data. If ping and DNS both fail while the SIM is registered with an active data session, the diagnose now FAILs and names the likely cause (no load/balance or data plan).
+- Bypass self-test advice no longer blames nfqws when the SIM has no load.
+
+## 1.1.21 - Diagnose: charger watchdog false alarm
+- Kernel scan no longer flags the charger IC message `set watchdog timer 0s`; it only matches real watchdog bite/timeout/reset and lockups.
+- Crash scan now shows the exception text and warns when 3 or more app crashes are logged since boot.
+
 ## 1.1.20 - Diagnose: false alarms removed (from a real F50 report)
 - APN check accepts the unquoted `+CGDCONT` format the modem prints.
 - `AT+CSQ` = 99 is no longer a "no signal" failure while registered (normal on 5G NR).
