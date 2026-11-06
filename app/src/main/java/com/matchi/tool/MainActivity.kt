@@ -40,8 +40,6 @@ class MainActivity : Activity() {
     private lateinit var routerSub: TextView
     private lateinit var rootSub: TextView
     private lateinit var rootBadge: TextView
-    private lateinit var lanSub: TextView
-    private lateinit var lanSwitch: PillSwitch
 
     private val tick = object : Runnable {
         override fun run() {
@@ -192,7 +190,7 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             elevation = Ui.dpf(this@MainActivity, 6f)
-            setOnClickListener { openAddress("http://${HostControl.webAddress(this@MainActivity)}") }
+            setOnClickListener { openAddress("http://${HostControl.localAddress()}") }
         }
         btn.addView(Ui.icon(this, R.drawable.ic_globe, Color.WHITE, 26))
         val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -239,12 +237,10 @@ class MainActivity : Activity() {
         })
         group.addView(divider())
 
-        lanSub = Ui.label(this, "", 12.5f, Ui.muted)
-        lanSwitch = PillSwitch(this)
-        lanSwitch.onToggle = { want -> setLan(want) }
-        group.addView(row(R.drawable.ic_network, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "LAN access", lanSub, lanSwitch) {
-            setLan(!lanSwitch.checked)
-        })
+        val lanSub = Ui.label(this, "Always on · private addresses only", 12.5f, Ui.muted)
+        val lanBadge = Ui.pill(this, "On", Ui.ok, Color.parseColor("#141E31"), Ui.innerStroke)
+        setBadge(lanBadge, Ui.ok)
+        group.addView(row(R.drawable.ic_network, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "LAN access", lanSub, lanBadge) {})
         return group
     }
 
@@ -276,11 +272,8 @@ class MainActivity : Activity() {
 
     /** Values that come from preferences, not from the modem. */
     private fun refreshStatic() {
-        val lan = Prefs.lanAccess(this)
-        webSub.text = "${HostControl.webAddress(this)} · ${if (lan) "LAN" else "local only"}"
+        webSub.text = "Other devices: ${HostControl.webAddress(this)}"
         routerSub.text = Prefs.zteHost(this)
-        lanSub.text = if (lan) "On · LAN" else "Off · local only"
-        lanSwitch.checked = lan
     }
 
     private fun setBadge(badge: TextView, color: Int) {
@@ -352,20 +345,6 @@ class MainActivity : Activity() {
     }
 
     // ---- actions ---------------------------------------------------------------------------------------
-
-    private fun setLan(want: Boolean) {
-        if (!want) {
-            HostControl.applyLan(this, false) { refreshStatic(); refreshLive() }
-            refreshStatic()
-            return
-        }
-        Ui.confirm(this, "Enable LAN access?",
-            "Anyone on the hotspot/network who knows the router admin password gets root-level control of this device over plain HTTP. Use only on a trusted private network and never port-forward port ${Prefs.PORT}.",
-            "Enable", true) {
-            HostControl.applyLan(this, true) { refreshStatic(); refreshLive() }
-            refreshStatic()
-        }
-    }
 
     private fun openAddress(address: String) {
         try {

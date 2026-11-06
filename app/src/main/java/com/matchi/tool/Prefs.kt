@@ -34,9 +34,10 @@ object Prefs {
     }
     fun ztePass(c: Context): String = sp(c).getString("zte_pass", "") ?: ""
     fun setZtePass(c: Context, p: String) { sp(c).edit().putString("zte_pass", p).apply() }
-    // Default: listen on the LAN (0.0.0.0) so the console works from the hotspot network. WebServer still refuses every non-private source address.
-    fun lanAccess(c: Context): Boolean = sp(c).getBoolean("lan_access", true)
-    fun setLanAccess(c: Context, enabled: Boolean) { sp(c).edit().putBoolean("lan_access", enabled).apply() }
+    // LAN only: the host always listens on the LAN (0.0.0.0) so the console works from the hotspot network. There is no local-only mode;
+    // WebServer still refuses every non-private source address. (An old saved "lan_access" value is ignored.)
+    @Suppress("UNUSED_PARAMETER")
+    fun lanAccess(c: Context): Boolean = true
     // Web console password = the router's own admin password (the one for 192.168.0.1). One password is stored
     // and used both to sign in to the web console and by the SMS / signal tools to log in to the router.
     // Until one is saved, the web login still accepts the access token.

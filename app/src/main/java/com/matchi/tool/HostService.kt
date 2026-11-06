@@ -13,13 +13,13 @@ class HostService : Service() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("matchi", "MatchiTOOL", NotificationManager.IMPORTANCE_MIN))
         val n = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "matchi") else Notification.Builder(this))
-            .setContentTitle("MatchiTOOL running").setContentText(if (Prefs.lanAccess(this)) "LAN enabled · port ${Prefs.PORT}" else "Local-only · port ${Prefs.PORT}")
+            .setContentTitle("MatchiTOOL running").setContentText("LAN · port ${Prefs.PORT}")
             .setSmallIcon(R.drawable.ic_stat_matchi).build()
         startForeground(1, n)
         if (server == null) {
-            val srv = WebServer(this, Prefs.PORT, if (Prefs.lanAccess(this)) "0.0.0.0" else "127.0.0.1")
+            val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
             server = srv
-            // start() throws if the port is still held by the previous instance (LAN switch restarts the service);
+            // start() throws if the port is still held by the previous instance (the service was restarted);
             // that used to crash the service. Retry for a few seconds off the main thread instead.
             Thread {
                 for (attempt in 1..8) {
@@ -35,16 +35,14 @@ class HostService : Service() {
             try { Thread.sleep(4000) } catch (_: InterruptedException) { return@Thread }
             try { ZteClient.autoDetect(applicationContext) } catch (_: Exception) { }
         }.apply { isDaemon = true; start() }
-        // LAN mode: make sure clients connected to the ZTE hotspot can reach the console. The hotspot may come up late
+        // Make sure clients connected to the ZTE hotspot can reach the console. The hotspot may come up late
         // after boot and the firmware can rebuild its firewall, so the (idempotent) rule is re-checked a few times.
-        if (Prefs.lanAccess(this)) {
-            Thread {
-                for (wait in longArrayOf(3_000, 30_000, 90_000)) {
-                    try { Thread.sleep(wait) } catch (_: InterruptedException) { return@Thread }
-                    try { HostControl.openLanFirewall(applicationContext) } catch (_: Exception) {}
-                }
-            }.apply { isDaemon = true; start() }
-        }
+        Thread {
+            for (wait in longArrayOf(3_000, 30_000, 90_000)) {
+                try { Thread.sleep(wait) } catch (_: InterruptedException) { return@Thread }
+                try { HostControl.openLanFirewall(applicationContext) } catch (_: Exception) {}
+            }
+        }.apply { isDaemon = true; start() }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
         return START_STICKY
     }

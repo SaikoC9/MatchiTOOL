@@ -6,34 +6,83 @@ import android.os.Build
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/** Host-level actions shared by the native screens (LAN switch, addresses, host health). */
+/** Host-level actions shared by the native screens (addresses, LAN firewall, host health). */
 object HostControl {
-    /** Address of the web console as shown to the user (host:port). */
-    fun webAddress(ctx: Context): String {
-        if (!Prefs.lanAccess(ctx)) return "127.0.0.1:${Prefs.PORT}"
-        return try {
-            @Suppress("DEPRECATION")
-            val ip = (ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager)
-                .connectionInfo.ipAddress
-            val host = if (ip == 0) "" else listOf(
-                ip and 0xff, ip shr 8 and 0xff, ip shr 16 and 0xff, ip shr 24 and 0xff
-            ).joinToString(".")
-            if (host.isBlank()) "${Prefs.zteHost(ctx)}:${Prefs.PORT}" else "$host:${Prefs.PORT}"
-        } catch (_: Exception) {
-            "${Prefs.zteHost(ctx)}:${Prefs.PORT}"
-        }
+
+    private val hotspotIf = Regex("^(br|ap|swlan|usb|rndis|ecm)[0-9a-z_]*$")
+    private class Net(val addr: Int, val mask: Int)
+    @Volatile private var cachedNets: List<Net> = emptyList()
+    @Volatile private var cachedAt = 0L
+
+    private fun v4(s: String): Int? {
+        val o = s.split(".").mapNotNull { it.toIntOrNull() }
+        if (o.size != 4 || o.any { it !in 0..255 }) return null
+        return (o[0] shl 24) or (o[1] shl 16) or (o[2] shl 8) or o[3]
     }
 
-    /** Turns LAN access on/off and restarts the host so it rebinds. [done] runs on the main thread. */
-    fun applyLan(ctx: android.app.Activity, enabled: Boolean, done: () -> Unit) {
-        Prefs.setLanAccess(ctx, enabled)
-        Thread {
-            val svc = Intent(ctx, HostService::class.java)
-            ctx.stopService(svc)          // stops the old server so it can rebind with the new address
-            Thread.sleep(600)
-            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(svc) else ctx.startService(svc)
-            ctx.runOnUiThread { done() }
-        }.start()
+    /**
+     * Subnets of the ZTE's own hotspot / USB-tether side (br*, ap*, swlan*, usb*, rndis*, ecm*) - NOT wlan* client Wi-Fi and not
+     * mobile data. If no such interface is found, the /24 of the configured router address is used instead.
+     * Refreshed every 5 s because the hotspot can come and go.
+     */
+    private fun hotspotNets(ctx: Context): List<Net> {
+        val now = System.currentTimeMillis()
+        if (now - cachedAt < 5_000) return cachedNets
+        val out = ArrayList<Net>()
+        try {
+            for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return cachedNets)) {
+                if (!nif.isUp || nif.isLoopback || !hotspotIf.matches(nif.name.lowercase())) continue
+                for (ia in nif.interfaceAddresses) {
+                    val a = ia.address as? java.net.Inet4Address ?: continue
+                    val prefix = ia.networkPrefixLength.toInt()
+                    if (!a.isSiteLocalAddress || prefix < 16 || prefix > 30) continue
+                    val mask = (-1) shl (32 - prefix)
+                    out.add(Net(v4(a.hostAddress ?: continue) ?: continue, mask))
+                }
+            }
+        } catch (_: Exception) {}
+        if (out.isEmpty()) v4(Prefs.zteHost(ctx).substringBefore(':'))?.let { out.add(Net(it, (-1) shl 8)) }
+        cachedNets = out; cachedAt = now
+        return out
+    }
+
+    /** True for this device itself, or a client inside the ZTE hotspot network. Anything else (other Wi-Fi, mobile data, internet) is refused. */
+    fun isHotspotClient(ctx: Context, raw: String): Boolean {
+        var ip = raw.substringBefore('%').lowercase()
+        if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
+        if (ip == "::1" || ip == "0:0:0:0:0:0:0:1" || ip == "localhost") return true
+        val v = v4(ip) ?: return false
+        if ((v ushr 24) == 127) return true
+        return hotspotNets(ctx).any { (v and it.mask) == (it.addr and it.mask) }
+    }
+
+    /** Always works on the device that runs MatchiTOOL itself, with or without any network. */
+    fun localAddress(): String = "127.0.0.1:${Prefs.PORT}"
+
+    /**
+     * Address other devices on the ZTE network (e.g. your phone) should use: the private IPv4 of this device's hotspot
+     * interface, read from the network interfaces.
+     * Falls back to the router address if no private address is found.
+     */
+    fun webAddress(ctx: Context): String {
+        val ip = try {
+            val found = ArrayList<Pair<Int, String>>()
+            for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return "${Prefs.zteHost(ctx)}:${Prefs.PORT}")) {
+                if (!nif.isUp || nif.isLoopback) continue
+                val n = nif.name.lowercase()
+                // Hotspot / bridge / USB-tether interfaces only; never another Wi-Fi or mobile data.
+                val rank = when {
+                    n.startsWith("br") || n.startsWith("ap") || n.startsWith("swlan") -> 0
+                    n.startsWith("usb") || n.startsWith("rndis") || n.startsWith("ecm") || n.startsWith("eth") -> 2
+                    else -> continue
+                }
+                for (a in java.util.Collections.list(nif.inetAddresses)) {
+                    if (a is java.net.Inet4Address && a.isSiteLocalAddress) found.add(rank to (a.hostAddress ?: continue))
+                }
+            }
+            found.minByOrNull { it.first }?.second
+        } catch (_: Exception) { null }
+        return "${ip ?: Prefs.zteHost(ctx)}:${Prefs.PORT}"
     }
 
     /**

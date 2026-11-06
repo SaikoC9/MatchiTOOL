@@ -22,7 +22,7 @@ output is bounded and execution has a timeout. Root authorization and revocation
 - **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
 
-- Browser interface on port **2334** with a generated access token. The server listens on the LAN by default and only accepts private/local source addresses (public IPs are refused); local-only mode can be switched on from the Android host screen.
+- Browser interface on port **2334** with a generated access token. The server always listens on the LAN and only accepts this device and clients on the ZTE hotspot / USB-tether network (another Wi-Fi, mobile data and the internet are refused).
 - Full diagnose with a copy button (read-only, covers every function). Six built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
 - **Update app** (web console): upload a newer MatchiTOOL APK. It is only accepted if it is this app, newer, and signed with the same key; you confirm the SHA-256 before it is installed through root (`pm install -r`, no downgrade).
@@ -52,13 +52,13 @@ The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on
 
 1. Install the APK on an Android device that already has a supported root manager.
 2. Open MatchiTOOL and press **Request / check root access**. Approve the root prompt in the root manager.
-3. Connect using the LAN URL shown in the app (the host listens on the LAN by default). To restrict it to this device only, switch LAN access off on the host screen.
+3. Connect using the LAN URL shown in the app (the host listens on the LAN by default). LAN access is always on and cannot be switched off.
 4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
 5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
 
 The Bypass plugin stores TTL/DPI helper state under `/data/local/matchitool/` and its boot entries in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to execute that file. This requires the root manager to retain MatchiTOOL's grant across reboot. If upgrading from an older UFI-based setup, first disable the old UFI boot entries and remove/stop the old helpers to avoid duplicate firewall management.
 
-The web API rejects non-local source IP addresses as a defense-in-depth measure. LAN listening is the default (local-only is a switch away). LAN mode uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; enable it only when needed, never forward port 2334 to the public internet, and keep the access token private. Reset the token in the Android app if it
+The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep the access token private. Reset the token in the Android app if it
 may have been exposed.
 
 ## Compatibility notes

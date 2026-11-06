@@ -30,10 +30,12 @@ assert '/data/local/matchitool/boot.sh' in bypass
 prefs = (root / 'app/src/main/java/com/matchi/tool/Prefs.kt').read_text()
 server = (root / 'app/src/main/java/com/matchi/tool/WebServer.kt').read_text()
 service = (root / 'app/src/main/java/com/matchi/tool/HostService.kt').read_text()
-assert 'getBoolean("lan_access", true)' in prefs, 'LAN access defaults on (private addresses only)'
-assert 'isLocalAddress(ip)' in server and 'local network access only' in server, 'non-private source addresses must be refused'
+assert 'fun lanAccess(c: Context): Boolean = true' in prefs and 'setLanAccess' not in prefs, 'LAN-only: no local-only mode'
+assert 'isHotspotClient(ctx, ip)' in server and 'ZTE hotspot network access only' in server, 'only hotspot clients may connect'
+assert 'hotspotIf' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text()
 assert '"127.0.0.1"' in server, 'WebServer must default to loopback binding'
-assert 'if (Prefs.lanAccess(this)) "0.0.0.0" else "127.0.0.1"' in service
+assert '"0.0.0.0"' in service and 'else "127.0.0.1"' not in service, 'host must always bind to the LAN'
+assert 'PillSwitch' not in main and 'setLan' not in main, 'LAN switch must be gone'
 assert '/api/device/adb' not in server and '/api/device/fastboot' not in server
 assert 'deviceDiscovery' not in server
 assert '/api/builtin' not in server and not (root / 'app/src/main/assets/builtin').exists(), 'tools must live in the web page, not as APK assets'

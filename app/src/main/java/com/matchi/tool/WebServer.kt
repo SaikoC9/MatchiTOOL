@@ -43,17 +43,6 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
 
-    private fun isLocalAddress(raw: String): Boolean {
-        var ip = raw.substringBefore('%').lowercase()
-        if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
-        if (ip == "::1" || ip == "localhost") return true
-        if (ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:")) return true
-        val octets = ip.split(".").mapNotNull { it.toIntOrNull() }
-        if (octets.size != 4 || octets.any { it !in 0..255 }) return false
-        val a = octets[0]; val b = octets[1]
-        return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b in 16..31) || (a == 169 && b == 254)
-    }
-
     private fun locked(ip: String): Boolean = synchronized(fails) {
         val f = fails[ip] ?: return false
         if (System.currentTimeMillis() - f.second > LOCK_MS) { fails.remove(ip); return false }
@@ -89,9 +78,9 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         if (!uri.startsWith("/api/")) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404")
 
         val ip = s.remoteIpAddress ?: "?"
-        // This host is intended for a trusted local network, not internet exposure. Reject
-        // public source addresses even if someone accidentally forwards the listening port.
-        if (!isLocalAddress(ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "local network access only"))
+        // Only this device and clients on the ZTE's own hotspot / USB-tether network may use the API; clients arriving from
+        // another Wi-Fi, mobile data or the internet are rejected even if the port is reachable.
+        if (!HostControl.isHotspotClient(ctx, ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "ZTE hotspot network access only"))
         // Only password/token guesses at /api/login count toward the lockout. A browser tab still holding an old
         // session token (after the password or token changed) used to rack up failures by polling, which then
         // locked the real login out ("Too many attempts"). Session tokens are 96-bit random, so they need no lockout.
