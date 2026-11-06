@@ -1,0 +1,58 @@
+
+name: Publish APK to public releases repo
+
+on:
+  workflow_run:
+    workflows:
+      - Validate and build APK
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: MatchiTOOL-debug
+          path: ./artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare APK
+        id: apk
+        run: |
+          mkdir -p release
+          APK=$(find ./artifact -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
+          cp "$APK" release/MatchiTOOL.apk
+          SHA=$(sha256sum release/MatchiTOOL.apk | cut -d ' ' -f 1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to public repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+          SHA: ${{ steps.apk.outputs.sha }}
+        run: |
+          TAG="debug-${{ github.event.workflow_run.run_number }}"
+          gh release create "$TAG" \
+            release/MatchiTOOL.apk#MatchiTOOL.apk \
+            --repo "$RELEASES_REPO" \
+            --title "MatchiTOOL $TAG" \
+            --notes "Debug APK build.
+
+          SHA-256: $SHA"
+          
