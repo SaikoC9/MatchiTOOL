@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.43 - AT & Radio: Apply button
+- **New Apply button** next to the AT command box. It sends what is in the box, exactly like pressing Enter.
+- If the box still holds the placeholder `AT+SPIMEI=<slot>,"NEW"`, nothing is sent: the window asks you to type the 15-digit IMEI over NEW first.
+
 ## 1.1.42 - AT & Radio: IMEI box removed, Change IMEI button
 - **Removed the IMEI box** (the IMEI read-out, the new-IMEI field, Change IMEI, Restore first-seen and Apply saved IMEI now).
 - **New "Change IMEI" button** next to NR bands. Pressing it puts `AT+SPIMEI=0,"NEW"` in the AT command box (the slot number follows the SIM slot you picked) with NEW selected. Nothing is sent until you type the IMEI over NEW and press Enter.

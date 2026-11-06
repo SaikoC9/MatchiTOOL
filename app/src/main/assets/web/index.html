@@ -346,13 +346,21 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
         '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
-        '<input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
+        '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
     showModal(MODAL);
     const root = document.getElementById(MODAL);
     root.querySelectorAll('[data-at]').forEach((b) => (b.onclick = () => run(b.dataset.at)));
-    document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { run(e.target.value); e.target.value = ''; } };
+    // Enter and the Apply button do the same thing: send what is in the box.
+    const applyBox = () => {
+      const i = document.getElementById('matchi_at_in'); if (!i) return;
+      const v = i.value.trim(); if (!v) return;
+      if (/AT\+SPIMEI\s*=\s*\d+\s*,\s*"NEW"/i.test(v)) { log('Replace NEW with the 15-digit IMEI first, then press Apply.'); i.focus(); return; }   // never send the placeholder
+      i.value = ''; run(v);
+    };
+    document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); applyBox(); } };
+    document.getElementById('matchi_apply').onclick = applyBox;
     document.getElementById('matchi_chg').onclick = () => {   // only shows the command in the box; nothing is sent until you press Enter
       const i = document.getElementById('matchi_at_in'); if (!i) return;
       i.value = 'AT+SPIMEI=' + slot() + ',"NEW"'; i.focus();
@@ -6052,7 +6060,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.42';
+const PAGE_VERSION='1.1.43';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
