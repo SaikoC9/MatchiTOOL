@@ -4052,7 +4052,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
 <script type="text/plain" class="webtool" data-name="Live_Status.js">
 /*
  * Live Status - MatchiTOOL dashboard (read-only).
- * Shown permanently at the bottom of the Control Center card and refreshed automatically every 10 s
+ * Shown permanently at the bottom of the Control Center card and refreshed automatically every 30 s (60 s when hot)
  * (paused while the tab is hidden or another tool window is open). There is no separate Live Status button.
  * Sources, merged in this order of preference:
  *   1. Router web API (/api/zte) - skipped for 3 minutes after a connection failure
@@ -4114,23 +4114,24 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
 
   async function collect() {
-    let zte = {}; const errs = []; let sh = '', tele = '', raw = {};
+    let zte = {}; const errs = []; let sh = '', tele = '', raw = { cops: '', csq: '', cesq: '', cereg: '' };
     if (Date.now() >= zteSkipUntil) {
       try {
         const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
         if (r.data && typeof r.data === 'object') { zte = r.data; zteNote = ''; } else throw new Error('No modem data');
       } catch (e) { zteSkipUntil = Date.now() + 180000; zteNote = 'Router web API unreachable - using the modem and Android telephony instead (retried every 3 minutes).'; }
     }
+    const zteOk = has(zte.network_type) || has(zte.signalbar);
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; dumpsys battery 2>/dev/null | grep -E "level:|status:|temperature:"; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && echo "Z:$(cat "$z/type" 2>/dev/null)=$(cat "$z/temp" 2>/dev/null)"; done; ' + (Date.now() - teleAt > 30000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
         tele = teleCache;
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
     })();
-    const atP = (async () => { const a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
+    const atP = (async () => { if (zteOk) return; const a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
     await Promise.all([shellP, atP]);
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -4260,7 +4261,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
     const t = busy && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
-    const stale = s < 0 || s > 20;
+    const stale = s < 0 || s > 90;
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
@@ -4275,8 +4276,11 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     catch (e) { lastErr = 'Could not read device: ' + e.message; when(); }
     finally { busy = false; }
   }
-  timer = setInterval(tick, 10000); tickTimer = setInterval(when, 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  // Poll every 30 s (60 s when the system is hot) with a self-rescheduling timer; `when` only repaints text.
+  const nextDelay = () => (last && last.sysMax !== undefined && last.sysMax >= 60 ? 60000 : 30000);
+  const loop = async () => { await tick(); timer = setTimeout(loop, nextDelay()); };
+  timer = setTimeout(loop, 30000); tickTimer = setInterval(when, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && (!lastOk || Date.now() - lastOk > 30000)) tick(); });
   tick();
 
   // The Live Status button and popup were removed: the panel above is the only view.
@@ -6103,7 +6107,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.45';
+const PAGE_VERSION='1.1.46';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},

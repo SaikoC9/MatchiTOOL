@@ -47,7 +47,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.1.45'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.1.46'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -55,8 +55,8 @@ assert 'screencap\\n' in stream and 'since' in server, 'smooth screen streamer m
 assert 'screencap -p' in screen and 'input tap' in screen and 'input swipe' in screen, 'screen capture / input helpers missing'
 assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n, _ in tools), 'Screen Control tool missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 155' in gradle and 'versionName = \"1.1.45\"' in gradle
-assert 'put(\"version\", \"1.1.45\")' in server
+assert 'versionCode = 156' in gradle and 'versionName = \"1.1.46\"' in gradle
+assert 'put(\"version\", \"1.1.46\")' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
 for marker in ('MAX_BYTES', 'archive.packageName != ctx.packageName', 'newCode <= oldCode', 'offered.containsAll(have)', 'STAGE_TTL_MS', 'expectedSha', 'renameTo(out)', 'THREAD_PRIORITY_BACKGROUND', 'nice -n 10', 'rm -f "$path"', 'cleanStale'):

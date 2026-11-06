@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.46 - Cooler running: lighter Live Status
+- **Root cause of the heat:** the Live device status panel on the web console home page ran every 10 s. Each run started about 80 root processes (one `cat` per thermal zone and per zone type, plus `dumpsys battery`) and sent four modem AT commands even when the router API already supplied the same data.
+- Thermal zones and battery are now read with shell built-ins only (`read`, no forks), and battery level, temperature and status come straight from `/sys/class/power_supply/battery` instead of `dumpsys battery`.
+- Modem AT commands and the heavy `dumpsys telephony.registry` are used only when the router API gives no data (fallback); the telephony dump is refreshed at most every 2 minutes.
+- Refresh interval is now 30 s (60 s when any system temperature is 60 C or more) instead of 10 s; the page still pauses while hidden or while another tool window is open.
+
 ## Unreleased - Lighter app home screen
 - Removed the LIVE SIGNAL card (bars, dBm, operator, RSRQ, SINR, battery) from the app home screen. The home screen now refreshes only host state and root access, so the router API is no longer polled every 15 s. The web console's Live Status and Signal Info tools are unchanged.
 - Removed the now-unused signal reader and signal-bars view, plus three unused icons.
