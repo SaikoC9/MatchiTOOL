@@ -103,15 +103,19 @@ object ScreenCapture {
         return v
     }
 
-    /** Printable ASCII only; space becomes %s (what `input text` expects). Everything else is refused, not guessed. */
+    /**
+     * Printable ASCII only. Space becomes %s (what `input text` expects). The result is passed through q() (single quotes),
+     * so characters like " ' & ; ( ) $ are typed as they are and never reach the shell. % and \ are refused because
+     * `input text` itself treats them specially. Everything else is refused, not guessed.
+     */
     private fun safeText(raw: String): String {
         if (raw.isEmpty() || raw.length > 200) throw IllegalArgumentException("text must be 1 to 200 characters")
         val sb = StringBuilder()
         for (c in raw) {
             when {
                 c == ' ' -> sb.append("%s")
-                c.isLetterOrDigit() && c.code < 128 -> sb.append(c)
-                c in "._-@:/+,=!?#" -> sb.append(c)
+                c == '%' || c == '\\' -> throw IllegalArgumentException("character not supported by remote typing: $c")
+                c.code in 33..126 -> sb.append(c)
                 else -> throw IllegalArgumentException("character not supported by remote typing: $c")
             }
         }
@@ -136,6 +140,8 @@ object ScreenCapture {
             "wake" -> "input keyevent 224; wm dismiss-keyguard 2>/dev/null; true"
             else -> throw IllegalArgumentException("unsupported input type: $type")
         }
-        return RootShell.run(ctx, script, 10_000)
+        val r = RootShell.run(ctx, script, 10_000)
+        ScreenStreamer.kick()   // the screen is about to change: capture at full speed for a moment
+        return r
     }
 }

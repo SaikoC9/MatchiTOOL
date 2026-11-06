@@ -345,10 +345,7 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
         '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_bands">NR bands</button></div>' +
-        '<div style="border:1px solid var(--bd);border-radius:8px;padding:8px;margin-bottom:10px"><div style="font-size:13px;margin-bottom:6px">IMEI (slot): <b id="matchi_imei_cur">…</b></div><div id="matchi_imei_saved" class="mut" style="font-size:12px;margin-bottom:6px"></div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="matchi_imei_in" placeholder="New IMEI (15 digits)" inputmode="numeric" autocomplete="off" maxlength="15" style="flex:1;min-width:160px">' +
-        '<button type="button" id="matchi_imei_set">Change IMEI</button><button type="button" id="matchi_imei_restore">Restore first-seen</button><button type="button" id="matchi_imei_apply">Apply saved IMEI now</button></div></div>' +
+        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
         '<input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
@@ -356,6 +353,11 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     const root = document.getElementById(MODAL);
     root.querySelectorAll('[data-at]').forEach((b) => (b.onclick = () => run(b.dataset.at)));
     document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { run(e.target.value); e.target.value = ''; } };
+    document.getElementById('matchi_chg').onclick = () => {   // only shows the command in the box; nothing is sent until you press Enter
+      const i = document.getElementById('matchi_at_in'); if (!i) return;
+      i.value = 'AT+SPIMEI=' + slot() + ',"NEW"'; i.focus();
+      const p = i.value.indexOf('NEW'); try { i.setSelectionRange(p, p + 3); } catch (_) { /* not fatal */ }
+    };
     document.getElementById('matchi_bands').onclick = async () => {
       try {
         const f = fields(await at('AT+SP5GCMDS="get nr support_band"')).slice(1).map((x) => parseInt(x.replace(/\\/g, ''), 10)).filter((x) => !isNaN(x));
@@ -370,29 +372,8 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
         refreshSwitches();
       };
     }
-    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); showImei(); };
-    const imeiBtn = (id, getVal) => {
-      const b = document.getElementById(id);
-      b.onclick = async () => {
-        b.disabled = true;
-        try { const v = await getVal(); if (!v) throw new Error('Enter the new IMEI first'); await writeImei(v); }
-        catch (e) { createToast(e.message, 'red'); log('Error: ' + e.message); }
-        b.disabled = false; showImei();
-      };
-    };
-    document.getElementById('matchi_imei_apply').onclick = async (ev) => {
-      const b = ev.currentTarget; b.disabled = true;
-      try {
-        if (!(await savedTarget())) throw new Error('No IMEI is saved yet: use Change IMEI first');
-        log('> apply saved IMEI'); log((await applySaved()) || '(no output)');
-        createToast('Saved IMEI applied. If the modem restarts, check again in 30 seconds.', 'green');
-      } catch (e) { createToast(e.message, 'red'); log('Error: ' + e.message); }
-      b.disabled = false; showImei();
-    };
-    imeiBtn('matchi_imei_set', () => document.getElementById('matchi_imei_in').value.replace(/\D/g, ''));
-    imeiBtn('matchi_imei_restore', async () => { const v = await firstSeen(); if (!v) throw new Error('No earlier IMEI is recorded for this slot'); return v; });
+    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); };
     refreshSwitches();
-    showImei();
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
@@ -5646,8 +5627,13 @@ rm -rf "${DEVICE_TMP_DIR}"
   if (document.getElementById(BTN_ID)) return;
 
   const PRESETS = { low: { scale: 30, q: 45 }, med: { scale: 50, q: 60 }, high: { scale: 80, q: 75 } };
-  const KEYS = { back: 4, home: 3, recents: 187, power: 26, volup: 24, voldown: 25, enter: 66, del: 67 };
-  const st = { run: false, loopId: 0, W: 0, H: 0, quality: 'med', frames: 0, t0: 0, fps: 0, fails: 0, paused: false, chain: Promise.resolve(), lastWheel: 0, seq: 0, mode: '' };
+  // Auto quality: steps up and down this ladder by itself, depending on how fast frames arrive and draw on THIS device
+  // (a phone on weak Wi-Fi settles lower than a PC on a cable), so the picture stays smooth instead of stalling.
+  const LADDER = [{ scale: 25, q: 40 }, { scale: 35, q: 50 }, { scale: 45, q: 58 }, { scale: 55, q: 62 }, { scale: 70, q: 70 }, { scale: 85, q: 75 }];
+  const COARSE = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
+  const auto = { level: COARSE ? 1 : 3, ema: 45, n: 0, up: 0 };
+  const KEYS = { back: 4, home: 3, recents: 187, power: 26, volup: 24, voldown: 25 };
+  const st = { run: false, loopId: 0, W: 0, H: 0, quality: 'auto', frames: 0, t0: 0, fps: 0, fails: 0, paused: false, chain: Promise.resolve(), lastWheel: 0, seq: 0, mode: '', lastMsg: 0, ctx: null, ctxFor: null };
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const setMsg = (t, bad) => { const m = $('matchi_scr_msg'); if (m) { m.textContent = t; m.style.color = bad ? '#ff647c' : ''; } };
@@ -5670,7 +5656,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   // Ask the host for the next frame newer than the one on screen. The host keeps capturing in the background,
   // so this returns as soon as a new frame exists. { same:true } = the screen did not change.
   async function fetchFrame() {
-    const p = PRESETS[st.quality];
+    const p = st.quality === 'auto' ? LADDER[auto.level] : (PRESETS[st.quality] || PRESETS.med);
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 12000);
     try {
@@ -5681,8 +5667,10 @@ rm -rf "${DEVICE_TMP_DIR}"
         try { m = (await r.json()).error || m; } catch (_) { /* keep the status */ }
         throw new Error(m);
       }
+      const t1 = performance.now();
       const blob = await r.blob();
-      return { blob, w: parseInt(r.headers.get('X-Screen-W'), 10), h: parseInt(r.headers.get('X-Screen-H'), 10), seq: parseInt(r.headers.get('X-Frame-Seq'), 10) || 0, mode: r.headers.get('X-Capture-Mode') || '' };
+      const dl = performance.now() - t1;   // time to download the picture itself (the wait for a new frame is not counted)
+      return { blob, dl, w: parseInt(r.headers.get('X-Screen-W'), 10), h: parseInt(r.headers.get('X-Screen-H'), 10), seq: parseInt(r.headers.get('X-Frame-Seq'), 10) || 0, mode: r.headers.get('X-Capture-Mode') || '' };
     } catch (e) {
       throw new Error(e.name === 'AbortError' ? 'no answer from the device (timeout)' : e.message);
     } finally { clearTimeout(timer); }
@@ -5690,15 +5678,59 @@ rm -rf "${DEVICE_TMP_DIR}"
 
   // Draw one fetched frame. Returns false when the window is gone.
   async function show(f) {
+    const t0 = performance.now();
     const d = await decode(f.blob);
     const c = $('matchi_scr_canvas');
     if (!c) { d.done(); return false; }
-    if (c.width !== d.w || c.height !== d.h) { c.width = d.w; c.height = d.h; }
-    c.getContext('2d').drawImage(d.img, 0, 0);
+    if (c.width !== d.w || c.height !== d.h) { c.width = d.w; c.height = d.h; st.ctx = null; }
+    if (!st.ctx || st.ctxFor !== c) {
+      // opaque + low-latency canvas: the browser can skip blending and present the frame sooner
+      st.ctx = c.getContext('2d', { alpha: false, desynchronized: true }) || c.getContext('2d');
+      st.ctxFor = c;
+      st.ctx.imageSmoothingEnabled = true;
+      st.ctx.imageSmoothingQuality = 'low';
+    }
+    st.ctx.drawImage(d.img, 0, 0);
     d.done();
+    f.ms = (f.dl || 0) + (performance.now() - t0);
     if (f.w > 0 && f.h > 0) { st.W = f.w; st.H = f.h; }
     if (f.mode) st.mode = f.mode;
     return true;
+  }
+
+  // Auto quality: slow download/draw -> a smaller picture at once; fast for a while -> a sharper one.
+  function adapt(ms) {
+    if (st.quality !== 'auto') return;
+    auto.ema = auto.ema * 0.8 + ms * 0.2;
+    if (++auto.n < 10) return;
+    auto.n = 0;
+    if (auto.ema > 70 && auto.level > 0) { auto.level--; auto.up = 0; auto.ema = 45; st.seq = 0; }
+    else if (auto.ema < 26 && auto.level < LADDER.length - 1) { if (++auto.up >= 3) { auto.level++; auto.up = 0; auto.ema = 45; st.seq = 0; } }
+    else auto.up = 0;
+  }
+
+  // Instant touch feedback: a ring follows the finger / pointer at once, before the device has reacted.
+  function dotEl() {
+    const c = $('matchi_scr_canvas'); if (!c || !c.parentNode) return null;
+    let d = $('matchi_scr_dot');
+    if (!d) {
+      d = document.createElement('div'); d.id = 'matchi_scr_dot';
+      d.style.cssText = 'position:absolute;left:0;top:0;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2px solid rgba(120,190,255,.95);background:rgba(120,190,255,.28);pointer-events:none;opacity:0;will-change:transform,opacity;z-index:2';
+      c.parentNode.appendChild(d);
+    }
+    return d;
+  }
+  function dotAt(cx, cy, visible) {
+    const d = dotEl(); if (!d) return;
+    const r = d.parentNode.getBoundingClientRect();
+    d.style.transform = 'translate(' + Math.round(cx - r.left) + 'px,' + Math.round(cy - r.top) + 'px)';
+    d.style.opacity = visible ? '1' : '0';
+  }
+  function pulse(cx, cy) {
+    const d = dotEl(); if (!d) return;
+    dotAt(cx, cy, true);
+    if (d.animate) d.animate([{ opacity: 1, scale: '1' }, { opacity: 0, scale: '1.7' }], { duration: 260, easing: 'ease-out' });
+    d.style.opacity = '0';
   }
 
   // Pipelined: the request for frame N+1 is already on its way while frame N is decoded and drawn.
@@ -5725,10 +5757,15 @@ rm -rf "${DEVICE_TMP_DIR}"
       pending = fetchFrame(); pending.catch(() => {});
       try { if (!(await show(f))) { stop(); break; } } catch (e) { setMsg(e.message, true); continue; }
       st.frames++;
-      const secs = (performance.now() - st.t0) / 1000;
+      const now = performance.now();
+      const secs = (now - st.t0) / 1000;
       if (secs >= 2) st.fps = st.frames / secs;
-      if (secs >= 6) { st.frames = 0; st.t0 = performance.now(); }
-      setMsg(st.W + 'x' + st.H + ' screen, ' + st.fps.toFixed(1) + ' frames/s' + (st.mode ? ' (' + st.mode + ')' : ''));
+      if (secs >= 6) { st.frames = 0; st.t0 = now; }
+      adapt(f.ms || 0);
+      if (now - st.lastMsg > 700) {   // updating text on every frame costs a phone more than it is worth
+        st.lastMsg = now;
+        setMsg(st.W + 'x' + st.H + ' screen, ' + st.fps.toFixed(1) + ' frames/s' + (st.mode ? ' (' + st.mode + ')' : '') + (st.quality === 'auto' ? ', auto ' + (auto.level + 1) + '/' + LADDER.length : ''));
+      }
     }
   }
 
@@ -5755,6 +5792,35 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   const key = (name) => send({ type: 'key', code: KEYS[name] });
 
+  // Keyboard, like scrcpy: click the picture (or press Keyboard on a phone) and type. Text goes to the device as typed
+  // (letters, digits and symbols incl. quotes); Enter, Backspace, Tab, Delete and the arrow keys are sent as keys; Esc = Back.
+  const KB_KEYS = { Enter: 66, Backspace: 67, Tab: 61, Delete: 112, ArrowUp: 19, ArrowDown: 20, ArrowLeft: 21, ArrowRight: 22, Escape: 4, Home: 122, End: 123 };
+  let typed = '', typeTimer = 0;
+  function flushText() {
+    typeTimer = 0;
+    while (typed) { const part = typed.slice(0, 150); typed = typed.slice(150); send({ type: 'text', text: part }); }
+  }
+  function typeText(t) {
+    let ok = '', bad = 0;
+    for (const ch of String(t || '')) { if (ch === '\n' || ch === '\r') { flushText(); key2(66); continue; } if (/^[ -~]$/.test(ch) && ch !== '%' && ch !== '\\') ok += ch; else bad++; }
+    if (bad) setMsg(bad + ' character(s) not supported by remote typing (only plain keyboard symbols, not % or \\)', true);
+    if (!ok) return;
+    typed += ok;
+    if (!typeTimer) typeTimer = setTimeout(flushText, 70);   // letters typed quickly travel together in one command
+  }
+  const key2 = (code) => send({ type: 'key', code });
+  function wireKeyboard(kb) {
+    let comp = false;
+    kb.addEventListener('compositionstart', () => { comp = true; });
+    kb.addEventListener('compositionend', () => { comp = false; const v = kb.value; kb.value = ''; typeText(v); });
+    kb.addEventListener('input', () => { if (comp) return; const v = kb.value; kb.value = ''; typeText(v); });
+    kb.addEventListener('keydown', (e) => {
+      if (e.isComposing) return;
+      const code = KB_KEYS[e.key];
+      if (code && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); flushText(); key2(code); }
+    });
+  }
+
   // Position on the canvas -> real screen pixels (the frame is shrunk, the real size comes from the host).
   function map(cx, cy) {
     const c = $('matchi_scr_canvas'), r = c.getBoundingClientRect();
@@ -5771,18 +5837,29 @@ rm -rf "${DEVICE_TMP_DIR}"
       e.preventDefault();
       try { c.setPointerCapture(e.pointerId); } catch (_) { /* not fatal */ }
       down = { x: e.clientX, y: e.clientY, t: performance.now() };
+      dotAt(e.clientX, e.clientY, true);
+      if (e.pointerType === 'mouse') { const kb = $('matchi_scr_kb'); if (kb && document.activeElement !== kb) kb.focus({ preventScroll: true }); }
+    });
+    let mv = null;
+    c.addEventListener('pointermove', (e) => {
+      if (!down) return;
+      if (mv) { mv.x = e.clientX; mv.y = e.clientY; return; }
+      mv = { x: e.clientX, y: e.clientY };
+      requestAnimationFrame(() => { const m = mv; mv = null; if (m && down) dotAt(m.x, m.y, true); });
     });
     c.addEventListener('pointerup', (e) => {
       if (!down) return;
       const d = down; down = null;
       e.preventDefault();
+      dotAt(e.clientX, e.clientY, false);
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 10) pulse(e.clientX, e.clientY);
       const a = map(d.x, d.y), b = map(e.clientX, e.clientY);
       const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
       const held = performance.now() - d.t;
       if (moved < 10) send(held >= 500 ? { type: 'long', x: b.x, y: b.y } : { type: 'tap', x: b.x, y: b.y });
       else send({ type: 'swipe', x: a.x, y: a.y, x2: b.x, y2: b.y, dur: Math.min(Math.max(Math.round(held), 80), 1500) });
     });
-    c.addEventListener('pointercancel', () => { down = null; });
+    c.addEventListener('pointercancel', () => { down = null; dotAt(0, 0, false); });
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     // Mouse wheel = scroll: a short vertical swipe from the pointer position.
     c.addEventListener('wheel', (e) => {
@@ -5802,7 +5879,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       onClose: () => { stop(); st.paused = false; return true; },
       content:
         '<div id="matchi_scr_msg" class="mut" style="font-size:12px;margin-bottom:6px">Starting…</div>' +
-        '<div style="display:flex;justify-content:center;background:#000;border:1px solid var(--bd);border-radius:10px;padding:4px">' +
+        '<div style="position:relative;display:flex;justify-content:center;background:#000;border:1px solid var(--bd);border-radius:10px;padding:4px;overflow:hidden">' +
         '<canvas id="matchi_scr_canvas" width="270" height="480" style="max-width:100%;max-height:60vh;max-height:60dvh;touch-action:none;cursor:pointer;background:#000"></canvas></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">' +
         '<button type="button" data-k="back">Back</button><button type="button" data-k="home">Home</button><button type="button" data-k="recents">Recents</button>' +
@@ -5810,11 +5887,9 @@ rm -rf "${DEVICE_TMP_DIR}"
         '<button type="button" data-k="voldown">Vol −</button><button type="button" data-k="volup">Vol +</button></div>' +
         '<div style="display:flex;gap:6px;margin-top:8px;align-items:center">' +
         '<select id="matchi_scr_q" style="flex:1;min-width:0;background:#080f1c;color:var(--fg);border:1px solid #24405f;border-radius:8px;padding:5px 8px;font:inherit">' +
-        '<option value="low">Low quality (fastest)</option><option value="med" selected>Medium quality</option><option value="high">High quality (slower)</option></select>' +
-        '<button type="button" id="matchi_scr_toggle">Pause</button></div>' +
-        '<div style="display:flex;gap:6px;margin-top:8px"><input id="matchi_scr_text" placeholder="Type text to send" autocomplete="off" autocapitalize="off" spellcheck="false">' +
-        '<button type="button" id="matchi_scr_send">Send</button><button type="button" data-k="enter">⏎</button><button type="button" data-k="del">⌫</button></div>' +
-        '<p class="mut" style="font-size:11px;margin:8px 0 0">Tap = click, drag = swipe, hold half a second = long press, mouse wheel = scroll. Text: letters, digits, spaces and . _ - @ : / + , = ! ? # only.</p>',
+        '<option value="auto" selected>Auto (smooth)</option><option value="low">Low quality (fastest)</option><option value="med">Medium quality</option><option value="high">High quality (slower)</option></select>' +
+        '<button type="button" id="matchi_scr_kbtn">Keyboard</button><button type="button" id="matchi_scr_toggle">Pause</button></div>' +
+        '<input id="matchi_scr_kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Keyboard input for the device" style="position:absolute;left:-9999px;top:0;width:1px;height:1px;opacity:0">',
     });
     showModal(MODAL);
     const root = $(MODAL);
@@ -5822,11 +5897,10 @@ rm -rf "${DEVICE_TMP_DIR}"
     $('matchi_scr_wake').onclick = () => send({ type: 'wake' });
     $('matchi_scr_toggle').onclick = () => (st.run ? stop() : start());
     $('matchi_scr_q').value = st.quality;
-    $('matchi_scr_q').onchange = (e) => { st.quality = PRESETS[e.target.value] ? e.target.value : 'med'; };
-    const sendText = () => { const i = $('matchi_scr_text'); const v = i.value; if (!v) return; send({ type: 'text', text: v }); i.value = ''; };
-    $('matchi_scr_send').onclick = sendText;
-    $('matchi_scr_text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendText(); } });
+    $('matchi_scr_q').onchange = (e) => { st.quality = (e.target.value === 'auto' || PRESETS[e.target.value]) ? e.target.value : 'auto'; st.seq = 0; };
     wireCanvas($('matchi_scr_canvas'));
+    wireKeyboard($('matchi_scr_kb'));
+    $('matchi_scr_kbtn').onclick = () => { $('matchi_scr_kb').focus(); setMsg('Keyboard is on: type to send text to the device. Esc = Back.'); };
     start();
   }
 
@@ -5978,7 +6052,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.38';
+const PAGE_VERSION='1.1.42';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},

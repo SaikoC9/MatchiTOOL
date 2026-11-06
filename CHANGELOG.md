@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.42 - AT & Radio: IMEI box removed, Change IMEI button
+- **Removed the IMEI box** (the IMEI read-out, the new-IMEI field, Change IMEI, Restore first-seen and Apply saved IMEI now).
+- **New "Change IMEI" button** next to NR bands. Pressing it puts `AT+SPIMEI=0,"NEW"` in the AT command box (the slot number follows the SIM slot you picked) with NEW selected. Nothing is sent until you type the IMEI over NEW and press Enter.
+- The line that was at the top of the window is gone (the button replaces it).
+- Note: an IMEI written this way is no longer backed up first, so read it with the **IMEI** button (`AT+CGSN`) and write it down before you change it.
+
+## 1.1.41 - Type into the device from Screen control (like scrcpy)
+- **Keyboard forwarding.** Click the picture on a PC (or press **Keyboard** on a phone) and type: the text is sent to the device exactly as typed, including quotes and symbols, for example `AT+SPIMEI=0,"NEW"`. Enter, Backspace, Tab, Delete, the arrow keys, Home and End are sent as keys; Esc = Back. Pasting also works. There is no visible text box (it stays removed); the window shows a one-line note instead.
+- Letters typed quickly travel together in one command, so typing does not lag. Remote typing now accepts every printable ASCII character except `%` and `\`.
+- Note: this types into whatever app is open on the F50's own screen. AT commands for the modem itself are still sent from the **AT & Radio** window.
+
+## 1.1.40 - Smoother screen control on phones, AT line on top
+- **Screen control feels instant on a phone.** A ring now follows your finger / pointer at once (and pulses on a tap), so you see your touch before the device reacts. Frame text is updated twice a second instead of on every frame, and the picture is drawn on an opaque low-latency canvas.
+- **Auto quality (new default).** The picture size and JPEG quality step up and down by themselves, depending on how fast frames download and draw on that device: a phone on weak Wi-Fi settles lower, a PC on a cable settles higher. Low / Medium / High are still in the list.
+- **Reaction after a tap shows at once.** After every tap, swipe or key the host captures at full speed for about 2 s and wakes its capture thread immediately, instead of looking only 4 times a second while the screen seems idle.
+- **Lighter host.** The shrunk frame reuses one bitmap and one JPEG buffer (no new allocations and no garbage collection for every frame), which also keeps the router cooler.
+- **AT & Radio:** the line `AT+SPIMEI=0,"NEW"` is now at the top of the window. Tapping it puts the line in the command box (it is not sent) with NEW selected, so you type the IMEI over it.
+
+## 1.1.39 - Screen control: text box removed
+- Removed the "Type text to send" row (text box, Send, Enter, Backspace) and its hint line from the Screen control window. Taps, swipes, the navigation buttons and quality selector are unchanged.
+
 ## 1.1.38 - Smoother screen control
 - **Faster capture.** The host now keeps one root shell open and reads the screen as raw pixels (`screencap` without PNG) straight from its pipe, then shrinks and JPEG-encodes it. The slow PNG screenshot is only used for the first frame (it measures the raw header size) and as an automatic fallback if the raw path fails three times. The window shows `(raw)` or `(png)` next to the frame rate so you can see which one is active.
 - **Capture runs ahead of the browser.** While a browser is watching, a background thread keeps the newest frame ready, so a request is answered at once instead of starting a capture. The page also asks for the next frame while it is still drawing the current one. The thread stops about 6 s after the last viewer leaves or the tab is hidden.

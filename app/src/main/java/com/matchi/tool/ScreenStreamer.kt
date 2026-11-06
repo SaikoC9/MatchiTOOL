@@ -2,6 +2,9 @@ package com.matchi.tool
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -30,6 +33,7 @@ object ScreenStreamer {
     private const val MIN_FRAME_MS = 50L      // at most ~20 captures per second
     private const val IDLE_FRAME_MS = 250L    // screen unchanged: look 4 times a second, send nothing
     private const val ERROR_RETRY_MS = 700L
+    private const val BURST_MS = 1_800L       // after a tap / swipe / key: keep capturing at full speed so the result shows at once
     private const val RAW_TIMEOUT_S = 8L
 
     private const val RAW_UNKNOWN = 0
@@ -38,17 +42,28 @@ object ScreenStreamer {
 
     private val lock = ReentrantLock()
     private val cond = lock.newCondition()
+    private val wakeCond = lock.newCondition()
     private var thread: Thread? = null
     private var seq = 0L
     private var latest: ScreenCapture.Frame? = null
     private var error: String? = null
 
     @Volatile private var lastViewer = 0L
+    @Volatile private var burstUntil = 0L
     @Volatile private var scale = 50
     @Volatile private var quality = 60
     @Volatile private var dirty = true
     @Volatile private var rawMode = RAW_UNKNOWN
     @Volatile private var hdrSize = 0
+
+    /**
+     * Called right after an input event: wakes the capture thread and keeps it at full speed for a moment, so the
+     * reaction on screen (a scroll, a menu opening) is sent immediately instead of up to 250 ms later.
+     */
+    fun kick() {
+        burstUntil = System.currentTimeMillis() + BURST_MS
+        try { lock.withLock { wakeCond.signalAll() } } catch (_: Exception) { }
+    }
 
     fun modeName(): String = if (rawMode == RAW_OK) "raw" else "png"
 
@@ -118,6 +133,10 @@ object ScreenStreamer {
         private var proc: Proc? = null
         private var buf: ByteArray? = null
         private var bmp: Bitmap? = null
+        private var sbmp: Bitmap? = null
+        private val scaler = Canvas()
+        private val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG)
+        private val jpegOut = ByteArrayOutputStream(48 * 1024)
         private var lastHash = 0
         private var lastW = 0
         private var lastH = 0
@@ -136,7 +155,7 @@ object ScreenStreamer {
                     try {
                         val g = grab()
                         if (g.unchanged) {
-                            pause = IDLE_FRAME_MS
+                            pause = if (System.currentTimeMillis() < burstUntil) MIN_FRAME_MS else IDLE_FRAME_MS
                         } else {
                             lock.withLock { latest = g.frame; error = null; seq++; cond.signalAll() }
                         }
@@ -146,12 +165,15 @@ object ScreenStreamer {
                         pause = ERROR_RETRY_MS
                     }
                     val spent = System.currentTimeMillis() - t0
-                    if (spent < pause) try { Thread.sleep(pause - spent) } catch (_: InterruptedException) { }
+                    if (spent < pause) {
+                        // interruptible wait: kick() ends it early
+                        try { lock.withLock { wakeCond.awaitNanos(TimeUnit.MILLISECONDS.toNanos(pause - spent)) } } catch (_: InterruptedException) { }
+                    }
                 }
             } finally {
                 closeProc()
                 exec.shutdownNow()
-                bmp?.recycle(); bmp = null; buf = null
+                bmp?.recycle(); bmp = null; sbmp?.recycle(); sbmp = null; buf = null
             }
         }
 
@@ -237,10 +259,21 @@ object ScreenStreamer {
             val s = scale
             val tw = (w * s / 100).coerceAtLeast(1)
             val th = (h * s / 100).coerceAtLeast(1)
-            val shown = if (tw == w && th == h) bm else Bitmap.createScaledBitmap(bm, tw, th, true)
-            val out = ByteArrayOutputStream(48 * 1024)
+            // The shrunk copy reuses one bitmap (no new allocation and no garbage collection per frame).
+            val shown: Bitmap = if (tw == w && th == h) bm else {
+                val c = sbmp
+                val sb = if (c != null && c.width == tw && c.height == th) c else {
+                    c?.recycle()
+                    Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(false); sbmp = it }
+                }
+                scaler.setBitmap(sb)
+                scaler.drawBitmap(bm, Rect(0, 0, w, h), Rect(0, 0, tw, th), scalePaint)
+                scaler.setBitmap(null)
+                sb
+            }
+            val out = jpegOut
+            out.reset()
             shown.compress(Bitmap.CompressFormat.JPEG, quality, out)
-            if (shown !== bm) shown.recycle()
             return Grabbed(ScreenCapture.Frame(out.toByteArray(), w, h), false)
         }
     }
