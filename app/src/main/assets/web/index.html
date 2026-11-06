@@ -26,13 +26,18 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
 @media(max-width:760px){header{gap:12px;flex-wrap:wrap;padding:11px 14px}.brand{font-size:17px}nav{order:3;flex-basis:100%;padding-top:4px}main{grid-template-columns:1fr;padding:16px 12px 42px;gap:12px}#home,#login,#terminal,#pluginmgr,#selftest{grid-column:1}.card{padding:16px;border-radius:13px}}
 @media(max-width:420px){.host{font-size:11px;padding:6px 8px}nav a{padding:7px 9px;font-size:12px}.row{align-items:flex-start;flex-wrap:wrap}.row .n{min-width:45%}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;scroll-behavior:auto!important}}
+/* No blue flash when tapping / clicking a button, switch or tool: phone = tap highlight box, PC = focus ring and text selection after a mouse click. Keyboard users still get a focus ring. */
+*{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+button,summary,a,label,select,[role=button],[role=switch],input[type=checkbox],input[type=radio]{touch-action:manipulation;-webkit-user-select:none;user-select:none}
+button:focus:not(:focus-visible),summary:focus:not(:focus-visible),a:focus:not(:focus-visible),select:focus:not(:focus-visible),[role=button]:focus:not(:focus-visible),[role=switch]:focus:not(:focus-visible),[tabindex]:focus:not(:focus-visible),.modal:focus,.modal-bg:focus,.card:focus{outline:none;box-shadow:none}
+button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
 </style></head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
 <div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div></header>
 <main>
   <div class="card" id="login" style="display:none">
-    <p>Enter the router admin password saved in the MatchiTOOL app (Access &amp; security). Until you save one, use the access token.</p>
+    <p>Sign in with your router admin password (the same one as 192.168.0.1).</p>
     <input id="tok" type="password" placeholder="Admin password" autocomplete="current-password">
     <p><button id="tokbtn">Connect</button> <span id="tokerr" class="mut"></span></p>
   </div>
@@ -3087,17 +3092,26 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   };
   let qsPicked = false;
   const markQs = (id) => { qsPicked = true; showQs(id); };
-  const PING_ONE = (t) => 'ping -c 1 -W 2 ' + t + ' >/dev/null 2>&1 || ping -c 1 -w 2 ' + t + ' >/dev/null 2>&1';
+  // Offline, every ping waits out its timeout and a name lookup can hang for 10 s or more, so the test is bounded:
+  // the IP ping first (2 s at most); the DNS ping only if that worked (4 s at most).
   const PING_BOTH = [
-    'f=/data/local/tmp/.bp_ping.$$',
-    '(' + PING_ONE(PING_IP) + ') && echo 1 > $f.n &',
-    '(' + PING_ONE(PING_HOST) + ') && echo 1 > $f.d &',
-    'wait',
-    '[ -f $f.n ] && echo "@@NET=1" || echo "@@NET=0"',
-    '[ -f $f.d ] && echo "@@DNS=1" || echo "@@DNS=0"',
-    'rm -f $f.n $f.d',
+    'tmo() { if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift; "$@"; fi; }',
+    'if tmo 3 ping -c 1 -W 2 ' + PING_IP + ' >/dev/null 2>&1; then',
+    '  echo "@@NET=1"',
+    '  if tmo 4 ping -c 1 -W 2 ' + PING_HOST + ' >/dev/null 2>&1; then echo "@@DNS=1"; else echo "@@DNS=0"; fi',
+    'else',
+    '  echo "@@NET=0"; echo "@@DNS=0"',
+    'fi',
   ].join('\n');
   const PING_QUICK = PING_BOTH;
+  // The internet test is read-only and can take seconds when offline: it runs on its own root shell instead of the
+  // shared queue, so a button press never waits behind it.
+  const runRootDirect = async (command, timeout = 10000) => {
+    try {
+      const res = await runShellWithRoot(command, timeout);
+      return { ok: Boolean(res?.success), text: String(res?.content ?? '').replace(/\r/g, '').trim() };
+    } catch (err) { return { ok: false, text: String(err?.message || err) }; }
+  };
   let lastCheckAt = 0;
   let ageTimer = null;
   const paintAge = () => {
@@ -3142,7 +3156,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       running = true;
       try { await runCheck(true, true, first === true || (++n % 4 !== 0)); } catch (_) {  } finally { running = false; }
     };
-    tick(!reopen);
+    if (!reopen || Date.now() - lastCheckAt > 60000) tick(!reopen);
     autoTimer = setInterval(() => tick(false), 30000);
     visFn = () => { if (!document.hidden) tick(false); };
     document.addEventListener('visibilitychange', visFn);
@@ -3152,7 +3166,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   let lastDns = null;
   const runCheck = async (withPing = true, quick = false, skipRefresh = false) => {
     const sess = session;
-    const r = !withPing ? { text: '' } : await runRoot(PING_BOTH, 15000);
+    const r = !withPing ? { text: '' } : await runRootDirect(PING_BOTH, 12000);
     if (quick && (sess !== session || busy > 0)) return;
     if (!skipRefresh) {
       await ttlModule.refresh();
@@ -4596,6 +4610,25 @@ rm -rf "${DEVICE_TMP_DIR}"
     for (let i = 0; i < h.length; i += 4) s += String.fromCharCode(parseInt(h.substr(i, 4), 16));
     return s;
   }
+  // Some firmware returns the text as base64 (UTF-8) instead of UTF-16BE hex. Decode it only when the result
+  // is clean printable text, so ordinary messages are never altered.
+  function b64ToText(s) {
+    const t = String(s || '').replace(/\s+/g, '');
+    if (t.length < 8 || t.length % 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(t)) return null;
+    try {
+      const bin = atob(t), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const txt = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return /[\u0000-\u0008\u000E-\u001F\uFFFD]/.test(txt) ? null : txt;
+    } catch (_) { return null; }
+  }
+  function decodeBody(s) {
+    s = String(s ?? '');
+    const h = hexToText(s);
+    if (h !== s) return h;
+    const b = b64ToText(s);
+    return b !== null ? b : s;
+  }
   function textToHex(t) {
     let h = '';
     for (let i = 0; i < t.length; i++) h += t.charCodeAt(i).toString(16).toUpperCase().padStart(4, '0');
@@ -4669,7 +4702,7 @@ rm -rf "${DEVICE_TMP_DIR}"
           cur.text += (cur.text ? '\n' : '') + line.trim();
         }
       }
-      for (const m of out) if (m.store === store && ucs) m.text = strictHex(m.text);
+      for (const m of out) if (m.store === store) m.text = decodeBody(ucs ? strictHex(m.text) : m.text);
       if (out.some((m) => m.store === store)) break;   // messages found in this store; do not list the other twice
     }
     out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -4677,17 +4710,46 @@ rm -rf "${DEVICE_TMP_DIR}"
       out: m.out, number: m.number, date: m.date, text: m.text,
       del: async () => {
         const r1 = await at('AT+CPMS="' + m.store + '"');
-        const r2 = await at('AT+CMGD=' + m.idx);
-        if (atBad(r1) || atBad(r2)) throw new Error('Modem refused to delete: ' + r2.trim());
+        if (atBad(r1)) throw new Error('Modem refused storage ' + m.store + ': ' + r1.trim());
+        let r2 = await at('AT+CMGD=' + m.idx);
+        if (atBad(r2)) r2 = await at('AT+CMGD=' + m.idx + ',0');   // some modems need the delete-flag argument
+        if (atBad(r2)) throw new Error('Modem refused to delete: ' + r2.trim());
       },
     }));
   }
 
-  async function apiFetch() {
+  async function apiList() {
     const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' });
-    return ((d && d.messages) || []).map((m) => ({
-      out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: hexToText(m.content),
-      del: () => zte('set', { goformId: 'DELETE_SMS', msg_id: m.id + ';', notCallback: 'true' }),
+    return (d && d.messages) || [];
+  }
+  const samePhone = (a, b) => String(a || '').replace(/\D/g, '').slice(-9) === String(b || '').replace(/\D/g, '').slice(-9);
+
+  // Deletes through the router API and checks that the message is really gone (the router often answers
+  // "success" or an unparsed body without deleting). Falls back to the modem's AT commands.
+  async function apiDelete(m) {
+    const id = String(m.id), notes = [];
+    for (const mid of [id + ';', id]) {
+      try {
+        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' });
+        const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
+        notes.push(res || 'empty reply');
+        if (/fail|error/i.test(res) && !/success/i.test(res)) continue;
+        if (!(await apiList()).some((x) => String(x.id) === id)) return;   // verified gone
+      } catch (e) { if (UNREACH.test(e.message)) break; notes.push(e.message); }
+    }
+    // Fallback: delete the same message from the modem storage.
+    try {
+      const text = decodeBody(m.content);
+      const hit = (await atFetch()).find((x) => samePhone(x.number, m.number) && x.text.trim() === text.trim());
+      if (hit) { await hit.del(); return; }
+    } catch (e) { notes.push('modem: ' + e.message); }
+    throw new Error('Could not delete the message (router said: ' + notes.join(', ') + ')');
+  }
+
+  async function apiFetch() {
+    return (await apiList()).map((m) => ({
+      out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: decodeBody(m.content),
+      del: () => apiDelete(m),
     }));
   }
 
@@ -4748,15 +4810,20 @@ rm -rf "${DEVICE_TMP_DIR}"
 
   // Android's own SMS store, read as root. Used when the modem storage is empty (read-only here).
   async function providerFetch() {
-    const raw = await sh('content query --uri content://sms --projection address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000);
+    const raw = await sh('content query --uri content://sms --projection _id:address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000);
     const out = [];
     for (const row of raw.split(/^Row: \d+ /m).slice(1)) {
-      const m = row.match(/^address=(.*?), date=(\d+), body=([\s\S]*), type=(\d+)\s*$/);
+      const m = row.match(/^_id=(\d+), address=(.*?), date=(\d+), body=([\s\S]*), type=(\d+)\s*$/);
       if (!m) continue;
-      const d = new Date(parseInt(m[2], 10)), z = (v) => String(v).padStart(2, '0');
-      out.push({ out: m[4] !== '1', number: m[1], text: m[3],
+      const d = new Date(parseInt(m[3], 10)), z = (v) => String(v).padStart(2, '0');
+      const rid = m[1];
+      out.push({ out: m[5] !== '1', number: m[2], text: decodeBody(m[4]),
         date: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,
-        del: async () => { throw new Error('This message comes from the Android SMS store; delete is not supported for it'); } });
+        del: async () => {
+          await sh('content delete --uri content://sms --where \"_id=' + rid + '\" 2>&1', 15000);
+          const chk = await sh('content query --uri content://sms --projection _id --where \"_id=' + rid + '\" 2>&1', 15000);
+          if (/Row:/.test(chk)) throw new Error('Android refused to delete this message (it may need to be deleted in the default SMS app)');
+        } });
     }
     return out;
   }
@@ -4778,8 +4845,9 @@ rm -rf "${DEVICE_TMP_DIR}"
         const del = document.createElement('button'); del.textContent = 'Delete'; del.style.padding = '3px 8px';
         del.onclick = async () => {
           if (!confirm('Delete this message?')) return;
-          try { await m.del(); load(); }
-          catch (e) { createToast(e.message, 'red'); }
+          del.disabled = true; del.textContent = 'Deleting…';
+          try { await m.del(); createToast('Deleted', 'green'); await load(); }
+          catch (e) { createToast(e.message, 'red'); del.disabled = false; del.textContent = 'Delete'; }
         };
         head.append(who, when, del);
         const body = document.createElement('div'); body.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin-top:4px';
@@ -5073,7 +5141,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.31';
+const PAGE_VERSION='1.1.32';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},

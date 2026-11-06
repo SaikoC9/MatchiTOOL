@@ -32,6 +32,7 @@ object RootShell {
         val writer = p.outputStream.bufferedWriter(Charsets.UTF_8)
         @Volatile var busy = false
         @Volatile var used = false
+        @Volatile var dead = false
         @Volatile var lastUsed = System.currentTimeMillis()
         init {
             Thread({
@@ -43,8 +44,9 @@ object RootShell {
                 lines.put(EOF)
             }, "MatchiRootSession").apply { isDaemon = true; start() }
         }
-        fun alive() = p.isAlive
+        fun alive() = !dead && p.isAlive
         fun kill() {
+            dead = true   // destroy() is asynchronous: never hand a killed shell to the next command
             try { p.destroy() } catch (_: Exception) {}
             try { if (p.isAlive) p.destroyForcibly() } catch (_: Exception) {}
         }
@@ -99,6 +101,7 @@ object RootShell {
             val remain = deadline - System.currentTimeMillis()
             if (remain <= 0) {
                 s.kill()
+                Thread { try { runOnce("rm -f /data/local/tmp/.matchi_out_$id", 5_000L) } catch (_: Exception) {} }.apply { isDaemon = true; start() }
                 return ShellResult(false, sb.toString().trimEnd() + "\n[timeout after ${timeout}ms]")
             }
             val line = s.lines.poll(remain, TimeUnit.MILLISECONDS) ?: continue

@@ -63,6 +63,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val f = fails[ip]
         fails[ip] = if (f == null || now - f.second > LOCK_MS) Pair(1, now) else Pair(f.first + 1, now)
     }
+    private fun failCount(ip: String): Int = synchronized(fails) { fails[ip]?.first ?: 0 }
     private fun ok(ip: String) = synchronized(fails) { fails.remove(ip) }
 
     private val tooMany = object : Response.IStatus {
@@ -110,8 +111,15 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val pw = try { body(s).optString("password").take(200) } catch (e: Exception) {
             return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
         }
-        val good = if (Prefs.hasAdminPassword(ctx)) Prefs.checkAdminPassword(ctx, pw)
-                   else MessageDigest.isEqual(pw.toByteArray(), Prefs.token(ctx).toByteArray())   // no password set yet: token works
+        var good = if (Prefs.hasAdminPassword(ctx)) Prefs.checkAdminPassword(ctx, pw)
+                   else MessageDigest.isEqual(pw.toByteArray(), Prefs.token(ctx).toByteArray())   // no password learned yet: token works
+        // The web console accepts the router's own admin password: if it is not what is stored (nothing stored yet,
+        // or the router password was changed), ask the router. When it accepts, remember it for the SMS / signal tools.
+        // Skipped after 3 bad tries from this address so the router's own login lockout is not triggered.
+        if (!good && pw.isNotEmpty() && failCount(ip) < 3 && ZteClient.verify(ctx, pw) == true) {
+            Prefs.setZtePass(ctx, pw)
+            good = true
+        }
         if (!good) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password")) }
         ok(ip)
         return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Prefs.token(ctx)))
@@ -298,7 +306,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.31"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.32"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))

@@ -16,17 +16,19 @@ import java.security.MessageDigest
 object ZteClient {
     private const val GET_PATH = "/goform/goform_get_cmd_process"
     private const val SET_PATH = "/goform/goform_set_cmd_process"
+    private const val IDLE_RELOGIN_MS = 120_000L   // sign in again after this much idle time instead of reusing a dead cookie
     private const val LOGIN_COOLDOWN_MS = 60_000L   // ZTE firmware can lock the login after a few bad attempts
 
     private val lock = Any()
     private var cookie = ""
     private var lastLoginFail = 0L
+    private var lastUse = 0L          // last successful router call: the router drops idle sessions
     private var found = ""            // host:port that answered the router API last time
     private var foundFor = ""         // the saved gateway value that `found` belongs to
     private val CANDIDATE_PORTS = listOf(80, 8080, 9090, 9999)   // F50 stock firmware has nothing on 80
 
     /** Forget the cached router session so a newly saved password is used immediately. */
-    fun reset() = synchronized(lock) { cookie = ""; lastLoginFail = 0L; found = ""; foundFor = "" }
+    fun reset() = synchronized(lock) { cookie = ""; lastLoginFail = 0L; lastUse = 0L; found = ""; foundFor = "" }
 
     private class Resp(val code: Int, val body: String)
 
@@ -100,10 +102,12 @@ object ZteClient {
     }
 
     /** Returns null on success, otherwise a human readable error. */
-    private fun login(ctx: Context): String? {
-        val pw = Prefs.ztePass(ctx)
-        if (pw.isEmpty()) return "Router admin password not set (use the settings row in the plugin)"
-        if (System.currentTimeMillis() - lastLoginFail < LOGIN_COOLDOWN_MS)
+    private fun login(ctx: Context): String? = loginWith(ctx, Prefs.ztePass(ctx), true)
+
+    /** [track] = remember a failure so the saved password is not retried for a minute (not for a typed guess). */
+    private fun loginWith(ctx: Context, pw: String, track: Boolean): String? {
+        if (pw.isEmpty()) return "Router admin password not known yet: sign in to the web console with it once"
+        if (track && System.currentTimeMillis() - lastLoginFail < LOGIN_COOLDOWN_MS)
             return "Router login failed recently, waiting before trying again"
         cookie = ""
         val ld = try {
@@ -115,9 +119,61 @@ object ZteClient {
         val r = http(ctx, "POST", SET_PATH, mapOf("isTest" to "false", "goformId" to "LOGIN", "password" to secret))
         val result = try { JSONObject(r.body).optString("result") } catch (_: Exception) { "" }
         if (result == "0") return null
-        lastLoginFail = System.currentTimeMillis()
+        if (track) lastLoginFail = System.currentTimeMillis()
         cookie = ""
         return "Router login failed (result=$result). Check the admin password and gateway address."
+    }
+
+    /**
+     * Checks a password against the router itself, so the web console accepts the router's own admin password
+     * whatever is stored. true = accepted, false = rejected, null = the router API could not be reached.
+     */
+    fun verify(ctx: Context, pw: String): Boolean? {
+        if (pw.isEmpty() || pw.length > 200) return false
+        return synchronized(lock) {
+            val keep = cookie
+            val r: Boolean? = try {
+                if (loginWith(ctx, pw, false) == null) { lastUse = System.currentTimeMillis(); lastLoginFail = 0L; true }
+                else { cookie = keep; false }
+            } catch (_: java.io.IOException) { cookie = keep; null }
+            r
+        }
+    }
+
+    @Volatile private var autoTried = false
+
+    /**
+     * Learns the router admin password without the user typing it: reads the router's own setting as root and keeps
+     * a value only if the router accepts it (wrong guesses are never saved). At most 3 attempts, once per app start.
+     * Does nothing when a password is already saved. Signing in to the web console with the password also saves it.
+     */
+    @Synchronized
+    fun autoDetect(ctx: Context) {
+        if (Prefs.ztePass(ctx).isNotEmpty() || autoTried) return
+        autoTried = true
+        val script = "for k in admin_Password Admin_Password admin_password; do for b in nv /system/bin/nv /system/xbin/nv /vendor/bin/nv; do " +
+            "command -v ${'$'}b >/dev/null 2>&1 || continue; v=${'$'}(${'$'}b get ${'$'}k 2>/dev/null); [ -n \"${'$'}v\" ] && echo \"${'$'}v\"; done; done"
+        val out = try { RootShell.run(ctx, script, 15_000).content } catch (_: Exception) { return }
+        val cands = LinkedHashSet<String>()
+        for (raw in out.lines()) {
+            val line = raw.trim().removeSurrounding("\"")
+            if (line.isEmpty() || line.length > 64) continue
+            cands.add(line)
+            if (line.contains('=')) cands.add(line.substringAfter('='))
+            try {
+                val dec = String(Base64.decode(line, Base64.DEFAULT), Charsets.UTF_8)
+                if (dec.isNotEmpty() && dec.all { it.code in 32..126 }) cands.add(dec)
+            } catch (_: Exception) { }
+        }
+        var tries = 0
+        for (c in cands) {
+            if (tries++ >= 3) break
+            when (verify(ctx, c)) {
+                true -> { Prefs.setZtePass(ctx, c); return }
+                null -> return
+                else -> { }
+            }
+        }
     }
 
     private fun send(ctx: Context, op: String, params: Map<String, String>): Resp =
@@ -143,7 +199,12 @@ object ZteClient {
     }
 
     private fun callLocked(ctx: Context, op: String, params: Map<String, String>): String {
-        if (cookie.isEmpty() && Prefs.ztePass(ctx).isNotEmpty()) login(ctx)?.let { throw IllegalStateException(it) }
+        // The router expires idle sessions but still answers HTTP 200 {"result":"failure"} to a "set" made with the dead
+        // cookie (delete / send SMS then silently do nothing). A "set" must not be repeated blindly, so renew the
+        // session up front when it has been idle for a while.
+        val hasPass = Prefs.ztePass(ctx).isNotEmpty()
+        if (hasPass && cookie.isNotEmpty() && System.currentTimeMillis() - lastUse > IDLE_RELOGIN_MS) cookie = ""
+        if (cookie.isEmpty() && hasPass) login(ctx)?.let { throw IllegalStateException(it) }
         var r = send(ctx, op, params)
         // Retry once after logging in. Only for reads (or an explicit 401/403): a failed "set" must never be repeated blindly.
         if ((op == "get" && looksUnauthorized(r)) || r.code == 401 || r.code == 403) {
@@ -151,6 +212,7 @@ object ZteClient {
             r = send(ctx, op, params)
         }
         if (r.code >= 400) throw IllegalStateException("Router returned HTTP ${r.code}")
+        lastUse = System.currentTimeMillis()
         return r.body
     }
 }

@@ -42,7 +42,6 @@ class MainActivity : Activity() {
     private lateinit var rootBadge: TextView
     private lateinit var lanSub: TextView
     private lateinit var lanSwitch: PillSwitch
-    private lateinit var pwSub: TextView
 
     private val tick = object : Runnable {
         override fun run() {
@@ -246,13 +245,6 @@ class MainActivity : Activity() {
         group.addView(row(R.drawable.ic_network, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "LAN access", lanSub, lanSwitch) {
             setLan(!lanSwitch.checked)
         })
-        group.addView(divider())
-
-        pwSub = Ui.label(this, "", 12.5f, Ui.muted)
-        group.addView(row(R.drawable.ic_key, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "Router password", pwSub,
-            Ui.icon(this, R.drawable.ic_chevron_right, Ui.muted, 22)) {
-            startActivity(Intent(this, AccessSecurityActivity::class.java))
-        })
         return group
     }
 
@@ -289,8 +281,6 @@ class MainActivity : Activity() {
         routerSub.text = Prefs.zteHost(this)
         lanSub.text = if (lan) "On · LAN" else "Off · local only"
         lanSwitch.checked = lan
-        pwSub.text = if (Prefs.hasAdminPassword(this)) "Set · tap to change" else "Not set · tap to set"
-        pwSub.setTextColor(if (Prefs.hasAdminPassword(this)) Ui.muted else Ui.warn)
     }
 
     private fun setBadge(badge: TextView, color: Int) {
