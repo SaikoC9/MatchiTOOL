@@ -17,6 +17,7 @@ class MainActivity : Activity() {
     private lateinit var rootValue: TextView
         private lateinit var zteValue: TextView
     private lateinit var webValue: TextView
+    private lateinit var lanValue: TextView
 
     private val blue = Color.rgb(0, 153, 255)
     private val muted = Color.rgb(177, 195, 220)
@@ -92,6 +93,9 @@ class MainActivity : Activity() {
         }
                 page.addView(infoCard("⬡", "Root Access", rootValue, "Tap to re-check root authorization", false) { checkRoot() })
 
+        lanValue = TextView(this).apply { setTextColor(muted) }
+        page.addView(infoCard("⇄", "LAN access", lanValue, "Tap to turn on/off • trusted networks only", false) { toggleLan() })
+
         setContentView(scroll)
         refreshAddresses()
         checkRoot()
@@ -150,6 +154,31 @@ class MainActivity : Activity() {
     private fun refreshAddresses() {
         zteValue.text = Prefs.zteHost(this)
         webValue.text = webHostAddress()
+        val lan = Prefs.lanAccess(this)
+        lanValue.text = if (lan) "On" else "Off (local only)"
+        lanValue.setTextColor(if (lan) Color.rgb(255, 190, 80) else muted)
+    }
+
+    private fun toggleLan() {
+        if (Prefs.lanAccess(this)) { applyLan(false); return }
+        AlertDialog.Builder(this)
+            .setTitle("Enable LAN access?")
+            .setMessage("Anyone on the hotspot/network who has your access token gets root-level control of this device over plain HTTP. Use only on a trusted private network and never port-forward port ${Prefs.PORT}.")
+            .setPositiveButton("Enable") { _, _ -> applyLan(true) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun applyLan(enabled: Boolean) {
+        Prefs.setLanAccess(this, enabled)
+        refreshAddresses()
+        Thread {
+            val svc = Intent(this, HostService::class.java)
+            stopService(svc)          // stops the old server so it can rebind with the new address
+            Thread.sleep(600)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+            runOnUiThread { refreshAddresses() }
+        }.start()
     }
 
     // The web server listens on loopback by default. When LAN access is enabled,
@@ -163,9 +192,9 @@ class MainActivity : Activity() {
             val host = if (ip == 0) "" else listOf(
                 ip and 0xff, ip shr 8 and 0xff, ip shr 16 and 0xff, ip shr 24 and 0xff
             ).joinToString(".")
-            if (host.isBlank()) "Wi-Fi unavailable:${Prefs.PORT}" else "$host:${Prefs.PORT}"
+            if (host.isBlank()) "${Prefs.zteHost(this)}:${Prefs.PORT}" else "$host:${Prefs.PORT}"
         } catch (_: Exception) {
-            "Wi-Fi unavailable:${Prefs.PORT}"
+            "${Prefs.zteHost(this)}:${Prefs.PORT}"
         }
     }
 

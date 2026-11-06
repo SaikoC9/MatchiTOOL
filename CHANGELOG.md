@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.8 - LAN access switch
+- Added a LAN access card to the app screen (with a warning dialog). Turning it on makes the web UI reachable from devices on the F50 hotspot at `http://<F50 IP>:2334`; it restarts the web server automatically.
+- When LAN is on and no Wi-Fi client IP exists (the F50 is the hotspot), the app now shows the router address instead of "Wi-Fi unavailable".
+- LAN access stays off by default.
+
 ## 1.1.7 - Web Live Status plugin and fixes
 - Added the read-only `Live_Status.js` dashboard plugin (modem signal/band, battery, thermal).
 - Fixed overlapping refreshes: polling now skips a tick while the previous request is still running, so slow modem/shell reads no longer pile up on the host.
