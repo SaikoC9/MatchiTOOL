@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.33 - SMS delete / send failures (empty router reply, modem "Unsupported escape sequence")
+- **Delete:** when the router answers a delete with an empty body, the host now retries with a fresh router login, then with the upper-case form of the AD token, and checks the message list after each try. If the router still refuses, the message is looked up in every modem storage (loose text match, so long or re-wrapped texts are found) and then in Android's SMS store, and deleted there. Success is only reported when the message is really gone from the router's list.
+- **Send via modem:** sendat rejected the command built with real CR / Ctrl-Z bytes (`500 Unsupported escape sequence`). The terminator is now also passed as `\x1a` / `\u001a` escapes that sendat decodes itself; the next form is only tried when sendat rejected the command text, so a message is never sent twice.
+- **AT & Radio: Change IMEI.** Shows the current IMEI, accepts a new 14 or 15 digit IMEI (check digit validated / added), asks for confirmation, writes it with `AT+SPIMEI=<slot>,"<imei>"` and restarts the modem (`AT+CFUN=1,1`). The current IMEI is backed up on the router (`/data/local/matchitool/imei_backup.txt`) and in the browser before anything is written; no write happens if the current IMEI cannot be read or the backup fails; the modem restart is a separate confirmation. **Restore first-seen** writes the earliest recorded IMEI back.
+- **Reboot** moved from Device status to the right of CONTROL CENTER on the home card.
+- **Network debug rewritten as a native tool** (4G / 5G band lock, neighbor cells, cell lock, locked cells, in MatchiTOOL's own style). It reads the command names from the router's own web page (`Detect commands`, new read-only `/api/zte/page`) and only sends a command that page uses; 4G band lock is wired, the rest stays disabled until its command is identified (Copy report). Selecting no band is refused.
+- New optional `retry` field on `/api/zte` (0 = normal, 1 = fresh login, 2 = fresh login + upper-case AD).
+
 ## 1.1.32 - SMS delete and message text fixes
 - **Network debug** (new button on the home card): the router's own Network Debug page (4G / 5G band lock, neighbor cells, cell lock, locked cells) opens inside MatchiTOOL, with an Open in new tab button if the router refuses to be framed. MatchiTOOL sends no radio command itself: the router applies the changes with its own firmware commands, so nothing is guessed.
 - **Live device status is compact:** the 5G NR / 4G LTE box shows RSRP, RSRQ and SINR side by side in one slim row with band, PCI and channel in its header, the three temperatures are one small row of chips, and the signal card is smaller, so the whole panel takes about half the height.

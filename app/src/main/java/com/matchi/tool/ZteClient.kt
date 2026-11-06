@@ -186,21 +186,25 @@ object ZteClient {
      * {"result":"failure"} and does nothing: SMS delete / send, settings. The router's own web page computes
      * AD = md5(md5(wa_inner_version + cr_version) + RD), where RD is a fresh value for every request.
      */
-    private fun adToken(ctx: Context): String? = try {
+    private fun adToken(ctx: Context, upper: Boolean = false): String? = try {
         val v = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "wa_inner_version,cr_version", "multi_data" to "1")).body)
         val rd = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "RD")).body).optString("RD")
-        if (rd.isEmpty() || (v.optString("wa_inner_version") + v.optString("cr_version")).isEmpty()) null else md5Hex(md5Hex(v.optString("wa_inner_version") + v.optString("cr_version")) + rd)
+        if (rd.isEmpty() || (v.optString("wa_inner_version") + v.optString("cr_version")).isEmpty()) null else {
+            val inner = md5Hex(v.optString("wa_inner_version") + v.optString("cr_version"))
+            // Some firmware builds expect the hex digest in upper case; the retry path tries that form.
+            if (upper) md5Hex(inner + rd).uppercase() else md5Hex(inner + rd)
+        }
     } catch (e: java.io.IOException) { throw e } catch (_: Exception) { null }
 
-    private fun send(ctx: Context, op: String, params: Map<String, String>): Resp =
+    private fun send(ctx: Context, op: String, params: Map<String, String>, upper: Boolean = false): Resp =
         if (op == "get") http(ctx, "GET", GET_PATH, params + ("isTest" to "false"))
         else {
             val p = LinkedHashMap(params)
             p["isTest"] = "false"
-            val ad = adToken(ctx)
+            val ad = adToken(ctx, upper)
             ad?.let { p["AD"] = it }
             val r = http(ctx, "POST", SET_PATH, p)
-            lastInfo = "AD " + (if (ad != null) "ok" else "missing") + ", session " + (if (cookie.isNotEmpty()) "yes" else "no") +
+            lastInfo = "AD " + (if (ad != null) (if (upper) "ok/upper" else "ok") else "missing") + ", session " + (if (cookie.isNotEmpty()) "yes" else "no") +
                 ", HTTP " + r.code + ", reply " + (if (r.body.isBlank()) "empty" else r.body.trim().take(60))
             r
         }
@@ -208,10 +212,29 @@ object ZteClient {
     private fun looksUnauthorized(r: Resp) =
         r.code == 401 || r.code == 403 || r.body.isBlank() || r.body.contains("\"result\":\"failure\"")
 
-    /** op is "get" or "set". Returns the router's raw response body. */
-    fun call(ctx: Context, op: String, params: Map<String, String>): String = synchronized(lock) {
+    /** Plain GET of one static file of the router's own web page (e.g. /index.html or a script it loads). Read-only. */
+    fun fetchPage(ctx: Context, path: String): String = synchronized(lock) {
+        if (!Regex("^/[A-Za-z0-9._/-]{1,200}$").matches(path) || path.contains("..")) throw IllegalArgumentException("bad path")
         try {
-            callLocked(ctx, op, params)
+            val host = resolveHost(ctx)
+            val c = URL("http://$host$path").openConnection() as HttpURLConnection
+            try {
+                c.connectTimeout = 2500; c.readTimeout = 10000; c.instanceFollowRedirects = false
+                val code = c.responseCode
+                if (code >= 400) throw IllegalStateException("Router returned HTTP $code for $path")
+                c.inputStream.bufferedReader(Charsets.UTF_8).use { r ->
+                    val sb = StringBuilder(); val buf = CharArray(8192)
+                    while (true) { val n = r.read(buf); if (n < 0) break; sb.append(buf, 0, n); if (sb.length > 4_000_000) break }
+                    sb.toString()
+                }
+            } finally { c.disconnect() }
+        } catch (e: java.io.IOException) { throw IllegalStateException("Router web page unreachable: ${e.message ?: e.javaClass.simpleName}") }
+    }
+
+    /** op is "get" or "set". Returns the router's raw response body. */
+    fun call(ctx: Context, op: String, params: Map<String, String>, retry: Int = 0): String = synchronized(lock) {
+        try {
+            callLocked(ctx, op, params, retry)
         } catch (e: java.io.IOException) {
             // Connection refused / timed out / no route: the router web API cannot be reached at all, so the
             // password is irrelevant. Callers (the SMS tool) recognise the "unreachable" wording and fall back to
@@ -223,18 +246,24 @@ object ZteClient {
         }
     }
 
-    private fun callLocked(ctx: Context, op: String, params: Map<String, String>): String {
+    /**
+     * [retry] is used by the SMS tool for an idempotent "set" (delete) that the router answered with an empty body:
+     * 1 = throw the cached session away and sign in again first, 2 = the same plus the upper-case AD token form.
+     */
+    private fun callLocked(ctx: Context, op: String, params: Map<String, String>, retry: Int = 0): String {
+        if (retry >= 1) { cookie = ""; lastLoginFail = 0L }
         // The router expires idle sessions but still answers HTTP 200 {"result":"failure"} to a "set" made with the dead
         // cookie (delete / send SMS then silently do nothing). A "set" must not be repeated blindly, so renew the
         // session up front when it has been idle for a while.
         val hasPass = Prefs.ztePass(ctx).isNotEmpty()
         if (hasPass && cookie.isNotEmpty() && System.currentTimeMillis() - lastUse > IDLE_RELOGIN_MS) cookie = ""
         if (cookie.isEmpty() && hasPass) login(ctx)?.let { throw IllegalStateException(it) }
-        var r = send(ctx, op, params)
+        val upper = retry >= 2
+        var r = send(ctx, op, params, upper)
         // Retry once after logging in. Only for reads (or an explicit 401/403): a failed "set" must never be repeated blindly.
         if ((op == "get" && looksUnauthorized(r)) || r.code == 401 || r.code == 403) {
             login(ctx)?.let { throw IllegalStateException(it) }
-            r = send(ctx, op, params)
+            r = send(ctx, op, params, upper)
         }
         if (r.code >= 400) throw IllegalStateException("Router returned HTTP ${r.code}")
         lastUse = System.currentTimeMillis()

@@ -42,7 +42,7 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
     <p><button id="tokbtn">Connect</button> <span id="tokerr" class="mut"></span></p>
   </div>
   <div class="card" id="home" style="display:none">
-    <div class="mut" style="margin-bottom:8px">CONTROL CENTER</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><div class="mut">CONTROL CENTER</div><button type="button" id="rebootbtn" style="color:#e03131;padding:4px 12px">Reboot</button></div>
     <h2 style="margin:2px 0 4px;font-size:22px">Device overview</h2>
     <p class="mut">Manage device diagnostics, USB connectivity, firmware metadata, root access and installed extensions.</p>
     <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Built-in tools &amp; plugins</button></div>
@@ -118,6 +118,80 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
   const setVoLTE = async (on) => (await at('AT+CAVIMS=' + (on ? 1 : 0))).includes('OK');
   const setVoNR = async (on) => (await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0))).includes('OK');
 
+  // ---- IMEI ---------------------------------------------------------------------------------------------
+  // Unisoc modems write the IMEI with AT+SPIMEI=<slot>,"<imei>". Safety rules built into this flow:
+  //  1. The current IMEI must be readable first; otherwise nothing is written (there would be no way back).
+  //  2. The current IMEI is backed up on the router itself (/data/local/matchitool/imei_backup.txt, append-only,
+  //     survives clearing the browser) and in this browser, BEFORE anything is written.
+  //  3. Only a valid 15-digit IMEI (Luhn check digit) is accepted; obvious junk (all one digit) is refused.
+  //  4. The confirmation shows current -> new. The modem is NOT restarted automatically: after the write the IMEI is read
+  //     back, and a restart is a separate question you can decline.
+  // Changing an IMEI is restricted or illegal in some countries: use it only to restore your own device's IMEI or where
+  // the law allows it. Write down the IMEI printed on the router's label as well.
+  const BACKUP = '/data/local/matchitool/imei_backup.txt';
+  const luhnOk = (d) => {
+    if (!/^\d{15}$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < 15; i++) { let n = +d[14 - i]; if (i % 2) { n *= 2; if (n > 9) n -= 9; } sum += n; }
+    return sum % 10 === 0;
+  };
+  const luhnDigit = (d14) => { for (let c = 0; c < 10; c++) if (luhnOk(d14 + c)) return String(c); return '0'; };
+  const readImei = async () => { const m = (await at('AT+CGSN')).match(/(?<!\d)\d{15}(?!\d)/); return m ? m[0] : ''; };
+  const origKey = () => 'matchi_orig_imei_' + slot();
+  async function sh(cmd) {
+    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: 15000 }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.content || '');
+  }
+  // Appends "<time> slot <n> <imei>" on the router. Digits only, so nothing needs shell quoting. Returns true when the line is there.
+  async function backupImei(v) {
+    const line = new Date().toISOString().replace(/[^0-9T:-]/g, '') + ' slot ' + slot() + ' ' + v;
+    const out = await sh('mkdir -p /data/local/matchitool && echo "' + line + '" >> ' + BACKUP + ' && grep -c " ' + v + '$" ' + BACKUP);
+    return /^\d+$/.test(out.trim().split('\n').pop());
+  }
+  // The earliest IMEI recorded for this slot (router file first, then this browser).
+  async function firstSeen() {
+    try {
+      const out = await sh('grep " slot ' + slot() + ' " ' + BACKUP + ' 2>/dev/null | head -n 1');
+      const m = out.match(/slot \d (\d{15})/); if (m) return m[1];
+    } catch (_) {}
+    try { return localStorage.getItem(origKey()) || ''; } catch (_) { return ''; }
+  }
+  async function showImei() {
+    const cur = document.getElementById('matchi_imei_cur'); if (!cur) return;
+    try {
+      const v = await readImei();
+      cur.textContent = v || 'unknown';
+      if (v) {
+        try { if (!localStorage.getItem(origKey())) localStorage.setItem(origKey(), v); } catch (_) {}
+        try { if (!(await firstSeen())) await backupImei(v); } catch (_) {}   // first time this slot is seen: keep it
+      }
+    } catch (e) { cur.textContent = 'unreadable (' + e.message + ')'; }
+  }
+  async function writeImei(imei) {
+    if (/^\d{14}$/.test(imei)) imei += luhnDigit(imei);   // 14 digits: the check digit is added for you
+    if (!luhnOk(imei)) throw new Error('IMEI must be 15 digits with a valid check digit');
+    if (/^(\d)\1{14}$/.test(imei)) throw new Error('That IMEI is not valid');
+    const before = await readImei();
+    if (!before) throw new Error('The current IMEI could not be read, so nothing was changed (no way to go back)');
+    if (before === imei) throw new Error('That is already the current IMEI');
+    if (!(await askConfirm('Change the IMEI of SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '?\n\nThe current IMEI is saved on the router first. Changing an IMEI is restricted or illegal in some countries; only use your own device\'s IMEI or where the law allows it.', 'Change IMEI', true))) return false;
+    if (!(await backupImei(before))) throw new Error('Could not save a backup of the current IMEI on the router, so nothing was changed');
+    log('Backup saved: ' + before + ' (' + BACKUP + ')');
+    log('> AT+SPIMEI=' + slot() + ',"' + imei + '"');
+    const r = await at('AT+SPIMEI=' + slot() + ',"' + imei + '"');
+    log(r || '(no output)');
+    if (/ERROR/i.test(r) || !/OK/i.test(r)) throw new Error('Modem did not accept the IMEI change (' + (r.trim() || 'no reply') + '). Nothing was changed.');
+    let now = ''; try { now = await readImei(); } catch (_) {}
+    log('IMEI now reads: ' + (now || 'unknown') + (now === imei ? '' : ' (may only change after a modem restart)'));
+    if (await askConfirm('The IMEI was written. Restart the modem now so it takes effect? (Mobile data drops for about 30 seconds.)', 'Restart modem', false)) {
+      log('> AT+CFUN=1,1');
+      try { log(await at('AT+CFUN=1,1') || '(no output)'); } catch (e) { log('Restart: ' + e.message); }
+      createToast('Modem restarting. Reopen this window in about 30 seconds to check the IMEI.', 'green');
+    } else createToast('IMEI written. Restart the modem or the router for it to take effect.', 'green');
+    return true;
+  }
+
   const PRESETS = [
     ['Signal quality', 'AT+CSQ'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
     ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'ATI'],
@@ -151,6 +225,9 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
         '<button type="button" id="matchi_bands">NR bands</button></div>' +
+        '<div style="border:1px solid var(--bd);border-radius:8px;padding:8px;margin-bottom:10px"><div style="font-size:13px;margin-bottom:6px">IMEI (slot): <b id="matchi_imei_cur">…</b></div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="matchi_imei_in" placeholder="New IMEI (15 digits)" inputmode="numeric" autocomplete="off" maxlength="15" style="flex:1;min-width:160px">' +
+        '<button type="button" id="matchi_imei_set">Change IMEI</button><button type="button" id="matchi_imei_restore">Restore first-seen</button></div></div>' +
         '<input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
@@ -172,8 +249,20 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
         refreshSwitches();
       };
     }
-    document.getElementById('matchi_at_slot').onchange = refreshSwitches;
+    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); showImei(); };
+    const imeiBtn = (id, getVal) => {
+      const b = document.getElementById(id);
+      b.onclick = async () => {
+        b.disabled = true;
+        try { const v = await getVal(); if (!v) throw new Error('Enter the new IMEI first'); await writeImei(v); }
+        catch (e) { createToast(e.message, 'red'); log('Error: ' + e.message); }
+        b.disabled = false; showImei();
+      };
+    };
+    imeiBtn('matchi_imei_set', () => document.getElementById('matchi_imei_in').value.replace(/\D/g, ''));
+    imeiBtn('matchi_imei_restore', async () => { const v = await firstSeen(); if (!v) throw new Error('No earlier IMEI is recorded for this slot'); return v; });
     refreshSwitches();
+    showImei();
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
@@ -3713,7 +3802,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
 <script type="text/plain" class="webtool" data-name="Device_Status.js">
 /*
  * Device Status - MatchiTOOL plugin
- * Shows battery, temperature, CPU load, memory, uptime and network addresses; includes a reboot button.
+ * Shows battery, temperature, CPU load, memory, uptime and network addresses; 
  */
 (() => {
   'use strict';
@@ -3791,16 +3880,10 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
       name: MODAL, title: 'Device status', maxWidth: '440px', showConfirm: false, onClose: () => true,
       content: '<div id="matchi_status_body"></div>' +
         '<div style="display:flex;gap:8px;margin-top:12px">' +
-        '<button type="button" id="matchi_status_refresh">Refresh</button>' +
-        '<button type="button" id="matchi_status_reboot" style="color:#e03131">Reboot device</button></div>',
+        '<button type="button" id="matchi_status_refresh">Refresh</button></div>',
     });
     showModal(MODAL);
     document.getElementById('matchi_status_refresh').onclick = refresh;
-    document.getElementById('matchi_status_reboot').onclick = async () => {
-      if (!(await askConfirm('Reboot the device now?', 'Reboot', true))) return;
-      createToast('Rebooting…', 'orange');
-      try { await runShellWithRoot('reboot', 5000); } catch (_) {}
-    };
     refresh();
   }
 
@@ -4588,35 +4671,156 @@ rm -rf "${DEVICE_TMP_DIR}"
 <script type="text/plain" class="webtool" data-name="Network_Debug.js">
 /*
  * Network Debug - MatchiTOOL plugin
- * Shows the router's own "Network Debug" page (4G / 5G band lock, neighbor cells, cell lock, locked cells) inside
- * MatchiTOOL. The router applies every change itself with its own firmware commands; MatchiTOOL sends nothing.
- * Sign in on that page with the router admin password if it asks.
+ * Native 4G / 5G band lock, neighbor cells, cell lock and locked cells (same sections as the router's own page).
+ * The router firmware's command names are not documented, so this tool reads them from the router's own web page
+ * ("Detect commands") and only sends a command the router's page itself uses. Anything it cannot identify stays
+ * disabled instead of being guessed. Sign-in uses the same router admin password as the SMS tool.
  */
 (() => {
   'use strict';
   const MODAL = 'matchi_netdbg_modal', BTN_ID = 'matchi_netdbg_btn';
   if (document.getElementById(BTN_ID)) return;
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const el = (id) => document.getElementById(id);
+  const B4 = [1, 3, 5, 8, 34, 38, 39, 40, 41], B5 = [1, 5, 8, 28, 41, 78];
 
-  async function routerUrl() {
-    let host = '192.168.0.1';
-    try { const c = await api('/api/zte/config'); if (c && /^[A-Za-z0-9.-]{1,64}(:[0-9]{1,5})?$/.test(c.host || '')) host = c.host; } catch (_) {}
-    return 'http://' + host + '/index.html#network_debug';
+  async function zte(op, params) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params }) });
+    if (r.error) throw new Error(r.error);
+    return r.data;
+  }
+  async function page(path) {
+    const r = await api('/api/zte/page', { method: 'POST', body: JSON.stringify({ path }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.text || '');
   }
 
-  async function open() {
-    const url = await routerUrl();
+  // ---- detection: which commands does the router's own page use? -------------------------------------------------
+  let all = '', ids = [], cmds = [], R = {}, report = '';
+  const norm = (u) => { u = u.split('?')[0].replace(/^https?:\/\/[^/]+/, ''); return u.startsWith('/') ? u : '/' + u.replace(/^\.\//, ''); };
+  const kw = /band|lock|cell|ngbr|neighbo|nr5g/i;
+  async function detect() {
+    const idx = await page('/index.html');
+    all = idx;
+    const seen = new Set(), queue = [...idx.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((m) => norm(m[1]));
+    while (queue.length && seen.size < 30) {
+      const u = queue.shift();
+      if (seen.has(u) || !/\.js$/.test(u)) continue;
+      seen.add(u);
+      let t = ''; try { t = await page(u); } catch (_) { continue; }
+      all += '\n' + t;
+      const dir = u.replace(/[^/]*$/, '');
+      for (const m of t.matchAll(/["']([A-Za-z0-9_./-]{3,80}\.js)["']/g)) {
+        for (const n of [norm(m[1]), norm(dir + m[1])]) if (!seen.has(n) && queue.length < 60) queue.push(n);
+      }
+    }
+    ids = [...new Set([...all.matchAll(/goformId["']?\s*[:=]\s*["']([A-Za-z0-9_]+)["']/g)].map((m) => m[1]))].filter((x) => kw.test(x));
+    cmds = [...new Set([...all.matchAll(/["']([a-z][a-z0-9_]{3,48})["']/g)].map((m) => m[1]))].filter((x) => kw.test(x) && x.includes('_')).slice(0, 150);
+    const uses = (n) => all.includes('"' + n + '"') || all.includes("'" + n + "'");
+    R = {
+      lteRead: ['lte_band_lock'].find(uses),
+      nrRead: ['nr5g_sa_band_lock', 'nr5g_nsa_band_lock', 'nr5g_band_lock'].find(uses),
+      nbrRead: ['ngbr_cell_info', 'neighbor_cell_info', 'nr_ngbr_cell_info'].find(uses),
+      lockRead: ['locked_cell_info', 'lock_cell_info', 'cell_lock_info'].find(uses),
+      lteSet: ids.includes('BAND_SELECT') && all.includes('lte_band_mask'),
+    };
+    const lines = ['MatchiTOOL network debug detection', 'files read: ' + (seen.size + 1) + ', size ' + all.length,
+      'goformIds: ' + (ids.join(', ') || '(none)'), 'commands: ' + (cmds.join(', ') || '(none)'), 'resolved: ' + JSON.stringify(R), ''];
+    for (const id of ids.slice(0, 25)) {
+      const i = all.indexOf(id);
+      lines.push('--- ' + id + ' ---', all.substr(Math.max(0, i - 220), 520).replace(/\s+/g, ' '));
+    }
+    report = lines.join('\n');
+  }
+
+  // ---- reading ----------------------------------------------------------------------------------------------------
+  const rowsFrom = (v) => {
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (_) { return v.split(';').map((r) => r.split(',').map((x) => x.trim())).filter((r) => r.length > 1 && r.some(Boolean)); } }
+    if (v && !Array.isArray(v) && typeof v === 'object') v = Object.values(v).find(Array.isArray) || [];
+    if (!Array.isArray(v)) return [];
+    const pick = (o, re) => { const k = Object.keys(o).find((x) => re.test(x)); return k ? o[k] : ''; };
+    return v.map((o) => Array.isArray(o) ? o : [pick(o, /band/i), pick(o, /earfcn|arfcn|freq/i), pick(o, /pci/i), pick(o, /rsrp/i), pick(o, /rsrq/i), pick(o, /sinr|snr/i)]);
+  };
+  const table = (head, rows) => rows.length
+    ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr>' + head.map((h) => '<th style="text-align:left;padding:4px 6px">' + esc(h) + '</th>').join('') + '</tr>' +
+      rows.map((r) => '<tr>' + head.map((_, i) => '<td style="padding:4px 6px;border-top:1px solid var(--bd)">' + esc(r[i] ?? '') + '</td>').join('') + '</tr>').join('') + '</table>'
+    : '<div class="mut" style="font-size:13px">No data.</div>';
+  const bandsFrom = (v) => {
+    v = String(v ?? '').trim();
+    if (/^0x[0-9a-f]+$/i.test(v)) { const m = BigInt(v), out = []; for (let b = 1; b <= 100; b++) if ((m >> BigInt(b - 1)) & 1n) out.push(b); return out; }
+    if (/^\d+(\s*[,;]\s*\d+)*$/.test(v)) return v.split(/[,;]/).map((x) => +x);
+    return null;
+  };
+  async function readCmd(cmd) { const d = await zte('get', { cmd, multi_data: '1' }); return d && typeof d === 'object' ? d[cmd] : d; }
+  const setChecks = (sel, list) => document.querySelectorAll(sel).forEach((c) => { c.checked = !!list && list.includes(+c.value); });
+
+  async function refresh() {
+    const note = el('matchi_nd_note'); note.textContent = 'Reading…';
+    try {
+      if (!all) await detect();
+      const out = [];
+      if (R.lteRead) { const b = bandsFrom(await readCmd(R.lteRead)); if (b) setChecks('.nd4', b); } else out.push('4G band lock command not found');
+      if (R.nrRead) { const b = bandsFrom(await readCmd(R.nrRead)); if (b) setChecks('.nd5', b); } else out.push('5G band lock command not found');
+      el('matchi_nd_nbr').innerHTML = R.nbrRead ? table(['Band', 'EARFCN', 'PCI', 'RSRP', 'RSRQ', 'SINR'], rowsFrom(await readCmd(R.nbrRead))) : '<div class="mut" style="font-size:13px">Neighbor cell command not found.</div>';
+      el('matchi_nd_locked').innerHTML = R.lockRead ? table(['Type', 'PCI', 'EARFCN'], rowsFrom(await readCmd(R.lockRead))) : '<div class="mut" style="font-size:13px">Locked cell command not found.</div>';
+      note.textContent = out.length ? out.join('. ') + '. Press Detect commands and send me the report.' : '';
+    } catch (e) { note.textContent = 'Error: ' + e.message; }
+  }
+
+  // ---- writing (only what the router's own page uses) -------------------------------------------------------------
+  async function apply4g() {
+    const sel = [...document.querySelectorAll('.nd4:checked')].map((c) => +c.value);
+    if (!sel.length) return createToast('Select at least one band (selecting none would lock the modem out of every band)', 'red');
+    if (!R.lteSet || !R.lteRead) return createToast('4G band lock command not identified yet. Press Detect commands and send me the report.', 'red');
+    let m = 0n; for (const b of sel) m |= 1n << BigInt(b - 1);
+    const mask = '0x' + m.toString(16).toUpperCase();
+    if (!(await askConfirm('Lock 4G to band ' + sel.join(', ') + '? The router may drop mobile data briefly. If the connection is lost, restoring the router\'s factory settings or all bands brings it back.', 'Apply', true))) return;
+    try {
+      const d = await zte('set', { goformId: 'BAND_SELECT', is_gw_band: '0', gw_band_mask: '0', is_lte_band: '1', lte_band_mask: mask });
+      await new Promise((r) => setTimeout(r, 1500));
+      const now = bandsFrom(await readCmd(R.lteRead));
+      const ok = now && sel.length === now.length && sel.every((b) => now.includes(b));
+      createToast(ok ? '4G band lock applied' : 'The router did not confirm the change (' + JSON.stringify(d) + ')', ok ? 'green' : 'red');
+      refresh();
+    } catch (e) { createToast(e.message, 'red'); }
+  }
+  const notYet = (what) => createToast(what + ' command not identified yet. Press Detect commands and send me the report.', 'red');
+
+  function open() {
     createModal({
-      name: MODAL, title: 'Network debug', maxWidth: '980px', showConfirm: false,
-      onClose: () => { const f = document.getElementById('matchi_netdbg_frame'); if (f) f.src = 'about:blank'; return true; },
+      name: MODAL, title: 'Network debug', maxWidth: '760px', showConfirm: false, onClose: () => true,
       content:
-        '<div class="mut" style="font-size:12px;margin-bottom:8px">The router\'s own Network Debug page: band lock, neighbor cells and cell lock. The router applies the changes itself. Sign in with the router admin password if it asks.</div>' +
-        '<iframe id="matchi_netdbg_frame" src="' + esc(url) + '" style="width:100%;height:66vh;border:1px solid var(--bd);border-radius:12px;background:#fff"></iframe>' +
-        '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" id="matchi_netdbg_tab">Open in new tab</button>' +
-        '<span class="mut" style="font-size:12px">Blank page? Your router blocks embedding: use Open in new tab.</span></div>',
+        '<div id="matchi_nd_note" class="mut" style="font-size:12px;margin-bottom:8px"></div>' +
+        '<div style="font-weight:600;margin:6px 0">4G band lock</div><div style="display:flex;flex-wrap:wrap;gap:6px 18px">' +
+        B4.map((b) => '<label><input type="checkbox" class="nd4" value="' + b + '" style="width:auto"> Band ' + b + '</label>').join('') + '</div>' +
+        '<div style="margin:8px 0"><button type="button" id="matchi_nd_a4">Apply 4G</button></div>' +
+        '<div style="font-weight:600;margin:10px 0 6px">5G band lock</div><div style="display:flex;flex-wrap:wrap;gap:6px 18px">' +
+        B5.map((b) => '<label><input type="checkbox" class="nd5" value="' + b + '" style="width:auto"> Band ' + b + '</label>').join('') + '</div>' +
+        '<div style="margin:8px 0"><button type="button" id="matchi_nd_a5">Apply 5G</button></div>' +
+        '<div style="font-weight:600;margin:10px 0 6px">Neighbor cell information</div><div id="matchi_nd_nbr"></div>' +
+        '<div style="font-weight:600;margin:12px 0 6px">Cell lock</div>' +
+        '<div style="display:flex;gap:14px;margin-bottom:6px"><label><input type="radio" name="nd_t" value="4G" checked style="width:auto"> 4G</label><label><input type="radio" name="nd_t" value="5G" style="width:auto"> 5G</label></div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="matchi_nd_pci" placeholder="PCI" inputmode="numeric" style="width:120px"><input id="matchi_nd_arfcn" placeholder="EARFCN / NR-ARFCN" inputmode="numeric" style="width:190px"><button type="button" id="matchi_nd_lock">Lock cell</button></div>' +
+        '<div style="font-weight:600;margin:12px 0 6px">Locked cell information</div><div id="matchi_nd_locked"></div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button type="button" id="matchi_nd_unlock">Unlock all</button><button type="button" id="matchi_nd_refresh">Refresh</button><button type="button" id="matchi_nd_detect">Detect commands</button><button type="button" id="matchi_nd_copy">Copy report</button></div>',
     });
     showModal(MODAL);
-    document.getElementById('matchi_netdbg_tab').onclick = () => window.open(url, '_blank', 'noopener');
+    el('matchi_nd_a4').onclick = apply4g;
+    el('matchi_nd_a5').onclick = () => notYet('5G band lock');
+    el('matchi_nd_lock').onclick = () => notYet('Cell lock');
+    el('matchi_nd_unlock').onclick = () => notYet('Unlock all');
+    el('matchi_nd_refresh').onclick = refresh;
+    el('matchi_nd_detect').onclick = async () => {
+      el('matchi_nd_note').textContent = 'Reading the router\'s page…';
+      try { await detect(); el('matchi_nd_note').textContent = 'Found ' + ids.length + ' related commands. Resolved: ' + Object.entries(R).map(([k, v]) => k + '=' + (v || 'no')).join(', '); refresh(); }
+      catch (e) { el('matchi_nd_note').textContent = 'Detect failed: ' + e.message; }
+    };
+    el('matchi_nd_copy').onclick = async () => {
+      if (!report) return createToast('Press Detect commands first', 'red');
+      try { await navigator.clipboard.writeText(report); createToast('Report copied', 'green'); }
+      catch (_) { const t = document.createElement('textarea'); t.value = report; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); createToast('Report copied', 'green'); }
+    };
+    refresh();
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
@@ -4686,8 +4890,8 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   const isOut = (tag) => ['2', '3', '4'].includes(String(tag)); // 2 sent, 3 send failed, 4 draft
 
-  async function zte(op, params) {
-    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params }) });
+  async function zte(op, params, retry) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: retry || 0 }) });
     if (r.error) throw new Error(r.error);
     lastInfo = r.info || '';
     return r.data;
@@ -4723,7 +4927,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     return m ? `20${m[1]}-${m[2]}-${m[3]} ${m[4]}` : String(d || '');
   }
 
-  async function atFetch() {
+  async function atFetch(scanAll) {
     await at('AT+CMGF=1');
     const ucs = atGood(await at('AT+CSCS="UCS2"'));   // with UCS2 every number and text comes back as UTF-16BE hex
     const dec = (v) => (ucs ? strictHex(v) : v);
@@ -4744,7 +4948,7 @@ rm -rf "${DEVICE_TMP_DIR}"
         }
       }
       for (const m of out) if (m.store === store) m.text = decodeBody(ucs ? strictHex(m.text) : m.text);
-      if (out.some((m) => m.store === store)) break;   // messages found in this store; do not list the other twice
+      if (!scanAll && out.some((m) => m.store === store)) break;   // messages found in this store; do not list the other twice
     }
     out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     return out.map((m) => ({
@@ -4766,25 +4970,37 @@ rm -rf "${DEVICE_TMP_DIR}"
   const samePhone = (a, b) => String(a || '').replace(/\D/g, '').slice(-9) === String(b || '').replace(/\D/g, '').slice(-9);
 
   // Deletes through the router API and checks that the message is really gone (the router often answers
-  // "success" or an unparsed body without deleting). Falls back to the modem's AT commands.
+  // "success" or an empty body without deleting). Order: router (plain, then fresh login, then upper-case AD),
+  // then the modem storage, then Android's own SMS store. Every step is verified against the router's list.
+  const norm = (t) => String(t || '').replace(/\s+/g, '');
+  const sameText = (a, b) => { a = norm(a); b = norm(b); return !!a && !!b && (a === b || (a.length > 30 && b.length > 30 && (a.startsWith(b.slice(0, 30)) || b.startsWith(a.slice(0, 30))))); };
   async function apiDelete(m) {
     const id = String(m.id), notes = [];
-    for (const mid of [id + ';', id]) {
+    const gone = async () => !(await apiList()).some((x) => String(x.id) === id);
+    const attempts = [[id + ';', 0], [id, 0], [id + ';', 1], [id + ';', 2]];   // [msg_id, retry level]
+    for (const [mid, retry] of attempts) {
       try {
-        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' });
+        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' }, retry);
         const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
         notes.push((res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
         if (/fail|error/i.test(res) && !/success/i.test(res)) continue;
-        if (!(await apiList()).some((x) => String(x.id) === id)) return;   // verified gone
+        if (await gone()) return;   // verified gone
       } catch (e) { if (UNREACH.test(e.message)) break; notes.push(e.message); }
     }
-    // Fallback: delete the same message from the modem storage.
+    const text = decodeBody(m.content);
+    const find = (list) => list.find((x) => samePhone(x.number, m.number) && sameText(x.text, text));
+    // Fallback 1: the same message in the modem storage (every store, loose text match).
     try {
-      const text = decodeBody(m.content);
-      const hit = (await atFetch()).find((x) => samePhone(x.number, m.number) && x.text.trim() === text.trim());
-      if (hit) { await hit.del(); return; }
-      notes.push('not found in modem storage either');
+      const hit = find(await atFetch(true));
+      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in modem but the router still lists it'); }
+      else notes.push('not found in modem storage');
     } catch (e) { notes.push('modem: ' + e.message); }
+    // Fallback 2: Android's SMS store (where the router app keeps its copy on many builds).
+    try {
+      const hit = find(await providerFetch());
+      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in Android SMS store but the router still lists it'); }
+      else notes.push('not found in Android SMS store');
+    } catch (e) { notes.push('android: ' + e.message); }
     throw new Error('Could not delete the message (router said: ' + notes.join(', ') + ')');
   }
 
@@ -4837,10 +5053,23 @@ rm -rf "${DEVICE_TMP_DIR}"
     try {
       for (const p of parts) {
         // len and pdu are digits / hex only, so there is nothing to escape in the shell line.
-        const cmd = "F=/data/data/com.matchi.tool/files/sendat; [ -x \"$F\" ] || F=/data/user/0/com.matchi.tool/files/sendat; " +
-          "\"$F\" -n 0 -c \"$(printf 'AT+CMGS=%s\\r%s\\032' '" + p.len + "' '" + p.pdu + "')\"";
-        const r = await sh(cmd, 45000);
-        if (!(/\+CMGS:\s*\d+/.test(r) || atGood(r))) throw new Error('Modem did not accept the message: ' + (r.trim() || 'no reply'));
+        const F = "F=/data/data/com.matchi.tool/files/sendat; [ -x \"$F\" ] || F=/data/user/0/com.matchi.tool/files/sendat; ";
+        // sendat answered "500 Unsupported escape sequence" to the command built with real CR / Ctrl-Z bytes, so it
+        // does its own escape handling. Try the real bytes first, then the escapes written out for sendat itself.
+        const variants = [
+          F + "\"$F\" -n 0 -c \"$(printf 'AT+CMGS=%s\\r%s\\032' '" + p.len + "' '" + p.pdu + "')\"",
+          F + "\"$F\" -n 0 -c 'AT+CMGS=" + p.len + "\\r" + p.pdu + "\\x1a'",
+          F + "\"$F\" -n 0 -c 'AT+CMGS=" + p.len + "\\r" + p.pdu + "\\u001a'",
+        ];
+        let lastR = '', sent = false;
+        for (const cmd of variants) {
+          const r = await sh(cmd, 45000);
+          lastR = r;
+          if (/\+CMGS:\s*\d+/.test(r) || atGood(r)) { sent = true; break; }
+          // Only try the next form when sendat rejected the command text itself (nothing was transmitted).
+          if (!/escape|unsupported|invalid|\b500\b|usage|flag/i.test(r)) break;
+        }
+        if (!sent) throw new Error('Modem did not accept the message: ' + (lastR.trim() || 'no reply'));
       }
     } finally { try { await at('AT+CMGF=1'); } catch (_) {} }   // back to text mode for reading
   }
@@ -5072,7 +5301,7 @@ function askConfirm(message,okText,danger){
   return new Promise(resolve=>{
     const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='3000';
     bg.innerHTML='<div class="modal" role="alertdialog" aria-modal="true" style="max-width:380px"><div class="mbody" style="line-height:1.5;font-size:15px"></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><button type="button" class="ccancel">Cancel</button><button type="button" class="cok"></button></div></div>';
-    bg.querySelector('.mbody').textContent=message;
+    bg.querySelector('.mbody').textContent=message;bg.querySelector('.mbody').style.whiteSpace='pre-line';
     const ok=bg.querySelector('.cok');ok.textContent=okText||'OK';
     ok.style.cssText=danger?'background:linear-gradient(180deg,#c43850,#992a3d);border-color:#e05a70':'background:linear-gradient(180deg,#1d7be0,#1560b8);border-color:#3b95f5';
     const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(false)}};
@@ -5083,6 +5312,12 @@ function askConfirm(message,okText,danger){
     document.body.appendChild(bg);ok.focus();
   });
 }
+document.addEventListener('click',async(e)=>{
+  if(!e.target||e.target.id!=='rebootbtn')return;
+  if(!(await askConfirm('Reboot the device now?','Reboot',true)))return;
+  createToast('Rebooting…','orange');
+  try{await api('/api/shell',{method:'POST',body:JSON.stringify({cmd:'reboot',timeout:5000})})}catch(_){}
+});
 let TOKEN=localStorage.getItem('matchi_token')||'';
 function setHostStatus(online,label){const el=document.getElementById('hoststatus');if(!el)return;el.classList.toggle('online',!!online);el.classList.toggle('offline',!online);document.getElementById('hostlabel').textContent=label||(online?'Host connected':'Host disconnected')}
 async function api(path,opt={}){
@@ -5187,7 +5422,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.32';
+const PAGE_VERSION='1.1.33';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},

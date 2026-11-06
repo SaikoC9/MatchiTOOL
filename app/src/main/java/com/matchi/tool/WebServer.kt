@@ -306,7 +306,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.32"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.33"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
@@ -367,10 +367,12 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val po = req.optJSONObject("params") ?: JSONObject()
             val p = LinkedHashMap<String, String>()
             for (k in po.keys()) p[k] = po.optString(k)
-            val raw = ZteClient.call(ctx, op, p)
+            val raw = ZteClient.call(ctx, op, p, req.optInt("retry", 0).coerceIn(0, 2))
             val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
             json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed).put("info", if (op == "set") ZteClient.lastInfo else ""))
         }
+        uri == "/api/zte/page" && s.method == Method.POST ->
+            json(Response.Status.OK, JSONObject().put("ok", true).put("text", ZteClient.fetchPage(ctx, body(s).optString("path"))))
         uri == "/api/zte/config" && s.method == Method.GET ->
             json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty()))
         uri == "/api/zte/config" && s.method == Method.POST -> {
