@@ -7,6 +7,7 @@
 - Fixed modem/shell errors being overwritten by the "Last updated" line; errors now stay visible.
 - Bumped versionCode to 117 / versionName to 1.1.7 (also `/api/ping` and `scripts/validate.sh`). Bundled plugins only refresh on installed devices when versionCode changes, so this bump is required for plugin fixes to reach the app.
 - CI now runs `bash scripts/validate.sh`, so it no longer depends on the file's executable bit.
+- Fixed Kotlin compile errors in `WebServer.kt`: shell variables `$x` and `$BASE` inside Kotlin strings were being read as Kotlin templates; they are now escaped.
 
 ## 1.1.6 - Version metadata alignment
 - Corrected Android versionName to 1.1.6 and incremented versionCode to 116.
