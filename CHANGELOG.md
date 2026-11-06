@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.31 - Router API port auto-detect (fixes SMS / signal on the F50)
+- The F50 has nothing listening on port 80, so every router web API call failed with `Failed to connect to /192.168.0.1:80`. The app now probes 80, 8080, 9090 and 9999 for the ZTE goform API and uses the first that answers (cached, re-detected after a failure).
+- The Router gateway setting also accepts `host:port` (e.g. `192.168.0.1:8080`) to force a port.
+- New built-in tool **Clean memory** (button on the home card, needs root): stops background third-party apps (never the foreground app, launcher, keyboard or MatchiTOOL), trims the system and reclaims memory, then reports how much was freed. Full diagnose lists it under Built-in tools without running it.
+- **Bypass speed:** closing the Bypass window now really stops its background checks (they kept running every 30 s and made the next open queue behind them). Internet / DNS tests run in parallel and give up after about 2 s instead of 3-8 s each. Opening skips the duplicate re-read and checks the helper scripts at most every 10 minutes. Standard / Strong / Off repaint right after applying and run the internet test in the background. The automatic check also skips a round while the root shell is busy.
+- **Persistent root shells (all tools):** the host now keeps up to 3 root shells open and feeds scripts to them, instead of starting `su` for every command (150-400 ms each on a hot device, and Bypass / Live Status / SMS / diagnose issue dozens). Each script still runs in its own child shell, so `exit` or a failing command cannot end the session; output goes through a temp file so a background daemon cannot pollute a later result; a timeout closes that shell and the next command opens a fresh one; if all shells are busy or one cannot start, the old one-shot `su` path is used.
+- **Live Status** pauses its 5 s polling while another tool window is open, so tools no longer compete with it for the root shell.
+- Full diagnose no longer warns about port 80 when another usual router port is listening.
+
 ## 1.1.30 - Native app redesign and launcher icon (app screens only)
 - New home screen: Live signal card (bars, dBm, quality, network badge, operator and registration, RSRQ / SINR / battery; refreshes every 8 s while open), Open web console button, Router page link, and the Access & security group (Root access badge, LAN access switch, Web admin password row). Footer shows the installed version.
 - New **Access & security** screen (opened from the Web admin password row): Router gateway, Web admin password (Save / Remove), LAN access switch with warning, Access token (masked, Copy / Reset).

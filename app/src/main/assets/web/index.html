@@ -349,6 +349,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     const limit = timeout || 20000;
     let resolveResult;
     const result = new Promise((resolve) => { resolveResult = resolve; });
+    sharedRootQueue.pending = (sharedRootQueue.pending || 0) + 1;
     sharedRootQueue.tail = sharedRootQueue.tail.then(async () => {
       let timer = null;
       const call = Promise.resolve().then(() => { if (typeof runShellWithRoot !== 'function') throw new Error('MatchiTOOL root-shell function is unavailable'); return runShellWithRoot(command, limit); });
@@ -372,7 +373,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
       }
     }).catch((err) => {
       resolveResult({ ok: false, text: `Root queue task failed safely: ${String(err?.message || err)}` });
-    });
+    }).finally(() => { sharedRootQueue.pending = Math.max(0, (sharedRootQueue.pending || 1) - 1); });
     return result;
   };
 
@@ -3081,14 +3082,17 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   };
   let qsPicked = false;
   const markQs = (id) => { qsPicked = true; showQs(id); };
-  const PING_QUICK = [
-    'if ping -c 1 -W 2 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 3 ' + PING_IP + ' >/dev/null 2>&1; then',
-    '  echo "@@NET=1"',
-    '  if ping -c 1 -W 2 ' + PING_HOST + ' >/dev/null 2>&1 || ping -c 1 -w 3 ' + PING_HOST + ' >/dev/null 2>&1; then echo "@@DNS=1"; else echo "@@DNS=0"; fi',
-    'else',
-    '  echo "@@NET=0"; echo "@@DNS=0"',
-    'fi',
+  const PING_ONE = (t) => 'ping -c 1 -W 2 ' + t + ' >/dev/null 2>&1 || ping -c 1 -w 2 ' + t + ' >/dev/null 2>&1';
+  const PING_BOTH = [
+    'f=/data/local/tmp/.bp_ping.$$',
+    '(' + PING_ONE(PING_IP) + ') && echo 1 > $f.n &',
+    '(' + PING_ONE(PING_HOST) + ') && echo 1 > $f.d &',
+    'wait',
+    '[ -f $f.n ] && echo "@@NET=1" || echo "@@NET=0"',
+    '[ -f $f.d ] && echo "@@DNS=1" || echo "@@DNS=0"',
+    'rm -f $f.n $f.d',
   ].join('\n');
+  const PING_QUICK = PING_BOTH;
   let lastCheckAt = 0;
   let ageTimer = null;
   const paintAge = () => {
@@ -3124,28 +3128,30 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   const startAutoCheck = (sess) => {
     stopAutoCheck();
     let running = false;
-    const tick = async () => {
+    const tick = async (first) => {
       const el = document.getElementById(MODAL_NAME);
-      if (sess !== session || !el || el.style.display === 'none') { stopAutoCheck(); return; }
+      if (sess !== session || !el || !el.classList.contains('show')) { stopAutoCheck(); return; }
       if (document.hidden) return;
-      if (running || busy > 0) return;
+      if (running || busy > 0 || (sharedRootQueue.pending || 0) > 0) return;
       running = true;
-      try { await runCheck(true, true); } catch (_) {  } finally { running = false; }
+      try { await runCheck(true, true, first === true); } catch (_) {  } finally { running = false; }
     };
-    tick();
-    autoTimer = setInterval(tick, 30000);
-    visFn = () => { if (!document.hidden) tick(); };
+    tick(true);
+    autoTimer = setInterval(() => tick(false), 30000);
+    visFn = () => { if (!document.hidden) tick(false); };
     document.addEventListener('visibilitychange', visFn);
     ageTimer = setInterval(paintAge, 5000);
   };
   let lastNet = null;
   let lastDns = null;
-  const runCheck = async (withPing = true, quick = false) => {
+  const runCheck = async (withPing = true, quick = false, skipRefresh = false) => {
     const sess = session;
-    const r = !withPing ? { text: '' } : await runRoot(quick ? PING_QUICK : '(ping -c 1 -W 3 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_IP + ' >/dev/null 2>&1) && echo "@@NET=1" || echo "@@NET=0"\n(ping -c 1 -W 3 ' + PING_HOST + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_HOST + ' >/dev/null 2>&1) && echo "@@DNS=1" || echo "@@DNS=0"', 25000);
+    const r = !withPing ? { text: '' } : await runRoot(PING_BOTH, 15000);
     if (quick && (sess !== session || busy > 0)) return;
-    await ttlModule.refresh();
-    await dpiModule.refresh();
+    if (!skipRefresh) {
+      await ttlModule.refresh();
+      await dpiModule.refresh();
+    }
     if (sess !== session) return;
     const kv = parseStatus(r.text).kv;
     if (withPing) { lastNet = kv.NET === '1'; lastDns = kv.DNS === '1'; lastCheckAt = Date.now(); }
@@ -3208,15 +3214,19 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   const quickStep = async (label, fn) => {
     try { return await fn(); } catch (e) { throw new Error(`${label}: ${e?.message || e}`); }
   };
+  let scriptsCheckedAt = 0;
   const ensureScripts = async () => {
-    const a = await ttlModule.ensureScript();
-    const b = await dpiModule.ensureScript();
+    if (Date.now() - scriptsCheckedAt < 600000) return false;
+    const [a, b] = [await ttlModule.ensureScript(), await dpiModule.ensureScript()];
+    scriptsCheckedAt = Date.now();
     return a || b;
   };
   const refreshAfter = (fn) => async () => {
     let err = null;
     try { await fn(); } catch (e) { err = e; qsPicked = false; }
-    try { await runCheck(); } catch (e) { err = err || e; }
+    try { await runCheck(false, false, true); } catch (e) { err = err || e; }
+    const s = session;
+    sleep(80).then(() => { if (s === session) runCheck(true, true, true).catch(() => {}); });
     if (err) throw err;
   };
 
@@ -3432,7 +3442,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       maxWidth: '640px',
       contentStyle: 'max-height:80vh;',
       showConfirm: false,
-      onClose: () => true,
+      onClose: () => { session += 1; busy = 0; stopAutoCheck(); return true; },
       content: `
         <div class="bp-wrap">
           <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button></div>
@@ -3612,7 +3622,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
     try {
       if (await ensureScripts()) toast('Helper scripts updated (a running keep-alive was restarted). Press Strong, or Save and apply on the Anti-DPI tab, once to rebuild the rules.', 'orange', 8000);
     } catch (_) {  }
-    try { await runCheck(false); } catch (_) {  }
+    try { await runCheck(false, false, true); } catch (_) {  }
     startAutoCheck(session);
     warnForeignBoot(true).catch(() => {  });
   };
@@ -3959,7 +3969,9 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     home.appendChild(inl);
   }
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
-  const visible = () => !document.hidden && ((inl && inl.offsetParent !== null) || modalRoot());
+  // pause the 5 s polling while another tool window (Bypass, SMS, ...) is open so it does not compete for the root shell
+  const otherOpen = () => [...document.querySelectorAll('.modal-bg.show')].some((m) => m.id !== ID);
+  const visible = () => !document.hidden && !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());
 
   function paint() {
     const html = render(last);
@@ -4007,6 +4019,533 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   const b = document.createElement('button'); b.id = BTN; b.textContent = 'Live Status'; b.onclick = open; host.appendChild(b);
 })();
 
+
+</script>
+<script type="text/plain" class="webtool" data-name="Memory_Cleaner.js">
+/*
+ * Memory Cleaner - MatchiTOOL built-in tool.
+ * Stops background third-party apps (never the foreground app, launcher, keyboard, MatchiTOOL or root/network helpers),
+ * then trims and reclaims memory. Needs root. Adapted from the UFI-TOOLS Memory Cleaner.
+ */
+(() => {
+  const TITLE = 'Clean memory';
+  const BTN_ID = 'matchi_memclean_btn';
+  if (document.getElementById(BTN_ID)) return;
+  const STYLE_ID = 'matchi_memory_cleaner_style';
+  const PROGRESS_PANEL_ID = 'matchi_memory_clean_progress_panel';
+  const PROGRESS_TEXT_ID = 'matchi_memory_clean_progress_text';
+  const PROGRESS_BAR_ID = 'matchi_memory_clean_progress_bar';
+  const PROGRESS_PERCENT_ID = 'matchi_memory_clean_progress_percent';
+  const DEVICE_TMP_DIR = '/data/local/tmp/matchi_memory_clean';
+  const DEVICE_PKG_FILE = `${DEVICE_TMP_DIR}/packages.txt`;
+
+  const state = {
+    busy: false,
+    progressVisible: false,
+  };
+
+  const WHITELIST_KEYWORDS = [
+    'android.ext.services',
+    'android.process.media',
+    'com.matchi.tool',
+    'com.minikano.f50_sms',
+    'easytier',
+    'mihomo',
+    'clash',
+    'kano_at_daemon',
+    'magisk',
+    'apatch',
+    'ksu',
+    'sukisu',
+    'networkstack',
+    'tethering',
+    'connectivity',
+    '/data/',
+  ];
+
+  const PROTECTED_PACKAGES = [
+    'android',
+    'android.ext.services',
+    'android.process.media',
+    'com.matchi.tool',
+    'com.android.systemui',
+    'com.android.launcher',
+    'com.google.android.apps.nexuslauncher',
+    'com.google.android.inputmethod',
+    'com.android.inputmethod.latin',
+    'com.android.phone',
+    'com.android.shell',
+    'com.android.bluetooth',
+    'com.android.nfc',
+    'com.android.providers.telephony',
+    'com.android.networkstack',
+    'com.google.android.networkstack',
+    'com.android.tethering',
+    'com.google.android.tethering',
+    'com.android.connectivity.resources',
+    'com.google.android.connectivity.resources',
+    'com.qualcomm.qti.tetherservice',
+    'com.android.server.telecom',
+    'com.android.telephony',
+    'com.android.permissioncontroller',
+    'com.android.externalstorage',
+    'com.android.gallery3d',
+    'com.android.providers.media.module',
+    'com.android.se',
+    'com.android.smspush',
+    'com.android.stk',
+    'com.sprd.fileexplorer',
+    'com.sprd.providers.photos',
+    'com.sprd.simple.launcher',
+  ];
+
+  const KILLABLE_SYSTEM_PACKAGES = [
+    'com.android.settings',
+  ];
+
+  const ensureStyle = () => {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+      .matchi-memory-clean-btn[disabled] {
+        opacity: .65;
+        cursor: not-allowed;
+      }
+      #${PROGRESS_PANEL_ID} {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-10px) scale(.98);
+        transition: opacity .22s ease, transform .22s ease;
+        pointer-events: none;
+      }
+      #${PROGRESS_PANEL_ID}.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0) scale(1);
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
+  const ensureProgressUI = () => {
+    let panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
+    if (panel) return panel;
+    const html = `
+<div id="${PROGRESS_PANEL_ID}" style="
+  position:fixed;
+  left:50%;
+  top:20px;
+  transform:translateX(-50%);
+  z-index:999999;
+  min-width:300px;
+  max-width:92vw;
+  background:rgba(30,30,30,0.97);
+  color:#55b6ff;
+  border:1px solid rgba(85,182,255,0.35);
+  border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.28);
+  padding:12px 14px;
+  display:block;
+">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
+    <div id="${PROGRESS_TEXT_ID}" style="
+      font-size:13px;
+      line-height:1.4;
+      word-break:break-all;
+      flex:1;
+    ">Preparing...</div>
+    <div id="${PROGRESS_PERCENT_ID}" style="
+      font-size:13px;
+      font-weight:800;
+      color:#ffd36f;
+      white-space:nowrap;
+    ">0%</div>
+  </div>
+  <div style="
+    width:100%;
+    height:8px;
+    background:rgba(255,255,255,0.12);
+    border-radius:999px;
+    overflow:hidden;
+  ">
+    <div id="${PROGRESS_BAR_ID}" style="
+      width:0%;
+      height:100%;
+      background:linear-gradient(90deg,#55b6ff,#ffd36f);
+      border-radius:999px;
+      transition:width .2s ease;
+    "></div>
+  </div>
+</div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    return document.querySelector(`#${PROGRESS_PANEL_ID}`);
+  };
+
+  const showProgress = (text, percent) => {
+    ensureProgressUI();
+    const panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
+    const textEl = document.querySelector(`#${PROGRESS_TEXT_ID}`);
+    const bar = document.querySelector(`#${PROGRESS_BAR_ID}`);
+    const percentEl = document.querySelector(`#${PROGRESS_PERCENT_ID}`);
+    const p = Math.max(0, Math.min(100, Number(percent) || 0));
+    if (panel) {
+      panel.classList.add('show');
+      state.progressVisible = true;
+    }
+    if (textEl) textEl.textContent = text || 'Processing...';
+    if (percentEl) percentEl.textContent = `${p}%`;
+    if (bar) bar.style.width = `${p}%`;
+  };
+
+  const hideProgress = () => {
+    const panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
+    if (!panel || !state.progressVisible) return;
+    panel.classList.remove('show');
+    state.progressVisible = false;
+  };
+
+  const setBusy = (button, busy) => {
+    state.busy = busy;
+    if (!button) return;
+    button.disabled = busy;
+    button.textContent = busy ? 'Cleaning...' : TITLE;
+  };
+
+  const formatMemory = (kb) => {
+    const size = Math.max(0, Number(kb) || 0) * 1024;
+    if (typeof formatBytes === 'function') {
+      return String(formatBytes(size)).replace(/&nbsp;/g, '').trim();
+    }
+    if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GB`;
+    if (size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(2)} MB`;
+    return `${(size / 1024).toFixed(2)} KB`;
+  };
+
+  const escapeSingleQuotes = (value = '') => String(value).replace(/'/g, `'\\''`);
+
+  const runRoot = async (cmd, timeout = 15000) => {
+    const res = await runShellWithRoot(cmd, timeout);
+    return {
+      ok: !!res?.success,
+      text: String(res?.content || '').trim(),
+    };
+  };
+
+  const buildCollectScript = () => {
+    const whitelistCases = WHITELIST_KEYWORDS
+      .map((item) => `    *${escapeSingleQuotes(item)}*) return 0 ;;`)
+      .join('\n');
+    const protectedCases = PROTECTED_PACKAGES
+      .map((item) => `    ${escapeSingleQuotes(item)}) return 0 ;;`)
+      .join('\n');
+    const killableSystemCases = KILLABLE_SYSTEM_PACKAGES
+      .map((item) => `    ${escapeSingleQuotes(item)}) return 0 ;;`)
+      .join('\n');
+
+    return `
+TMP_DIR="${DEVICE_TMP_DIR}"
+PKG_FILE="${DEVICE_PKG_FILE}"
+mkdir -p "$TMP_DIR"
+: > "$PKG_FILE"
+
+read_mem_available() {
+  awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null
+}
+
+get_first_line() {
+  sh -c "$1" 2>/dev/null | head -n 1 | tr -d '\\r'
+}
+
+normalize_pkg() {
+  raw="$1"
+  raw="\${raw#package:}"
+  raw="\${raw%%:*}"
+  printf '%s' "$raw"
+}
+
+is_whitelisted() {
+  combined="$1"
+  case "$combined" in
+${whitelistCases}
+    *) return 1 ;;
+  esac
+}
+
+is_protected_pkg() {
+  pkg="$1"
+  [ -n "$pkg" ] || return 0
+  case "$pkg" in
+${protectedCases}
+    *) return 1 ;;
+  esac
+}
+
+is_killable_system_pkg() {
+  pkg="$1"
+  [ -n "$pkg" ] || return 1
+  case "$pkg" in
+${killableSystemCases}
+    *) return 1 ;;
+  esac
+}
+
+is_package_name() {
+  value="$1"
+  case "$value" in
+    *.*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+append_unique_line() {
+  value="$1"
+  file="$2"
+  [ -n "$value" ] || return 0
+  grep -Fxq "$value" "$file" 2>/dev/null && return 0
+  printf '%s\n' "$value" >> "$file"
+}
+
+is_running_pkg() {
+  pkg="$1"
+  [ -n "$pkg" ] || return 1
+  pidof "$pkg" >/dev/null 2>&1 && return 0
+  ps 2>/dev/null | awk -v pkg="$pkg" '
+    NR == 1 && $0 ~ /PID/ { next }
+    $NF == pkg || index($NF, pkg ":") == 1 { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+TOP_PKG="$(normalize_pkg "$(get_first_line "dumpsys activity top | grep -m 1 ' ACTIVITY ' | awk '{print \\$2}'")")"
+[ -n "$TOP_PKG" ] || TOP_PKG="$(normalize_pkg "$(get_first_line "dumpsys window windows | grep -m 1 'mCurrentFocus' | sed 's/.* \\([^ ]*\\)\\/[^ ]*.*/\\1/'")")"
+HOME_PKG="$(normalize_pkg "$(get_first_line "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1")")"
+IME_PKG="$(normalize_pkg "$(get_first_line "settings get secure default_input_method")")"
+before_kb="$(read_mem_available)"
+[ -n "$before_kb" ] || before_kb=0
+
+pm list packages -3 2>/dev/null | while IFS= read -r raw_pkg; do
+  pkg="$(normalize_pkg "$raw_pkg")"
+  is_package_name "$pkg" || continue
+  [ "$pkg" = "$TOP_PKG" ] && continue
+  [ "$pkg" = "$HOME_PKG" ] && continue
+  [ "$pkg" = "$IME_PKG" ] && continue
+  is_protected_pkg "$pkg" && continue
+  is_whitelisted "$pkg" && continue
+  is_running_pkg "$pkg" || continue
+  append_unique_line "$pkg" "$PKG_FILE"
+done
+
+pm list packages 2>/dev/null | while IFS= read -r raw_pkg; do
+  pkg="$(normalize_pkg "$raw_pkg")"
+  is_killable_system_pkg "$pkg" || continue
+  [ "$pkg" = "$TOP_PKG" ] && continue
+  is_running_pkg "$pkg" || continue
+  append_unique_line "$pkg" "$PKG_FILE"
+done
+
+sort -u "$PKG_FILE" -o "$PKG_FILE" 2>/dev/null
+pkg_count="$(awk 'NF{c++} END{print c+0}' "$PKG_FILE" 2>/dev/null)"
+printf 'COLLECT|%s|%s\n' "$before_kb" "$pkg_count"
+`;
+  };
+
+  const buildStopScript = () => `
+PKG_FILE="${DEVICE_PKG_FILE}"
+stopped=0
+if [ -s "$PKG_FILE" ]; then
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    am force-stop "$pkg" >/dev/null 2>&1
+    stopped=$((stopped + 1))
+  done < "$PKG_FILE"
+fi
+printf 'STOP|%s\n' "$stopped"
+`;
+
+  const buildTrimScript = () => `
+trim_ok=0
+if cmd activity idle-maintenance >/dev/null 2>&1; then
+  trim_ok=1
+fi
+if am kill-all >/dev/null 2>&1; then
+  trim_ok=1
+fi
+printf 'TRIM|%s\n' "$trim_ok"
+`;
+
+  const buildReclaimScript = () => `
+read_mem_available() {
+  awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null
+}
+
+sync
+[ -w /proc/sys/vm/stat_interval ] && echo 1 > /proc/sys/vm/stat_interval 2>/dev/null
+[ -w /proc/sys/vm/swappiness ] && echo 100 > /proc/sys/vm/swappiness 2>/dev/null
+[ -w /proc/sys/vm/drop_caches ] && echo 3 > /proc/sys/vm/drop_caches
+[ -w /proc/sys/vm/compact_memory ] && echo 1 > /proc/sys/vm/compact_memory
+for cg in /sys/fs/cgroup/memory /dev/memcg /sys/fs/cgroup; do
+  [ -w "$cg/memory.reclaim" ] && echo 64M > "$cg/memory.reclaim" 2>/dev/null
+done
+for zdev in /sys/block/zram*; do
+  [ -e "$zdev" ] || continue
+  [ -w "$zdev/idle" ] && echo all > "$zdev/idle" 2>/dev/null
+  [ -w "$zdev/compact" ] && echo 1 > "$zdev/compact" 2>/dev/null
+  [ -w "$zdev/writeback" ] && echo huge > "$zdev/writeback" 2>/dev/null
+done
+sleep 0.2
+after_kb="$(read_mem_available)"
+[ -n "$after_kb" ] || after_kb=0
+printf 'RECLAIM|%s\n' "$after_kb"
+`;
+
+  const buildCleanupScript = () => `
+rm -rf "${DEVICE_TMP_DIR}"
+`;
+
+  const parseTaggedLine = (text, tag) =>
+    String(text || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .reverse()
+      .find((line) => line.startsWith(`${tag}|`));
+
+  const collectTargets = async () => {
+    const res = await runRoot(buildCollectScript(), 30000);
+    if (!res.ok) return { ok: false, message: 'Failed to scan cleanup targets' };
+    const line = parseTaggedLine(res.text, 'COLLECT');
+    if (!line) return { ok: false, message: 'Failed to scan cleanup targets' };
+    const [, beforeRaw, countRaw] = line.split('|');
+    return {
+      ok: true,
+      beforeKb: Number(beforeRaw) || 0,
+      pkgCount: Number(countRaw) || 0,
+    };
+  };
+
+  const stopTargets = async () => {
+    const res = await runRoot(buildStopScript(), 10000);
+    if (!res.ok) return { ok: false, message: 'Failed to stop apps' };
+    const line = parseTaggedLine(res.text, 'STOP');
+    if (!line) return { ok: false, message: 'Failed to stop apps' };
+    const [, stoppedRaw] = line.split('|');
+    return {
+      ok: true,
+      stoppedCount: Number(stoppedRaw) || 0,
+    };
+  };
+
+  const trimProcesses = async () => {
+    const res = await runRoot(buildTrimScript(), 8000);
+    if (!res.ok) return { ok: false, message: 'System-level memory trim failed' };
+    const line = parseTaggedLine(res.text, 'TRIM');
+    if (!line) return { ok: false, message: 'System-level memory trim failed' };
+    const [, trimRaw] = line.split('|');
+    return {
+      ok: true,
+      trimApplied: Number(trimRaw) || 0,
+    };
+  };
+
+  const reclaimMemory = async () => {
+    const res = await runRoot(buildReclaimScript(), 8000);
+    if (!res.ok) return { ok: false, message: 'Memory reclaim failed' };
+    const line = parseTaggedLine(res.text, 'RECLAIM');
+    if (!line) return { ok: false, message: 'Memory reclaim failed' };
+    const [, afterRaw] = line.split('|');
+    return {
+      ok: true,
+      afterKb: Number(afterRaw) || 0,
+    };
+  };
+
+  const cleanupTemp = async () => {
+    await runRoot(buildCleanupScript(), 5000);
+  };
+
+  const executeCleanup = async () => {
+    showProgress('Initializing cleanup environment...', 6);
+    await cleanupTemp();
+
+    showProgress('Analyzing foreground app and launcher protection...', 14);
+    await runRoot('echo prepare', 2000);
+
+    showProgress('Scanning for apps that can be cleaned...', 26);
+    const collect = await collectTargets();
+    if (!collect.ok) return collect;
+
+    showProgress(`Found ${collect.pkgCount} targets, preparing to stop apps...`, 38);
+    await runRoot('test -f "' + DEVICE_PKG_FILE + '" && echo ready', 2000);
+
+    showProgress(`Found ${collect.pkgCount} targets, stopping apps...`, 54);
+    const stop = await stopTargets();
+    if (!stop.ok) return stop;
+
+    showProgress('Running system-level memory trim...', 66);
+    const trim = await trimProcesses();
+    if (!trim.ok) return trim;
+
+    showProgress('Reclaiming cache...', 78);
+    await runRoot('sync', 4000);
+
+    showProgress('Running memory compaction and reclaim...', 90);
+    const reclaim = await reclaimMemory();
+    if (!reclaim.ok) return reclaim;
+
+    showProgress('Finishing up...', 97);
+    await cleanupTemp();
+
+    return {
+      ok: true,
+      beforeKb: collect.beforeKb,
+      afterKb: reclaim.afterKb,
+      releasedKb: Math.max(0, reclaim.afterKb - collect.beforeKb),
+      pkgCount: stop.stoppedCount || collect.pkgCount,
+      trimApplied: trim.trimApplied,
+    };
+  };
+
+  const handleClick = async (button) => {
+    if (state.busy) return;
+
+    setBusy(button, true);
+    showProgress('Preparing to clean memory...', 5);
+    try {
+      const result = await executeCleanup();
+      showProgress('Cleanup complete, refreshing display...', 100);
+      hideProgress();
+      if (!result.ok) {
+        await cleanupTemp();
+        createToast(result.message || 'Cleanup failed', 'red');
+        return;
+      }
+
+      const releasedText = formatMemory(result.releasedKb);
+      createToast(
+        `Cleanup complete, freed ${releasedText} of memory, processed ${result.pkgCount} apps`,
+        'green',
+        5000
+      );
+    } catch (error) {
+      hideProgress();
+      await cleanupTemp();
+      createToast(`Cleanup failed: ${error?.message || error || 'Unknown error'}`, 'red', 5000);
+    } finally {
+      hideProgress();
+      setBusy(button, false);
+    }
+  };
+
+  const button = document.createElement('button');
+  button.id = BTN_ID;
+  button.className = 'matchi-memory-clean-btn';
+  button.textContent = TITLE;
+  button.onclick = async () => {
+    await handleClick(button);
+  };
+
+  ensureStyle();
+  const host = document.querySelector('.actions-buttons');
+  if (host) host.appendChild(button);
+})();
 
 </script>
 <script type="text/plain" class="webtool" data-name="SMS.js">
@@ -4510,14 +5049,15 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.30';
+const PAGE_VERSION='1.1.31';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'Bypass_v65_13.js',btn:'kano_bypass_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
   {file:'Signal_Info.js',btn:'matchi_signal_btn'},
-  {file:'Live_Status.js',btn:'matchi_live_status_btn'}
+  {file:'Live_Status.js',btn:'matchi_live_status_btn'},
+  {file:'Memory_Cleaner.js',btn:'matchi_memclean_btn'}
 ];
 const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
@@ -4683,7 +5223,8 @@ async function runSelfTest(onStep){
     raw('Listening TCP sockets',r.text);
     if(!ports.length)return R.warn('could not read listening ports (netstat unavailable)');
     const d='listening TCP ports: '+ports.join(', ');
-    return ports.includes('80')?R.ok(d+' (port 80 is open)'):R.warn(d+' - nothing listens on port 80, so the router web API at port 80 cannot work; the router UI may use another port');
+    const cand=['80','8080','9090','9999'].filter(x=>ports.includes(x));
+    return ports.includes('80')?R.ok(d+' (port 80 is open)'):cand.length?R.ok(d+' - nothing on port 80; the app auto-detects the router API on '+cand.join('/')+' (or set the gateway as host:port, e.g. 192.168.0.1:8080)'):R.warn(d+' - none of the usual router API ports (80, 8080, 9090, 9999) listen; set the gateway as host:port if the router UI uses another port');
   },30000);
   add(S5,'Router login & SMS storage',async()=>{
     if(!X.pwSet)return R.skip('no router admin password saved (only the SMS tool needs it)');
@@ -4761,6 +5302,14 @@ async function runSelfTest(onStep){
     if(X.rootOk){const r=await stSh('echo "tel=$(dumpsys telephony.registry 2>/dev/null | grep -ciE \'rsrp|signalstrength\')"');const k=stKV(r.text);if(parseInt(k.tel||'0',10)>0)src.push('Android telephony')}
     return src.length?R.ok('live sources: '+src.join(', ')):R.fail('no live data source available');
   }),60000);
+
+  add(S7,'Memory Cleaner',()=>toolCheck(ST_TOOLS[6],async()=>{
+    if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
+    const r=await stSh('echo "mema=$(grep ^MemAvailable /proc/meminfo | tr -s \' \' | cut -d\' \' -f2)"; echo "pm=$(pm list packages -3 2>/dev/null | wc -l)"; [ -w /proc/sys/vm/drop_caches ] && echo dc=1 || echo dc=0');
+    const k=stKV(r.text);
+    if(!k.mema)return R.fail('cannot read MemAvailable');
+    return R.ok('available '+Math.round(k.mema/1024)+' MB, '+(k.pm||0)+' user apps, drop_caches '+(k.dc==='1'?'writable':'not writable (that step is skipped)')+'; not run (it stops apps)');
+  }),30000);
 
   /* 8. Firmware inspector */
   add('8. Firmware inspector','Manifest inspection (/api/firmware/inspect)',async()=>{

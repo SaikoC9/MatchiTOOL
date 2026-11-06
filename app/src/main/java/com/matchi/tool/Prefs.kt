@@ -26,7 +26,7 @@ object Prefs {
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     fun setSeededVersion(c: Context, v: Int) { sp(c).edit().putInt("seeded", v).apply() }
     // ZTE web-admin access (used by the SMS / signal plugins through /api/zte)
-    private val hostRx = Regex("^[A-Za-z0-9.-]{1,64}$")
+    private val hostRx = Regex("^[A-Za-z0-9.-]{1,64}(:[0-9]{1,5})?$")
     fun zteHost(c: Context): String = sp(c).getString("zte_host", null)?.takeIf { hostRx.matches(it) } ?: "192.168.0.1"
     fun setZteHost(c: Context, h: String) {
         require(hostRx.matches(h)) { "invalid host" }

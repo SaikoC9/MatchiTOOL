@@ -23,7 +23,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     /**
      * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The six tools
-     * (Bypass, Device Status, AT & Radio, SMS, Signal Info, Live Status) are part of the web page itself (web/index.html).
+     * (Bypass, Device Status, AT & Radio, SMS, Signal Info, Live Status, Memory Cleaner) are part of the web page itself (web/index.html).
      */
     private fun seedPlugins() {
         @Suppress("DEPRECATION")
@@ -274,7 +274,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.30"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.31"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))

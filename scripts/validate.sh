@@ -13,7 +13,7 @@ for i, js in enumerate(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, r
     path.write_text(js)
     subprocess.run(['node', '--check', str(path)], check=True)
 tools = re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">(.*?)</script>', html, re.S)
-assert len(tools) == 6, f'expected 6 embedded tools, found {len(tools)}'
+assert len(tools) == 7, f'expected 7 embedded tools, found {len(tools)}'
 for name, js in tools:
     path = Path('/tmp') / ('matchitool-tool-' + name)
     path.write_text(js)
@@ -44,9 +44,9 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.1.30'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.1.31'" in html, 'page version must match app version'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 140' in gradle and 'versionName = \"1.1.30\"' in gradle
-assert 'put(\"version\", \"1.1.30\")' in server
+assert 'versionCode = 141' in gradle and 'versionName = \"1.1.31\"' in gradle
+assert 'put(\"version\", \"1.1.31\")' in server
 print('Source validation passed: XML, web JavaScript, bundled plugins, root backend, loopback-first network security, firmware preflight, and version metadata.')
 PY

@@ -21,9 +21,12 @@ object ZteClient {
     private val lock = Any()
     private var cookie = ""
     private var lastLoginFail = 0L
+    private var found = ""            // host:port that answered the router API last time
+    private var foundFor = ""         // the saved gateway value that `found` belongs to
+    private val CANDIDATE_PORTS = listOf(80, 8080, 9090, 9999)   // F50 stock firmware has nothing on 80
 
     /** Forget the cached router session so a newly saved password is used immediately. */
-    fun reset() = synchronized(lock) { cookie = ""; lastLoginFail = 0L }
+    fun reset() = synchronized(lock) { cookie = ""; lastLoginFail = 0L; found = ""; foundFor = "" }
 
     private class Resp(val code: Int, val body: String)
 
@@ -33,8 +36,31 @@ object ZteClient {
     private fun sha256Upper(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02X".format(it) }
 
+    /** True if host:port answers the ZTE goform API with JSON (not just any web server). */
+    private fun probe(hostPort: String): Boolean = try {
+        val c = URL("http://$hostPort$GET_PATH?isTest=false&cmd=LD").openConnection() as HttpURLConnection
+        try {
+            c.connectTimeout = 1200; c.readTimeout = 2500; c.instanceFollowRedirects = false
+            c.setRequestProperty("Referer", "http://$hostPort/index.html")
+            val body = (if (c.responseCode >= 400) c.errorStream else c.inputStream)?.bufferedReader()?.use { it.readText() } ?: ""
+            body.trimStart().startsWith("{")
+        } finally { c.disconnect() }
+    } catch (_: Exception) { false }
+
+    /** Saved gateway: "host" (port auto-detected from 80, 8080, 9090, 9999) or "host:port" (used as given). */
+    private fun resolveHost(ctx: Context): String {
+        val saved = Prefs.zteHost(ctx)
+        if (saved.contains(':')) return saved
+        if (found.isNotEmpty() && foundFor == saved) return found
+        for (p in CANDIDATE_PORTS) {
+            val hp = if (p == 80) saved else "$saved:$p"
+            if (probe(hp)) { found = hp; foundFor = saved; return hp }
+        }
+        return saved   // nothing answered: keep port 80 so the error is the usual "unreachable"
+    }
+
     private fun http(ctx: Context, method: String, path: String, params: Map<String, String>): Resp {
-        val host = Prefs.zteHost(ctx)
+        val host = resolveHost(ctx)
         val q = form(params)
         val url = URL(if (method == "GET") "http://$host$path?$q" else "http://$host$path")
         val c = url.openConnection() as HttpURLConnection
@@ -109,7 +135,10 @@ object ZteClient {
             // Connection refused / timed out / no route: the router web API cannot be reached at all, so the
             // password is irrelevant. Callers (the SMS tool) recognise the "unreachable" wording and fall back to
             // the modem's AT commands instead of showing a raw socket error.
-            throw IllegalStateException("Router web API unreachable at ${Prefs.zteHost(ctx)}:80 (${e.message ?: e.javaClass.simpleName})")
+            found = ""   // re-detect the port next time
+            val saved = Prefs.zteHost(ctx)
+            val where = if (saved.contains(':')) saved else "$saved (ports ${CANDIDATE_PORTS.joinToString("/")})"
+            throw IllegalStateException("Router web API unreachable at $where (${e.message ?: e.javaClass.simpleName})")
         }
     }
 
