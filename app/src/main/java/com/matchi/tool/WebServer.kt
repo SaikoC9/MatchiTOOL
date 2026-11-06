@@ -5,9 +5,12 @@ import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.StringReader
+import org.xmlpull.v1.XmlPullParser
+import android.util.Xml
 import java.security.MessageDigest
 
-class WebServer(private val ctx: Context, port: Int) : NanoHTTPD(port) {
+class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.0.0.1") : NanoHTTPD(bindAddress, port) {
     private val pluginDir = File(ctx.filesDir, "plugins").apply { mkdirs() }
     private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.js$")
 
@@ -30,12 +33,28 @@ class WebServer(private val ctx: Context, port: Int) : NanoHTTPD(port) {
             val out = File(pluginDir, n)
             if (refresh || !out.exists()) ctx.assets.open("plugins/$n").use { i -> out.outputStream().use { i.copyTo(it) } }
         }
+        // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands
+        val sendat = File(ctx.filesDir, "sendat")
+        if (refresh || !sendat.exists()) ctx.assets.open("bin/sendat").use { i -> sendat.outputStream().use { i.copyTo(it) } }
+        sendat.setExecutable(true, false)
         if (refresh) Prefs.setSeededVersion(ctx, ver)
     }
 
     private fun authed(s: IHTTPSession): Boolean {
         val given = s.headers["x-token"] ?: return false
         return MessageDigest.isEqual(given.toByteArray(), Prefs.token(ctx).toByteArray())
+    }
+
+
+    private fun isLocalAddress(raw: String): Boolean {
+        var ip = raw.substringBefore('%').lowercase()
+        if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
+        if (ip == "::1" || ip == "localhost") return true
+        if (ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:")) return true
+        val octets = ip.split(".").mapNotNull { it.toIntOrNull() }
+        if (octets.size != 4 || octets.any { it !in 0..255 }) return false
+        val a = octets[0]; val b = octets[1]
+        return a == 10 || a == 127 || (a == 192 && b == 168) || (a == 172 && b in 16..31) || (a == 169 && b == 254)
     }
 
     private fun locked(ip: String): Boolean = synchronized(fails) {
@@ -72,6 +91,9 @@ class WebServer(private val ctx: Context, port: Int) : NanoHTTPD(port) {
         if (!uri.startsWith("/api/")) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404")
 
         val ip = s.remoteIpAddress ?: "?"
+        // This host is intended for a trusted local network, not internet exposure. Reject
+        // public source addresses even if someone accidentally forwards the listening port.
+        if (!isLocalAddress(ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "local network access only"))
         if (locked(ip)) return json(tooMany, JSONObject().put("error", "too many bad tokens, wait a minute"))
         if (!authed(s)) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "bad token")) }
         ok(ip)
@@ -81,13 +103,162 @@ class WebServer(private val ctx: Context, port: Int) : NanoHTTPD(port) {
         }
     }
 
+
+    /** Read-only diagnostics: no modem settings or partitions are modified. */
+    private fun diagnostics(): Response {
+        val script = """
+            echo '--- identity ---'; id
+            echo '--- platform ---'; getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk
+            echo '--- kernel ---'; uname -a
+            echo '--- architecture ---'; getprop ro.product.cpu.abi; getprop ro.product.cpu.abilist
+            echo '--- network ---'; ip -brief address 2>/dev/null || ip addr 2>/dev/null | head -80
+            echo '--- routes ---'; ip route 2>/dev/null; ip -6 route 2>/dev/null
+            echo '--- tool availability ---'
+            for x in sendat busybox ip nft iptables ip6tables tc bpftool nfqws; do command -v "$x" 2>/dev/null || echo "$x: unavailable"; done
+            echo '--- root capabilities ---'; [ "$(id -u)" = 0 ] && echo 'UID 0 confirmed' || echo 'root unavailable'
+            echo '--- storage ---'; df -h /data 2>/dev/null
+        """.trimIndent()
+        val r = RootShell.run(ctx, script, 30_000)
+        return json(Response.Status.OK, JSONObject().put("success", r.success).put("report", r.content).put("generatedAt", System.currentTimeMillis()))
+    }
+
+    /** Inspect XML/scatter text only. This endpoint never writes or flashes a device. */
+    private fun inspectFirmware(req: JSONObject): Response {
+        val name = req.optString("name").take(160)
+        val content = req.optString("content")
+        if (content.isBlank() || content.length > 2_000_000) throw IllegalArgumentException("Firmware manifest must be 1 byte to 2 MB")
+        val lower = content.lowercase()
+        val format = when {
+            lower.contains("<?xml") || lower.contains("<partition") || lower.contains("<program") -> "xml"
+            lower.contains("partition_name:") || lower.contains("- partition_index:") -> "scatter"
+            else -> "text/unknown"
+        }
+        val labels = Regex("""(?im)^\s*(?:<partition[^>]*name=|partition_name\s*:\s*)(?:"([^"]+)"|'([^']+)'|([^\s>]+))""")
+        val partitions = linkedSetOf<String>()
+        labels.findAll(content).forEach { m -> (1..3).firstNotNullOfOrNull { m.groups[it]?.value }?.let { partitions.add(it) } }
+        val sha = MessageDigest.getInstance("SHA-256").digest(content.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        val device = JSONObject()
+        val checks = JSONArray()
+        val warnings = JSONArray()
+        val manifestModels = Regex("""(?im)(?:product|model|project|platform|target)[_\s:=<>\"']+([A-Za-z0-9._-]{2,80})""")
+            .findAll(content).map { it.groupValues[1] }.distinct().take(30).toList()
+        val manifestPartitions = partitions.toList()
+        val risky = manifestPartitions.filter { it.lowercase() in setOf("preloader", "xbl", "abl", "boot", "vendor_boot", "vbmeta", "super", "modem", "persist", "userdata") }
+        if (format == "text/unknown") warnings.put("Unrecognized manifest format; no compatibility conclusion can be made")
+        if (format == "xml") {
+            try {
+                val parser = Xml.newPullParser()
+                parser.setInput(StringReader(content))
+                while (parser.next() != XmlPullParser.END_DOCUMENT) { /* well-formedness check only */ }
+                checks.put(JSONObject().put("check", "XML well-formedness").put("status", "valid"))
+            } catch (e: Exception) {
+                checks.put(JSONObject().put("check", "XML well-formedness").put("status", "invalid"))
+                warnings.put("XML parser rejected this manifest: ${e.message ?: "parse error"}")
+            }
+        }
+        if (manifestPartitions.isEmpty()) warnings.put("No partition names were recognized")
+        if (risky.isNotEmpty()) warnings.put("Manifest includes boot-critical or device-specific partitions: ${risky.joinToString(", ")}")
+        checks.put(JSONObject().put("check", "manifest format").put("status", if (format == "xml" || format == "scatter") "recognized" else "unknown"))
+        checks.put(JSONObject().put("check", "partition metadata").put("status", if (manifestPartitions.isNotEmpty()) "found" else "not found"))
+        checks.put(JSONObject().put("check", "device identity").put("status", "not verified").put("detail", "Manifest model labels are hints only; exact hardware and build compatibility requires a trusted device-specific source"))
+        val summary = JSONObject().put("fileName", name).put("format", format).put("sizeBytes", content.toByteArray(Charsets.UTF_8).size)
+            .put("sha256", sha).put("partitionCount", partitions.size).put("partitions", JSONArray(partitions.take(250)))
+            .put("manifestModelHints", JSONArray(manifestModels)).put("criticalPartitionHints", JSONArray(risky))
+            .put("checks", checks).put("warnings", warnings).put("flashPerformed", false)
+            .put("warning", "This is a static manifest preflight, not proof of compatibility. Never flash based only on filename, model hints, or partition names.")
+        return json(Response.Status.OK, summary)
+    }
+
+    /** USB controls expose Android gadget modes; support is confirmed from live USB properties/sysfs. */
+    private fun usbStatus(): Response {
+        val script = """
+            echo "ADB=$(settings get global adb_enabled 2>/dev/null | tr -d '\r')"
+            echo "CONFIG=$(getprop sys.usb.config | tr -d '\r')"
+            echo "STATE=$(getprop sys.usb.state | tr -d '\r')"
+            echo "PERSIST=$(getprop persist.sys.usb.config | tr -d '\r')"
+            echo "RNDIS_SUPPORTED=$(for f in /config/usb_gadget/*/functions/rndis.* /sys/kernel/config/usb_gadget/*/functions/rndis.*; do [ -e "${'$'}f" ] && { echo 1; exit; }; done; case "$(getprop sys.usb.config),$(getprop sys.usb.state)" in *rndis*) echo 1;; *) echo 0;; esac)"
+            echo "ECM_SUPPORTED=$(for f in /config/usb_gadget/*/functions/ecm.* /sys/kernel/config/usb_gadget/*/functions/ecm.* /config/usb_gadget/*/functions/cdc_ecm.* /sys/kernel/config/usb_gadget/*/functions/cdc_ecm.*; do [ -e "${'$'}f" ] && { echo 1; exit; }; done; case "$(getprop sys.usb.config),$(getprop sys.usb.state)" in *ecm*) echo 1;; *) echo 0;; esac)"
+            echo "NETIFS=$(ip -o link show 2>/dev/null | sed 's/: .*//' | tr '\n' ' ')"
+        """.trimIndent()
+        val r = RootShell.run(ctx, script, 15_000)
+        val lines = r.content.lines().mapNotNull { line ->
+            val i = line.indexOf('='); if (i > 0) line.substring(0, i) to line.substring(i + 1).trim() else null
+        }.toMap()
+        val adb = lines["ADB"] == "1"
+        val config = lines["CONFIG"].orEmpty()
+        val state = lines["STATE"].orEmpty()
+        val active = "$config,$state"
+        val rndis = active.contains("rndis", true)
+        val ecm = active.contains("ecm", true)
+        return json(Response.Status.OK, JSONObject().put("success", r.success).put("adbEnabled", adb)
+            .put("usbConfig", config).put("usbState", state).put("persistConfig", lines["PERSIST"].orEmpty())
+            .put("rndisActive", rndis).put("ecmActive", ecm).put("usbTethering", rndis || ecm)
+            .put("rndisSupported", lines["RNDIS_SUPPORTED"] == "1").put("ecmSupported", lines["ECM_SUPPORTED"] == "1")
+            .put("networkInterfaces", lines["NETIFS"].orEmpty()).put("detail", r.content))
+    }
+
+    private fun controlUsb(req: JSONObject): Response {
+        val action = req.optString("action")
+        val restoreDefault = "BASE=\"$(getprop persist.sys.usb.config)\"; [ -n \"$BASE\" ] || BASE=mtp; BASE=\"$(printf '%s' \"$BASE\" | sed 's/\\(^\\|,\\)rndis\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)ecm\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)cdc_ecm\\($\\|,\\)/\\1/g; s/,,*/,/g; s/^,//; s/,$//')\"; if [ \"$(settings get global adb_enabled)\" = 1 ]; then case \",$BASE,\" in *,adb,*) ;; *) BASE=\"$BASE,adb\";; esac; fi; svc usb setFunctions \"$BASE\""
+        val script = when (action) {
+            "adb_enable" -> "settings put global adb_enabled 1 && [ \"$(settings get global adb_enabled)\" = 1 ]"
+            "adb_disable" -> "settings put global adb_enabled 0 && [ \"$(settings get global adb_enabled)\" = 0 ]"
+            "rndis_enable" -> "if [ \"$(settings get global adb_enabled)\" = 1 ]; then svc usb setFunctions rndis,adb; else svc usb setFunctions rndis; fi"
+            "ecm_enable" -> "if [ \"$(settings get global adb_enabled)\" = 1 ]; then svc usb setFunctions ecm,adb; else svc usb setFunctions ecm; fi"
+            "tether_disable" -> restoreDefault
+            else -> throw IllegalArgumentException("unsupported USB action")
+        }
+        val r = RootShell.run(ctx, script, 20_000)
+        return json(if (r.success) Response.Status.OK else Response.Status.BAD_REQUEST,
+            JSONObject().put("success", r.success).put("action", action).put("output", r.content)
+                .put("note", "USB gadget mode is firmware-dependent. Re-read USB status after switching; reconnect the cable if Android does not re-enumerate the USB device."))
+    }
+
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.6"))
+        uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
+        uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
+        uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
+        uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
         uri == "/api/shell" && s.method == Method.POST -> {
             val req = body(s)
+            val command = req.optString("cmd")
+            if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
+                throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
             val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
-            val r = RootShell.run(ctx, req.optString("cmd"), t)
+            val r = RootShell.run(ctx, command, t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
+        }
+        // Run an AT command on the modem as root: {"command":"AT+CSQ","slot":0}
+        uri == "/api/at" && s.method == Method.POST -> {
+            val req = body(s)
+            val cmd = req.optString("command").trim()
+            val slot = req.optInt("slot", 0).coerceIn(0, 1)
+            if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
+                throw IllegalArgumentException("AT command must start with AT")
+            val q = "'" + cmd.replace("'", "'\\''") + "'"
+            val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
+            json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
+        }
+        // Proxy to the ZTE web API: {"op":"get"|"set","params":{"cmd":"signalbar",...}}
+        uri == "/api/zte" && s.method == Method.POST -> {
+            val req = body(s)
+            val op = req.optString("op")
+            if (op != "get" && op != "set") throw IllegalArgumentException("op must be get or set")
+            val po = req.optJSONObject("params") ?: JSONObject()
+            val p = LinkedHashMap<String, String>()
+            for (k in po.keys()) p[k] = po.optString(k)
+            val raw = ZteClient.call(ctx, op, p)
+            val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
+            json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed))
+        }
+        uri == "/api/zte/config" && s.method == Method.GET ->
+            json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty()))
+        uri == "/api/zte/config" && s.method == Method.POST -> {
+            val req = body(s)
+            if (req.has("host")) Prefs.setZteHost(ctx, req.optString("host").trim())
+            if (req.has("password")) Prefs.setZtePass(ctx, req.optString("password"))
+            json(Response.Status.OK, JSONObject().put("ok", true))
         }
         uri == "/api/plugins" && s.method == Method.GET -> {
             val off = Prefs.disabled(ctx)

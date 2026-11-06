@@ -1,6 +1,6 @@
 //<script>
 /*
- * Bypass (F50) for UFI-TOOLS - TTL manager + Anti-DPI (plugin version v65.13)
+ * Bypass (F50) for MatchiTOOL - standalone fork of the UFI-TOOLS plugin (v65.13)
  * Copyright (c) 2026 saiko (GitHub: SaikoC9). MIT License. A plugin for UFI-TOOLS; the nfqws program is not included.
  * BPF_TAG below is the cache key of the embedded eBPF program, not the plugin version.
  */
@@ -11,8 +11,7 @@
   const MODAL_NAME = 'kano_bypass_modal';
   const STYLE_ID = 'kano_bypass_style';
   const BTN_ID = 'kano_bypass_btn';
-  const BOOT_FILE = '/sdcard/ufi_tools_boot.sh';
-  const APP_CURL = '/data/data/com.minikano.f50_sms/files/curl';
+  const BOOT_FILE = '/data/local/matchitool/boot.sh';
   const PING_IP = '8.8.8.8';
   const PING_HOST = 'google.com';
   const LAN_IFS = 'br0 usb0 wlan0';
@@ -30,7 +29,7 @@ calc_lan`;
   const QUICK_TTL = 64;
   const WATCH_INTERVAL = 30;
   const BPF_TAG = 'v29';
-  const LOCK_SH = String.raw`LOCK=/data/local/ufi_lock/apply.lock
+  const LOCK_SH = String.raw`LOCK=/data/local/matchitool/lock/apply.lock
 BOOTID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
 lock_owner() { cat "$LOCK/pid" 2>/dev/null; }
 lock_boot() { cat "$LOCK/boot" 2>/dev/null; }
@@ -172,7 +171,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     const result = new Promise((resolve) => { resolveResult = resolve; });
     sharedRootQueue.tail = sharedRootQueue.tail.then(async () => {
       let timer = null;
-      const call = Promise.resolve().then(() => { if (typeof runShellWithRoot !== 'function') throw new Error('UFI-TOOLS root-shell function is unavailable'); return runShellWithRoot(command, limit); });
+      const call = Promise.resolve().then(() => { if (typeof runShellWithRoot !== 'function') throw new Error('MatchiTOOL root-shell function is unavailable'); return runShellWithRoot(command, limit); });
       const settled = call.then(
         (res) => ({ kind: 'success', res }),
         (err) => ({ kind: 'error', err }),
@@ -183,7 +182,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
       const outcome = await Promise.race([settled, timed]);
       clearTimeout(timer);
       if (outcome.kind === 'timeout') {
-        resolveResult({ ok: false, text: `Root command exceeded ${limit} ms; queue remains safely locked until the host shell settles. If it never settles, restart UFI-TOOLS rather than running overlapping root commands.` });
+        resolveResult({ ok: false, text: `Root command exceeded ${limit} ms; queue remains safely locked until the host shell settles. If it never settles, restart MatchiTOOL rather than running overlapping root commands.` });
         await settled;
       } else if (outcome.kind === 'error') {
         resolveResult({ ok: false, text: String(outcome.err?.message || outcome.err) });
@@ -253,7 +252,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
 
   const bootLineRe = (marker) => `^[[:space:]]*sh ${marker.replace(/[.[\]*+?^${}()|\\]/g, '\\$&')} start([[:space:]]+>/dev/null 2>&1)?([[:space:]]*&)?[[:space:]]*$`;
   const bootCheckCmd = (marker) => `grep -qE '${bootLineRe(marker)}' ${BOOT_FILE} 2>/dev/null && echo YES || echo NO`;
-  const BOOT_DIR = '/data/local/ufi_boot';
+  const BOOT_DIR = '/data/local/matchitool/boot-meta';
   const BOOT_HASH = `${BOOT_DIR}/boot.sha256`;
   const BOOT_FN = String.raw`bsum() { ( sha256sum "$1" || busybox sha256sum "$1" || toybox sha256sum "$1" || openssl dgst -sha256 "$1" ) 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -n 1; }`;
   const bootPreCmd = () => [
@@ -271,7 +270,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   const bootDelCmd = (marker) => [bootPreCmd(), bootDelRaw(marker), bootSealCmd()].join('\n');
   const bootAddCmd = (marker, line) => [
     bootPreCmd(),
-    String.raw`[ -f ${BOOT_FILE} ] || printf '#!/system/bin/sh\n' > ${BOOT_FILE}`,
+    String.raw`mkdir -p /data/local/matchitool && { [ -f ${BOOT_FILE} ] || printf '#!/system/bin/sh\n' > ${BOOT_FILE}; }`,
     bootDelRaw(marker),
     String.raw`[ -s ${BOOT_FILE} ] && [ -n "$(tail -c1 ${BOOT_FILE})" ] && echo >> ${BOOT_FILE}`,
     `echo '${line}' >> ${BOOT_FILE}`,
@@ -317,8 +316,8 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   ].join('\n');
 
   const OWN_BOOT_LINES = [
-    'sh /data/local/ufi_ttl/ttl.sh start >/dev/null 2>&1 &',
-    'sh /data/local/ufi_dpi/dpi.sh start >/dev/null 2>&1 &',
+    'sh /data/local/matchitool/ttl/ttl.sh start >/dev/null 2>&1 &',
+    'sh /data/local/matchitool/dpi/dpi.sh start >/dev/null 2>&1 &',
   ];
   const foreignPipeline = () => {
     const own = OWN_BOOT_LINES.map((l) => `-e '${l}'`).join(' ');
@@ -489,7 +488,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     return Array.from(H).map((x) => x.toString(16).padStart(8, '0')).join('');
   };
   const ttlModule = (() => {
-    const DIR = '/data/local/ufi_ttl';
+    const DIR = '/data/local/matchitool/ttl';
     const SCRIPT = `${DIR}/ttl.sh`;
     const CONF = `${DIR}/ttl.conf`;
     const BOOT_LINE = `sh ${SCRIPT} start >/dev/null 2>&1 &`;
@@ -523,7 +522,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
 
     const TTL_SCRIPT = String.raw`#!/system/bin/sh
 # UFI TTL helper: apply | remove | start | stop | status | watch
-D=/data/local/ufi_ttl
+D=/data/local/matchitool/ttl
 CH=UFI_TTL
 CONF=$D/ttl.conf
 PIDF=$D/watch.pid
@@ -1062,7 +1061,7 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
       const sess = session;
       put('#ttl_ip', 'bp-value', 'Checking…');
       const url = 'https://api.ipify.org';
-      const r = await runRoot(String.raw`C=${APP_CURL}; [ -x "$C" ] || C=$(command -v curl)
+      const r = await runRoot(String.raw`C=$(command -v curl 2>/dev/null)
 if [ -n "$C" ]; then "$C" -s --connect-timeout 4 --max-time 8 ${url}
 elif command -v wget >/dev/null 2>&1; then wget -qO- -T 8 ${url}
 fi`, 18000);
@@ -1183,7 +1182,7 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
   })();
 
   const dpiModule = (() => {
-    const DIR = '/data/local/ufi_dpi';
+    const DIR = '/data/local/matchitool/dpi';
     const SCRIPT = `${DIR}/dpi.sh`;
     const CONF = `${DIR}/dpi.conf`;
     const BOOT_LINE = `sh ${SCRIPT} start >/dev/null 2>&1 &`;
@@ -1215,7 +1214,7 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
 
     const DPI_SCRIPT = String.raw`#!/system/bin/sh
 # UFI anti-DPI helper: apply | remove | start | stop | status | watch
-D=/data/local/ufi_dpi
+D=/data/local/matchitool/dpi
 CONF=$D/dpi.conf
 PIDF=$D/watch.pid
 NPID=$D/nfqws.pid
@@ -2543,7 +2542,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
           </details>
           <details class="bp-card bp-more">
             <summary>About nfqws</summary>
-            <div class="bp-note">nfqws is not included. Download a build that matches your device (for example zapret, linux-arm64, static), tap Import file and choose it. The plugin checks it (ELF header, CPU type, size, SHA-256, test run) and installs it to ${DIR}/nfqws; no adb needed. The plugin starts it as root (the build itself may drop privileges), so only import a build you trust. Uninstall turns nfqws off and deletes the file; your other settings are kept. nfqws needs NFQUEUE support in the kernel (shown above).</div>
+            <div class="bp-note">nfqws is not included. Download a build that matches your device (for example zapret, linux-arm64, static), tap Import file and choose it. The plugin checks it (ELF header, CPU type, size, SHA-256, test run) and installs it to ${DIR}/nfqws; no external device bridge is needed. The plugin starts it as root (the build itself may drop privileges), so only import a build you trust. Uninstall turns nfqws off and deletes the file; your other settings are kept. nfqws needs NFQUEUE support in the kernel (shown above).</div>
             <div class="bp-note">Safety: when you apply with nfqws on, the plugin tests the internet and turns nfqws off automatically if the connection stops working. If nfqws crashes, traffic keeps flowing without it. Only outgoing packets are sent to nfqws, so options that need the server's replies (the autottl options) do nothing; use a fixed value such as --dpi-desync-ttl=3. TCP MSS (20 lower for IPv6), Block QUIC and nfqws also apply to IPv6 when the kernel supports ip6tables; the DNS redirect is IPv4 only.</div>
             <div class="bp-note">Arguments may only contain letters, numbers and = , . _ : / - (paths such as --hostlist=${DIR}/list.txt work). The plugin sets --qnum, --daemon and --pidfile itself, so do not add them. --debug and --dpi-desync-fwmark are not allowed because the firewall rules depend on the default mark.</div>
           </details>
@@ -3033,8 +3032,8 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
     if (err) throw err;
   };
 
-  const ST_READ = String.raw`D=/data/local/ufi_ttl
-P=/data/local/ufi_dpi
+  const ST_READ = String.raw`D=/data/local/matchitool/ttl
+P=/data/local/matchitool/dpi
 echo "@@METH=$(cat $D/method 2>/dev/null)"
 echo "@@SAVED=$(sed -n 's/^TTL=\([0-9][0-9]*\).*/\1/p' $D/ttl.conf 2>/dev/null | head -n 1)"
 echo "@@BINVAL=$(dd if=$D/ttl_bpf.bin bs=1 skip=4 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')"
@@ -3307,9 +3306,9 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
                 <div class="bp-pt">Block QUIC</div>
                 <div class="bp-note">Makes apps that use HTTP/3 (QUIC) fall back to normal TCP, which can be adjusted by the other rules. VPNs that use UDP port 443 stop working while this is on.</div>
                 <div class="bp-pt">Auto-apply at boot</div>
-                <div class="bp-note">Applies the rules again after every restart. A keep-alive also restores them if the mobile connection resets them. The boot entry is stored in /sdcard/ufi_tools_boot.sh and runs as root. If you save that file in the UFI-TOOLS boot script editor, the entry is overwritten, so turn this switch on again afterwards. Other apps with storage access can also edit that file, and everything in it runs as root, so the plugin warns you if it finds commands it did not add.</div>
+                <div class="bp-note">Applies the rules again after every restart. A keep-alive also restores them if the mobile connection resets them. The boot entry is stored in MatchiTOOL’s private root-managed startup script and runs as root after Android broadcasts boot completed. Review unexpected entries: every line in that file runs as root.</div>
                 <div class="bp-pt">Boot file check</div>
-                <div class="bp-note">The plugin keeps a SHA-256 of the boot file in /data/local/ufi_boot, where apps cannot write, and warns when the file no longer matches. It can warn but cannot stop the file from running at boot.</div>
+                <div class="bp-note">The plugin keeps a SHA-256 of the boot file in /data/local/matchitool/boot-meta, where apps cannot write, and warns when the file no longer matches. It can warn but cannot stop the file from running at boot.</div>
                 <div id="boot_int" class="bp-note">Checking…</div>
                 <button class="bp-act bp-sm" id="boot_trust">Trust current boot file</button>
               </details>

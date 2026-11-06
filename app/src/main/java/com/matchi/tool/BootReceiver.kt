@@ -5,11 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 
-/** On boot only start the web server. The root daemon is started from /sdcard/ufi_tools_boot.sh (run at boot by UFI-TOOLS). */
+/** Restarts the app's web host after boot. Root access remains managed by Android's su manager. */
 class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(c: Context, i: Intent) {
-        if (i.action != Intent.ACTION_BOOT_COMPLETED) return
-        val svc = Intent(c, HostService::class.java)
-        if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(svc) else c.startService(svc)
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val service = Intent(context, HostService::class.java).setAction(HostService.ACTION_RUN_BOOT_TASKS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(service)
+        else context.startService(service)
     }
 }

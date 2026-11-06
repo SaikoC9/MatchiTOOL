@@ -1,87 +1,208 @@
 package com.matchi.tool
 
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
+import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Process
+import android.view.Gravity
+import android.view.View
 import android.widget.*
-import java.io.File
-import java.net.NetworkInterface
 
 class MainActivity : Activity() {
-    private lateinit var info: TextView
-    private lateinit var status: TextView
+    private lateinit var rootValue: TextView
+        private lateinit var zteValue: TextView
+    private lateinit var webValue: TextView
+
+    private val blue = Color.rgb(0, 153, 255)
+    private val muted = Color.rgb(177, 195, 220)
+    private val panel = Color.rgb(8, 17, 29)
+    private val white = Color.rgb(245, 248, 255)
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
-        writeStartScript()
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+        if (Build.VERSION.SDK_INT >= 23) {
+            window.decorView.systemUiVisibility = 0
+        }
+
         val svc = Intent(this, HostService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
 
-        info = TextView(this).apply { textSize = 15f; setPadding(40, 40, 40, 10); setTextIsSelectable(true) }
-        status = TextView(this).apply { textSize = 16f; setPadding(40, 10, 40, 10) }
-        val copy = Button(this).apply { text = "Copy root setup command"; setOnClickListener { copySetup() } }
-        val recheck = Button(this).apply { text = "Re-check root"; setOnClickListener { checkRoot() } }
-        val reset = Button(this).apply { text = "Reset token"; setOnClickListener { Prefs.resetToken(this@MainActivity); render() } }
-        val sv = ScrollView(this).apply {
-            addView(LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(info); addView(status); addView(copy); addView(recheck); addView(reset)
-            })
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(22), dp(24), dp(22), dp(24))
+            setBackgroundColor(Color.BLACK)
         }
-        setContentView(sv)
-        render(); checkRoot()
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(page)
+        }
+
+        val logo = TextView(this).apply {
+            text = "▣"
+            textSize = 48f
+            gravity = Gravity.CENTER
+            setTextColor(blue)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        page.addView(logo, centeredParams())
+
+        val title = TextView(this).apply {
+            text = "MatchiTOOL"
+            textSize = 31f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        page.addView(title, centeredParams())
+        val subtitle = TextView(this).apply {
+            text = "Portable Wi-Fi Management Tool"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(muted)
+        }
+        page.addView(subtitle, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(28) })
+
+        val zteHost = Prefs.zteHost(this)
+        zteValue = TextView(this).apply { text = zteHost; setTextColor(blue) }
+        page.addView(infoCard("◉", "ZTE F50 IP", zteValue, "Open router page", true) {
+            openAddress("http://${Prefs.zteHost(this@MainActivity)}")
+        })
+
+        val webAddress = webHostAddress()
+        webValue = TextView(this).apply { text = webAddress; setTextColor(blue) }
+        page.addView(infoCard("◎", "Matchi Web IP", webValue, "Tap to open • long-press for access token", true) {
+            openAddress("http://${webHostAddress()}")
+        })
+        webValue.setOnLongClickListener {
+            showTokenDialog()
+            true
+        }
+
+        rootValue = TextView(this).apply {
+            text = "Checking…"
+            setTextColor(muted)
+        }
+                page.addView(infoCard("⬡", "Root Access", rootValue, "Tap to re-check root authorization", false) { checkRoot() })
+
+        setContentView(scroll)
+        refreshAddresses()
+        checkRoot()
     }
 
-    private fun startScript() = File(filesDir, "start.sh")
-
-    /** start.sh is run by root: it starts the socat daemon whose socket only this app's uid can use. */
-    private fun writeStartScript() {
-        val d = filesDir.absolutePath
-        val uid = Process.myUid()
-        val s = """#!/system/bin/sh
-D=$d
-SOCK=${'$'}D/matchi_root.sock
-S=/data/data/com.minikano.f50_sms/files/socat
-i=0
-while [ ! -x "${'$'}S" ] && [ ${'$'}i -lt 60 ]; do sleep 2; i=${'$'}((i+1)); done
-[ -x "${'$'}S" ] || S=${'$'}(command -v socat)
-[ -n "${'$'}S" ] || { echo "socat not found (UFI-TOOLS must be installed with advanced features on)"; exit 1; }
-rm -f "${'$'}SOCK"
-nohup "${'$'}S" UNIX-LISTEN:${'$'}SOCK,fork,user=$uid,mode=600 EXEC:/system/bin/sh >/dev/null 2>&1 &
-echo started
-"""
-        startScript().writeText(s)
-        startScript().setReadable(true, false)
+    private fun infoCard(icon: String, label: String, value: TextView, hint: String, clickable: Boolean, action: () -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = GradientDrawable().apply {
+                setColor(panel)
+                setStroke(dp(1), blue)
+                cornerRadius = dp(18).toFloat()
+            }
+            if (clickable) {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { action() }
+            } else setOnClickListener { action() }
+        }
+        val symbol = TextView(this).apply {
+            text = icon
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTextColor(blue)
+        }
+        row.addView(symbol, LinearLayout.LayoutParams(dp(58), dp(58)))
+        val divider = View(this).apply { setBackgroundColor(blue) }
+        row.addView(divider, LinearLayout.LayoutParams(dp(1), dp(58)).apply { leftMargin = dp(12); rightMargin = dp(16) })
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(white)
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        texts.addView(value, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
+        value.textSize = 20f
+        value.typeface = Typeface.DEFAULT_BOLD
+        texts.addView(TextView(this).apply {
+            text = hint
+            textSize = 11f
+            setTextColor(muted)
+        })
+        row.addView(texts, LinearLayout.LayoutParams(0, -2, 1f))
+        return row.apply {
+            val lp = LinearLayout.LayoutParams(-1, -2)
+            lp.bottomMargin = dp(14)
+            layoutParams = lp
+        }
     }
 
-    private fun setupCommand(): String {
-        val sp = startScript().absolutePath
-        return "sh $sp; grep -q MATCHITOOL /sdcard/ufi_tools_boot.sh 2>/dev/null || printf '\\n# MATCHITOOL\\nsh $sp >/dev/null 2>&1 &\\n' >> /sdcard/ufi_tools_boot.sh"
+    private fun centeredParams() = LinearLayout.LayoutParams(-1, -2).apply { gravity = Gravity.CENTER }
+
+    private fun refreshAddresses() {
+        zteValue.text = Prefs.zteHost(this)
+        webValue.text = webHostAddress()
     }
 
-    private fun copySetup() {
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("matchi", setupCommand()))
-        Toast.makeText(this, "Copied. Paste it into a ROOT shell on the device, once.", Toast.LENGTH_LONG).show()
+    // The web server listens on loopback by default. When LAN access is enabled,
+    // show the phone's actual Wi-Fi IPv4 address and the web server port.
+    private fun webHostAddress(): String {
+        if (!Prefs.lanAccess(this)) return "127.0.0.1:${Prefs.PORT} (local only)"
+        return try {
+            @Suppress("DEPRECATION")
+            val ip = (applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager)
+                .connectionInfo.ipAddress
+            val host = if (ip == 0) "" else listOf(
+                ip and 0xff, ip shr 8 and 0xff, ip shr 16 and 0xff, ip shr 24 and 0xff
+            ).joinToString(".")
+            if (host.isBlank()) "Wi-Fi unavailable:${Prefs.PORT}" else "$host:${Prefs.PORT}"
+        } catch (_: Exception) {
+            "Wi-Fi unavailable:${Prefs.PORT}"
+        }
+    }
+
+    private fun openAddress(address: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(address)))
+        } catch (_: Exception) {
+            Toast.makeText(this, "No browser app is available", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun showTokenDialog() {
+        val token = Prefs.token(this)
+        AlertDialog.Builder(this)
+            .setTitle("MatchiTOOL access token")
+            .setMessage("Enter this token on the MatchiTOOL web page:\n\n$token\n\nKeep this token private.")
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MatchiTOOL token", token))
+                Toast.makeText(this, "Token copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun checkRoot() {
-        status.text = "Root: checking..."
+        rootValue.text = "Checking…"
+        rootValue.setTextColor(muted)
         Thread {
-            val ok = RootShell.isRoot(this)
-            runOnUiThread { status.text = if (ok) "Root: OK" else "Root: NOT connected yet. Copy the setup command and run it in a root shell once." }
+            val result = RootShell.run(this, "id -u", 20_000)
+            val ok = result.success && result.content.trim().lines().lastOrNull() == "0"
+            runOnUiThread {
+                rootValue.text = if (ok) "Enabled" else "Not rooted"
+                rootValue.setTextColor(if (ok) Color.rgb(35, 220, 120) else Color.rgb(255, 105, 105))
+            }
         }.start()
     }
 
-    private fun render() {
-        val ips = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
-            .filter { !it.isLoopbackAddress && it.address.size == 4 }.map { it.hostAddress }
-        info.text = "MatchiTOOL\n\nOpen in a browser:\n" + ips.joinToString("\n") { "http://$it:${Prefs.PORT}" } +
-            "\n\nAccess token:\n${Prefs.token(this)}\n\nThe token grants a ROOT shell. Do not share it."
-    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 }

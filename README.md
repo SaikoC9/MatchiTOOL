@@ -1,34 +1,76 @@
 # MatchiTOOL
 
-A UFI-TOOLS-style host app for the ZTE F50. It serves a web UI (port 2334) and gives UFI-TOOLS plugins
-(like Bypass_v65_13.js) the functions they expect: runShellWithRoot, createToast, createModal, showModal,
-and a `.actions-buttons` container.
+An independent Android host application for ZTE modem/router tools. The project contains a local web UI,
+JavaScript plugin loader, an optional root-command bridge, AT command integration, SMS and signal plugins, and a ZTE
+router web-API client. The intended target is stock ZTE F50 firmware, but the app itself does not install root onto the F50.
 
-## How root works (same idea as UFI-TOOLS)
-The app is never root. A root `socat` daemon listens on a unix socket in the app's own files dir, owned by the app's uid.
-UFI-TOOLS already ships socat and gets root on the F50, so MatchiTOOL reuses that: UFI-TOOLS must stay installed
-with Advanced Features on. One-time setup: in the app press "Copy root setup command" and paste it into a root shell
-(UFI-TOOLS terminal or `adb shell`). It also adds a boot line to /sdcard/ufi_tools_boot.sh so the daemon restarts after reboot.
+## Independence and root model
+
+MatchiTOOL does **not** require UFI-TOOLS, its private app directory, `socat`, a UFI Unix socket, or a UFI boot script.
+It invokes the Android device's existing `su` command (`su -c sh`) when a privileged operation is requested. A compatible
+root manager (for example Magisk, KernelSU, or APatch) must already be installed and must grant MatchiTOOL root
+permission. This is a root **client/backend**, not a rooting exploit or boot-image installer.
+
+For rooting the **stock ZTE F50 itself**, see [`docs/F50_STOCK_ROOT.md`](docs/F50_STOCK_ROOT.md). The currently documented public route is firmware-specific (B09) and uses a patched boot image and TrustOS image via a separate host-side flashing toolkit. MatchiTOOL does not flash these partitions or bundle proprietary stock/modified firmware images. Do not assume the B09 method works on another build.
+
+Root commands are sent to the shell over stdin, rather than interpolated into a `su -c` command string. Command
+output is bounded and execution has a timeout. Root authorization and revocation remain controlled by the root manager.
+
+## Features
+
+- **Read-only device diagnostics**: Android build, root identity, kernel, network interfaces/routes, storage, and optional tool availability.
+- **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
+- **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
+
+- Browser interface on port **2334** with a generated access token. The server binds to loopback by default; LAN access can be explicitly enabled from the Android host screen.
+- Plugin upload, enable/disable, delete, and bundled plugin refresh on app updates.
+- Root terminal and the `runShellWithRoot` plugin bridge.
+- AT command execution through the bundled `sendat` executable (device/architecture compatibility required).
+- ZTE router API proxy for SMS and live signal information.
+- Boot receiver restarts the web host and runs the app-managed root startup script (when present); root access is separately authorized by `su`.
+
+Bundled plugins include `AT_Radio.js`, `Bypass_v65_13.js`, `Device_Status.js`, `SMS.js`, and `Signal_Info.js`.
+Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
+plugins execute with the privileges of the host bridge and should be treated as trusted code.
 
 ## Build
-- No PC: push this folder to a GitHub repo, Actions -> "Build APK" -> download app-debug.apk.
-- Android Studio: open folder, Build > Build APK.
 
-## Use
-1. Install the APK, open it, run the setup command once, press Re-check root (should say Root: OK).
-2. Open the shown URL in a browser, enter the token.
-3. Plugins live in the app's files/plugins dir (Bypass_v65_13.js is bundled).
-   Do not enable the same plugin in UFI-TOOLS and MatchiTOOL at the same time; both would manage the same iptables rules.
+Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
-## Plugins
-The web UI has a "Manage plugins" card: upload a `.js` file, enable/disable or delete plugins (reload to apply).
-Bundled plugins are refreshed on each app update. `Device_Status.js` shows battery, temperature, load, memory, uptime,
-IPs and has a reboot button. The UI also has a root terminal box.
+```sh
+./scripts/validate.sh
+gradle :app:assembleDebug
+```
 
-## Security
-The token gives a root shell to anyone who has it. Keep the port off the internet; reset the token if leaked.
+APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-After 8 wrong tokens an IP is locked out for 60 seconds. Uploaded plugins run with full root-shell access, so only add ones you trust.
+The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on push, pull request, or manual dispatch. The CI workflow pins Gradle 8.7 and the Android Gradle Plugin 8.5.2. The repository does not yet include the Gradle wrapper; use an installed Gradle 8.7 distribution or Android Studio for local builds.
 
-## License
-MIT, see LICENSE. The bundled `Bypass_v65_13.js` plugin is by saiko (MIT) and keeps its own copyright header.
+## Install and use
+
+1. Install the APK on an Android device that already has a supported root manager.
+2. Open MatchiTOOL and press **Request / check root access**. Approve the root prompt in the root manager.
+3. By default, connect using the local-only URL shown in the app. To connect from another device, explicitly enable LAN access on the host screen, read the warning, and use the displayed private-LAN URL.
+4. Upload or enable plugins from the plugin manager. Existing bundled plugin APIs are retained where practical.
+5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
+
+The Bypass plugin stores TTL/DPI helper state under `/data/local/matchitool/` and its boot entries in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to execute that file. This requires the root manager to retain MatchiTOOL's grant across reboot. If upgrading from an older UFI-based setup, first disable the old UFI boot entries and remove/stop the old helpers to avoid duplicate firewall management.
+
+The web API rejects non-local source IP addresses as a defense-in-depth measure. Local-only binding is the default. Optional LAN mode still uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; enable it only when needed, never forward port 2334 to the public internet, and keep the access token private. Reset the token in the Android app if it
+may have been exposed.
+
+## Compatibility notes
+
+The web bridge retains the existing plugin-facing functions (`runShellWithRoot`, `createToast`, `createModal`, and
+`showModal`) and the `.actions-buttons` insertion point. Plugin compatibility is best-effort: plugins may still rely on
+specific modem firmware, device nodes, AT command tools, or shell utilities. The bundled `sendat` binary must match the
+CPU architecture and runtime environment of the target device.
+
+## Licenses and attribution
+
+- MatchiTOOL project code: MIT, see `LICENSE`.
+- UFI-TOOLS-derived components and notices: see `LICENSE-UFI-TOOLS` and the retained source/plugin headers.
+- `Bypass_v65_13.js` retains its original author/copyright header; its MIT license is reproduced in `LICENSE-BYPASS`.
+- Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
+
+Do not remove upstream copyright or license notices when modifying or redistributing derived components.

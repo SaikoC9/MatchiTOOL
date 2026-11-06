@@ -1,65 +1,80 @@
 package com.matchi.tool
 
 import android.content.Context
-import android.net.LocalSocket
-import android.net.LocalSocketAddress
-import android.util.Base64
-import java.io.File
-
-data class ShellResult(val success: Boolean, val content: String)
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.concurrent.TimeUnit
 
 /**
- * Root access the same way UFI-TOOLS does it: a root daemon (socat) listens on a unix socket inside
- * this app's own files dir, owned by this app's uid. The app never runs as root itself.
- * The daemon is started once by start.sh (see MainActivity for the setup command).
+ * Independent root backend. Uses the device's existing su implementation (Magisk, KernelSU,
+ * APatch, etc.) and never relies on UFI-TOOLS, socat, a shared socket, or an external boot script.
+ * Root authorization is granted/revoked by the installed su manager.
  */
+data class ShellResult(val success: Boolean, val content: String)
+
 object RootShell {
-    fun sockFile(ctx: Context) = File(ctx.filesDir, "matchi_root.sock")
+    private const val MAX_OUTPUT_CHARS = 1_000_000
 
     fun run(ctx: Context, script: String, timeoutMs: Long): ShellResult {
-        val f = sockFile(ctx)
-        if (!f.exists()) return ShellResult(false, "Root daemon socket missing. Run the setup command shown in the MatchiTOOL app once.")
-        val ls = LocalSocket()
-        val out = StringBuilder()
-        var rc = -1
-        var finished = false
+        if (script.isBlank()) return ShellResult(false, "No command supplied")
+        val timeout = timeoutMs.coerceIn(1_000L, 120_000L)
+        var process: Process? = null
+        val output = StringBuilder()
+        var readError: String? = null
         try {
-            ls.connect(LocalSocketAddress(f.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM))
-            val tmp = "/data/local/tmp/matchi_" + System.nanoTime()
-            val b64 = Base64.encodeToString(script.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-            val w = ls.outputStream.bufferedWriter()
-            w.write(": > ${tmp}.b64\n")
-            for (chunk in b64.chunked(3000)) w.write("printf %s '" + chunk + "' >> ${tmp}.b64\n")
-            w.write("base64 -d ${tmp}.b64 > ${tmp}.sh\n")
-            w.write("sh ${tmp}.sh 2>&1 < /dev/null; R=\$?; echo; echo __RC__\$R\n")
-            w.write("rm -f ${tmp}.b64 ${tmp}.sh; echo __END__\n")
-            w.flush()
-            val reader = Thread {
+            // `su -c sh` is supported by common Android root managers. The script is sent over
+            // stdin, avoiding shell interpolation of user-provided command text or temp paths.
+            val p = ProcessBuilder("su", "-c", "sh")
+                .redirectErrorStream(true)
+                .start()
+            process = p
+            val reader = Thread({
                 try {
-                    ls.inputStream.bufferedReader().use { r ->
+                    BufferedReader(InputStreamReader(p.inputStream, Charsets.UTF_8)).use { r ->
                         while (true) {
                             val line = r.readLine() ?: break
-                            if (line == "__END__") { finished = true; break }
-                            if (line.startsWith("__RC__")) { rc = line.substring(6).trim().toIntOrNull() ?: -1; continue }
-                            synchronized(out) { if (out.length < 1_000_000) out.append(line).append('\n') }
+                            synchronized(output) {
+                                if (output.length < MAX_OUTPUT_CHARS) output.append(line).append('\n')
+                            }
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    readError = e.message
+                }
+            }, "MatchiRootOutput").apply { isDaemon = true; start() }
+
+            p.outputStream.bufferedWriter(Charsets.UTF_8).use { w ->
+                w.write("#!/system/bin/sh\n")
+                w.write(script)
+                if (!script.endsWith("\n")) w.write("\n")
+                w.flush()
             }
-            reader.start()
-            reader.join(timeoutMs)
-            if (reader.isAlive) {
-                try { ls.close() } catch (_: Exception) {}
-                return ShellResult(false, synchronized(out) { out.toString() }.trimEnd() + "\n[timeout]")
+
+            val exited = p.waitFor(timeout, TimeUnit.MILLISECONDS)
+            if (!exited) {
+                p.destroy()
+                if (p.isAlive) p.destroyForcibly()
+                reader.join(500)
+                return ShellResult(false, synchronized(output) { output.toString().trimEnd() } + "\n[timeout after ${timeout}ms]")
             }
-            val text = synchronized(out) { out.toString() }.trimEnd()
-            return ShellResult(finished && rc == 0, text)
+            reader.join(1_000)
+            val text = synchronized(output) { output.toString().trimEnd() }
+            val code = p.exitValue()
+            val detail = if (!readError.isNullOrBlank()) "\n[output read: $readError]" else ""
+            return ShellResult(code == 0, (text + detail).trim())
+        } catch (e: SecurityException) {
+            return ShellResult(false, "Unable to start su: ${e.message ?: "permission denied"}")
         } catch (e: Exception) {
-            return ShellResult(false, "root socket error: ${e.message}")
+            return ShellResult(false, "Root command failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
-            try { ls.close() } catch (_: Exception) {}
+            try { process?.outputStream?.close() } catch (_: Exception) {}
+            try { process?.inputStream?.close() } catch (_: Exception) {}
+            try { process?.destroy() } catch (_: Exception) {}
         }
     }
 
-    fun isRoot(ctx: Context): Boolean = run(ctx, "id -u", 5000).content.trim() == "0"
+    fun isRoot(ctx: Context): Boolean {
+        val result = run(ctx, "id -u", 15_000)
+        return result.success && result.content.trim().lines().lastOrNull() == "0"
+    }
 }
