@@ -14,7 +14,7 @@ class HostService : Service() {
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("matchi", "MatchiTOOL", NotificationManager.IMPORTANCE_MIN))
         val n = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "matchi") else Notification.Builder(this))
             .setContentTitle("MatchiTOOL running").setContentText(if (Prefs.lanAccess(this)) "LAN enabled · port ${Prefs.PORT}" else "Local-only · port ${Prefs.PORT}")
-            .setSmallIcon(android.R.drawable.ic_menu_manage).build()
+            .setSmallIcon(R.drawable.ic_stat_matchi).build()
         startForeground(1, n)
         if (server == null) server = WebServer(this, Prefs.PORT, if (Prefs.lanAccess(this)) "0.0.0.0" else "127.0.0.1").also { it.start() }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()

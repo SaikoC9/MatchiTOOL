@@ -3767,135 +3767,252 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
 </script>
 <script type="text/plain" class="webtool" data-name="Live_Status.js">
 /*
- * Live Status - MatchiTOOL web-only dashboard plugin (read-only).
+ * Live Status - MatchiTOOL dashboard (read-only).
+ * Shown permanently at the bottom of the Control Center card and refreshed automatically every 5 s
+ * (paused while the tab is hidden). The "Live Status" button opens the same data in a larger popup.
  * Sources, merged in this order of preference:
- *   1. Router web API (/api/zte) - skipped for 60 s after a connection failure
+ *   1. Router web API (/api/zte) - skipped for 3 minutes after a connection failure
  *   2. Android telephony (dumpsys telephony.registry) + battery/thermal via root shell
  *   3. Modem AT commands (COPS / CSQ / CESQ / CEREG) via /api/at
- * Band-lock writes are intentionally not enabled until the exact F50 firmware
- * command and rollback path are verified.
  */
 (() => {
   'use strict';
-  const ID='matchi_live_status', BTN='matchi_live_status_btn';
-  if(document.getElementById(BTN)) return;
-  const esc=s=>String(s??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const keys=[
-    'network_type','network_provider','signalbar','rssi','lte_rsrp','lte_rsrq',
-    'lte_snr','lte_pci','wan_active_band','wan_active_channel',
-    'Z5g_rsrp','Z5g_rsrq','Z5g_SINR','nr5g_pci','nr5g_action_band','nr5g_action_channel',
-    'pm_sensor_mdm','pm_modem_5g'
-  ];
-  const ACT={'0':'2G','1':'2G','2':'3G','3':'2G EDGE','4':'3G HSDPA','5':'3G HSUPA','6':'3G HSPA','7':'4G LTE','10':'4G (5GC)','11':'5G SA','12':'5G (NG-RAN)','13':'5G NSA'};
-  const PLMN={'51502':'Globe','51503':'Smart','51566':'DITO'};
-  const REG={'0':'Not registered','1':'Registered (home)','2':'Searching','3':'Denied','4':'Unknown','5':'Registered (roaming)'};
-  let timer=null, busy=false, zteSkipUntil=0, zteNote='';
-  const card=(label,value,sub='')=>`<div style="background:var(--panel2);border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:0"><div class="mut" style="font-size:12px">${esc(label)}</div><div style="font-size:20px;font-weight:700;overflow-wrap:anywhere">${esc(value)}</div><div class="mut" style="font-size:11px">${esc(sub)}</div></div>`;
-  const has=v=>v!==undefined&&v!==null&&String(v).trim()!==''&&String(v).trim()!=='—';
-  const pick=(...v)=>{const x=v.find(has);return x===undefined?'—':x;};
-  const withUnit=(v,u)=>has(v)?v+' '+u:'—';
-  const range=(v,lo,hi)=>{const n=Number(v);return Number.isFinite(n)&&n>=lo&&n<=hi?n:undefined;};
-  const grab=(re,t)=>{const m=String(t).match(re);return m?m[1]:undefined;};
-  const atRun=async c=>{try{const r=await api('/api/at',{method:'POST',body:JSON.stringify({command:c,slot:0})});return String(r.result||'');}catch(e){return '';}};
-  function stop(){ if(timer)clearInterval(timer); timer=null; }
-  async function refresh(){
-    const root=document.getElementById(ID);
-    if(!root||!root.classList.contains('show')){ stop(); return; }   // modal gone/closed: stop polling
-    if(busy)return;                                                   // previous poll still running
-    busy=true;
-    try { await poll(root); } finally { busy=false; }
-  }
-  async function poll(root){
-    const status=root.querySelector('#mls_status'); if(status)status.textContent='Updating…';
-    let zte={}, errs=[], sh='', tele='';
-    // 1. Router web API (backs off after a connection failure so it can't stall every poll)
-    if(Date.now()>=zteSkipUntil){
-      try{
-        const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params:{multi_data:'1',cmd:keys.join(',')}})});
-        if(r.data&&typeof r.data==='object'){zte=r.data;zteNote='';} else throw new Error('No modem data');
-      }catch(e){ zteSkipUntil=Date.now()+60000; zteNote='Router web API unreachable ('+e.message+') - using Android telephony + AT instead; retrying it every minute.'; }
+  const ID = 'matchi_live_status', BTN = 'matchi_live_status_btn', INL = 'liv_inline';
+  if (document.getElementById(BTN)) return;
+  const esc = (s) => String(s ?? '—').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const ACT = { '0': '2G', '1': '2G', '2': '3G', '3': '2G EDGE', '4': '3G HSDPA', '5': '3G HSUPA', '6': '3G HSPA', '7': '4G LTE', '10': '4G (5GC)', '11': '5G SA', '12': '5G (NG-RAN)', '13': '5G NSA' };
+  const PLMN = { '51502': 'Globe', '51503': 'Smart', '51566': 'DITO' };
+  const REG = { '0': 'Not registered', '1': 'Registered (home)', '2': 'Searching', '3': 'Denied', '4': 'Unknown', '5': 'Registered (roaming)' };
+  const KEYS = ['network_type', 'network_provider', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band', 'wan_active_channel',
+    'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g'];
+
+  // ---- helpers -------------------------------------------------------------------------------------------
+  const has = (v) => v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '—';
+  const pick = (...v) => { const x = v.find(has); return x === undefined ? '—' : x; };
+  const range = (v, lo, hi) => { if (!has(v)) return undefined; const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined; };
+  const first = (...v) => v.find((x) => x !== undefined);
+  const grab = (re, t) => { const m = String(t).match(re); return m ? m[1] : undefined; };
+  const atRun = async (c) => { try { const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command: c, slot: 0 }) }); return String(r.result || ''); } catch (e) { return ''; } };
+
+  // Quality thresholds [excellent, good, fair] (higher is better) and the gauge range for each metric.
+  const TH = { rsrp: [-80, -90, -100], rsrq: [-8, -11, -15], sinr: [20, 13, 0] };
+  const RNG = { rsrp: [-140, -60], rsrq: [-20, -3], sinr: [-5, 30] };
+  const QCOL = ['#28d99a', '#7bd34a', '#ffb020', '#ff647c'];
+  const QNAME = ['Excellent', 'Good', 'Fair', 'Poor'];
+  const qlevel = (k, v) => { const t = TH[k]; return v >= t[0] ? 0 : v >= t[1] ? 1 : v >= t[2] ? 2 : 3; };
+  const gpct = (k, v) => { const r = RNG[k]; return Math.max(4, Math.min(100, ((v - r[0]) / (r[1] - r[0])) * 100)); };
+  const BARCOL = ['#64748b', '#ff647c', '#ff8a3d', '#ffb020', '#7bd34a', '#28d99a'];
+  const BARTXT = ['No signal', 'Very poor', 'Poor', 'Fair', 'Good', 'Excellent'];
+
+  // ---- icons ---------------------------------------------------------------------------------------------
+  const sigIcon = (bars, size = 44) => {
+    const col = BARCOL[bars ?? 0] || BARCOL[0];
+    let r = '';
+    for (let i = 0; i < 5; i++) {
+      const h = 7 + i * 6, on = bars !== undefined && i < bars;
+      r += `<rect x="${3 + i * 8.4}" y="${34 - h}" width="5.6" height="${h}" rx="1.8" fill="${on ? col : '#26374f'}"/>`;
     }
-    // 2. Battery, thermal zones, Android telephony (one root shell call)
-    try{
-      const r=await api('/api/shell',{method:'POST',body:JSON.stringify({timeout:12000,cmd:
-        'echo BATTERY; dumpsys battery 2>/dev/null | grep -E "level:|status:|temperature:"; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && echo "Z:$(cat "$z/type" 2>/dev/null)=$(cat "$z/temp" 2>/dev/null)"; done; echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30'})});
-      sh=String(r.content||'');
-      tele=sh.split('TELEPHONY')[1]||'';
-    }catch(e){ errs.push('Shell unavailable: '+e.message); }
-    // 3. Modem AT commands
-    const cops=await atRun('AT+COPS?'), csq=await atRun('AT+CSQ'), cesq=await atRun('AT+CESQ'), cereg=await atRun('AT+CEREG?');
-    const cm=cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
-    const plmn=cm?cm[1]:undefined, act=cm?ACT[cm[2]]:undefined;
-    const q=csq.match(/\+CSQ:\s*(\d+),/); const csqN=q?Number(q[1]):NaN;
-    const csqDbm=(csqN>=0&&csqN<=31)?(-113+2*csqN):undefined;
-    const e=cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
-    const cesqRsrq=e&&Number(e[5])<=34?(-19.5+0.5*Number(e[5])):undefined;
-    const cesqRsrp=e&&Number(e[6])<=97?(-140+Number(e[6])):undefined;
-    const regStat=grab(/\+CEREG:\s*\d+,(\d)/,cereg);
-    // Android telephony fields (2147483647 / out-of-range = unavailable)
-    const tLteRsrp=range(grab(/CellSignalStrengthLte[^\n]*?\brsrp\s*=\s*(-?\d+)/,tele),-140,-40);
-    const tLteRsrq=range(grab(/CellSignalStrengthLte[^\n]*?\brsrq\s*=\s*(-?\d+)/,tele),-34,3);
-    const tLteSnr=range(grab(/CellSignalStrengthLte[^\n]*?\brssnr\s*=\s*(-?\d+)/,tele),-23,40);
-    const tNrRsrp=range(grab(/\bssRsrp\s*=\s*(-?\d+)/,tele),-140,-40);
-    const tNrSinr=range(grab(/\bssSinr\s*=\s*(-?\d+)/,tele),-23,40);
-    const tNrRsrq=range(grab(/\bssRsrq\s*=\s*(-?\d+)/,tele),-43,20);
-    const tBands=grab(/\bbands\s*=\s*\[([^\]]*)\]/i,tele);
-    const tPci=grab(/\bmPci\s*=\s*(\d+)/,tele), tChan=grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i,tele);
+    return `<svg viewBox="0 0 46 38" width="${size}" height="${size * 38 / 46}" aria-hidden="true">${r}</svg>`;
+  };
+  const battIcon = (pct, charging) => {
+    const p = Math.max(0, Math.min(100, Number(pct) || 0)), col = charging ? '#28d99a' : p <= 15 ? '#ff647c' : p <= 35 ? '#ffb020' : '#28d99a';
+    return `<svg viewBox="0 0 30 18" width="34" height="20" aria-hidden="true"><rect x="1" y="2" width="24" height="14" rx="3.5" fill="none" stroke="#6f829e" stroke-width="1.6"/><rect x="26.5" y="6" width="2.6" height="6" rx="1" fill="#6f829e"/>` +
+      (has(pct) ? `<rect x="3" y="4" width="${(p / 100) * 20}" height="10" rx="2" fill="${col}"/>` : '') +
+      (charging ? '<path d="M14 3.5 9.5 10h3.4L11.6 15 17 8.3h-3.5z" fill="#06101e"/>' : '') + '</svg>';
+  };
+  const thermIcon = (col) => `<svg viewBox="0 0 16 24" width="15" height="22" aria-hidden="true"><path d="M8 2a3 3 0 0 0-3 3v9.2a5 5 0 1 0 6 0V5a3 3 0 0 0-3-3z" fill="none" stroke="${col}" stroke-width="1.7"/><circle cx="8" cy="18" r="2.4" fill="${col}"/></svg>`;
+  const antIcon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 12v9M8 21h8M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4M9.2 9.2a3.8 3.8 0 0 0 0 5.6M14.8 9.2a3.8 3.8 0 0 1 0 5.6" fill="none" stroke="#55b6ff" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="#55b6ff"/></svg>';
+
+  // ---- data collection -----------------------------------------------------------------------------------
+  let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
+
+  async function collect() {
+    let zte = {}; const errs = []; let sh = '', tele = '', raw = {};
+    if (Date.now() >= zteSkipUntil) {
+      try {
+        const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
+        if (r.data && typeof r.data === 'object') { zte = r.data; zteNote = ''; } else throw new Error('No modem data');
+      } catch (e) { zteSkipUntil = Date.now() + 180000; zteNote = 'Router web API unreachable - using the modem and Android telephony instead (retried every 3 minutes).'; }
+    }
+    const shellP = (async () => {
+      try {
+        const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
+          'echo BATTERY; dumpsys battery 2>/dev/null | grep -E "level:|status:|temperature:"; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && echo "Z:$(cat "$z/type" 2>/dev/null)=$(cat "$z/temp" 2>/dev/null)"; done; echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' }) });
+        sh = String(r.content || ''); tele = sh.split('TELEPHONY')[1] || '';
+      } catch (e) { errs.push('Shell unavailable: ' + e.message); }
+    })();
+    const atP = (async () => { raw.cops = await atRun('AT+COPS?'); raw.csq = await atRun('AT+CSQ'); raw.cesq = await atRun('AT+CESQ'); raw.cereg = await atRun('AT+CEREG?'); })();
+    await Promise.all([shellP, atP]);
+
+    const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
+    const plmn = cm ? cm[1] : undefined, act = cm ? ACT[cm[2]] : undefined;
+    const q = raw.csq.match(/\+CSQ:\s*(\d+),/), csqN = q ? Number(q[1]) : NaN;
+    const csqDbm = csqN >= 0 && csqN <= 31 ? -113 + 2 * csqN : undefined;
+    const e = raw.cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+    const cesqRsrq = e && Number(e[5]) <= 34 ? -19.5 + 0.5 * Number(e[5]) : undefined;
+    const cesqRsrp = e && Number(e[6]) <= 97 ? -140 + Number(e[6]) : undefined;
+    const regStat = grab(/\+CEREG:\s*\d+,(\d)/, raw.cereg);
+    // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
+    const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
+    const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
+    const tNrRsrp = range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), tNrSinr = range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), tNrRsrq = range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20);
+    const tBands = grab(/\bbands\s*=\s*\[([^\]]*)\]/i, tele), tPci = grab(/\bmPci\s*=\s*(\d+)/, tele), tChan = grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i, tele);
+    const tLevel = range(grab(/CellSignalStrength(?:Nr|Lte)[^\n]*?\blevel\s*=\s*(\d)/, tele), 0, 4);
     // battery / thermal
-    const bat=grab(/level:\s*(\d+)/i,sh), st=grab(/status:\s*(\d+)/i,sh), temp=grab(/temperature:\s*(\d+)/i,sh);
-    const charge=({'1':'Unknown','2':'Charging','3':'Discharging','4':'Not charging','5':'Full'})[st]||'';
-    const zones=[...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map(m=>({t:m[1].trim(),v:Number(m[2])>1000?Number(m[2])/1000:Number(m[2])})).filter(z=>z.v>0&&z.v<150);
-    const sysMax=zones.length?Math.max(...zones.map(z=>z.v)):undefined;
-    const mz=zones.filter(z=>/nr|mdm|modem/i.test(z.t)); const modemTemp=mz.length?Math.max(...mz.map(z=>z.v)):undefined;
-    const bars=Number.parseInt(zte.signalbar,10);
-    const signalBars=Number.isFinite(bars)?'▮'.repeat(Math.max(0,Math.min(5,bars)))+'▯'.repeat(5-Math.max(0,Math.min(5,bars))):(has(csqDbm)?csqDbm+' dBm':'—');
-    const values=[
-      ['Network',pick(zte.network_type,act)],['Operator',pick(zte.network_provider,PLMN[plmn],plmn)],
-      ['Registration',pick(REG[regStat])],['Signal',signalBars],
-      ['LTE RSRP',withUnit(pick(zte.lte_rsrp,tLteRsrp,cesqRsrp,zte.rssi),'dBm')],
-      ['LTE RSRQ',withUnit(pick(zte.lte_rsrq,tLteRsrq,cesqRsrq),'dB')],
-      ['LTE SINR',withUnit(pick(zte.lte_snr,tLteSnr),'dB')],
-      ['LTE band',pick(zte.wan_active_band,tBands)],['LTE PCI / channel',`${pick(zte.lte_pci,tPci)} / ${pick(zte.wan_active_channel,tChan)}`],
-      ['5G band',pick(zte.nr5g_action_band)],['5G RSRP',withUnit(pick(zte.Z5g_rsrp,tNrRsrp),'dBm')],
-      ['5G RSRQ',withUnit(pick(zte.Z5g_rsrq,tNrRsrq),'dB')],['5G SINR',withUnit(pick(zte.Z5g_SINR,tNrSinr),'dB')],
-      ['5G PCI / channel',`${pick(zte.nr5g_pci)} / ${pick(zte.nr5g_action_channel)}`],
-      ['Battery',bat?bat+'%':'—',charge],['Battery temperature',temp?`${(Number(temp)/10).toFixed(1)} °C`:'—'],
-      ['System thermal max',has(sysMax)?sysMax.toFixed(1)+' °C':'—'],
-      ['Modem temperature',has(modemTemp)?modemTemp.toFixed(1)+' °C':pick(zte.pm_sensor_mdm,zte.pm_modem_5g)]
-    ];
-    const grid=root.querySelector('#mls_grid'); if(grid)grid.innerHTML=values.map(v=>card(v[0],v[1],v[2]||'')).join('');
-    const raw=root.querySelector('#mls_raw');
-    if(raw)raw.textContent=[zteNote||'Router web API: used','AT+COPS?: '+cops.trim(),'AT+CSQ: '+csq.trim(),'AT+CESQ: '+cesq.trim(),'AT+CEREG?: '+cereg.trim(),'','telephony.registry:',tele.trim()||'(no output)'].join('\n');
-    const lock=root.querySelector('#mls_lock_note');
-    if(lock)lock.textContent='Band-lock controls are shown as unavailable until the exact firmware-specific lock command is verified. No band settings have been changed.';
-    const msg=errs.filter(Boolean).join(' · ');
-    if(status)status.textContent=(msg?msg+' · ':'')+'Last attempt '+new Date().toLocaleTimeString()+(zteNote?' · source: modem AT + Android telephony':'')+(timer?' · refreshes every 5 seconds':'');
+    const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
+    const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
+    const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
+
+    const lte = { rsrp: first(range(zte.lte_rsrp, -140, -40), tLteRsrp, cesqRsrp), rsrq: first(range(zte.lte_rsrq, -34, 3), tLteRsrq, cesqRsrq), sinr: first(range(zte.lte_snr, -23, 40), tLteSnr),
+      band: pick(zte.wan_active_band, tBands), pci: pick(zte.lte_pci, tPci), chan: pick(zte.wan_active_channel, tChan) };
+    const nr = { rsrp: first(range(zte.Z5g_rsrp, -140, -40), tNrRsrp), rsrq: first(range(zte.Z5g_rsrq, -43, 20), tNrRsrq), sinr: first(range(zte.Z5g_SINR, -23, 40), tNrSinr),
+      band: pick(zte.nr5g_action_band), pci: pick(zte.nr5g_pci), chan: pick(zte.nr5g_action_channel) };
+    const hasNr = nr.rsrp !== undefined || nr.sinr !== undefined || has(zte.nr5g_action_band) || /5G|NR|ENDC/i.test(String(zte.network_type || ''));
+    const hasLte = lte.rsrp !== undefined || lte.sinr !== undefined || has(zte.wan_active_band) || /LTE|4G/i.test(String(zte.network_type || act || ''));
+
+    // Signal bars (0-5): from RSRP when known (5G first), then the router's own bar count, Android's level, finally CSQ.
+    const prim = first(nr.rsrp, lte.rsrp);
+    const rbars = Number.parseInt(zte.signalbar, 10);
+    let bars;
+    if (prim !== undefined) bars = prim >= -80 ? 5 : prim >= -90 ? 4 : prim >= -100 ? 3 : prim >= -110 ? 2 : prim >= -120 ? 1 : 0;
+    else if (Number.isFinite(rbars)) bars = Math.max(0, Math.min(5, rbars));
+    else if (tLevel !== undefined) bars = Math.round(tLevel * 1.25);
+    else if (csqDbm !== undefined) bars = csqDbm >= -65 ? 5 : csqDbm >= -75 ? 4 : csqDbm >= -85 ? 3 : csqDbm >= -95 ? 2 : csqDbm >= -105 ? 1 : 0;
+
+    let net = has(zte.network_type) ? String(zte.network_type) : (act || '');
+    if (/^(ENDC|NSA)$/i.test(net)) net = '5G NSA'; else if (/^(NR|SA|NR5G)$/i.test(net)) net = '5G SA'; else if (/^LTE$/i.test(net)) net = '4G LTE';
+    if (hasNr && !/5G/i.test(net)) net = '5G NSA';
+    const sysMax = zones.length ? Math.max(...zones.map((z) => z.v)) : undefined;
+    const modemTemp = mz.length ? Math.max(...mz.map((z) => z.v)) : range(first(zte.pm_sensor_mdm, zte.pm_modem_5g), 1, 150);
+    return {
+      net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
+      lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
+      batTemp: has(temp) ? Number(temp) / 10 : undefined, sysMax, modemTemp, errs,
+      rawText: [zteNote || 'Router web API: used', 'AT+COPS?: ' + raw.cops.trim(), 'AT+CSQ: ' + raw.csq.trim(), 'AT+CESQ: ' + raw.cesq.trim(), 'AT+CEREG?: ' + raw.cereg.trim(), '', 'telephony.registry:', tele.trim() || '(no output)'].join('\n'),
+      source: zteNote ? 'modem AT + Android telephony' : 'router API + modem',
+    };
   }
-  function open(){
-    createModal({name:ID,title:'Live device status',maxWidth:'760px',showConfirm:false,onClose:()=>{stop();return true;},
-      content:`<div id="mls_status" class="mut" style="margin-bottom:10px">Connecting…</div>
-      <div id="mls_grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px"></div>
-      <div style="margin-top:14px;padding:12px;border:1px solid var(--bd);border-radius:10px">
-        <strong>Band lock</strong><div id="mls_lock_note" class="mut" style="margin-top:6px">Checking firmware compatibility…</div>
-        <button type="button" disabled title="Awaiting verified F50 firmware command" style="margin-top:8px;opacity:.55">Band lock unavailable</button>
-      </div>
-      <details style="margin-top:12px"><summary class="mut">Raw modem / telephony output</summary><pre id="mls_raw" class="mut" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:220px;overflow:auto"></pre></details>
-      <div style="display:flex;gap:8px;margin-top:12px"><button type="button" id="mls_refresh">Refresh now</button><label class="mut"><input type="checkbox" id="mls_auto" checked style="width:auto"> Auto refresh (5 s)</label></div>`});
+
+  // ---- rendering (no element ids inside, so it can be used in the page and in the popup) -------------------
+  const fmt = (v, d = 0) => (v === undefined ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toString());
+  function metric(label, k, v, unit) {
+    if (v === undefined) return `<div class="liv-m"><span class="liv-ml">${label}</span><div class="liv-bar"></div><b class="mut">—</b></div>`;
+    const c = QCOL[qlevel(k, v)];
+    return `<div class="liv-m" title="${QNAME[qlevel(k, v)]}"><span class="liv-ml">${label}</span><div class="liv-bar"><i style="width:${gpct(k, v)}%;background:${c}"></i></div><b style="color:${c}">${fmt(v, 1)} <small>${unit}</small></b></div>`;
+  }
+  function radioBox(title, r, tone) {
+    return `<div class="liv-box"><h4>${antIcon}${title}${has(r.band) ? `<span class="liv-badge" style="margin-left:auto">${esc(r.band)}</span>` : ''}</h4>
+      ${metric('RSRP', 'rsrp', r.rsrp, 'dBm')}${metric('RSRQ', 'rsrq', r.rsrq, 'dB')}${metric('SINR', 'sinr', r.sinr, 'dB')}
+      <div class="liv-kv"><span>PCI <b>${esc(r.pci)}</b></span><span>Channel <b>${esc(r.chan)}</b></span></div></div>`;
+  }
+  function tile(icon, label, value, sub) {
+    return `<div class="liv-tile"><div class="liv-ti">${icon}</div><div><div class="liv-tl">${label}</div><div class="liv-tv">${value}</div>${sub ? `<div class="liv-ts">${esc(sub)}</div>` : ''}</div></div>`;
+  }
+  const tcol = (t, warn, hot) => (t === undefined ? '#6f829e' : t >= hot ? '#ff647c' : t >= warn ? '#ffb020' : '#28d99a');
+  function render(M) {
+    if (!M) return '<div class="empty-state">Reading modem…</div>';
+    const noData = M.bars === undefined && M.prim === undefined && M.net === '—';
+    const col = BARCOL[M.bars ?? 0];
+    const hero = `<div class="liv-hero">
+      <div class="liv-sig">${sigIcon(M.bars, 52)}<div><div class="liv-dbm" style="color:${col}">${M.prim !== undefined ? fmt(M.prim) + '<small> dBm</small>' : '—'}</div>
+        <div class="liv-q" style="color:${col}">${M.bars === undefined ? 'No data' : BARTXT[M.bars]}${M.prim !== undefined ? ' · ' + M.primLabel : ''}</div></div></div>
+      <div><div class="liv-op">${esc(M.op)}</div><div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="liv-badge">${esc(M.net)}</span><span class="mut" style="font-size:12px">${esc(M.reg)}</span></div></div>
+      <div class="liv-bat">${battIcon(M.bat, M.charging)}<div><div class="liv-dbm" style="font-size:22px">${M.bat !== undefined ? M.bat + '%' : '—'}</div><div class="mut" style="font-size:12px">${esc(M.chargeTxt || 'Battery')}</div></div></div></div>`;
+    const boxes = [];
+    if (M.hasNr) boxes.push(radioBox('5G NR', M.nr));
+    if (M.hasLte || !M.hasNr) boxes.push(radioBox('4G LTE', M.lte));
+    const tiles = `<div class="liv-tiles">
+      ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery temp', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System thermal max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem temp', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
+    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + tiles + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+  }
+
+  // ---- page + popup --------------------------------------------------------------------------------------
+  const css = document.createElement('style');
+  css.textContent = `.liv{margin-top:20px;border-top:1px solid var(--bd);padding-top:16px}.liv small{font-size:.55em;font-weight:650;opacity:.75}
+.liv-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.liv-title{font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--mut);text-transform:uppercase}
+.liv-live{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--mut)}.liv-pulse{width:8px;height:8px;border-radius:50%;background:#28d99a;animation:livp 2s infinite}.liv-pulse.off{background:#64748b;animation:none}
+@keyframes livp{0%{box-shadow:0 0 0 0 rgba(40,217,154,.55)}70%{box-shadow:0 0 0 7px rgba(40,217,154,0)}100%{box-shadow:0 0 0 0 rgba(40,217,154,0)}}
+.liv-hero{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;padding:18px 20px;border-radius:15px;background:linear-gradient(135deg,#10294a,#0b1730 70%);border:1px solid #1f4a7a}
+.liv-sig,.liv-bat{display:flex;align-items:center;gap:14px}.liv-dbm{font-size:32px;font-weight:850;line-height:1.05;letter-spacing:-.01em}.liv-q{font-size:12px;font-weight:750;margin-top:3px}
+.liv-op{font-size:21px;font-weight:850}.liv-badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:800;background:#168cff22;border:1px solid #168cff66;color:#55b6ff}
+.liv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:12px}.liv-box{background:#0a1626;border:1px solid var(--bd);border-radius:14px;padding:14px 16px}
+.liv-box h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}.liv-m{display:grid;grid-template-columns:44px 1fr 86px;gap:10px;align-items:center;margin:9px 0;font-size:13px}.liv-m b{text-align:right}.liv-ml{color:var(--mut);font-size:12px;font-weight:700}
+.liv-bar{height:7px;border-radius:99px;background:#16283f;overflow:hidden}.liv-bar i{display:block;height:100%;border-radius:99px;transition:width .5s}
+.liv-kv{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)}.liv-kv b{color:var(--fg)}
+.liv-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px}.liv-tile{display:flex;gap:12px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:14px;padding:12px 16px}
+.liv-tl{font-size:12px;color:var(--mut);font-weight:700}.liv-tv{font-size:19px;font-weight:800}.liv-ts{font-size:11px;color:var(--mut)}.liv-foot{margin-top:10px;font-size:11px;color:var(--mut)}
+@media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:14px}.liv-m{grid-template-columns:40px 1fr 78px}.liv-tiles{grid-template-columns:repeat(3,1fr);gap:8px}.liv-tile{flex-direction:column;align-items:flex-start;gap:6px;padding:10px 12px}.liv-tv{font-size:16px}}
+@media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;
+  document.head.appendChild(css);
+
+  const home = document.getElementById('home');
+  let inl = null;
+  if (home) {
+    inl = document.createElement('div'); inl.id = INL; inl.className = 'liv';
+    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div>';
+    home.appendChild(inl);
+  }
+  const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
+  const visible = () => !document.hidden && ((inl && inl.offsetParent !== null) || modalRoot());
+
+  function paint() {
+    const html = render(last);
+    if (inl) {
+      inl.querySelector('.liv-body').innerHTML = html;
+      inl.querySelector('.liv-foot').textContent = last ? 'Source: ' + last.source + (last.errs.length ? ' · ' + last.errs.join(' · ') : '') + ' · read-only' : '';
+    }
+    const mb = document.getElementById('mls_body'); if (mb) mb.innerHTML = html;
+    const raw = document.getElementById('mls_raw'); if (raw && last) raw.textContent = last.rawText;
+    when();
+  }
+  function when() {
+    const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
+    const t = busy && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
+    const stale = s < 0 || s > 20;
+    for (const root of [inl, modalRoot()]) {
+      if (!root) continue;
+      const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
+      if (w) w.textContent = stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
+      if (p) p.classList.toggle('off', stale);
+    }
+  }
+  async function tick() {
+    if (busy || !visible()) return;
+    busy = true;
+    try { last = await collect(); lastOk = Date.now(); lastErr = ''; paint(); }
+    catch (e) { lastErr = 'Could not read device: ' + e.message; when(); }
+    finally { busy = false; }
+  }
+  timer = setInterval(tick, 5000); tickTimer = setInterval(when, 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  tick();
+
+  function open() {
+    createModal({ name: ID, title: 'Live device status', maxWidth: '820px', showConfirm: false, onClose: () => true,
+      content: `<div class="liv" style="margin:0;padding:0;border:0"><div class="liv-head"><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><button type="button" id="mls_refresh">Refresh now</button></div>
+        <div id="mls_body"><div class="empty-state">Reading modem…</div></div>
+        <div class="liv-foot">Band-lock controls stay disabled until the exact F50 firmware command and rollback path are verified. No band settings are changed.</div>
+        <details style="margin-top:12px"><summary class="mut">Raw modem / telephony output</summary><pre id="mls_raw" class="mut" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:220px;overflow:auto"></pre></details></div>` });
     showModal(ID);
-    document.getElementById('mls_refresh').onclick=refresh;
-    document.getElementById('mls_auto').onchange=e=>{stop();if(e.target.checked)timer=setInterval(refresh,5000);};
-    stop();timer=setInterval(refresh,5000);refresh();
+    document.getElementById('mls_refresh').onclick = tick;
+    paint(); tick();
   }
-  const host=document.querySelector('.actions-buttons'); if(!host)return;
-  const b=document.createElement('button');b.id=BTN;b.textContent='Live Status';b.onclick=open;host.appendChild(b);
+  const host = document.querySelector('.actions-buttons'); if (!host) return;
+  const b = document.createElement('button'); b.id = BTN; b.textContent = 'Live Status'; b.onclick = open; host.appendChild(b);
 })();
+
 
 </script>
 <script type="text/plain" class="webtool" data-name="SMS.js">
 /*
  * SMS - MatchiTOOL plugin
  * Ported idea from UFI-TOOLS (MIT, (c) 2025 Minikano): read, send and delete SMS using the router's web API.
- * Needs the router admin password (set once in the plugin's settings row).
+ * Works with no router login: without a saved router password it talks to the modem directly (AT commands).
+ * If the router web API (port 80) cannot be reached from the app (seen on the F50), the tool automatically
+ * falls back to the modem's AT commands (via sendat as root): read, send and delete work without the password.
  * Not included: SMS forwarding to email/webhook.
  */
 (() => {
@@ -3938,12 +4055,151 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   }
   const el = (id) => document.getElementById(id);
 
+  // ---- Modem (AT) fallback -------------------------------------------------------------------------------
+  // Used when the router web API cannot be reached at all. The API is retried once a minute.
+  const UNREACH = /unreachable|failed to connect|timed out|timeout|refused|econn|no route/i;
+  let atMode = false, atSince = 0;
+  let pwSet = null;   // router admin password saved? false => skip the router login entirely
+  const useAt = () => pwSet === false || (atMode && Date.now() - atSince < 60000);
+  const markAt = () => { atMode = true; atSince = Date.now(); };
+  const setMode = (t) => { const m = el('matchi_sms_mode'); if (m) m.textContent = t || ''; };
+  const at = async (command) => {
+    const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command, slot: 0 }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.result || '');
+  };
+  const sh = async (cmd, timeout) => {
+    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.content || '');
+  };
+  const atBad = (t) => /\bERROR\b/i.test(t);                       // also matches +CMS ERROR / +CME ERROR
+  const atGood = (t) => !atBad(t) && /OK\s*$/.test(String(t).trim());
+  const strictHex = (h) => (/^([0-9A-Fa-f]{4})+$/.test(h) ? hexToText(h) : h);
+
+  // "26/11/06,12:18:00+32" -> "2026-11-06 12:18:00"
+  function fmtAtDate(d) {
+    const m = String(d || '').match(/^(\d\d)\/(\d\d)\/(\d\d),(\d\d:\d\d:\d\d)/);
+    return m ? `20${m[1]}-${m[2]}-${m[3]} ${m[4]}` : String(d || '');
+  }
+
+  async function atFetch() {
+    await at('AT+CMGF=1');
+    const ucs = atGood(await at('AT+CSCS="UCS2"'));   // with UCS2 every number and text comes back as UTF-16BE hex
+    const dec = (v) => (ucs ? strictHex(v) : v);
+    const out = [];
+    for (const store of ['ME', 'SM']) {
+      if (atBad(await at('AT+CPMS="' + store + '"'))) continue;
+      const raw = String(await at('AT+CMGL="ALL"')).replace(/OK\s*$/, '');
+      let cur = null;
+      for (const line of raw.split(/\r?\n/)) {
+        // +CMGL: <idx>,"<stat>","<number>",[<alpha>],"<date>"  (alpha is often empty and unquoted: ,,)
+        const h = line.match(/^\+CMGL:\s*(\d+),"([^"]*)","([^"]*)"/);
+        if (h) {
+          const dm = line.match(/"(\d\d\/\d\d\/\d\d,[^"]*)"/);
+          cur = { out: /SENT/i.test(h[2]), number: dec(h[3]), date: fmtAtDate(dm ? dm[1] : ''), text: '', store, idx: h[1] };
+          out.push(cur);
+        } else if (cur && line.trim() !== '') {
+          cur.text += (cur.text ? '\n' : '') + line.trim();
+        }
+      }
+      for (const m of out) if (m.store === store && ucs) m.text = strictHex(m.text);
+      if (out.some((m) => m.store === store)) break;   // messages found in this store; do not list the other twice
+    }
+    out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return out.map((m) => ({
+      out: m.out, number: m.number, date: m.date, text: m.text,
+      del: async () => {
+        const r1 = await at('AT+CPMS="' + m.store + '"');
+        const r2 = await at('AT+CMGD=' + m.idx);
+        if (atBad(r1) || atBad(r2)) throw new Error('Modem refused to delete: ' + r2.trim());
+      },
+    }));
+  }
+
+  async function apiFetch() {
+    const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' });
+    return ((d && d.messages) || []).map((m) => ({
+      out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: hexToText(m.content),
+      del: () => zte('set', { goformId: 'DELETE_SMS', msg_id: m.id + ';', notCallback: 'true' }),
+    }));
+  }
+
+  async function fetchAll() {
+    if (!useAt()) {
+      try { const l = await apiFetch(); atMode = false; setMode(''); return l; }
+      catch (e) { if (!UNREACH.test(e.message)) throw e; markAt(); }
+    }
+    setMode('Using the modem directly: no router login or password needed.');
+    const l = await atFetch();
+    if (l.length) return l;
+    try { const p = await providerFetch(); if (p.length) { setMode('Using the modem directly (messages read from the Android SMS store, read-only).'); return p; } } catch (_) {}
+    return l;
+  }
+
+  // Sends with AT+CMGS in PDU mode (UCS2, so any character works). Long texts are split into concatenated parts
+  // (UDH), up to 10 parts (about 670 characters). The PDU is plain hex and goes in the same write as the Ctrl-Z
+  // terminator, so no interactive "> " prompt handling is needed.
+  function buildPdus(number, text) {
+    const plus = number.startsWith('+');
+    let d = number.replace(/\D/g, '');
+    const daLen = d.length.toString(16).toUpperCase().padStart(2, '0');
+    if (d.length % 2) d += 'F';
+    let da = ''; for (let i = 0; i < d.length; i += 2) da += d[i + 1] + d[i];
+    const hx = (n) => n.toString(16).toUpperCase().padStart(2, '0');
+    const units = []; for (let i = 0; i < text.length; i++) units.push(text.charCodeAt(i));
+    const single = units.length <= 70, size = 67, parts = single ? 1 : Math.ceil(units.length / size);
+    if (parts > 10) throw new Error('Message too long (max about 670 characters)');
+    const ref = Math.floor(Math.random() * 256), out = [];
+    for (let p = 0; p < parts; p++) {
+      const chunk = single ? units : units.slice(p * size, (p + 1) * size);
+      const ud = chunk.map((u) => u.toString(16).toUpperCase().padStart(4, '0')).join('');
+      const udh = single ? '' : '050003' + hx(ref) + hx(parts) + hx(p + 1);
+      const udl = chunk.length * 2 + (single ? 0 : 6);
+      const tpdu = (single ? '01' : '41') + '00' + daLen + (plus ? '91' : '81') + da + '00' + '08' + hx(udl) + udh + ud;
+      out.push({ len: tpdu.length / 2, pdu: '00' + tpdu });   // 00 = use the SMSC stored in the SIM; len excludes it
+    }
+    return out;
+  }
+  async function atSendOne(number, text) {
+    const parts = buildPdus(number, text);
+    if (!atGood(await at('AT+CMGF=0'))) throw new Error('Modem rejected PDU mode');
+    try {
+      for (const p of parts) {
+        // len and pdu are digits / hex only, so there is nothing to escape in the shell line.
+        const cmd = "F=/data/data/com.matchi.tool/files/sendat; [ -x \"$F\" ] || F=/data/user/0/com.matchi.tool/files/sendat; " +
+          "\"$F\" -n 0 -c \"$(printf 'AT+CMGS=%s\\r%s\\032' '" + p.len + "' '" + p.pdu + "')\"";
+        const r = await sh(cmd, 45000);
+        if (!(/\+CMGS:\s*\d+/.test(r) || atGood(r))) throw new Error('Modem did not accept the message: ' + (r.trim() || 'no reply'));
+      }
+    } finally { try { await at('AT+CMGF=1'); } catch (_) {} }   // back to text mode for reading
+  }
+  async function atSend(num, text) {
+    const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
+    if (!nums.length || nums.some((n) => !/^\+?[0-9]{3,20}$/.test(n))) throw new Error('Enter a valid number');
+    for (const n of nums) await atSendOne(n, text);
+  }
+
+  // Android's own SMS store, read as root. Used when the modem storage is empty (read-only here).
+  async function providerFetch() {
+    const raw = await sh('content query --uri content://sms --projection address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000);
+    const out = [];
+    for (const row of raw.split(/^Row: \d+ /m).slice(1)) {
+      const m = row.match(/^address=(.*?), date=(\d+), body=([\s\S]*), type=(\d+)\s*$/);
+      if (!m) continue;
+      const d = new Date(parseInt(m[2], 10)), z = (v) => String(v).padStart(2, '0');
+      out.push({ out: m[4] !== '1', number: m[1], text: m[3],
+        date: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,
+        del: async () => { throw new Error('This message comes from the Android SMS store; delete is not supported for it'); } });
+    }
+    return out;
+  }
+
   async function load() {
     const box = el('matchi_sms_list'); if (!box) return;
     box.textContent = 'Loading…';
     try {
-      const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' });
-      const list = (d && d.messages) || [];
+      const list = await fetchAll();
       if (!list.length) { box.innerHTML = '<div class="mut">No messages.</div>'; return; }
       box.textContent = '';
       for (const m of list) {
@@ -3951,17 +4207,17 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
         row.style.cssText = 'border-top:1px solid var(--bd);padding:8px 0';
         const head = document.createElement('div');
         head.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:13px';
-        const who = document.createElement('b'); who.textContent = (isOut(m.tag) ? '→ ' : '← ') + m.number;
-        const when = document.createElement('span'); when.className = 'mut'; when.style.flex = '1'; when.textContent = fmtDate(m.date);
+        const who = document.createElement('b'); who.textContent = (m.out ? '→ ' : '← ') + m.number;
+        const when = document.createElement('span'); when.className = 'mut'; when.style.flex = '1'; when.textContent = m.date;
         const del = document.createElement('button'); del.textContent = 'Delete'; del.style.padding = '3px 8px';
         del.onclick = async () => {
           if (!confirm('Delete this message?')) return;
-          try { await zte('set', { goformId: 'DELETE_SMS', msg_id: m.id + ';', notCallback: 'true' }); load(); }
+          try { await m.del(); load(); }
           catch (e) { createToast(e.message, 'red'); }
         };
         head.append(who, when, del);
         const body = document.createElement('div'); body.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin-top:4px';
-        body.textContent = hexToText(m.content);
+        body.textContent = m.text;
         row.append(head, body); box.appendChild(row);
       }
     } catch (e) { box.textContent = 'Error: ' + e.message; }
@@ -3973,10 +4229,17 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     if (!text) return createToast('Message is empty', 'red');
     const btn = el('matchi_sms_send'); btn.disabled = true;
     try {
-      const d = await zte('set', { goformId: 'SEND_SMS', notCallback: 'true', Number: num, sms_time: smsTime(), MessageBody: textToHex(text), ID: '-1', encode_type: 'UNICODE' });
-      const ok = d && typeof d === 'object' && d.result === 'success';
-      createToast(ok ? 'Message sent' : 'Send failed: ' + (d && d.result ? d.result : 'unknown'), ok ? 'green' : 'red');
-      if (ok) { el('matchi_sms_text').value = ''; setTimeout(load, 1500); }
+      let ok = false, via = '';
+      if (!useAt()) {
+        try {
+          const d = await zte('set', { goformId: 'SEND_SMS', notCallback: 'true', Number: num, sms_time: smsTime(), MessageBody: textToHex(text), ID: '-1', encode_type: 'UNICODE' });
+          ok = !!(d && typeof d === 'object' && d.result === 'success');
+          if (!ok) throw new Error('Send failed: ' + (d && d.result ? d.result : 'unknown'));
+        } catch (e) { if (!UNREACH.test(e.message)) throw e; markAt(); }
+      }
+      if (!ok) { setMode('Using the modem directly: no router login or password needed.'); await atSend(num, text); ok = true; via = ' (via modem)'; }
+      createToast('Message sent' + via, 'green');
+      el('matchi_sms_text').value = ''; setTimeout(load, 1500);
     } catch (e) { createToast(e.message, 'red'); }
     btn.disabled = false;
   }
@@ -3985,7 +4248,8 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     try {
       const c = await api('/api/zte/config');
       el('matchi_sms_host').value = c.host || '';
-      el('matchi_sms_pass').placeholder = c.passwordSet ? '(saved, leave empty to keep)' : 'Router admin password';
+      pwSet = !!c.passwordSet;
+      el('matchi_sms_pass').placeholder = c.passwordSet ? '(saved, leave empty to keep)' : 'Optional: router admin password';
     } catch (_) {}
   }
   async function saveCfg() {
@@ -3994,7 +4258,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     try {
       const r = await api('/api/zte/config', { method: 'POST', body: JSON.stringify(body) });
       if (r.error) throw new Error(r.error);
-      el('matchi_sms_pass').value = ''; createToast('Saved'); loadCfg(); load();
+      el('matchi_sms_pass').value = ''; createToast('Saved'); await loadCfg(); load();
     } catch (e) { createToast(e.message, 'red'); }
   }
 
@@ -4005,17 +4269,18 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
         '<div style="display:flex;gap:8px;margin-bottom:8px"><input id="matchi_sms_num" placeholder="Number, e.g. +639171234567" inputmode="tel" autocomplete="off"></div>' +
         '<textarea id="matchi_sms_text" rows="3" placeholder="Message" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:9px;font:inherit"></textarea>' +
         '<div style="display:flex;gap:8px;margin:8px 0"><button type="button" id="matchi_sms_send">Send</button><button type="button" id="matchi_sms_refresh">Refresh inbox</button></div>' +
+        '<div id="matchi_sms_mode" class="mut" style="font-size:12px;margin-bottom:6px"></div>' +
         '<div id="matchi_sms_list" style="max-height:45vh;overflow:auto"></div>' +
         '<details style="margin-top:10px"><summary class="mut">Router settings</summary>' +
         '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="matchi_sms_host" placeholder="Gateway, e.g. 192.168.0.1" style="flex:1;min-width:150px">' +
-        '<input id="matchi_sms_pass" type="password" placeholder="Router admin password" autocomplete="off" style="flex:1;min-width:150px">' +
+        '<input id="matchi_sms_pass" type="password" placeholder="Optional: router admin password" autocomplete="off" style="flex:1;min-width:150px">' +
         '<button type="button" id="matchi_sms_save">Save</button></div></details>',
     });
     showModal(MODAL);
     el('matchi_sms_send').onclick = send;
     el('matchi_sms_refresh').onclick = load;
     el('matchi_sms_save').onclick = saveCfg;
-    loadCfg(); load();
+    loadCfg().then(load, load);
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
@@ -4242,7 +4507,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.28';
+const PAGE_VERSION='1.1.30';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},

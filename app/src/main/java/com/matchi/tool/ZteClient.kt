@@ -37,7 +37,7 @@ object ZteClient {
         val c = url.openConnection() as HttpURLConnection
         try {
             c.requestMethod = method
-            c.connectTimeout = 5000
+            c.connectTimeout = 2500
             c.readTimeout = 15000
             c.instanceFollowRedirects = false
             // The router rejects requests that do not look like they come from its own web UI.
@@ -100,6 +100,17 @@ object ZteClient {
 
     /** op is "get" or "set". Returns the router's raw response body. */
     fun call(ctx: Context, op: String, params: Map<String, String>): String = synchronized(lock) {
+        try {
+            callLocked(ctx, op, params)
+        } catch (e: java.io.IOException) {
+            // Connection refused / timed out / no route: the router web API cannot be reached at all, so the
+            // password is irrelevant. Callers (the SMS tool) recognise the "unreachable" wording and fall back to
+            // the modem's AT commands instead of showing a raw socket error.
+            throw IllegalStateException("Router web API unreachable at ${Prefs.zteHost(ctx)}:80 (${e.message ?: e.javaClass.simpleName})")
+        }
+    }
+
+    private fun callLocked(ctx: Context, op: String, params: Map<String, String>): String {
         if (cookie.isEmpty() && Prefs.ztePass(ctx).isNotEmpty()) login(ctx)?.let { throw IllegalStateException(it) }
         var r = send(ctx, op, params)
         // Retry once after logging in. Only for reads (or an explicit 401/403): a failed "set" must never be repeated blindly.
@@ -108,6 +119,6 @@ object ZteClient {
             r = send(ctx, op, params)
         }
         if (r.code >= 400) throw IllegalStateException("Router returned HTTP ${r.code}")
-        r.body
+        return r.body
     }
 }
