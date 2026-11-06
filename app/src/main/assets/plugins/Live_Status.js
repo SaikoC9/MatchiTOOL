@@ -97,11 +97,11 @@
     ];
     const grid=root.querySelector('#mls_grid'); if(grid)grid.innerHTML=values.map(v=>card(v[0],v[1],v[2]||'')).join('');
     const raw=root.querySelector('#mls_raw');
-    if(raw)raw.textContent=['AT+COPS?: '+cops.trim(),'AT+CSQ: '+csq.trim(),'AT+CESQ: '+cesq.trim(),'AT+CEREG?: '+cereg.trim(),'','telephony.registry:',tele.trim()||'(no output)'].join('\n');
+    if(raw)raw.textContent=[zteNote||'Router web API: used','AT+COPS?: '+cops.trim(),'AT+CSQ: '+csq.trim(),'AT+CESQ: '+cesq.trim(),'AT+CEREG?: '+cereg.trim(),'','telephony.registry:',tele.trim()||'(no output)'].join('\n');
     const lock=root.querySelector('#mls_lock_note');
     if(lock)lock.textContent='Band-lock controls are shown as unavailable until the exact firmware-specific lock command is verified. No band settings have been changed.';
-    const msg=[zteNote].concat(errs).filter(Boolean).join(' · ');
-    if(status)status.textContent=(msg?msg+' · ':'')+'Last attempt '+new Date().toLocaleTimeString()+(timer?' · refreshes every 5 seconds':'');
+    const msg=errs.filter(Boolean).join(' · ');
+    if(status)status.textContent=(msg?msg+' · ':'')+'Last attempt '+new Date().toLocaleTimeString()+(zteNote?' · source: modem AT + Android telephony':'')+(timer?' · refreshes every 5 seconds':'');
   }
   function open(){
     createModal({name:ID,title:'Live device status',maxWidth:'760px',showConfirm:false,onClose:()=>{stop();return true;},

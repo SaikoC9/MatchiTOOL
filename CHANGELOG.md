@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.13 - USB mode switching for the F50
+- On the F50, `svc usb setFunctions` is killed (exit 137). USB modes are now switched by setting `sys.usb.config` (trying `<fn>,mtp,adb` first, then `<fn>,adb`) so init applies the configfs change; `svc` is only a time-limited fallback.
+- Success is now verified in configfs (the function must be linked into the active gadget config) before the interface is bridged into `br0`.
+- The output always lists the active gadget functions and USB network interfaces so a failure can be diagnosed.
+
+## 1.1.12 - USB Ethernet bridging and quieter Live Status
+- RNDIS / CDC-ECM modes now also bring the new USB network interface up and bridge it into `br0` (the hotspot LAN), then report the resulting interfaces. Previously only the gadget function was switched, so the PC saw no working network. The action now fails with a clear message if the USB config does not actually change.
+- Restore default USB mode removes the interface from the bridge first.
+- Live Status no longer shows the unreachable router web API as an error; it is noted in the raw panel and the status line shows which source is used.
+
 ## 1.1.11 - Admin password login
 - The web page now logs in with an admin password set in the app (new "Web admin password" card) instead of the random token. The password is stored only as a salted PBKDF2 hash.
 - Until a password is set, the login still accepts the access token, so nobody is locked out after updating.

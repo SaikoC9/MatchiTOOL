@@ -210,20 +210,58 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             .put("networkInterfaces", lines["NETIFS"].orEmpty()).put("detail", r.content))
     }
 
+    // Shell snippets are written with § in place of $ so Kotlin does not treat shell variables as templates.
+    private val USB_UNBRIDGE = "for IF in usb0 rndis0 ecm0 ncm0; do ip link set \"§IF\" nomaster 2>/dev/null; done; ".replace('§', '$')
+
+    /** Switch the USB gadget function the way this ZTE/Unisoc build expects (via init's sys.usb.config triggers;
+     *  `svc usb setFunctions` gets SIGKILLed on the F50), verify it in configfs, then bring the new USB network
+     *  interface up and bridge it into br0 (the hotspot LAN) so a PC on the cable gets DHCP/NAT. */
+    private fun usbEnableScript(fn: String): String = """
+        has() { ls -l /config/usb_gadget/*/configs/*/ 2>/dev/null | grep -qi "§1"; }
+        ADB="§(settings get global adb_enabled 2>/dev/null | tr -d '\r')"
+        if [ "§ADB" = 1 ]; then CANDS="$fn,mtp,adb $fn,adb"; else CANDS="$fn,mtp $fn"; fi
+        echo "Before: sys.usb.config=§(getprop sys.usb.config)"
+        OK=0
+        for C in §CANDS; do
+          echo "Trying sys.usb.config=§C"
+          setprop sys.usb.config "§C"
+          sleep 3
+          if has $fn; then OK=1; echo "Active with §C"; break; fi
+        done
+        if [ §OK = 0 ]; then
+          echo "init did not apply it; trying svc (10 s limit)"
+          timeout 10 svc usb setFunctions "§(echo §CANDS | cut -d' ' -f2)" 2>&1
+          sleep 3
+          has $fn && OK=1
+        fi
+        for IF in usb0 rndis0 ecm0 ncm0; do
+          if ip link show "§IF" >/dev/null 2>&1; then
+            ip link set "§IF" up 2>&1
+            ip link set "§IF" master br0 2>&1 && echo "bridged §IF into br0"
+          fi
+        done
+        echo "--- gadget ---"
+        echo "config=§(getprop sys.usb.config) state=§(getprop sys.usb.state)"
+        ls -l /config/usb_gadget/*/configs/*/ 2>&1 | grep -- '->'
+        ls /config/usb_gadget/*/functions 2>&1
+        ip -o link show 2>/dev/null | grep -E 'usb|rndis|ecm|ncm|br0' || true
+        if [ §OK = 0 ]; then echo "USB function $fn is not active"; exit 3; fi
+    """.trimIndent().replace('§', '$')
+
     private fun controlUsb(req: JSONObject): Response {
         val action = req.optString("action")
         val restoreDefault = "BASE=\"$(getprop persist.sys.usb.config)\"; [ -n \"${'$'}BASE\" ] || BASE=mtp; BASE=\"$(printf '%s' \"${'$'}BASE\" | sed 's/\\(^\\|,\\)rndis\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)ecm\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)cdc_ecm\\($\\|,\\)/\\1/g; s/,,*/,/g; s/^,//; s/,$//')\"; if [ \"$(settings get global adb_enabled)\" = 1 ]; then case \",${'$'}BASE,\" in *,adb,*) ;; *) BASE=\"${'$'}BASE,adb\";; esac; fi; svc usb setFunctions \"${'$'}BASE\""
         val script = when (action) {
             "adb_enable" -> "settings put global adb_enabled 1 && [ \"$(settings get global adb_enabled)\" = 1 ]"
             "adb_disable" -> "settings put global adb_enabled 0 && [ \"$(settings get global adb_enabled)\" = 0 ]"
-            "rndis_enable" -> "if [ \"$(settings get global adb_enabled)\" = 1 ]; then svc usb setFunctions rndis,adb; else svc usb setFunctions rndis; fi"
-            "ecm_enable" -> "if [ \"$(settings get global adb_enabled)\" = 1 ]; then svc usb setFunctions ecm,adb; else svc usb setFunctions ecm; fi"
-            "tether_disable" -> restoreDefault
+            "rndis_enable" -> usbEnableScript("rndis")
+            "ecm_enable" -> usbEnableScript("ecm")
+            "tether_disable" -> USB_UNBRIDGE + restoreDefault
             else -> throw IllegalArgumentException("unsupported USB action")
         }
         // On failure, append the exit code and USB-related props so the UI can show why it failed.
         val wrapped = "{ $script\n}\nrc=${'$'}?\nif [ ${'$'}rc -ne 0 ]; then echo \"[exit code ${'$'}rc]\"; command -v svc || echo 'svc: not found'; getprop | grep -i usb | head -20; fi\nexit ${'$'}rc"
-        val r = RootShell.run(ctx, wrapped, 20_000)
+        val r = RootShell.run(ctx, wrapped, 40_000)
         // Always HTTP 200: the web UI only shows `output` when the response is not an HTTP error.
         return json(Response.Status.OK,
             JSONObject().put("success", r.success).put("action", action).put("output", r.content.ifBlank { "Command failed with no output" })
@@ -231,7 +269,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.11"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.13"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
