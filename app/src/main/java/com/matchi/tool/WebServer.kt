@@ -114,7 +114,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             echo '--- network ---'; ip -brief address 2>/dev/null || ip addr 2>/dev/null | head -80
             echo '--- routes ---'; ip route 2>/dev/null; ip -6 route 2>/dev/null
             echo '--- tool availability ---'
-            for x in sendat busybox ip nft iptables ip6tables tc bpftool nfqws; do command -v "$x" 2>/dev/null || echo "$x: unavailable"; done
+            for x in sendat busybox ip nft iptables ip6tables tc bpftool nfqws; do command -v "${'$'}x" 2>/dev/null || echo "${'$'}x: unavailable"; done
             echo '--- root capabilities ---'; [ "$(id -u)" = 0 ] && echo 'UID 0 confirmed' || echo 'root unavailable'
             echo '--- storage ---'; df -h /data 2>/dev/null
         """.trimIndent()
@@ -199,7 +199,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     private fun controlUsb(req: JSONObject): Response {
         val action = req.optString("action")
-        val restoreDefault = "BASE=\"$(getprop persist.sys.usb.config)\"; [ -n \"$BASE\" ] || BASE=mtp; BASE=\"$(printf '%s' \"$BASE\" | sed 's/\\(^\\|,\\)rndis\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)ecm\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)cdc_ecm\\($\\|,\\)/\\1/g; s/,,*/,/g; s/^,//; s/,$//')\"; if [ \"$(settings get global adb_enabled)\" = 1 ]; then case \",$BASE,\" in *,adb,*) ;; *) BASE=\"$BASE,adb\";; esac; fi; svc usb setFunctions \"$BASE\""
+        val restoreDefault = "BASE=\"$(getprop persist.sys.usb.config)\"; [ -n \"${'$'}BASE\" ] || BASE=mtp; BASE=\"$(printf '%s' \"${'$'}BASE\" | sed 's/\\(^\\|,\\)rndis\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)ecm\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)cdc_ecm\\($\\|,\\)/\\1/g; s/,,*/,/g; s/^,//; s/,$//')\"; if [ \"$(settings get global adb_enabled)\" = 1 ]; then case \",${'$'}BASE,\" in *,adb,*) ;; *) BASE=\"${'$'}BASE,adb\";; esac; fi; svc usb setFunctions \"${'$'}BASE\""
         val script = when (action) {
             "adb_enable" -> "settings put global adb_enabled 1 && [ \"$(settings get global adb_enabled)\" = 1 ]"
             "adb_disable" -> "settings put global adb_enabled 0 && [ \"$(settings get global adb_enabled)\" = 0 ]"
