@@ -13,7 +13,7 @@ for i, js in enumerate(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, r
     path.write_text(js)
     subprocess.run(['node', '--check', str(path)], check=True)
 tools = re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">(.*?)</script>', html, re.S)
-assert len(tools) == 7, f'expected 7 embedded tools, found {len(tools)}'
+assert len(tools) == 8, f'expected 8 embedded tools, found {len(tools)}'
 for name, js in tools:
     path = Path('/tmp') / ('matchitool-tool-' + name)
     path.write_text(js)

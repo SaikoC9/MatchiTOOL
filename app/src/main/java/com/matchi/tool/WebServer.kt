@@ -369,7 +369,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             for (k in po.keys()) p[k] = po.optString(k)
             val raw = ZteClient.call(ctx, op, p)
             val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
-            json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed))
+            json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed).put("info", if (op == "set") ZteClient.lastInfo else ""))
         }
         uri == "/api/zte/config" && s.method == Method.GET ->
             json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty()))

@@ -1,6 +1,10 @@
 # Changelog
 
 ## 1.1.32 - SMS delete and message text fixes
+- **Network debug** (new button on the home card): the router's own Network Debug page (4G / 5G band lock, neighbor cells, cell lock, locked cells) opens inside MatchiTOOL, with an Open in new tab button if the router refuses to be framed. MatchiTOOL sends no radio command itself: the router applies the changes with its own firmware commands, so nothing is guessed.
+- **Live device status is compact:** the 5G NR / 4G LTE box shows RSRP, RSRQ and SINR side by side in one slim row with band, PCI and channel in its header, the three temperatures are one small row of chips, and the signal card is smaller, so the whole panel takes about half the height.
+- **Send no longer dead-ends on "Send failed: unknown":** if the router refuses (or does not answer) the send, the message is sent through the modem (AT commands as root) instead; only if both fail you get an error with both reasons.
+- Router errors now carry a short diagnostic in brackets (AD token ok/missing, session yes/no, HTTP code, start of the reply), so a refusal can be traced.
 - **Same dialog style in the Android app:** the Enable LAN access confirmation (home screen and Access & security) now uses the app's dark dialog (Cancel / red Enable) instead of the plain system dialog, and its text says "router admin password" instead of "access token".
 - **Confirm dialogs match the app:** the browser's plain "192.168.0.1:2334 says" box is replaced by an in-page dialog in the app's dark style (Cancel / red action button, Esc or a click outside cancels) for Delete message, Delete plugin, Reboot, Remove nfqws and the USB mode changes.
 - **Root cause of "Delete does nothing" (and Send via the router):** the F50 firmware ignores every router "set" request that has no AD token and answers with an empty body (the error said `router said: empty reply`). The host now adds the token the router's own web page uses, `AD = md5(md5(wa_inner_version + cr_version) + RD)` with a fresh RD per request, to every set call.

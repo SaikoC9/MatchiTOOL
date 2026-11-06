@@ -141,6 +141,8 @@ object ZteClient {
     }
 
     @Volatile private var autoTried = false
+    /** Short facts about the last "set" call (AD token, session, HTTP code, start of the reply) for error messages. */
+    @Volatile var lastInfo = ""
 
     /**
      * Learns the router admin password without the user typing it: reads the router's own setting as root and keeps
@@ -187,7 +189,7 @@ object ZteClient {
     private fun adToken(ctx: Context): String? = try {
         val v = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "wa_inner_version,cr_version", "multi_data" to "1")).body)
         val rd = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "RD")).body).optString("RD")
-        if (rd.isEmpty()) null else md5Hex(md5Hex(v.optString("wa_inner_version") + v.optString("cr_version")) + rd)
+        if (rd.isEmpty() || (v.optString("wa_inner_version") + v.optString("cr_version")).isEmpty()) null else md5Hex(md5Hex(v.optString("wa_inner_version") + v.optString("cr_version")) + rd)
     } catch (e: java.io.IOException) { throw e } catch (_: Exception) { null }
 
     private fun send(ctx: Context, op: String, params: Map<String, String>): Resp =
@@ -195,8 +197,12 @@ object ZteClient {
         else {
             val p = LinkedHashMap(params)
             p["isTest"] = "false"
-            adToken(ctx)?.let { p["AD"] = it }
-            http(ctx, "POST", SET_PATH, p)
+            val ad = adToken(ctx)
+            ad?.let { p["AD"] = it }
+            val r = http(ctx, "POST", SET_PATH, p)
+            lastInfo = "AD " + (if (ad != null) "ok" else "missing") + ", session " + (if (cookie.isNotEmpty()) "yes" else "no") +
+                ", HTTP " + r.code + ", reply " + (if (r.body.isBlank()) "empty" else r.body.trim().take(60))
+            r
         }
 
     private fun looksUnauthorized(r: Resp) =

@@ -55,7 +55,7 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
   </div>
   <div class="card pop" id="selftest">
     <button class="popx" onclick="closePop()">Close</button><div class="mut" style="margin-bottom:8px">Full diagnose</div>
-    <p class="mut">Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the six built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.</p>
+    <p class="mut">Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.</p>
     <div class="btnrow"><button id="stbtn">Run full diagnose</button><button id="stcopy" disabled>Copy report</button><button id="stdl" disabled>Download .txt</button></div>
     <p id="stsum" class="mut" style="margin:10px 0 0"></p>
     <pre id="stout" style="display:none;max-height:520px"></pre>
@@ -3948,14 +3948,13 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   // ---- rendering (no element ids inside, so it can be used in the page and in the popup) -------------------
   const fmt = (v, d = 0) => (v === undefined ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toString());
   function metric(label, k, v, unit) {
-    if (v === undefined) return `<div class="liv-m"><span class="liv-ml">${label}</span><div class="liv-bar"></div><b class="mut">—</b></div>`;
+    if (v === undefined) return `<div class="liv-m"><div class="liv-mt"><span class="liv-ml">${label}</span><b class="mut">—</b></div><div class="liv-bar"></div></div>`;
     const c = QCOL[qlevel(k, v)];
-    return `<div class="liv-m" title="${QNAME[qlevel(k, v)]}"><span class="liv-ml">${label}</span><div class="liv-bar"><i style="width:${gpct(k, v)}%;background:${c}"></i></div><b style="color:${c}">${fmt(v, 1)} <small>${unit}</small></b></div>`;
+    return `<div class="liv-m" title="${QNAME[qlevel(k, v)]}"><div class="liv-mt"><span class="liv-ml">${label}</span><b style="color:${c}">${fmt(v, 1)}<small> ${unit}</small></b></div><div class="liv-bar"><i style="width:${gpct(k, v)}%;background:${c}"></i></div></div>`;
   }
   function radioBox(title, r, tone) {
-    return `<div class="liv-box"><h4>${antIcon}${title}${has(r.band) ? `<span class="liv-badge" style="margin-left:auto">${esc(r.band)}</span>` : ''}</h4>
-      ${metric('RSRP', 'rsrp', r.rsrp, 'dBm')}${metric('RSRQ', 'rsrq', r.rsrq, 'dB')}${metric('SINR', 'sinr', r.sinr, 'dB')}
-      <div class="liv-kv"><span>PCI <b>${esc(r.pci)}</b></span><span>Channel <b>${esc(r.chan)}</b></span></div></div>`;
+    return `<div class="liv-box"><h4>${antIcon}${title}${has(r.band) ? `<span class="liv-badge">${esc(r.band)}</span>` : ''}<span class="liv-kv">PCI <b>${esc(r.pci)}</b> · Ch <b>${esc(r.chan)}</b></span></h4>
+      <div class="liv-ms">${metric('RSRP', 'rsrp', r.rsrp, 'dBm')}${metric('RSRQ', 'rsrq', r.rsrq, 'dB')}${metric('SINR', 'sinr', r.sinr, 'dB')}</div></div>`;
   }
   function tile(icon, label, value, sub) {
     return `<div class="liv-tile"><div class="liv-ti">${icon}</div><div><div class="liv-tl">${label}</div><div class="liv-tv">${value}</div>${sub ? `<div class="liv-ts">${esc(sub)}</div>` : ''}</div></div>`;
@@ -3974,9 +3973,9 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     if (M.hasNr) boxes.push(radioBox('5G NR', M.nr));
     if (M.hasLte || !M.hasNr) boxes.push(radioBox('4G LTE', M.lte));
     const tiles = `<div class="liv-tiles">
-      ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery temp', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
-      ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System thermal max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
-      ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem temp', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
+      ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
     return hero + `<div class="liv-grid">${boxes.join('')}</div>` + tiles + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
@@ -3986,16 +3985,16 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
 .liv-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.liv-title{font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--mut);text-transform:uppercase}
 .liv-live{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--mut)}.liv-pulse{width:8px;height:8px;border-radius:50%;background:#28d99a;animation:livp 2s infinite}.liv-pulse.off{background:#64748b;animation:none}
 @keyframes livp{0%{box-shadow:0 0 0 0 rgba(40,217,154,.55)}70%{box-shadow:0 0 0 7px rgba(40,217,154,0)}100%{box-shadow:0 0 0 0 rgba(40,217,154,0)}}
-.liv-hero{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;padding:18px 20px;border-radius:15px;background:linear-gradient(135deg,#10294a,#0b1730 70%);border:1px solid #1f4a7a}
-.liv-sig,.liv-bat{display:flex;align-items:center;gap:14px}.liv-dbm{font-size:32px;font-weight:850;line-height:1.05;letter-spacing:-.01em}.liv-q{font-size:12px;font-weight:750;margin-top:3px}
-.liv-op{font-size:21px;font-weight:850}.liv-badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:800;background:#168cff22;border:1px solid #168cff66;color:#55b6ff}
-.liv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:12px}.liv-box{background:#0a1626;border:1px solid var(--bd);border-radius:14px;padding:14px 16px}
-.liv-box h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px}.liv-m{display:grid;grid-template-columns:44px 1fr 86px;gap:10px;align-items:center;margin:9px 0;font-size:13px}.liv-m b{text-align:right}.liv-ml{color:var(--mut);font-size:12px;font-weight:700}
-.liv-bar{height:7px;border-radius:99px;background:#16283f;overflow:hidden}.liv-bar i{display:block;height:100%;border-radius:99px;transition:width .5s}
-.liv-kv{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)}.liv-kv b{color:var(--fg)}
-.liv-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px}.liv-tile{display:flex;gap:12px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:14px;padding:12px 16px}
-.liv-tl{font-size:12px;color:var(--mut);font-weight:700}.liv-tv{font-size:19px;font-weight:800}.liv-ts{font-size:11px;color:var(--mut)}.liv-foot{margin-top:10px;font-size:11px;color:var(--mut)}
-@media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:14px}.liv-m{grid-template-columns:40px 1fr 78px}.liv-tiles{grid-template-columns:repeat(3,1fr);gap:8px}.liv-tile{flex-direction:column;align-items:flex-start;gap:6px;padding:10px 12px}.liv-tv{font-size:16px}}
+.liv-hero{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;padding:12px 16px;border-radius:15px;background:linear-gradient(135deg,#10294a,#0b1730 70%);border:1px solid #1f4a7a}
+.liv-sig,.liv-bat{display:flex;align-items:center;gap:12px}.liv-dbm{font-size:26px;font-weight:850;line-height:1.05;letter-spacing:-.01em}.liv-q{font-size:12px;font-weight:750;margin-top:3px}
+.liv-op{font-size:18px;font-weight:850}.liv-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:800;background:#168cff22;border:1px solid #168cff66;color:#55b6ff}
+.liv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-top:8px}.liv-box{background:#0a1626;border:1px solid var(--bd);border-radius:12px;padding:8px 12px 10px}
+.liv-box h4{margin:0 0 6px;font-size:12px;display:flex;align-items:center;gap:7px}.liv-ms{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.liv-m{display:block;font-size:12px}.liv-mt{display:flex;justify-content:space-between;align-items:baseline;gap:4px;margin-bottom:4px}.liv-m b{font-size:12px}.liv-ml{color:var(--mut);font-size:11px;font-weight:700}
+.liv-bar{height:5px;border-radius:99px;background:#16283f;overflow:hidden}.liv-bar i{display:block;height:100%;border-radius:99px;transition:width .5s}
+.liv-kv{margin-left:auto;font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap}.liv-kv b{color:var(--fg)}
+.liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}
+.liv-tl{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.2}.liv-tv{font-size:14px;font-weight:800;line-height:1.2}.liv-ts{font-size:10px;color:var(--mut)}.liv-foot{margin-top:8px;font-size:11px;color:var(--mut)}
+@media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 @media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;
   document.head.appendChild(css);
 
@@ -4586,6 +4585,46 @@ rm -rf "${DEVICE_TMP_DIR}"
 })();
 
 </script>
+<script type="text/plain" class="webtool" data-name="Network_Debug.js">
+/*
+ * Network Debug - MatchiTOOL plugin
+ * Shows the router's own "Network Debug" page (4G / 5G band lock, neighbor cells, cell lock, locked cells) inside
+ * MatchiTOOL. The router applies every change itself with its own firmware commands; MatchiTOOL sends nothing.
+ * Sign in on that page with the router admin password if it asks.
+ */
+(() => {
+  'use strict';
+  const MODAL = 'matchi_netdbg_modal', BTN_ID = 'matchi_netdbg_btn';
+  if (document.getElementById(BTN_ID)) return;
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  async function routerUrl() {
+    let host = '192.168.0.1';
+    try { const c = await api('/api/zte/config'); if (c && /^[A-Za-z0-9.-]{1,64}(:[0-9]{1,5})?$/.test(c.host || '')) host = c.host; } catch (_) {}
+    return 'http://' + host + '/index.html#network_debug';
+  }
+
+  async function open() {
+    const url = await routerUrl();
+    createModal({
+      name: MODAL, title: 'Network debug', maxWidth: '980px', showConfirm: false,
+      onClose: () => { const f = document.getElementById('matchi_netdbg_frame'); if (f) f.src = 'about:blank'; return true; },
+      content:
+        '<div class="mut" style="font-size:12px;margin-bottom:8px">The router\'s own Network Debug page: band lock, neighbor cells and cell lock. The router applies the changes itself. Sign in with the router admin password if it asks.</div>' +
+        '<iframe id="matchi_netdbg_frame" src="' + esc(url) + '" style="width:100%;height:66vh;border:1px solid var(--bd);border-radius:12px;background:#fff"></iframe>' +
+        '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" id="matchi_netdbg_tab">Open in new tab</button>' +
+        '<span class="mut" style="font-size:12px">Blank page? Your router blocks embedding: use Open in new tab.</span></div>',
+    });
+    showModal(MODAL);
+    document.getElementById('matchi_netdbg_tab').onclick = () => window.open(url, '_blank', 'noopener');
+  }
+
+  const host = document.querySelector('.actions-buttons'); if (!host) return;
+  const b = document.createElement('button');
+  b.id = BTN_ID; b.textContent = 'Network debug'; b.onclick = open; host.appendChild(b);
+})();
+
+</script>
 <script type="text/plain" class="webtool" data-name="SMS.js">
 /*
  * SMS - MatchiTOOL plugin
@@ -4650,8 +4689,10 @@ rm -rf "${DEVICE_TMP_DIR}"
   async function zte(op, params) {
     const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params }) });
     if (r.error) throw new Error(r.error);
+    lastInfo = r.info || '';
     return r.data;
   }
+  let lastInfo = '';   // AD token / session / HTTP facts of the last router "set" (shown in error messages)
   const el = (id) => document.getElementById(id);
 
   // ---- Modem (AT) fallback -------------------------------------------------------------------------------
@@ -4732,7 +4773,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       try {
         const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' });
         const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
-        notes.push(res || 'empty reply');
+        notes.push((res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
         if (/fail|error/i.test(res) && !/success/i.test(res)) continue;
         if (!(await apiList()).some((x) => String(x.id) === id)) return;   // verified gone
       } catch (e) { if (UNREACH.test(e.message)) break; notes.push(e.message); }
@@ -4864,15 +4905,19 @@ rm -rf "${DEVICE_TMP_DIR}"
     if (!text) return createToast('Message is empty', 'red');
     const btn = el('matchi_sms_send'); btn.disabled = true;
     try {
-      let ok = false, via = '';
+      let ok = false, via = '', apiErr = '';
       if (!useAt()) {
         try {
           const d = await zte('set', { goformId: 'SEND_SMS', notCallback: 'true', Number: num, sms_time: smsTime(), MessageBody: textToHex(text), ID: '-1', encode_type: 'UNICODE' });
           ok = !!(d && typeof d === 'object' && d.result === 'success');
-          if (!ok) throw new Error('Send failed: ' + (d && d.result ? d.result : 'unknown'));
-        } catch (e) { if (!UNREACH.test(e.message)) throw e; markAt(); }
+          if (!ok) apiErr = 'router said ' + (d && d.result ? d.result : 'nothing') + (lastInfo ? ' [' + lastInfo + ']' : '');
+        } catch (e) { apiErr = e.message; if (UNREACH.test(e.message)) markAt(); }
       }
-      if (!ok) { setMode('Using the modem directly: no router login or password needed.'); await atSend(num, text); ok = true; via = ' (via modem)'; }
+      if (!ok) {
+        // The router refused or could not be reached: send through the modem instead (AT commands, as root).
+        try { await atSend(num, text); ok = true; via = ' (via modem)'; }
+        catch (e) { throw new Error(apiErr ? 'Send failed. Router: ' + apiErr + '. Modem: ' + e.message : e.message); }
+      }
       createToast('Message sent' + via, 'green');
       el('matchi_sms_text').value = ''; setTimeout(load, 1500);
     } catch (e) { createToast(e.message, 'red'); }
@@ -5150,7 +5195,8 @@ const ST_TOOLS=[
   {file:'SMS.js',btn:'matchi_sms_btn'},
   {file:'Signal_Info.js',btn:'matchi_signal_btn'},
   {file:'Live_Status.js',btn:'matchi_live_status_btn'},
-  {file:'Memory_Cleaner.js',btn:'matchi_memclean_btn'}
+  {file:'Memory_Cleaner.js',btn:'matchi_memclean_btn'},
+  {file:'Network_Debug.js',btn:'matchi_netdbg_btn'}
 ];
 const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
@@ -5403,6 +5449,8 @@ async function runSelfTest(onStep){
     if(!k.mema)return R.fail('cannot read MemAvailable');
     return R.ok('available '+Math.round(k.mema/1024)+' MB, '+(k.pm||0)+' user apps, drop_caches '+(k.dc==='1'?'writable':'not writable (that step is skipped)')+'; not run (it stops apps)');
   }),30000);
+
+  add(S7,'Network Debug',()=>toolCheck(ST_TOOLS[7],async()=>R.ok('opens the router\'s own Network Debug page in a frame; nothing is sent')),15000);
 
   /* 8. Firmware inspector */
   add('8. Firmware inspector','Manifest inspection (/api/firmware/inspect)',async()=>{
