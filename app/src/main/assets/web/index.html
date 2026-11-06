@@ -31,6 +31,22 @@ pre{background:#060c16;border:1px solid #1b3452;border-radius:10px;padding:14px;
 button,summary,a,label,select,[role=button],[role=switch],input[type=checkbox],input[type=radio]{touch-action:manipulation;-webkit-user-select:none;user-select:none}
 button:focus:not(:focus-visible),summary:focus:not(:focus-visible),a:focus:not(:focus-visible),select:focus:not(:focus-visible),[role=button]:focus:not(:focus-visible),[role=switch]:focus:not(:focus-visible),[tabindex]:focus:not(:focus-visible),.modal:focus,.modal-bg:focus,.card:focus{outline:none;box-shadow:none}
 button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
+/* Compact UI (PC and phone): smaller type, tighter spacing, shorter controls. Later rules win, so this block stays last. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}body{font-size:13px;line-height:1.5;overflow-x:hidden}
+header{min-height:48px;gap:14px;padding-top:7px;padding-bottom:7px}.brand{font-size:16px;gap:8px}.brand-mark{width:27px;height:27px;border-radius:8px;font-size:14px}
+nav a{padding:5px 8px;font-size:12px}.host{padding:4px 9px;font-size:11px}
+main{padding:14px 16px 36px;gap:12px}.card{padding:14px;border-radius:12px;scroll-margin-top:70px}
+#home h2{font-size:18px!important}p{margin:6px 0 10px}.btnrow,.actions-buttons{gap:6px}
+button{padding:5px 11px;min-height:32px;font-size:12.5px;border-radius:8px}
+input{padding:6px 10px;min-height:34px;font-size:13px;border-radius:8px}
+.row{padding:7px 0;gap:8px}.row strong{padding:2px 6px;font-size:11px}
+pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
+.card.pop.open{width:min(600px,calc(100vw - 20px));max-height:88vh;max-height:88dvh}#selftest.pop.open{width:min(820px,calc(100vw - 20px))}
+.popfoot{bottom:-14px;margin:10px -14px -14px;padding:7px 14px;border-radius:0 0 12px 12px}.popx{padding:4px 12px;min-height:0}
+.modal-bg{padding:10px}.modal{padding:14px;border-radius:13px;max-height:92vh;max-height:92dvh}.modal h3{font-size:16px;margin:0 0 8px}
+.mfoot{bottom:-14px;margin:8px -14px -14px;padding:8px 14px}
+.toast{padding:8px 12px;font-size:12.5px;border-radius:9px}#toasts{top:8px;gap:6px}
+@media(max-width:760px){header{padding:7px 12px;gap:8px}main{grid-template-columns:1fr;padding:10px 10px 30px;gap:10px}.card{padding:12px;border-radius:12px}.card.pop.open{width:calc(100vw - 16px)}.popfoot{bottom:-12px;margin:10px -12px -12px;padding:7px 12px;border-radius:0 0 12px 12px}.modal-bg{padding:8px}.modal{padding:12px}.mfoot{bottom:-12px;margin:8px -12px -12px;padding:7px 12px}}
 </style></head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -142,7 +158,22 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
     return sum % 10 === 0;
   };
   const luhnDigit = (d14) => { for (let c = 0; c < 10; c++) if (luhnOk(d14 + c)) return String(c); return '0'; };
-  const readImei = async () => { const m = (await at('AT+CGSN')).match(/(?<!\d)\d{15}(?!\d)/); return m ? m[0] : ''; };
+  const IMEI_RX = /(?<!\d)\d{15}(?!\d)/;
+  // Reads the IMEI the modem reports. Right after a modem restart (Apply saved IMEI, Change IMEI) the modem does not
+  // answer for ~30 s, and one AT form may be refused while another works, so several forms are tried, then Android's
+  // own phone service as a last resort. Returns '' only when nothing answered.
+  async function readImei() {
+    for (const c of ['AT+CGSN', 'AT+CGSN=1', 'AT+GSN']) {
+      try { const m = String(await at(c)).match(IMEI_RX); if (m) return m[0]; } catch (_) {}
+    }
+    try {
+      // service call iphonesubinfo prints the answer as a Parcel: the digits sit between quotes, separated by dots.
+      const out = await sh('for C in 1 2; do if [ $C = 1 ]; then service call iphonesubinfo 1 s16 com.android.shell; else service call iphonesubinfo 2 i32 ' + slot() + ' s16 com.android.shell; fi; done 2>&1');
+      const txt = (out.match(/'([^']*)'/g) || []).map((s) => s.slice(1, -1).replace(/[^0-9]/g, '')).join(' ');
+      const m = txt.match(IMEI_RX); if (m) return m[0];
+    } catch (_) {}
+    return '';
+  }
   const origKey = () => 'matchi_orig_imei_' + slot();
   async function sh(cmd) {
     const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: 15000 }) });
@@ -180,18 +211,32 @@ button:focus-visible,summary:focus-visible,a:focus-visible,[role=switch]:focus-v
     if (r.error) throw new Error(r.error);
     return String(r.result || '');
   }
-  async function showImei() {
-    const cur = document.getElementById('matchi_imei_cur'); if (!cur) return;
-    try {
-      const v = await readImei();
-      cur.textContent = v || 'unknown';
-      const sv = document.getElementById('matchi_imei_saved');
-      if (sv) { const t = await savedTarget(); sv.textContent = t ? 'Kept after reboot: ' + t + (v && v !== t ? '  (modem reports a different IMEI: press Apply saved IMEI now)' : '  (active)') : 'Not saved for reboot yet.'; }
-      if (v) {
-        try { if (!localStorage.getItem(origKey())) localStorage.setItem(origKey(), v); } catch (_) {}
-        try { if (!(await firstSeen())) await backupImei(v); } catch (_) {}   // first time this slot is seen: keep it
-      }
-    } catch (e) { cur.textContent = 'unreadable (' + e.message + ')'; }
+  let imeiGen = 0;   // a newer showImei() call (slot change, button press) cancels the older one's retries
+  async function showImei(tries) {
+    const gen = ++imeiGen, max = tries == null ? 12 : tries;
+    for (let n = 0; ; n++) {
+      const cur = document.getElementById('matchi_imei_cur'); if (!cur || gen !== imeiGen) return;   // window closed / superseded
+      try {
+        const v = await readImei();
+        if (gen !== imeiGen) return;
+        const sv = document.getElementById('matchi_imei_saved');
+        let t = ''; try { t = await savedTarget(); } catch (_) {}
+        if (!v && n < max) {
+          // The modem is usually just restarting: say so and ask again every 4 s instead of showing "unknown".
+          cur.textContent = 'reading… (modem not answering yet)';
+          if (sv) sv.textContent = t ? 'Kept after reboot: ' + t : 'Not saved for reboot yet.';
+          await new Promise((r) => setTimeout(r, 4000)); continue;
+        }
+        cur.textContent = v || 'unreadable (the modem did not answer; press IMEI above to try again)';
+        if (sv) sv.textContent = !t ? 'Not saved for reboot yet.'
+          : 'Kept after reboot: ' + t + (!v ? '' : v === t ? '  (active: the modem reports it)' : '  (the modem reports a different IMEI: press Apply saved IMEI now)');
+        if (v) {
+          try { if (!localStorage.getItem(origKey())) localStorage.setItem(origKey(), v); } catch (_) {}
+          try { if (!(await firstSeen())) await backupImei(v); } catch (_) {}   // first time this slot is seen: keep it
+        }
+        return;
+      } catch (e) { cur.textContent = 'unreadable (' + e.message + ')'; return; }
+    }
   }
   async function writeImei(imei) {
     if (/^\d{14}$/.test(imei)) imei += luhnDigit(imei);   // 14 digits: the check digit is added for you
@@ -2963,7 +3008,9 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #${MODAL_NAME} { width:94vw !important; }
+      /* The id is on the full-screen overlay, so it must stay full width (a 94vw overlay left the right edge of the phone uncovered and the box off-centre); only the box itself is limited. */
+      #${MODAL_NAME}{width:auto !important;padding:8px}
+      #${MODAL_NAME} > .modal{width:100% !important;max-width:600px !important;margin:0 auto}
       #${MODAL_NAME},#${MODAL_NAME} *{word-break:normal !important;overflow-wrap:break-word;hyphens:manual}
       #${MODAL_NAME} .bp-wrap{display:flex;flex-direction:column;gap:14px;max-height:76vh;max-height:72svh;overflow-y:auto;overflow-x:hidden;padding-bottom:28px;-webkit-overflow-scrolling:touch;touch-action:pan-y;line-height:1.35}
       #${MODAL_NAME} .bp-wrap > *,#${MODAL_NAME} .bp-section > *,#${MODAL_NAME} .bp-card > *{flex:0 0 auto;min-height:auto}
@@ -3938,8 +3985,8 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
 <script type="text/plain" class="webtool" data-name="Live_Status.js">
 /*
  * Live Status - MatchiTOOL dashboard (read-only).
- * Shown permanently at the bottom of the Control Center card and refreshed automatically every 5 s
- * (paused while the tab is hidden). The "Live Status" button opens the same data in a larger popup.
+ * Shown permanently at the bottom of the Control Center card and refreshed automatically every 10 s
+ * (paused while the tab is hidden or another tool window is open). There is no separate Live Status button.
  * Sources, merged in this order of preference:
  *   1. Router web API (/api/zte) - skipped for 3 minutes after a connection failure
  *   2. Android telephony (dumpsys telephony.registry) + battery/thermal via root shell
@@ -3947,8 +3994,8 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
  */
 (() => {
   'use strict';
-  const ID = 'matchi_live_status', BTN = 'matchi_live_status_btn', INL = 'liv_inline';
-  if (document.getElementById(BTN)) return;
+  const ID = 'matchi_live_status', INL = 'liv_inline';
+  if (document.getElementById(INL)) return;
   const esc = (s) => String(s ?? '—').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const ACT = { '0': '2G', '1': '2G', '2': '3G', '3': '2G EDGE', '4': '3G HSDPA', '5': '3G HSUPA', '6': '3G HSPA', '7': '4G LTE', '10': '4G (5GC)', '11': '5G SA', '12': '5G (NG-RAN)', '13': '5G NSA' };
@@ -4165,18 +4212,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
   tick();
 
-  function open() {
-    createModal({ name: ID, title: 'Live device status', maxWidth: '820px', showConfirm: false, onClose: () => true,
-      content: `<div class="liv" style="margin:0;padding:0;border:0"><div class="liv-head"><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><button type="button" id="mls_refresh">Refresh now</button></div>
-        <div id="mls_body"><div class="empty-state">Reading modem…</div></div>
-        <div class="liv-foot">Band-lock controls stay disabled until the exact F50 firmware command and rollback path are verified. No band settings are changed.</div>
-        <details style="margin-top:12px"><summary class="mut">Raw modem / telephony output</summary><pre id="mls_raw" class="mut" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;max-height:220px;overflow:auto"></pre></details></div>` });
-    showModal(ID);
-    document.getElementById('mls_refresh').onclick = tick;
-    paint(); tick();
-  }
-  const host = document.querySelector('.actions-buttons'); if (!host) return;
-  const b = document.createElement('button'); b.id = BTN; b.textContent = 'Live Status'; b.onclick = open; host.appendChild(b);
+  // The Live Status button and popup were removed: the panel above is the only view.
 })();
 
 
@@ -5038,7 +5074,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     }
     out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     return out.map((m) => ({
-      out: m.out, number: m.number, date: m.date, text: m.text,
+      out: m.out, number: m.number, date: m.date, text: m.text, key: 'a' + m.store + m.idx,
       del: async () => {
         const r1 = await at('AT+CPMS="' + m.store + '"');
         if (atBad(r1)) throw new Error('Modem refused storage ' + m.store + ': ' + r1.trim());
@@ -5053,53 +5089,76 @@ rm -rf "${DEVICE_TMP_DIR}"
     const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' });
     return (d && d.messages) || [];
   }
-  const samePhone = (a, b) => String(a || '').replace(/\D/g, '').slice(-9) === String(b || '').replace(/\D/g, '').slice(-9);
+  // Numbers compare on their last 9 digits; senders without digits ("DITO", "GCASH") compare as text.
+  const samePhone = (a, b) => {
+    const da = String(a || '').replace(/\D/g, ''), db = String(b || '').replace(/\D/g, '');
+    if (!da || !db) return !da && !db && String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return da.slice(-9) === db.slice(-9);
+  };
+  const tsOf = (s) => { const m = String(s || '').match(/^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)/); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : 0; };
 
-  // Deletes through the router API and checks that the message is really gone (the router often answers
-  // "success" or an empty body without deleting). Order: router (plain, then fresh login, then upper-case AD),
-  // then the modem storage, then Android's own SMS store. Every step is verified against the router's list.
   const norm = (t) => String(t || '').replace(/\s+/g, '');
   const sameText = (a, b) => { a = norm(a); b = norm(b); return !!a && !!b && (a === b || (a.length > 30 && b.length > 30 && (a.startsWith(b.slice(0, 30)) || b.startsWith(a.slice(0, 30))))); };
-  let routerDeadAt = 0;
-  const routerSetDead = () => Date.now() - routerDeadAt < 600000;
-  const markRouterDead = () => { routerDeadAt = Date.now(); };
+
+  // The F50 router answers every "set" with an empty body, so after one such reply the router is skipped. That fact is
+  // kept in the browser for an hour (it used to be forgotten at every page load, so the first Delete after opening
+  // the page always paid for a useless router try).
+  const DEADKEY = 'matchi_sms_router_dead';
+  let routerDeadAt = 0; try { routerDeadAt = +localStorage.getItem(DEADKEY) || 0; } catch (_) {}
+  const routerSetDead = () => Date.now() - routerDeadAt < 3600000;
+  const markRouterDead = () => { routerDeadAt = Date.now(); try { localStorage.setItem(DEADKEY, String(routerDeadAt)); } catch (_) {} };
+
+  // Android's SMS store is read once per list load (in the background) and kept for 60 s, so Delete only needs ONE
+  // root call (the delete itself) instead of read + delete + re-read.
+  let prov = { at: 0, list: null, p: null };
+  function providerList(maxAge) {
+    if (prov.list && Date.now() - prov.at < (maxAge == null ? 60000 : maxAge)) return Promise.resolve(prov.list);
+    if (prov.p) return prov.p;
+    const p = providerFetch().then((l) => { prov = { at: Date.now(), list: l, p: null }; return l; }, (e) => { prov.p = null; throw e; });
+    prov.p = p; return p;
+  }
+  const dropProvCache = () => { prov = { at: 0, list: null, p: null }; };
+
+  // Finds the stored copy of a router message in another store. 1) same number + same text, 2) same text close in time
+  // (sent messages can be stored without a usable number), 3) the only outgoing message with that text.
+  function findIn(list, m) {
+    const text = decodeBody(m.content), when = tsOf(fmtDate(m.date));
+    let hit = list.find((x) => samePhone(x.number, m.number) && sameText(x.text, text));
+    if (!hit && when) hit = list.find((x) => sameText(x.text, text) && Math.abs(tsOf(x.date) - when) < 180000);
+    if (!hit && isOut(m.tag)) { const c = list.filter((x) => x.out && sameText(x.text, text)); if (c.length === 1) hit = c[0]; }
+    return hit || null;
+  }
+  const NOTDELETED = 'NOTDELETED';
   async function apiDelete(m) {
-    const id = String(m.id), notes = [];
-    const gone = async () => !(await apiList()).some((x) => String(x.id) === id);
-    // The router answers every \"set\" with an empty body on some firmware (seen on the F50). One try finds out; after
-    // that the router is skipped for 10 minutes, which is what made Delete take 10-15 seconds.
-    const dead = routerSetDead();
-    const attempts = dead ? [] : [[id + ';', 0]];   // [msg_id, retry level]
-    for (const [mid, retry] of attempts) {
+    const notes = [];
+    // 1) the router, once: when it is not known to ignore "set" calls.
+    if (!routerSetDead()) {
       try {
-        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: mid, notCallback: 'true' }, retry);
+        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: String(m.id) + ';', notCallback: 'true' }, 0);
         const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
         notes.push((res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
-        if (!res) { markRouterDead(); break; }
-        if (/fail|error/i.test(res) && !/success/i.test(res)) continue;
-        if (await gone()) return;   // verified gone
-      } catch (e) { if (UNREACH.test(e.message)) break; notes.push(e.message); }
+        if (!res) markRouterDead();
+        else if (!(/fail|error/i.test(res) && !/success/i.test(res)) && !(await apiList()).some((x) => String(x.id) === String(m.id))) return 'router';
+      } catch (e) { notes.push(e.message); }
     }
-    const text = decodeBody(m.content);
-    const find = (list) => list.find((x) => samePhone(x.number, m.number) && sameText(x.text, text));
-    // Fallback 1 (fast, works on the F50): Android's SMS store (where the router app keeps its copy on many builds).
-    try {
-      const hit = find(await providerFetch());
-      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in Android SMS store but the router still lists it'); }
-      else notes.push('not found in Android SMS store');
-    } catch (e) { notes.push('android: ' + e.message); }
-    // Fallback 2: the same message in the modem storage (every store, loose text match).
-    try {
-      const hit = find(await atFetch(true));
-      if (hit) { await hit.del(); if (await gone()) return; notes.push('deleted in modem but the router still lists it'); }
-      else notes.push('not found in modem storage');
-    } catch (e) { notes.push('modem: ' + e.message); }
-    throw new Error('Could not delete the message (router said: ' + notes.join(', ') + ')');
+    // 2) Android's SMS store and the modem storage looked up at the same time (they are independent).
+    const [pr, mr] = await Promise.allSettled([providerList(), atFetch(true)]);
+    const tryDel = async (label, r) => {
+      if (r.status !== 'fulfilled') { notes.push(label + ': ' + (r.reason && r.reason.message)); return false; }
+      const hit = findIn(r.value, m);
+      if (!hit) { notes.push('not found in ' + label); return false; }
+      try { await hit.del(); } catch (e) { notes.push(label + ': ' + e.message); return false; }
+      return true;
+    };
+    if (await tryDel('Android SMS store', pr)) { dropProvCache(); return 'android'; }
+    if (await tryDel('modem storage', mr)) return 'modem';
+    const err = new Error('Could not delete the message (' + notes.join(', ') + ')'); err.code = NOTDELETED; err.notes = notes; err.msg = m;
+    throw err;
   }
 
   async function apiFetch() {
     return (await apiList()).map((m) => ({
-      out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: decodeBody(m.content),
+      out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: decodeBody(m.content), key: 'r' + m.id,
       del: () => apiDelete(m),
     }));
   }
@@ -5230,39 +5289,69 @@ rm -rf "${DEVICE_TMP_DIR}"
       if (!m) continue;
       const d = new Date(parseInt(m[3], 10)), z = (v) => String(v).padStart(2, '0');
       const rid = m[1];
-      out.push({ out: m[5] !== '1', number: m[2], text: decodeBody(m[4]),
+      out.push({ out: m[5] !== '1', number: m[2], text: decodeBody(m[4]), key: 'p' + rid,
         date: `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`,
         del: async () => {
           // Android's SMS provider only lets the system, the phone process or the default SMS app write, and plain root
-          // is none of those. So: root as is, then as the phone (1001) and system (1000) users, then the database itself.
-          const W = 'content query --uri content://sms --projection _id --where \"_id=' + rid + '\" 2>&1 | grep -q Row';
+          // is none of those. Methods: root as is, the phone (1001) and system (1000) users, then the database itself.
+          // The one that worked last time goes first (remembered in this browser), and a "Deleted 1 rows" answer from
+          // the content tool is trusted without a second read, so the usual delete is a single quick root call.
+          const W = 'content query --uri content://sms --projection _id --where "_id=' + rid + '" 2>&1 | grep -q Row';
+          const M = {
+            root: 'o=$(content delete --uri content://sms --where "_id=$R" 2>&1)',
+            uid1001: 'o=$(su 1001 -c "content delete --uri content://sms --where _id=$R" 2>&1)',
+            uid1000: 'o=$(su 1000 -c "content delete --uri content://sms --where _id=$R" 2>&1)',
+          };
+          let best = ''; try { best = localStorage.getItem('matchi_sms_del_method') || ''; } catch (_) {}
+          const order = (M[best] ? [best] : []).concat(Object.keys(M).filter((k) => k !== best));
           const script = [
             'R=' + rid,
             'gone() { ! ' + W + '; }',
-            'content delete --uri content://sms --where \"_id=$R\" >/dev/null 2>&1; gone && { echo GONE root; exit 0; }',
-            'for U in 1001 1000; do su $U -c \"content delete --uri content://sms --where _id=$R\" >/dev/null 2>&1; gone && { echo GONE uid$U; exit 0; }; done',
+            ...order.map((k) => M[k] + '; case "$o" in *"Deleted 1 row"*) echo GONE ' + k + '; exit 0;; esac; gone && { echo GONE ' + k + '; exit 0; }'),
             'for DB in /data/user_de/0/com.android.providers.telephony/databases/mmssms.db /data/data/com.android.providers.telephony/databases/mmssms.db; do',
             '  [ -f $DB ] || continue',
             '  for B in sqlite3 /system/bin/sqlite3 /system/xbin/sqlite3 /vendor/bin/sqlite3 /data/local/tmp/sqlite3; do',
             '    command -v $B >/dev/null 2>&1 || continue',
-            '    $B $DB \"delete from sms where _id=$R;\" >/dev/null 2>&1; gone && { echo GONE sqlite; exit 0; }',
+            '    $B $DB "delete from sms where _id=$R;" >/dev/null 2>&1; gone && { echo GONE sqlite; exit 0; }',
             '  done',
             'done',
             'echo STILL',
           ].join('\n');
           const out = await sh(script, 30000);
-          if (!/GONE/.test(out)) throw new Error('Android refused to delete this message (tried root, phone, system and the database; it may need to be deleted in the default SMS app)');
+          const g = out.match(/GONE (\w+)/);
+          if (!g) throw new Error('Android refused to delete this message (tried root, phone, system and the database; it may need to be deleted in the default SMS app)');
+          try { localStorage.setItem('matchi_sms_del_method', g[1]); } catch (_) {}
         } });
     }
     return out;
   }
 
-  async function load() {
-    const box = el('matchi_sms_list'); if (!box) return;
-    box.textContent = 'Loading…';
+  // Messages that no store would delete (see below) are hidden from this list only; kept in this browser.
+  const HIDKEY = 'matchi_sms_hidden';
+  const hk = (m) => m.number + '|' + m.date + '|' + String(m.text).slice(0, 60);
+  const getHidden = () => { try { return JSON.parse(localStorage.getItem(HIDKEY) || '[]'); } catch (_) { return []; } };
+  const setHidden = (a) => { try { localStorage.setItem(HIDKEY, JSON.stringify(a.slice(-200))); } catch (_) {} };
+  // Last resort, run in the background: find which files on the device hold the text, so the real place can be found.
+  // The result is appended to /data/local/matchitool/sms_delete_debug.txt on the router (file names only).
+  function whereIsIt(m) {
+    const t = String(m.text).replace(/[^A-Za-z0-9 ]/g, '').slice(0, 40).trim();
+    if (t.length < 4) return;
+    const sc = 'T="' + t + '"; H="' + textToHex(String(m.text).slice(0, 12)) + '"; mkdir -p /data/local/matchitool; ' +
+      '{ echo "== $(date) $T"; for D in /data/user_de/0 /data/data /data/user/0 /data/system /data/misc /data/local; do ' +
+      'timeout 8 grep -rlaF -e "$T" -e "$H" $D --include=*.db --include=*.db-wal --include=*.sqlite --include=*.json --include=*.xml 2>/dev/null | head -n 5; done; } >> /data/local/matchitool/sms_delete_debug.txt 2>&1';
+    sh(sc, 60000).catch(() => {});
+  }
+
+  async function load(silent) {
+    const box = el('matchi_sms_list'); if (!box) return [];
+    if (!silent) box.textContent = 'Loading…';
     try {
-      const list = await fetchAll();
-      if (!list.length) { box.innerHTML = '<div class="mut">No messages.</div>'; return; }
+      const hid = new Set(getHidden());
+      const all = await fetchAll();
+      const list = all.filter((m) => !hid.has(hk(m)));
+      const hb = el('matchi_sms_hid');
+      if (hb) { const n = all.length - list.length; hb.style.display = n ? '' : 'none'; hb.textContent = 'Show ' + n + ' hidden message' + (n === 1 ? '' : 's'); }
+      if (!list.length) { box.innerHTML = '<div class="mut">No messages.</div>'; return list; }
       box.textContent = '';
       for (const m of list) {
         const row = document.createElement('div');
@@ -5274,16 +5363,35 @@ rm -rf "${DEVICE_TMP_DIR}"
         const del = document.createElement('button'); del.textContent = 'Delete'; del.style.padding = '3px 8px';
         del.onclick = async () => {
           if (!(await askConfirm('Delete this message?', 'Delete', true))) return;
-          del.disabled = true; del.textContent = 'Deleting…';
-          try { await m.del(); createToast('Deleted', 'green'); await load(); }
-          catch (e) { createToast(e.message, 'red'); del.disabled = false; del.textContent = 'Delete'; }
+          // Gone from the list at once; it comes back with the reason if the delete fails.
+          const next = row.nextSibling; row.remove();
+          if (!box.children.length) box.innerHTML = '<div class="mut">No messages.</div>';
+          const restore = () => { const ph = box.querySelector(':scope > .mut'); if (ph) ph.remove(); if (next && next.parentNode === box) box.insertBefore(row, next); else box.appendChild(row); };
+          try {
+            await m.del();
+            createToast('Deleted', 'green');
+            // Check in the background that it is really gone from the router's list too.
+            load(true).then((l) => { if (l.some((x) => x.key === m.key)) createToast('Deleted in Android, but the router still lists it. Press Refresh inbox.', 'orange', 6000); }).catch(() => {});
+          } catch (e) {
+            if (e && e.code === NOTDELETED) {
+              // Neither the router, Android's SMS store nor the modem storage has this message to delete (the F50 keeps
+              // some sent messages somewhere else). Hide it here so the list is usable, and say so plainly.
+              setHidden(getHidden().concat([hk(m)]));
+              createToast('Could not delete it from the router storage, so it is hidden from this list only.', 'orange', 6000);
+              whereIsIt(m);
+              load(true).catch(() => {});
+            } else { createToast(e.message, 'red', 6000); restore(); }
+          }
         };
         head.append(who, when, del);
         const body = document.createElement('div'); body.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin-top:4px';
         body.textContent = m.text;
         row.append(head, body); box.appendChild(row);
       }
-    } catch (e) { box.textContent = 'Error: ' + e.message; }
+      // Read Android's SMS store now, in the background, so the first Delete does not have to wait for it.
+      if (!atMode) providerList(0).catch(() => {});
+      return list;
+    } catch (e) { box.textContent = 'Error: ' + e.message; return []; }
   }
 
   async function send() {
@@ -5331,12 +5439,14 @@ rm -rf "${DEVICE_TMP_DIR}"
         '<div style="display:flex;gap:8px;margin:8px 0"><button type="button" id="matchi_sms_send">Send</button><button type="button" id="matchi_sms_refresh">Refresh inbox</button></div>' +
         '<div id="matchi_sms_mode" class="mut" style="font-size:12px;margin-bottom:6px"></div>' +
         '<div id="matchi_sms_list" style="max-height:45vh;overflow:auto"></div>' +
+        '<button type="button" id="matchi_sms_hid" style="display:none;margin-top:8px"></button>' +
         '',
     });
     showModal(MODAL);
     el('matchi_sms_send').onclick = send;
-    el('matchi_sms_refresh').onclick = load;
-    loadCfg().then(load, load);
+    el('matchi_sms_refresh').onclick = () => load();
+    el('matchi_sms_hid').onclick = () => { setHidden([]); load(); };
+    loadCfg().then(() => load(), () => load());
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
@@ -5585,14 +5695,14 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.34';
+const PAGE_VERSION='1.1.35';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'Bypass_v65_13.js',btn:'kano_bypass_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
   {file:'Signal_Info.js',btn:'matchi_signal_btn'},
-  {file:'Live_Status.js',btn:'matchi_live_status_btn'},
+  {file:'Live_Status.js',btn:'liv_inline'},
   {file:'Memory_Cleaner.js',btn:'matchi_memclean_btn'},
   {file:'Network_Debug.js',btn:'matchi_netdbg_btn'}
 ];
@@ -5798,7 +5908,7 @@ async function runSelfTest(onStep){
     if(!btn)return R.fail('started but its button "'+t.btn+'" never appeared on the home card');
     const n=document.querySelectorAll('[id="'+t.btn+'"]').length;
     if(n!==1)return R.fail('button appears '+n+' times (tool loaded twice)');
-    const base='loaded, button "'+btn.textContent.trim()+'" on home card';
+    const base='loaded, "'+btn.textContent.trim().split('\n')[0].slice(0,30)+'" on home card';
     const p=await probe();
     return {s:p.s,d:base+'; '+p.d};
   };
