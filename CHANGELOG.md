@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.11 - Admin password login
+- The web page now logs in with an admin password set in the app (new "Web admin password" card) instead of the random token. The password is stored only as a salted PBKDF2 hash.
+- Until a password is set, the login still accepts the access token, so nobody is locked out after updating.
+- New `/api/login` endpoint shares the existing per-IP lockout (8 bad attempts = 1 minute). Setting, changing or removing the password rotates the token and signs out existing web sessions.
+- The long-press token dialog is unchanged and still works as a recovery path.
+
+## 1.1.10 - Live Status works without the router web API
+- On the F50 the router web API on port 80 was unreachable from the app, so every Live Status field showed a dash. Live Status now falls back to the modem's AT commands (operator, registration, signal) and Android telephony (`dumpsys telephony.registry`) for RSRP/RSRQ/SINR.
+- The router web API is retried only once a minute after a failure, so it can't stall each refresh.
+- Modem temperature now comes from the nr/modem thermal zone.
+- Added a collapsible raw-output panel to help diagnose fields that stay blank on a given firmware.
+
+## 1.1.9 - USB error visibility
+- USB control failures returned HTTP 400, which made the web UI show only "Request failed (400)" and hide the real reason. They now return 200 with `success:false`, so the command output is displayed.
+- On failure the output now includes the exit code, whether `svc` exists, and the device's USB properties.
+
 ## 1.1.8 - LAN access switch
 - Added a LAN access card to the app screen (with a warning dialog). Turning it on makes the web UI reachable from devices on the F50 hotspot at `http://<F50 IP>:2334`; it restarts the web server automatically.
 - When LAN is on and no Wi-Fi client IP exists (the F50 is the hotspot), the app now shows the router address instead of "Wi-Fi unavailable".

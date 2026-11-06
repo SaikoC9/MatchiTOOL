@@ -18,6 +18,7 @@ class MainActivity : Activity() {
         private lateinit var zteValue: TextView
     private lateinit var webValue: TextView
     private lateinit var lanValue: TextView
+    private lateinit var pwValue: TextView
 
     private val blue = Color.rgb(0, 153, 255)
     private val muted = Color.rgb(177, 195, 220)
@@ -96,6 +97,9 @@ class MainActivity : Activity() {
         lanValue = TextView(this).apply { setTextColor(muted) }
         page.addView(infoCard("⇄", "LAN access", lanValue, "Tap to turn on/off • trusted networks only", false) { toggleLan() })
 
+        pwValue = TextView(this).apply { setTextColor(muted) }
+        page.addView(infoCard("✱", "Web admin password", pwValue, "Tap to set, change or remove", false) { showPasswordDialog() })
+
         setContentView(scroll)
         refreshAddresses()
         checkRoot()
@@ -157,6 +161,32 @@ class MainActivity : Activity() {
         val lan = Prefs.lanAccess(this)
         lanValue.text = if (lan) "On" else "Off (local only)"
         lanValue.setTextColor(if (lan) Color.rgb(255, 190, 80) else muted)
+        val hasPw = Prefs.hasAdminPassword(this)
+        pwValue.text = if (hasPw) "Set" else "Not set (token login)"
+        pwValue.setTextColor(if (hasPw) Color.rgb(35, 220, 120) else Color.rgb(255, 190, 80))
+    }
+
+    private fun showPasswordDialog() {
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = "New password (6+ characters)"
+        }
+        val box = FrameLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(input) }
+        val b = AlertDialog.Builder(this)
+            .setTitle("Web admin password")
+            .setMessage("Used to log in to the MatchiTOOL web page instead of the token. Saving signs out existing web sessions.")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val pw = input.text.toString()
+                if (pw.length < 6) Toast.makeText(this, "Use at least 6 characters", Toast.LENGTH_LONG).show()
+                else { Thread { Prefs.setAdminPassword(this, pw); runOnUiThread { refreshAddresses(); Toast.makeText(this, "Password saved", Toast.LENGTH_SHORT).show() } }.start() }
+            }
+            .setNegativeButton("Cancel", null)
+        if (Prefs.hasAdminPassword(this)) b.setNeutralButton("Remove") { _, _ ->
+            Prefs.clearAdminPassword(this); refreshAddresses()
+            Toast.makeText(this, "Password removed - token login is active", Toast.LENGTH_LONG).show()
+        }
+        b.show()
     }
 
     private fun toggleLan() {

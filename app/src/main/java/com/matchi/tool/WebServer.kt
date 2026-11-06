@@ -95,7 +95,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // public source addresses even if someone accidentally forwards the listening port.
         if (!isLocalAddress(ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "local network access only"))
         if (locked(ip)) return json(tooMany, JSONObject().put("error", "too many bad tokens, wait a minute"))
-        if (!authed(s)) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "bad token")) }
+        if (uri == "/api/login" && s.method == Method.POST) return login(ip, s)
+        if (!authed(s)) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again")) }
         ok(ip)
 
         return try { route(s, uri) } catch (e: Exception) {
@@ -103,6 +104,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
     }
 
+
+    /** Password login: returns the session token. Bad attempts count toward the per-IP lockout. */
+    private fun login(ip: String, s: IHTTPSession): Response {
+        val pw = try { body(s).optString("password").take(200) } catch (e: Exception) {
+            return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
+        }
+        val good = if (Prefs.hasAdminPassword(ctx)) Prefs.checkAdminPassword(ctx, pw)
+                   else MessageDigest.isEqual(pw.toByteArray(), Prefs.token(ctx).toByteArray())   // no password set yet: token works
+        if (!good) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password")) }
+        ok(ip)
+        return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Prefs.token(ctx)))
+    }
 
     /** Read-only diagnostics: no modem settings or partitions are modified. */
     private fun diagnostics(): Response {
@@ -208,14 +221,17 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             "tether_disable" -> restoreDefault
             else -> throw IllegalArgumentException("unsupported USB action")
         }
-        val r = RootShell.run(ctx, script, 20_000)
-        return json(if (r.success) Response.Status.OK else Response.Status.BAD_REQUEST,
-            JSONObject().put("success", r.success).put("action", action).put("output", r.content)
+        // On failure, append the exit code and USB-related props so the UI can show why it failed.
+        val wrapped = "{ $script\n}\nrc=${'$'}?\nif [ ${'$'}rc -ne 0 ]; then echo \"[exit code ${'$'}rc]\"; command -v svc || echo 'svc: not found'; getprop | grep -i usb | head -20; fi\nexit ${'$'}rc"
+        val r = RootShell.run(ctx, wrapped, 20_000)
+        // Always HTTP 200: the web UI only shows `output` when the response is not an HTTP error.
+        return json(Response.Status.OK,
+            JSONObject().put("success", r.success).put("action", action).put("output", r.content.ifBlank { "Command failed with no output" })
                 .put("note", "USB gadget mode is firmware-dependent. Re-read USB status after switching; reconnect the cable if Android does not re-enumerate the USB device."))
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.8"))
+        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.11"))
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))

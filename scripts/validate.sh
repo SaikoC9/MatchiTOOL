@@ -39,7 +39,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 118' in gradle and 'versionName = \"1.1.8\"' in gradle
-assert 'put(\"version\", \"1.1.8\")' in server
+assert 'versionCode = 121' in gradle and 'versionName = \"1.1.11\"' in gradle
+assert 'put(\"version\", \"1.1.11\")' in server
 print('Source validation passed: XML, web JavaScript, bundled plugins, root backend, loopback-first network security, firmware preflight, and version metadata.')
 PY
