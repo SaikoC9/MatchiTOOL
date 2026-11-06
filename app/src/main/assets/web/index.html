@@ -4233,7 +4233,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.17';
+const PAGE_VERSION='1.1.19';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -4243,7 +4243,8 @@ const ST_TOOLS=[
   {file:'Live_Status.js',btn:'matchi_live_status_btn'}
 ];
 const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
-const R={ok:d=>({s:'PASS',d:d||''}),warn:d=>({s:'WARN',d:d||''}),fail:d=>({s:'FAIL',d:d||''}),skip:d=>({s:'SKIP',d:d||''})};
+const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
+const ST_ERRS=[];window.addEventListener('error',e=>ST_ERRS.push(String(e.message||'error').slice(0,120)));window.addEventListener('unhandledrejection',e=>ST_ERRS.push('promise: '+String(e.reason&&e.reason.message||e.reason).slice(0,120)));
 const stSleep=ms=>new Promise(r=>setTimeout(r,ms));
 const stClip=(t,n)=>{t=String(t==null?'':t);n=n||6000;return t.length>n?t.slice(0,n)+'\n...[truncated '+(t.length-n)+' chars]':t};
 const stLast=t=>String(t||'').trim().split('\n').pop().trim();
@@ -4253,12 +4254,16 @@ const stRedact=t=>{t=String(t==null?'':t);if(TOKEN&&TOKEN.length>=8)t=t.split(TO
 async function stReject(path,body){ // sends a request that the host must refuse; returns the refusal message or null if it was accepted
   try{await api(path,{method:'POST',body:JSON.stringify(body)});return null}catch(e){return e.message||'rejected'}
 }
-const stAt=async(command,slot)=>{const r=await api('/api/at',{method:'POST',body:JSON.stringify({command,slot:slot||0})});return {ok:r.success!==false&&/\bOK\b/.test(String(r.result||'')),text:String(r.result||'').trim()}};
+const stAt=async(command,slot)=>{ // sendat often glues OK to the data ("+CSQ: 99,99OK"), so OK is matched at the end, not as a word
+  const r=await api('/api/at',{method:'POST',body:JSON.stringify({command,slot:slot||0})});
+  const raw=String(r.result||'').trim();
+  return {ok:r.success!==false&&/OK$/.test(raw)&&!/ERROR/i.test(raw),text:raw.replace(/(\S)OK$/,'$1 OK')};
+};
 const stZte=async(params)=>{const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params})});return r.data};
 const stSh=async(script,t)=>{const r=await runShellWithRoot(script,t||15000);return {ok:!!r.success,text:String(r.content||'')}};
 
 async function runSelfTest(onStep){
-  const X={rootOk:false,atOk:false,zteOk:false,pwSet:false,smsOk:null,bins:{},raw:[],ver:''};
+  const X={rootOk:false,atOk:false,zteOk:false,pwSet:false,smsOk:null,bins:{},raw:[],ver:'',cause:[]};
   const defs=[];
   const add=(sec,name,fn,t)=>defs.push({sec,name,fn,t:t||30000});
   const raw=(title,text)=>X.raw.push({title,text:stClip(text)});
@@ -4364,7 +4369,7 @@ async function runSelfTest(onStep){
   },25000);
   add(S4,'AT queries',async()=>{
     if(!X.atOk)return R.skip('modem did not answer AT');
-    const q=['AT+CSQ','AT+COPS?','AT+CEREG?','AT+CGMM?'],lines=[];let bad=0;
+    const q=['AT+CSQ','AT+COPS?','AT+CEREG?','AT+CGMM'],lines=[];let bad=0;
     for(const c of q){const r=await stAt(c,0);if(!r.ok)bad++;lines.push(c+' -> '+(r.text.replace(/\s+/g,' ')||'(empty)'))}
     raw('AT query results',lines.join('\n'));
     return bad?R.warn(bad+' of '+q.length+' queries had no OK. '+lines.join(' | ')):R.ok(lines.join(' | '));
@@ -4394,6 +4399,15 @@ async function runSelfTest(onStep){
       return R.warn('router answered but returned no values: '+JSON.stringify(d).slice(0,160));
     }catch(e){return R.warn('router web API not reachable ('+e.message+'). Signal Info and Live Status fall back to AT commands; SMS needs this API')}
   },40000);
+  add(S5,'Router web server ports',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await stSh('netstat -ltn 2>/dev/null | head -40',15000);
+    const ports=[...new Set(r.text.split('\n').map(l=>l.trim().split(/\s+/)).filter(c=>/^tcp/i.test(c[0])&&c[3]).map(c=>c[3].slice(c[3].lastIndexOf(':')+1)).filter(x=>/^\d+$/.test(x)))].sort((a,b)=>a-b);
+    raw('Listening TCP sockets',r.text);
+    if(!ports.length)return R.warn('could not read listening ports (netstat unavailable)');
+    const d='listening TCP ports: '+ports.join(', ');
+    return ports.includes('80')?R.ok(d+' (port 80 is open)'):R.warn(d+' - nothing listens on port 80, so the router web API at port 80 cannot work; the router UI may use another port');
+  },30000);
   add(S5,'Router login & SMS storage',async()=>{
     if(!X.pwSet)return R.skip('no router admin password saved (only the SMS tool needs it)');
     try{
@@ -4444,7 +4458,7 @@ async function runSelfTest(onStep){
   add(S7,'AT & Radio',()=>toolCheck(ST_TOOLS[1],async()=>{
     if(!X.atOk)return R.fail('modem does not answer AT, this tool cannot work');
     const v=await stAt('AT+CAVIMS?',0);
-    return v.ok?R.ok('VoLTE query works ('+v.text.replace(/\s+/g,' ')+')'):R.warn('modem answers AT but not the VoLTE query: '+v.text);
+    return v.ok?R.ok('VoLTE query works (VoLTE '+((v.text.match(/CAVIMS:\s*(\d)/)||[])[1]==='1'?'on':'off')+')'):R.warn('modem answers AT but not the VoLTE query: '+v.text);
   }),60000);
   add(S7,'Bypass',()=>toolCheck(ST_TOOLS[2],async()=>{
     if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
@@ -4483,20 +4497,210 @@ async function runSelfTest(onStep){
   });
 
   /* 9. Network */
-  add('9. Network','Internet from the device (ping 8.8.8.8)',async()=>{
+  add('9. Network','Internet from the device (8.8.8.8)',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await stSh('ping -c 1 -W 2 8.8.8.8 2>&1 | tail -2',12000);
-    return /1 (packets )?received|bytes from/.test(r.text)?R.ok(stLast(r.text)):R.warn('no reply (normal if the SIM has no data connection): '+stLast(r.text));
-  },20000);
+    const r=await stSh(['IF=$(ip route get 8.8.8.8 2>/dev/null | grep -o "dev [^ ]*" | head -1 | cut -d" " -f2)','echo "uplink=${IF:-none}"',
+      'if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 || ping -c 1 -w 4 8.8.8.8 >/dev/null 2>&1; then echo "plain=ok"; else echo "plain=fail"; fi',
+      'if [ -n "$IF" ]; then if ping -I "$IF" -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then echo "viaif=ok"; else echo "viaif=fail"; fi; else echo "viaif=n/a"; fi',
+      'echo "default_routes=$(ip route show table all 2>/dev/null | grep -c ^default)"'].join('\n'),25000);
+    const k=stKV(r.text);
+    const d='uplink '+(k.uplink||'?')+', default routes '+(k.default_routes||'?');
+    if(k.plain==='ok')return R.ok('reachable. '+d);
+    if(k.viaif==='ok')return R.ok('reachable through '+k.uplink+' ('+d+'); a plain ping from the root shell has no default route, which is normal on this firmware');
+    return R.warn('no reply ('+d+'). Normal if the SIM has no data connection');
+  },40000);
+
+  /* ===== 1.1.19 deep checks: real malfunctions, each with a fix hint ===== */
+  const C=(t)=>X.cause.push(t);
+  const sh=(s,t)=>stSh(s,t||20000);
+  const S10='10. Device health';
+  add(S10,'Root speed, SELinux, clock',async()=>{
+    const n=needRoot();if(n)return n;
+    const t0=performance.now();const r=await sh('echo "se=$(getenforce 2>/dev/null)"; echo "su=$(command -v su)"; echo "now=$(date +%s)"');
+    const ms=Math.round(performance.now()-t0),k=stKV(r.text),drift=Math.abs(Math.round(Date.now()/1000)-parseInt(k.now||'0',10));
+    const d='SELinux '+(k.se||'unknown')+'; su '+(k.su||'?')+'; root round-trip '+ms+' ms; clock offset vs browser '+drift+' s';
+    if(ms>4000)return R.warn(d+' - root shell is very slow','Reboot; check the root manager for a stuck prompt or a slow su policy.');
+    if(drift>300)return R.warn(d+' - device clock is wrong','Set the correct date/time; wrong time breaks logs, TLS and schedules.');
+    return R.ok(d);
+  });
+  add(S10,'Temperatures',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('for z in /sys/class/thermal/thermal_zone*; do echo "$(cat $z/type 2>/dev/null)=$(cat $z/temp 2>/dev/null)"; done; echo "battery=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"');
+    const rows=r.text.split('\n').map(l=>l.split('=')).filter(a=>a.length===2&&/^-?\d+$/.test(a[1])).map(a=>{const v=+a[1];return {n:a[0],c:a[0]==='battery'?(v>1000?v/1000:v/10):(Math.abs(v)>1000?v/1000:v)}}).filter(x=>x.c>-40&&x.c<150);
+    if(!rows.length)return R.warn('no temperature sensors readable');
+    const hot=rows.reduce((a,b)=>b.c>a.c?b:a);raw('Temperatures',rows.map(x=>x.n+': '+x.c.toFixed(1)+' C').join('\n'));
+    const d='hottest '+hot.n+' '+hot.c.toFixed(1)+' C of '+rows.length+' sensors';
+    if(hot.c>=85){C('Overheating');return R.fail(d+' - overheating','Stop heavy use, remove the case, let it cool; thermal throttling or shutdown is imminent.')}
+    return hot.c>=70?R.warn(d+' - running hot','Improve ventilation; sustained heat causes modem drops and throttling.'):R.ok(d);
+  });
+  add(S10,'Battery',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('B=/sys/class/power_supply/battery; if [ -d $B ]; then for f in capacity status health present; do echo "$f=$(cat $B/$f 2>/dev/null)"; done; else echo nobattery=1; fi');
+    const k=stKV(r.text);if(k.nobattery)return R.skip('no battery node (externally powered device)');
+    const d='level '+(k.capacity||'?')+'%, '+(k.status||'?')+', health '+(k.health||'?')+', present '+(k.present||'?');
+    if(k.present==='0')return R.warn(d+' - battery not detected','Reseat or replace the battery.');
+    if(k.health&&!/good|unknown/i.test(k.health))return R.warn(d+' - battery health problem','Replace the battery; an unhealthy cell causes random shutdowns.');
+    return(+k.capacity<15&&/discharg/i.test(k.status||''))?R.warn(d+' - low and discharging','Connect power; the device can power off mid-operation.'):R.ok(d);
+  });
+  add(S10,'Memory, CPU load, stuck processes',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('echo "memt=$(grep ^MemTotal /proc/meminfo | tr -s " " | cut -d" " -f2)"; echo "mema=$(grep ^MemAvailable /proc/meminfo | tr -s " " | cut -d" " -f2)"; echo "load=$(cut -d" " -f1 /proc/loadavg)"; echo "cores=$(grep -c ^processor /proc/cpuinfo)"; echo "dstate=$(ps -A -o STAT 2>/dev/null | grep -c ^D)"');
+    const k=stKV(r.text),pct=100*(+k.mema)/(+k.memt),d='free memory '+(isFinite(pct)?pct.toFixed(0):'?')+'%, load '+k.load+' on '+k.cores+' cores, '+(k.dstate||0)+' blocked processes';
+    if(pct<5){C('Out of memory');return R.fail(d+' - memory exhausted','Stop unused tools, reboot; apps will be killed by the kernel.')}
+    if(pct<10||+k.load>2*(+k.cores||1)||+k.dstate>3)return R.warn(d+' - system under pressure','Close extra tools/plugins; check the kernel log result below for I/O errors.');
+    return R.ok(d);
+  });
+  add(S10,'Filesystem: /data writable, space, inodes',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('echo "mnt=$(grep " /data " /proc/mounts | head -1)"; echo "df=$(df -h /data | tail -1)"; echo "inode=$(df -i /data | tail -1)"');
+    const k=stKV(r.text),opts=((k.mnt||'').split(/\s+/)[3]||''),ino=(k.inode||'').match(/(\d+)%/),sp=(k.df||'').match(/(\d+)%/);
+    const d='/data options '+(opts||'?')+'; space '+(sp?sp[1]+'%':'?')+'; inodes '+(ino?ino[1]+'%':'?');
+    if(/(^|,)ro(,|$)/.test(opts)){C('Read-only /data');return R.fail(d+' - /data is READ-ONLY','Filesystem error remount: reboot; if it persists the flash/filesystem is damaged. Settings, plugins and boot.sh cannot be saved.')}
+    return((ino&&+ino[1]>=95)||(sp&&+sp[1]>=95))?R.warn(d+' - almost full','Free space (logs, old files); a full /data breaks settings and root.'):R.ok(d);
+  });
+  add(S10,'Kernel and crash log scan',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog|bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 20 2>/dev/null | tail -12',30000);
+    raw('Kernel / crash scan',r.text);
+    if(/DMESG_DENIED/.test(r.text)&&!/--- crash ---\s*\S/.test(r.text))return R.warn('kernel log not readable here','Run dmesg in the Terminal card to inspect manually.');
+    const hits=r.text.split('--- crash ---')[0].split('\n').filter(l=>l&&!/DMESG_/.test(l)),crash=(r.text.split('--- crash ---')[1]||'').trim();
+    if(hits.length)return R.warn(hits.length+' kernel error line(s): '+hits[hits.length-1].slice(0,140),'Hardware/memory/storage fault signs; see raw output below. Repeated I/O errors mean failing flash.');
+    return crash?R.warn('recent app crash recorded: '+crash.split('\n')[0].slice(0,140),'See raw output below; reinstall the affected app or update it.'):R.ok('no recent kernel errors or crashes');
+  });
+  add(S10,'Core services running',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('P=$(ps -A 2>/dev/null); for p in system_server netd rild dnsmasq hostapd; do echo "$p=$(echo "$P" | grep -c $p)"; done');
+    const k=stKV(r.text),miss=Object.keys(k).filter(x=>+k[x]===0);
+    if(+k.system_server===0)return R.fail('Android framework (system_server) not running','Reboot the device; settings/svc/USB controls cannot work without it.');
+    return miss.length?R.warn('not found: '+miss.join(', ')+' (process names differ on some firmware)','If the hotspot or SIM misbehaves, a missing netd/dnsmasq/rild/hostapd is the cause; reboot.'):R.ok('system_server, netd, rild, dnsmasq, hostapd all running');
+  });
+
+  const S11='11. Hotspot & network';
+  add(S11,'Hotspot LAN: br0, forwarding, NAT',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('echo "ip=$(ip -4 -o addr show br0 2>/dev/null | head -1 | sed "s/.*inet \\([^ ]*\\).*/\\1/")"; echo "oper=$(cat /sys/class/net/br0/operstate 2>/dev/null)"; echo "fwd=$(cat /proc/sys/net/ipv4/ip_forward)"; echo "nat=$(iptables -t nat -S 2>/dev/null | grep -ciE "masquerade|snat|postrouting")"; echo "members=$(ls /sys/class/net/br0/brif 2>/dev/null | tr "\\n" " ")"; echo "clients=$(ip neigh show dev br0 2>/dev/null | grep -ciE "reachable|stale|delay")"');
+    const k=stKV(r.text);
+    if(!k.ip)return R.warn('br0 has no IPv4 address (no hotspot LAN)','Enable the hotspot/Wi-Fi in the router settings; clients get no DHCP without br0.');
+    const d='br0 '+k.ip+' '+(k.oper||'?')+'; members: '+(k.members||'none')+'; clients seen: '+k.clients+'; forwarding '+(k.fwd==='1'?'on':'OFF')+'; NAT rules '+k.nat;
+    if(k.fwd!=='1'){C('IP forwarding off');return R.fail(d,'IP forwarding is off, so clients cannot reach the internet. Reboot or re-enable tethering; a leftover rule/script may have disabled it.')}
+    if(+k.nat===0)return R.warn(d+' - no NAT rules','Clients may connect but have no internet; toggle the hotspot or reboot to rebuild tether NAT.');
+    return k.members?R.ok(d):R.warn(d+' - nothing bridged','No Wi-Fi/USB interface is in br0; turn the Wi-Fi hotspot on.');
+  });
+  add(S11,'Uplink health & DNS',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh(['IF=$(ip route get 8.8.8.8 2>/dev/null | grep -o "dev [^ ]*" | head -1 | cut -d" " -f2)','echo "if=${IF:-none}"','if [ -n "$IF" ]; then S=/sys/class/net/$IF; echo "mtu=$(cat $S/mtu)"; echo "oper=$(cat $S/operstate)"; echo "ip4=$(ip -4 -o addr show $IF | wc -l)"; echo "err=$(( $(cat $S/statistics/rx_errors) + $(cat $S/statistics/tx_errors) ))"; echo "ipok=$(ping -I $IF -c1 -W3 8.8.8.8 >/dev/null 2>&1 && echo 1 || echo 0)"; echo "dnsok=$(ping -I $IF -c1 -W4 www.google.com >/dev/null 2>&1 && echo 1 || echo 0)"; fi'].join('\n'),30000);
+    const k=stKV(r.text);if(!k.if||k.if==='none')return R.warn('no uplink interface','No mobile data session: check SIM, registration and APN results above.');
+    const d='uplink '+k.if+' ('+k.oper+'), MTU '+k.mtu+', IPv4 addrs '+k.ip4+', errors '+k.err+', IP ping '+(k.ipok==='1'?'ok':'fail')+', DNS '+(k.dnsok==='1'?'ok':'fail');
+    if(k.ip4==='0')return R.fail(d,'Uplink has no IPv4 address: data session not established. Check APN and registration.');
+    if(k.ipok==='1'&&k.dnsok!=='1'){C('DNS failure');return R.fail(d,'Internet reachable by IP but names do not resolve: DNS servers are wrong/blocked. Check the APN DNS or set a public DNS.')}
+    if(k.ipok!=='1')return R.warn(d,'Uplink exists but passes no traffic: data plan, APN or carrier block.');
+    return(+k.mtu<1280||+k.err>100)?R.warn(d+' - link quality issue','Low MTU or interface errors: check the APN MTU and signal.'):R.ok(d);
+  },50000);
+  add(S11,'Interface error counters',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('for s in /sys/class/net/*; do n=$(basename $s); e=$(( $(cat $s/statistics/rx_errors 2>/dev/null || echo 0) + $(cat $s/statistics/tx_errors 2>/dev/null || echo 0) )); [ $e -gt 0 ] && echo "$n=$e"; done; echo done=1');
+    const k=stKV(r.text);delete k.done;const bad=Object.keys(k).filter(x=>+k[x]>50);
+    return bad.length?R.warn(bad.map(x=>x+' '+k[x]+' errors').join(', '),'Check cables/USB/Wi-Fi interference for these interfaces.'):R.ok('no significant interface errors');
+  });
+
+  const S12='12. Modem deep checks';
+  add(S12,'SIM and radio state',async()=>{
+    if(!X.atOk)return R.skip('modem did not answer AT');
+    const pin=await stAt('AT+CPIN?',0),fun=await stAt('AT+CFUN?',0);
+    raw('SIM / radio',pin.text+'\n'+fun.text);
+    if(/CME ERROR:\s*(10|SIM not inserted)/i.test(pin.text)||/NOT INSERTED/i.test(pin.text)){X.sim='nosim';C('No SIM detected');return R.fail('SIM not detected','Insert/reseat the SIM and reboot; check for a dirty or damaged tray.')}
+    const p=(pin.text.match(/\+CPIN:\s*([A-Za-z0-9 ]+?)(?:\s*OK)?$/m)||[])[1]||'';
+    if(p&&!/^READY$/i.test(p.trim())){X.sim='locked';C('SIM locked ('+p.trim()+')');return R.fail('SIM state: '+p.trim(),'Unlock the SIM (PIN/PUK) with the carrier; no data until unlocked.')}
+    const f=(fun.text.match(/\+CFUN:\s*(\d+)/)||[])[1];
+    if(f&&f!=='1'){C('Radio off (CFUN='+f+')');return R.fail('SIM ready but radio mode CFUN='+f+' (not full)','Airplane/minimum mode is on: switch the radio on (AT+CFUN=1) or toggle airplane mode.')}
+    X.sim='ok';return R.ok('SIM ready, radio full functionality');
+  },40000);
+  add(S12,'Registration, attach, APN',async()=>{
+    if(!X.atOk)return R.skip('modem did not answer AT');
+    if(X.sim&&X.sim!=='ok')return R.skip('blocked by the SIM/radio problem above');
+    const q=async c=>(await stAt(c,0)).text,ereg=await q('AT+CEREG?'),g5=await q('AT+C5GREG?'),creg=await q('AT+CREG?'),att=await q('AT+CGATT?'),pdp=await q('AT+CGACT?'),apn=await q('AT+CGDCONT?');
+    raw('Registration / attach / APN',[ereg,g5,creg,att,pdp,apn].join('\n'));
+    const st=t=>{const m=t.match(/\+C(?:E|5G|)REG:\s*\d+,(\d)/);return m?+m[1]:null},vals=[st(ereg),st(g5),st(creg)].filter(v=>v!==null);
+    const reg=vals.some(v=>v===1||v===5),denied=vals.includes(3),srch=vals.includes(2);
+    const attOk=/\+CGATT:\s*1/.test(att),pdpOk=/\+CGACT:\s*\d+,1/.test(pdp),apnSet=/\+CGDCONT:\s*\d+,"[^"]*","[^"]+"/.test(apn);
+    const d='registered '+(reg?'yes':'NO')+'; packet attach '+(attOk?'yes':'no')+'; PDP active '+(pdpOk?'yes':'no')+'; APN '+(apnSet?'configured':'none');
+    if(denied){C('Network registration denied');return R.fail(d,'Carrier denied registration: SIM not provisioned/blocked, or wrong network. Contact the carrier.')}
+    if(!reg){C(srch?'Searching for network':'Not registered');return R.fail(d,srch?'Still searching: check antennas, signal and band lock settings.':'Not on any network: check SIM, coverage and network mode.')}
+    if(!apnSet){C('No APN configured');return R.fail(d,'No APN is defined: set the carrier APN, otherwise there is no data.')}
+    if(!attOk||!pdpOk)return R.warn(d,'Registered but no data session: check APN/credentials, data plan and roaming settings.');
+    return R.ok(d);
+  },90000);
+  add(S12,'Signal quality & modem speed',async()=>{
+    if(!X.atOk)return R.skip('modem did not answer AT');
+    const t0=performance.now(),c=await stAt('AT+CSQ',0),ms=Math.round(performance.now()-t0),e=await stAt('AT+CESQ',0);
+    const rs=+((c.text.match(/\+CSQ:\s*(\d+)/)||[])[1]),m=e.text.match(/\+CESQ:\s*(?:\d+,){5}(\d+)/),rsrp=m&&+m[1]<=97?+m[1]-141:null;
+    const d='RSSI index '+rs+(rsrp!==null?', RSRP '+rsrp+' dBm':'')+', AT reply '+ms+' ms';
+    if(rs===99)return R.fail(d+' - no signal','No signal: check antennas/placement and registration.');
+    if(rs<10||(rsrp!==null&&rsrp<-110))return R.warn(d+' - weak signal','Move/reposition or attach external antennas; weak signal causes slow speed and drops.');
+    return ms>5000?R.warn(d+' - modem responds slowly','Modem is busy or overheating; reboot.'):R.ok(d);
+  },60000);
+  add(S12,'Router modem state (web API)',async()=>{
+    if(!X.zteOk)return R.skip('router web API not reachable');
+    const o=await stZte({multi_data:'1',cmd:'modem_main_state,ppp_status,pin_status,wan_ipaddr'});
+    const v=(o&&typeof o==='object')?o:{},d=Object.keys(v).map(k=>k+'='+v[k]).join(', ');
+    if(v.modem_main_state&&!/init_complete/i.test(v.modem_main_state))return R.fail(d,'Router reports modem state "'+v.modem_main_state+'": SIM/PIN/initialization problem.');
+    return(v.ppp_status&&/disconnected/i.test(v.ppp_status))?R.warn(d,'Router says data is disconnected: reconnect from the router page or check APN.'):R.ok(d||'no fields returned');
+  },40000);
+
+  const S13='13. Host, plugins & page integrity';
+  add(S13,'Host stability (parallel burst)',async()=>{
+    const t=[];const res=await Promise.all(Array.from({length:6},async()=>{const t0=performance.now();try{await api('/api/ping');t.push(performance.now()-t0);return 1}catch(e){return 0}}));
+    const f=res.filter(x=>!x).length,d='6 parallel requests: '+(6-f)+' ok, slowest '+Math.round(Math.max(0,...t))+' ms';
+    if(f)return R.fail(d,'Host dropped requests under load: force-stop and reopen MatchiTOOL; check battery optimization.');
+    return Math.max(...t)>3000?R.warn(d,'Host is slow; exclude MatchiTOOL from battery optimization.'):R.ok(d);
+  },30000);
+  add(S13,'Host port binding',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('netstat -ltn 2>/dev/null | grep ":2334 "');const m=r.text.trim().split(/\s+/);
+    if(!r.text.trim())return R.fail('port 2334 not listening in netstat','The web host is not bound: restart the app.');
+    return R.ok('port 2334 bound to '+m[3]+(/^(127\.|::1)/.test(m[3])?' (local only)':' (LAN access ON, plain HTTP: keep the token private)'));
+  });
+  add(S13,'Unknown API route handling',async()=>{
+    const r=await fetch('/api/__diagnose_missing__',{headers:{'x-token':TOKEN}});
+    return r.status===404?R.ok('HTTP 404 for an unknown route'):R.warn('expected 404, got '+r.status);
+  });
+  add(S13,'Boot script health',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('F=/data/local/matchitool/boot.sh; if [ -f $F ]; then sh -n $F 2>&1 && echo SYNTAX_OK; echo "perm=$(ls -l $F)"; else echo ABSENT; fi; echo "log=$(logcat -d -s MatchiTOOL:I 2>/dev/null | grep -i "boot tasks" | tail -1)"');
+    if(/ABSENT/.test(r.text))return R.ok('no boot script registered (nothing to run at boot)');
+    if(!/SYNTAX_OK/.test(r.text))return R.fail('boot.sh has a syntax error: '+r.text.slice(0,160),'Re-apply the Bypass settings to regenerate boot.sh; a broken script stops every boot rule.');
+    return /not completed/i.test(r.text)?R.warn('last boot run did not complete: '+r.text.split('log=')[1],'Root manager may have denied MatchiTOOL at boot: keep its grant permanent.'):R.ok('boot.sh syntax valid');
+  });
+  add(S13,'sendat architecture & execution',async()=>{
+    const n=needRoot();if(n)return n;
+    const r=await sh('F=/data/data/com.matchi.tool/files/sendat; [ -x $F ] || F=/data/user/0/com.matchi.tool/files/sendat; echo "abi=$(getprop ro.product.cpu.abi)"; echo "elf=$(od -An -tx1 -j18 -N1 $F 2>/dev/null | tr -d " ")"; echo "out=$(timeout 5 $F -h 2>&1 | head -2 | tr "\\n" " ")"');
+    const k=stKV(r.text),want=/arm64/.test(k.abi||'')?'b7':/armeabi|arm/.test(k.abi||'')?'28':/x86_64/.test(k.abi||'')?'3e':'03';
+    if(k.elf&&k.elf!==want)return R.fail('sendat is built for ELF machine 0x'+k.elf+' but the device ABI is '+k.abi,'Wrong CPU build: AT features cannot work; use a build for '+k.abi+'.');
+    return /not found|exec format|permission denied|cannot link/i.test(k.out||'')?R.fail('sendat does not run: '+k.out,'Reinstall the app (restores sendat and its permissions).'):R.ok('sendat matches '+k.abi+' and starts');
+  });
+  add(S13,'Plugin and tool code compiles',async()=>{
+    const bad=[];let n=0;
+    document.querySelectorAll('script.webtool').forEach(s=>{n++;try{new Function(s.textContent)}catch(e){bad.push(s.dataset.name+': '+e.message)}});
+    const list=await api('/api/plugins');
+    (Array.isArray(list)?list:[]).filter(p=>p.enabled).forEach(p=>{n++;try{new Function(p.code)}catch(e){bad.push(p.name+': '+e.message)}});
+    return bad.length?R.fail(bad.join(' | '),'Delete or re-upload the broken plugin (Plugins card); it will not load.'):R.ok(n+' tools/plugins parse without syntax errors (nothing executed)');
+  });
+  add(S13,'Duplicate page elements',async()=>{
+    const seen={},dup=[];document.querySelectorAll('[id]').forEach(e=>{if(seen[e.id]&&!dup.includes(e.id))dup.push(e.id);seen[e.id]=1});
+    return dup.length?R.fail('duplicate ids: '+dup.slice(0,12).join(', '),'A tool/plugin was loaded twice or clashes; reload the page and remove the duplicate.'):R.ok('all element ids unique');
+  });
+  add(S13,'JavaScript errors since page load',async()=>{
+    return ST_ERRS.length?R.warn(ST_ERRS.length+' error(s): '+ST_ERRS.slice(-3).join(' | '),'A tool threw an error at runtime; reload, and report the message if it repeats.'):R.ok('no uncaught errors or rejected promises');
+  });
 
   /* run */
-  const run={results:[],raw:X.raw,ver:'',ms:0,total:defs.length};
+  const run={results:[],raw:X.raw,ver:'',ms:0,total:defs.length,causes:X.cause};
   const started=Date.now();
   for(const d of defs){
     let res;const t0=performance.now();
     try{res=await stTimeout(d.fn(),d.t,d.name);if(typeof res==='string')res=R.ok(res);if(!res||!res.s)res=R.ok('')}
     catch(e){res=R.fail(e&&e.message?e.message:String(e))}
-    res.sec=d.sec;res.name=d.name;res.ms=Math.round(performance.now()-t0);
+    if(res.f&&(res.s==='WARN'||res.s==='FAIL'))res.d=(res.d||'')+'\nFix: '+res.f;res.sec=d.sec;res.name=d.name;res.ms=Math.round(performance.now()-t0);
     run.results.push(res);run.ver=X.ver;run.ms=Date.now()-started;
     try{if(onStep)onStep(run)}catch(_){}
   }
@@ -4510,7 +4714,9 @@ function buildSelfTestReport(run,final){
   const L=['MatchiTOOL full diagnose','Generated: '+new Date().toISOString(),'Host version: '+(run.ver||'unknown')+'   Page version: '+PAGE_VERSION,'Page address: '+location.origin,'Browser: '+navigator.userAgent,
     'Result: '+c.PASS+' PASS, '+c.WARN+' WARN, '+c.FAIL+' FAIL, '+c.SKIP+' SKIP'+(final?'   ('+(run.ms/1000).toFixed(1)+' s)':'   (running '+run.results.length+'/'+run.total+')')];
   const bad=run.results.filter(r=>r.s==='FAIL'||r.s==='WARN');
-  if(bad.length){L.push('','Needs attention:');bad.forEach(r=>L.push('  ['+r.s+'] '+r.name+' - '+String(r.d||'').split('\n')[0]))}
+  if(bad.length){L.push('','Needs attention:');bad.forEach(r=>L.push('  ['+r.s+'] '+r.name+' - '+String(r.d||'').split('\n')[0]+(r.f?'\n        Fix: '+r.f:'')))}
+  if(final&&run.causes&&run.causes.length)L.push('','Probable root causes: '+[...new Set(run.causes)].join('; '));
+  if(final){try{const prev=JSON.parse(localStorage.getItem('matchi_lastdiag')||'null'),now=bad.map(r=>r.name);if(prev&&prev.length){const nw=now.filter(x=>!prev.includes(x)),fx=prev.filter(x=>!now.includes(x));L.push('','Since last run: '+(nw.length?'NEW problems: '+nw.join(', ')+'. ':'no new problems. ')+(fx.length?'Fixed: '+fx.join(', ')+'.':''))}localStorage.setItem('matchi_lastdiag',JSON.stringify(now))}catch(_){}}
   else if(final)L.push('','Everything checked is working.');
   let sec='';
   run.results.forEach(r=>{if(r.sec!==sec){sec=r.sec;L.push('','== '+sec+' ==')}L.push(fmt(r))});
