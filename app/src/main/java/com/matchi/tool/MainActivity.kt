@@ -47,7 +47,7 @@ class MainActivity : Activity() {
     private val tick = object : Runnable {
         override fun run() {
             refreshLive()
-            handler.postDelayed(this, 8000)
+            handler.postDelayed(this, 15000)
         }
     }
 

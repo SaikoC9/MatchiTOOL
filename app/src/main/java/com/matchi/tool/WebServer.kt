@@ -235,9 +235,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         done
         if [ §OK = 0 ]; then
           echo "init did not apply it; trying svc (10 s limit)"
-          timeout 10 svc usb setFunctions "§(echo §CANDS | cut -d' ' -f2)" 2>&1
-          sleep 3
-          has $fn && OK=1
+          # svc accepts ONE function only (no ",adb", no "ecm"); anything else makes it crash with IllegalArgumentException
+          case "$fn" in
+            rndis) timeout 10 svc usb setFunctions rndis 2>&1; sleep 3; has $fn && OK=1 ;;
+            *) echo "svc cannot set $fn (not an Android USB function), skipped" ;;
+          esac
         fi
         for IF in usb0 rndis0 ecm0 ncm0; do
           if ip link show "§IF" >/dev/null 2>&1; then
@@ -253,9 +255,31 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         if [ §OK = 0 ]; then echo "USB function $fn is not active"; exit 3; fi
     """.trimIndent().replace('§', '$')
 
+    /** Back to the saved default mode without rndis / ecm, keeping adb if it is on. Applied through init (sys.usb.config)
+     *  like the enable path; `svc usb setFunctions` is only a fallback and only ever gets ONE plain function, because
+     *  "mtp,adb" or "ecm" make it throw IllegalArgumentException (that was the crash seen in the logcat). */
+    private val USB_RESTORE = """
+        BASE="§(getprop persist.sys.usb.config)"; [ -n "§BASE" ] || BASE=mtp
+        BASE="§(printf '%s' "§BASE" | sed 's/\(^\|,\)rndis\($\|,\)/\1/g; s/\(^\|,\)ecm\($\|,\)/\1/g; s/\(^\|,\)cdc_ecm\($\|,\)/\1/g; s/,,*/,/g; s/^,//; s/,$//')"
+        [ -n "§BASE" ] || BASE=mtp
+        if [ "§(settings get global adb_enabled 2>/dev/null | tr -d '\r')" = 1 ]; then case ",§BASE," in *,adb,*) ;; *) BASE="§BASE,adb" ;; esac; fi
+        echo "Restoring sys.usb.config=§BASE"
+        setprop sys.usb.config "§BASE"
+        sleep 3
+        if [ "§(getprop sys.usb.config)" != "§BASE" ]; then
+          S="§(printf '%s' "§BASE" | tr ',' '\n' | grep -vx adb | head -n 1)"
+          case "§S" in
+            mtp|ptp|midi|ncm) echo "init did not apply it; trying svc usb setFunctions §S"; timeout 10 svc usb setFunctions "§S" 2>&1; sleep 2 ;;
+            *) echo "svc fallback skipped (§S is not a single Android USB function)" ;;
+          esac
+        fi
+        echo "config=§(getprop sys.usb.config) state=§(getprop sys.usb.state)"
+        [ -n "§(getprop sys.usb.config)" ]
+    """.trimIndent().replace('§', '$')
+
     private fun controlUsb(req: JSONObject): Response {
         val action = req.optString("action")
-        val restoreDefault = "BASE=\"$(getprop persist.sys.usb.config)\"; [ -n \"${'$'}BASE\" ] || BASE=mtp; BASE=\"$(printf '%s' \"${'$'}BASE\" | sed 's/\\(^\\|,\\)rndis\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)ecm\\($\\|,\\)/\\1/g; s/\\(^\\|,\\)cdc_ecm\\($\\|,\\)/\\1/g; s/,,*/,/g; s/^,//; s/,$//')\"; if [ \"$(settings get global adb_enabled)\" = 1 ]; then case \",${'$'}BASE,\" in *,adb,*) ;; *) BASE=\"${'$'}BASE,adb\";; esac; fi; svc usb setFunctions \"${'$'}BASE\""
+        val restoreDefault = USB_RESTORE
         val script = when (action) {
             "adb_enable" -> "settings put global adb_enabled 1 && [ \"$(settings get global adb_enabled)\" = 1 ]"
             "adb_disable" -> "settings put global adb_enabled 0 && [ \"$(settings get global adb_enabled)\" = 0 ]"
@@ -298,6 +322,34 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val q = "'" + cmd.replace("'", "'\\''") + "'"
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
+        }
+        // Several AT commands in ONE root call: {"commands":["AT+CSQ","AT+COPS?"],"slot":0} -> {"results":["...","..."]}
+        uri == "/api/at/batch" && s.method == Method.POST -> {
+            val req = body(s)
+            val slot = req.optInt("slot", 0).coerceIn(0, 1)
+            val arr = req.optJSONArray("commands") ?: throw IllegalArgumentException("commands must be an array")
+            if (arr.length() < 1 || arr.length() > 12) throw IllegalArgumentException("1 to 12 commands")
+            val sendat = File(ctx.filesDir, "sendat").absolutePath
+            val script = StringBuilder()
+            for (i in 0 until arr.length()) {
+                val cmd = arr.optString(i).trim()
+                if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
+                    throw IllegalArgumentException("AT command must start with AT")
+                val q = "'" + cmd.replace("'", "'\\''") + "'"
+                script.append("echo '##AT$i'; \"$sendat\" -n $slot -c $q 2>&1\n")
+            }
+            script.append("echo '##END'\n")
+            val r = RootShell.run(ctx, script.toString(), 20000)
+            val out = r.content
+            val results = JSONArray()
+            for (i in 0 until arr.length()) {
+                val st = out.indexOf("##AT$i")
+                if (st < 0) { results.put(""); continue }
+                val from = out.indexOf('\n', st).let { if (it < 0) out.length else it + 1 }
+                val next = out.indexOf("##", from).let { if (it < 0) out.length else it }
+                results.put(out.substring(from, next).trim())
+            }
+            json(Response.Status.OK, JSONObject().put("success", r.success).put("results", results))
         }
         // Proxy to the ZTE web API: {"op":"get"|"set","params":{"cmd":"signalbar",...}}
         uri == "/api/zte" && s.method == Method.POST -> {

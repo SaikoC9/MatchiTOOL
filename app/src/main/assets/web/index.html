@@ -1099,13 +1099,13 @@ for B in iptables ip6tables; do
     echo "@@MISSING"
   fi
 done
-T=0
+${ttlSupported !== null ? 'echo "@@TTL_T=' + (ttlSupported ? 1 : 0) + '"' : `T=0
 ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
 if ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null; then
   ipt iptables -t mangle -A UFI_PROBE_$$ -j TTL --ttl-set 64 2>/dev/null && T=1
   ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
 fi
-echo "@@TTL_T=$T"
+echo "@@TTL_T=$T"`}
 ${LAN_SH}
 B=""
 for i in $LANIFS; do
@@ -2057,10 +2057,11 @@ case "$1" in
 esac
 `;
 
+    let dpiProbeCache = '';   // kernel support never changes while running: probe once, then reuse
     const refresh = async (syncForm = false) => {
       const sess = session;
       const r = await runRoot(PRELUDE + String.raw`
-# Real support probe: try each rule in a throw-away chain that nothing links to, then delete it.
+${dpiProbeCache ? dpiProbeCache : `# Real support probe: try each rule in a throw-away chain that nothing links to, then delete it.
 probe() {
   ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
   ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null || { echo 0; return; }
@@ -2070,6 +2071,7 @@ probe() {
 echo "@@NFQ_T=$(probe -p tcp --dport 443 -j NFQUEUE --queue-num 250 --queue-bypass)"
 echo "@@MSS_T=$(probe -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360)"
 echo "@@CONN_T=$(probe -p tcp --dport 443 -m connbytes --connbytes 1:6 --connbytes-mode packets --connbytes-dir original -j RETURN)"
+`}
 echo "@@NFQ_BIN=$([ -x ${DIR}/nfqws ] && echo 1 || echo 0)"
 p=$(cat ${DIR}/nfqws.pid 2>/dev/null)
 if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -qF "${DIR}/nfqws "; then echo "@@NFQ_RUN=1"; else echo "@@NFQ_RUN=0"; fi
@@ -2088,6 +2090,9 @@ cat ${CONF} 2>/dev/null
       const st = parseStatus(head);
       const cv = (k) => confGet(conf, k);
       const get = (k) => st.kv[k];
+      if (!dpiProbeCache && ['NFQ_T', 'MSS_T', 'CONN_T'].every((k) => get(k) === '0' || get(k) === '1')) {
+        dpiProbeCache = ['NFQ_T', 'MSS_T', 'CONN_T'].map((k) => 'echo "@@' + k + '=' + get(k) + '"').join('\n');
+      }
       lastState = { active: get('CH') === '1', quic: cv('QUIC') === '1', mss: Number(cv('MSS') || 0), dns: get('NATCH') === '1' ? String(cv('DNSIP') || '') : '', nfq: get('NFQ_RUN') === '1' };
       lastState.working = (lastState.active && (lastState.mss > 0 || lastState.quic || lastState.nfq)) || get('NATCH') === '1';
       syncNfqBtn(true);
@@ -3125,18 +3130,19 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
     if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
     if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
   };
-  const startAutoCheck = (sess) => {
+  const startAutoCheck = (sess, reopen = false) => {
     stopAutoCheck();
     let running = false;
+    let n = 0;
     const tick = async (first) => {
       const el = document.getElementById(MODAL_NAME);
       if (sess !== session || !el || !el.classList.contains('show')) { stopAutoCheck(); return; }
       if (document.hidden) return;
       if (running || busy > 0 || (sharedRootQueue.pending || 0) > 0) return;
       running = true;
-      try { await runCheck(true, true, first === true); } catch (_) {  } finally { running = false; }
+      try { await runCheck(true, true, first === true || (++n % 4 !== 0)); } catch (_) {  } finally { running = false; }
     };
-    tick(true);
+    tick(!reopen);
     autoTimer = setInterval(() => tick(false), 30000);
     visFn = () => { if (!document.hidden) tick(false); };
     document.addEventListener('visibilitychange', visFn);
@@ -3429,9 +3435,18 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
     }
   };
 
+  let opened = false;
   const openModal = async () => {
     ensureStyle();
-    document.getElementById(MODAL_NAME)?.remove();
+    const existing = document.getElementById(MODAL_NAME);
+    if (existing && opened && modalEl === existing) {
+      // reopen: the window is still built and its state is current, so just show it and refresh in the background
+      showModal(MODAL_NAME);
+      startAutoCheck(session, true);
+      return;
+    }
+    existing?.remove();
+    opened = false;
     session += 1;
     busy = 0;
     qsPicked = false;
@@ -3442,7 +3457,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       maxWidth: '640px',
       contentStyle: 'max-height:80vh;',
       showConfirm: false,
-      onClose: () => { session += 1; busy = 0; stopAutoCheck(); return true; },
+      onClose: () => { stopAutoCheck(); return true; },
       content: `
         <div class="bp-wrap">
           <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button></div>
@@ -3624,6 +3639,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
     } catch (_) {  }
     try { await runCheck(false, false, true); } catch (_) {  }
     startAutoCheck(session);
+    opened = true;
     warnForeignBoot(true).catch(() => {  });
   };
 
@@ -3647,6 +3663,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
   if (cancelled) return;
   if (!container) { console.error('Bypass: .actions-buttons not found, button not added'); return; }
 
+  let rootVerified = false;
   mainButton.onclick = async () => {
     if (mainButton.dataset.opening === '1') return;
     mainButton.dataset.opening = '1';
@@ -3654,9 +3671,12 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       if (typeof createModal !== 'function' || typeof showModal !== 'function' || typeof runShellWithRoot !== 'function') {
         return toast('Bypass: this UFI-TOOLS version does not expose createModal / showModal / runShellWithRoot', 'red', 8000);
       }
-      const root = await runRoot('whoami');
-      if (!root.ok || !root.text.includes('root')) {
-        return toast('Root access is not available. Grant MatchiTOOL root in your root manager (Magisk / KernelSU), then open Bypass again', 'red', 7000);
+      if (!rootVerified) {
+        const root = await runRoot('whoami');
+        if (!root.ok || !root.text.includes('root')) {
+          return toast('Root access is not available. Grant MatchiTOOL root in your root manager (Magisk / KernelSU), then open Bypass again', 'red', 7000);
+        }
+        rootVerified = true;
       }
       await openModal();
     } catch (error) {
@@ -3806,6 +3826,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   const range = (v, lo, hi) => { if (!has(v)) return undefined; const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined; };
   const first = (...v) => v.find((x) => x !== undefined);
   const grab = (re, t) => { const m = String(t).match(re); return m ? m[1] : undefined; };
+  const atBatch = async (cmds) => { try { const r = await api('/api/at/batch', { method: 'POST', body: JSON.stringify({ commands: cmds, slot: 0 }) }); return (r.results || []).map((x) => String(x || '')); } catch (e) { return cmds.map(() => ''); } };
   const atRun = async (c) => { try { const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command: c, slot: 0 }) }); return String(r.result || ''); } catch (e) { return ''; } };
 
   // Quality thresholds [excellent, good, fair] (higher is better) and the gauge range for each metric.
@@ -3838,6 +3859,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   const antIcon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 12v9M8 21h8M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4M9.2 9.2a3.8 3.8 0 0 0 0 5.6M14.8 9.2a3.8 3.8 0 0 1 0 5.6" fill="none" stroke="#55b6ff" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="#55b6ff"/></svg>';
 
   // ---- data collection -----------------------------------------------------------------------------------
+  let teleAt = 0, teleCache = '';   // `dumpsys telephony.registry` is heavy: refresh it every 30 s only
   let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
 
   async function collect() {
@@ -3851,11 +3873,13 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; dumpsys battery 2>/dev/null | grep -E "level:|status:|temperature:"; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && echo "Z:$(cat "$z/type" 2>/dev/null)=$(cat "$z/temp" 2>/dev/null)"; done; echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' }) });
-        sh = String(r.content || ''); tele = sh.split('TELEPHONY')[1] || '';
+          'echo BATTERY; dumpsys battery 2>/dev/null | grep -E "level:|status:|temperature:"; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] && echo "Z:$(cat "$z/type" 2>/dev/null)=$(cat "$z/temp" 2>/dev/null)"; done; ' + (Date.now() - teleAt > 30000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+        sh = String(r.content || '');
+        if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
+        tele = teleCache;
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
     })();
-    const atP = (async () => { raw.cops = await atRun('AT+COPS?'); raw.csq = await atRun('AT+CSQ'); raw.cesq = await atRun('AT+CESQ'); raw.cereg = await atRun('AT+CEREG?'); })();
+    const atP = (async () => { const a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
     await Promise.all([shellP, atP]);
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -4001,7 +4025,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     catch (e) { lastErr = 'Could not read device: ' + e.message; when(); }
     finally { busy = false; }
   }
-  timer = setInterval(tick, 5000); tickTimer = setInterval(when, 1000);
+  timer = setInterval(tick, 10000); tickTimer = setInterval(when, 1000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
   tick();
 
@@ -5386,13 +5410,15 @@ async function runSelfTest(onStep){
   });
   add(S10,'Kernel and crash log scan',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog.*(bite|timeout|expired|reset)|(soft|hard) lockup|(^|[^a-z])bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 400 2>/dev/null | grep -A3 -E "FATAL EXCEPTION|Process: " | tail -30',30000);
+    const r=await sh('if dmesg >/dev/null 2>&1; then dmesg | tail -500 | grep -iE "out of memory|oom-killer|kernel panic|segfault|thermal.*(shutdown|critical)|i/o error|ext4-fs error|mmc.*(error|timeout)|watchdog.*(bite|timeout|expired|reset)|(soft|hard) lockup|(^|[^a-z])bug:" | tail -8; echo DMESG_OK; else echo DMESG_DENIED; fi; echo "--- crash ---"; logcat -d -b crash -t 400 2>/dev/null | grep -A8 -E "FATAL EXCEPTION|Process: " | tail -60',30000);
     raw('Kernel / crash scan',r.text);
     if(/DMESG_DENIED/.test(r.text)&&!/--- crash ---\s*\S/.test(r.text))return R.warn('kernel log not readable here','Run dmesg in the Terminal card to inspect manually.');
     const hits=r.text.split('--- crash ---')[0].split('\n').filter(l=>l&&!/DMESG_/.test(l)),crash=(r.text.split('--- crash ---')[1]||'').trim();
     if(hits.length)return R.warn(hits.length+' kernel error line(s): '+hits[hits.length-1].slice(0,140),'Hardware/memory/storage fault signs; see raw output below. Repeated I/O errors mean failing flash.');
     if(/com\.matchi\.tool/.test(crash))return R.warn('MatchiTOOL itself crashed recently: '+crash.split('\n').pop().slice(0,140),'Send this report; also exclude the app from battery optimization.');
-    const nc=(crash.match(/FATAL EXCEPTION/g)||[]).length;if(nc>=3)return R.warn(nc+' app crashes logged since boot (none identified as MatchiTOOL)','See the raw output below for the exception text; a crashing system app can break features.');
+    const nc=(crash.match(/FATAL EXCEPTION/g)||[]).length;
+    if(/UsbCommand|setCurrentFunctions/.test(crash)&&nc>=1)return R.warn(nc+' crash(es) of the "svc usb setFunctions" command since boot (invalid USB function combination, e.g. "mtp,adb" or "ecm"), not an app','Fixed in 1.1.31: the USB controls no longer pass combinations svc rejects. Old entries stay in the log until the device reboots.');
+    if(nc>=3)return R.warn(nc+' app crashes logged since boot (none identified as MatchiTOOL)','See the raw output below for the exception text; a crashing system app can break features.');
     return R.ok('no kernel errors'+(crash?'; another process crashed earlier (see raw output), not MatchiTOOL':' or crashes'));
   });
   add(S10,'Core services running',async()=>{
