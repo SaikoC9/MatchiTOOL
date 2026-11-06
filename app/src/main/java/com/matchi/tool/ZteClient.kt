@@ -176,9 +176,28 @@ object ZteClient {
         }
     }
 
+    private fun md5Hex(s: String) =
+        MessageDigest.getInstance("MD5").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    /**
+     * Newer ZTE firmware (F50 included) answers every "set" that lacks a valid AD token with an empty body or
+     * {"result":"failure"} and does nothing: SMS delete / send, settings. The router's own web page computes
+     * AD = md5(md5(wa_inner_version + cr_version) + RD), where RD is a fresh value for every request.
+     */
+    private fun adToken(ctx: Context): String? = try {
+        val v = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "wa_inner_version,cr_version", "multi_data" to "1")).body)
+        val rd = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "RD")).body).optString("RD")
+        if (rd.isEmpty()) null else md5Hex(md5Hex(v.optString("wa_inner_version") + v.optString("cr_version")) + rd)
+    } catch (e: java.io.IOException) { throw e } catch (_: Exception) { null }
+
     private fun send(ctx: Context, op: String, params: Map<String, String>): Resp =
         if (op == "get") http(ctx, "GET", GET_PATH, params + ("isTest" to "false"))
-        else http(ctx, "POST", SET_PATH, params + ("isTest" to "false"))
+        else {
+            val p = LinkedHashMap(params)
+            p["isTest"] = "false"
+            adToken(ctx)?.let { p["AD"] = it }
+            http(ctx, "POST", SET_PATH, p)
+        }
 
     private fun looksUnauthorized(r: Resp) =
         r.code == 401 || r.code == 403 || r.body.isBlank() || r.body.contains("\"result\":\"failure\"")

@@ -2406,7 +2406,7 @@ echo NET=$ok M=$m`, 25000);
       const have = await runRoot(`[ -f ${DIR}/nfqws ] && echo YES || echo NO`);
       if (!have.ok) throw new Error(`Cannot reach the device (${have.text || 'no answer'}). Reload the page and try again`);
       if (!have.text.includes('YES')) { setNfqMsg('nfqws is not installed, nothing to remove.', 'warn'); return; }
-      if (typeof window.confirm === 'function' && !window.confirm('Remove nfqws from the device? You can import it again later.')) { setNfqMsg('Uninstall cancelled.', 'warn'); return; }
+      if (!(await askConfirm('Remove nfqws from the device? You can import it again later.', 'Remove', true))) { setNfqMsg('Uninstall cancelled.', 'warn'); return; }
       setNfqMsg('Turning nfqws off and removing it…', 'warn');
       await installScript();
       await turnNfqOff();
@@ -3797,7 +3797,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     showModal(MODAL);
     document.getElementById('matchi_status_refresh').onclick = refresh;
     document.getElementById('matchi_status_reboot').onclick = async () => {
-      if (!window.confirm('Reboot the device now?')) return;
+      if (!(await askConfirm('Reboot the device now?', 'Reboot', true))) return;
       createToast('Rebooting…', 'orange');
       try { await runShellWithRoot('reboot', 5000); } catch (_) {}
     };
@@ -4742,6 +4742,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       const text = decodeBody(m.content);
       const hit = (await atFetch()).find((x) => samePhone(x.number, m.number) && x.text.trim() === text.trim());
       if (hit) { await hit.del(); return; }
+      notes.push('not found in modem storage either');
     } catch (e) { notes.push('modem: ' + e.message); }
     throw new Error('Could not delete the message (router said: ' + notes.join(', ') + ')');
   }
@@ -4844,7 +4845,7 @@ rm -rf "${DEVICE_TMP_DIR}"
         const when = document.createElement('span'); when.className = 'mut'; when.style.flex = '1'; when.textContent = m.date;
         const del = document.createElement('button'); del.textContent = 'Delete'; del.style.padding = '3px 8px';
         del.onclick = async () => {
-          if (!confirm('Delete this message?')) return;
+          if (!(await askConfirm('Delete this message?', 'Delete', true))) return;
           del.disabled = true; del.textContent = 'Deleting…';
           try { await m.del(); createToast('Deleted', 'green'); await load(); }
           catch (e) { createToast(e.message, 'red'); del.disabled = false; del.textContent = 'Delete'; }
@@ -4881,21 +4882,9 @@ rm -rf "${DEVICE_TMP_DIR}"
   async function loadCfg() {
     try {
       const c = await api('/api/zte/config');
-      el('matchi_sms_host').value = c.host || '';
       pwSet = !!c.passwordSet;
-      el('matchi_sms_pass').placeholder = c.passwordSet ? '(saved, leave empty to keep)' : 'Optional: router admin password';
     } catch (_) {}
   }
-  async function saveCfg() {
-    const body = { host: el('matchi_sms_host').value.trim() };
-    if (el('matchi_sms_pass').value) body.password = el('matchi_sms_pass').value;
-    try {
-      const r = await api('/api/zte/config', { method: 'POST', body: JSON.stringify(body) });
-      if (r.error) throw new Error(r.error);
-      el('matchi_sms_pass').value = ''; createToast('Saved'); await loadCfg(); load();
-    } catch (e) { createToast(e.message, 'red'); }
-  }
-
   function open() {
     createModal({
       name: MODAL, title: 'SMS', maxWidth: '620px', showConfirm: false, onClose: () => true,
@@ -4905,15 +4894,11 @@ rm -rf "${DEVICE_TMP_DIR}"
         '<div style="display:flex;gap:8px;margin:8px 0"><button type="button" id="matchi_sms_send">Send</button><button type="button" id="matchi_sms_refresh">Refresh inbox</button></div>' +
         '<div id="matchi_sms_mode" class="mut" style="font-size:12px;margin-bottom:6px"></div>' +
         '<div id="matchi_sms_list" style="max-height:45vh;overflow:auto"></div>' +
-        '<details style="margin-top:10px"><summary class="mut">Router settings</summary>' +
-        '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="matchi_sms_host" placeholder="Gateway, e.g. 192.168.0.1" style="flex:1;min-width:150px">' +
-        '<input id="matchi_sms_pass" type="password" placeholder="Optional: router admin password" autocomplete="off" style="flex:1;min-width:150px">' +
-        '<button type="button" id="matchi_sms_save">Save</button></div></details>',
+        '',
     });
     showModal(MODAL);
     el('matchi_sms_send').onclick = send;
     el('matchi_sms_refresh').onclick = load;
-    el('matchi_sms_save').onclick = saveCfg;
     loadCfg().then(load, load);
   }
 
@@ -5037,6 +5022,22 @@ function createToast(msg,color,ms){
   t.style.background=COLORS[color]||color||COLORS.green;
   document.getElementById('toasts').appendChild(t);setTimeout(()=>t.remove(),ms||3000);
 }
+/* In-page confirm dialog (replaces the browser's "192.168.0.1:2334 says" box). Resolves true / false. */
+function askConfirm(message,okText,danger){
+  return new Promise(resolve=>{
+    const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='3000';
+    bg.innerHTML='<div class="modal" role="alertdialog" aria-modal="true" style="max-width:380px"><div class="mbody" style="line-height:1.5;font-size:15px"></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><button type="button" class="ccancel">Cancel</button><button type="button" class="cok"></button></div></div>';
+    bg.querySelector('.mbody').textContent=message;
+    const ok=bg.querySelector('.cok');ok.textContent=okText||'OK';
+    ok.style.cssText=danger?'background:linear-gradient(180deg,#c43850,#992a3d);border-color:#e05a70':'background:linear-gradient(180deg,#1d7be0,#1560b8);border-color:#3b95f5';
+    const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(false)}};
+    const done=v=>{document.removeEventListener('keydown',key,true);bg.remove();resolve(v)};
+    document.addEventListener('keydown',key,true);
+    bg.querySelector('.ccancel').onclick=()=>done(false);ok.onclick=()=>done(true);
+    bg.addEventListener('mousedown',e=>{if(e.target===bg)done(false)});
+    document.body.appendChild(bg);ok.focus();
+  });
+}
 let TOKEN=localStorage.getItem('matchi_token')||'';
 function setHostStatus(online,label){const el=document.getElementById('hoststatus');if(!el)return;el.classList.toggle('online',!!online);el.classList.toggle('offline',!online);document.getElementById('hostlabel').textContent=label||(online?'Host connected':'Host disconnected')}
 async function api(path,opt={}){
@@ -5115,7 +5116,7 @@ function renderPlugins(list){
     const t=document.createElement('button');t.textContent=p.enabled?'Disable':'Enable';
     t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
     const d=document.createElement('button');d.textContent='Delete';
-    d.onclick=async()=>{if(!confirm('Delete '+p.name+'?'))return;d.disabled=true;try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})});location.reload()}catch(e){d.disabled=false;createToast(e.message,'red')}};
+    d.onclick=async()=>{if(!(await askConfirm('Delete '+p.name+'?','Delete',true)))return;d.disabled=true;try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})});location.reload()}catch(e){d.disabled=false;createToast(e.message,'red')}};
     row.append(n,t,d);box.appendChild(row);
   }
 }
@@ -5721,7 +5722,7 @@ async function refreshUsb(){
 }
 async function usbAction(action){
   const labels={adb_enable:'Enable USB debugging',adb_disable:'Disable USB debugging',rndis_enable:'Switch USB Ethernet to RNDIS',ecm_enable:'Switch USB Ethernet to CDC-ECM',tether_disable:'Restore default USB mode'};
-  if(!confirm(labels[action]+'? This changes Android USB settings.'))return;
+  if(!(await askConfirm(labels[action]+'? This changes Android USB settings.','Apply')))return;
   const out=document.getElementById('usbout');out.style.display='block';out.textContent='Applying USB setting…';
   try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(labels[action]+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
 }

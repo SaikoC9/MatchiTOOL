@@ -129,15 +129,12 @@ class AccessSecurityActivity : Activity() {
             refresh()
             return
         }
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle("Enable LAN access?")
-            .setMessage("Anyone on the hotspot/network who knows the router admin password gets root-level control of this device over plain HTTP. Use only on a trusted private network and never port-forward port ${Prefs.PORT}.")
-            .setPositiveButton("Enable") { _, _ ->
-                HostControl.applyLan(this, true) { refresh() }
-                refresh()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        Ui.confirm(this, "Enable LAN access?",
+            "Anyone on the hotspot/network who knows the router admin password gets root-level control of this device over plain HTTP. Use only on a trusted private network and never port-forward port ${Prefs.PORT}.",
+            "Enable", true) {
+            HostControl.applyLan(this, true) { refresh() }
+            refresh()
+        }
     }
 
     // ---- state -----------------------------------------------------------------------------------------

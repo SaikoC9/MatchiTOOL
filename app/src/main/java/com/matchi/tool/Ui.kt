@@ -10,6 +10,7 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -46,6 +47,37 @@ object Ui {
             cornerRadius = dpf(c, radiusDp)
             if (stroke != 0) setStroke(dp(c, strokeDp), stroke)
         }
+
+    /** Dark in-app confirm dialog (replaces the default system AlertDialog look). */
+    fun confirm(a: android.app.Activity, title: String, message: String, okText: String, danger: Boolean, onOk: () -> Unit) {
+        val d = android.app.Dialog(a)
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val box = LinearLayout(a).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(a, 20), dp(a, 20), dp(a, 20), dp(a, 18))
+            background = rounded(a, card, cardStroke, 18f)
+        }
+        box.addView(label(a, title, 18f, text, true))
+        box.addView(label(a, message, 14f, muted).apply { setLineSpacing(0f, 1.15f) }, lp(-1, -2, 10, a))
+        fun btn(t: String, tc: Int, fill: Int, stroke: Int, click: () -> Unit): TextView =
+            label(a, t, 14.5f, tc, true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(a, 20), dp(a, 12), dp(a, 20), dp(a, 12))
+                background = withRipple(a, rounded(a, fill, stroke, 12f), 12f)
+                isClickable = true
+                setOnClickListener { d.dismiss(); click() }
+            }
+        val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        row.addView(btn("Cancel", text, Color.parseColor("#0F1B30"), Color.parseColor("#22406E")) { })
+        val okFill = if (danger) Color.parseColor("#B8324A") else blue
+        val okStroke = if (danger) Color.parseColor("#E05A70") else blueLight
+        row.addView(btn(okText, Color.WHITE, okFill, okStroke, onOk), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(a, 10) })
+        box.addView(row, lp(-1, -2, 18, a))
+        d.setContentView(box)
+        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        d.window?.setLayout((a.resources.displayMetrics.widthPixels * 0.9f).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+        d.show()
+    }
 
     /** Adds a touch ripple on top of any rounded background. */
     fun withRipple(c: Context, content: Drawable, radiusDp: Float): Drawable =
