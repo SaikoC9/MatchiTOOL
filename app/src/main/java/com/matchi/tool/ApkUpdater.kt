@@ -54,6 +54,53 @@ object ApkUpdater {
         try { ctx.cacheDir.listFiles { f -> f.name.startsWith("NanoHTTPD-") }?.forEach { it.delete() } } catch (_: Exception) {}
     }
 
+    /**
+     * OTA: download an APK from an https link (e.g. a GitHub release asset) into the private cache, then run it through
+     * exactly the same checks as an uploaded file (same package, newer versionCode, same signing key, SHA-256 confirm).
+     * The link is only a transport: nothing is installed without those checks and the person's confirmation.
+     */
+    fun stageFromUrl(ctx: Context, link: String): Staged {
+        val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
+        if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        val tmp = File(ctx.cacheDir, "NanoHTTPD-ota-${System.currentTimeMillis()}.tmp")
+        try {
+            var conn = url.openConnection() as java.net.HttpURLConnection
+            var hops = 0
+            while (true) {
+                conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.instanceFollowRedirects = false
+                conn.setRequestProperty("User-Agent", "MatchiTOOL-OTA")
+                val code = conn.responseCode
+                if (code in 301..308 && code != 304) {
+                    val loc = conn.getHeaderField("Location") ?: throw UpdateException("Redirect without a target.")
+                    val next = java.net.URL(url, loc)
+                    if (next.protocol != "https") throw UpdateException("The link redirects to a non-https address; refused.")
+                    conn.disconnect()
+                    if (++hops > 5) throw UpdateException("Too many redirects.")
+                    conn = next.openConnection() as java.net.HttpURLConnection
+                    continue
+                }
+                if (code != 200) throw UpdateException("Download failed (HTTP $code). Check the link and that the device has internet.")
+                break
+            }
+            val len = conn.contentLengthLong
+            if (len > MAX_BYTES) throw UpdateException("The file is larger than ${MAX_BYTES / 1024 / 1024} MB, so it is not a MatchiTOOL update.")
+            var got = 0L
+            conn.inputStream.use { i -> FileOutputStream(tmp).use { o ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = i.read(buf); if (n < 0) break
+                    got += n
+                    if (got > MAX_BYTES) throw UpdateException("The download is larger than ${MAX_BYTES / 1024 / 1024} MB; stopped.")
+                    o.write(buf, 0, n)
+                }
+            } }
+            conn.disconnect()
+            return stageFile(ctx, tmp)
+        } catch (e: UpdateException) { throw e
+        } catch (e: Exception) { throw UpdateException("Download failed: ${e.message ?: e.javaClass.simpleName}. Does the device have internet?")
+        } finally { try { tmp.delete() } catch (_: Exception) {} }
+    }
+
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
 
     /**

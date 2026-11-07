@@ -34,7 +34,7 @@ class MainActivity : Activity() {
     private val tick = object : Runnable {
         override fun run() {
             refreshStatus()
-            handler.postDelayed(this, 15000)
+            handler.postDelayed(this, 60000)
         }
     }
 
@@ -166,7 +166,7 @@ class MainActivity : Activity() {
         })
         group.addView(divider())
 
-        val lanSub = Ui.label(this, "Always on · private addresses only", 12.5f, Ui.muted)
+        val lanSub = Ui.label(this, "Trusted hotspot only · HTTP is unencrypted", 12.5f, Ui.muted)
         val lanBadge = Ui.pill(this, "On", Ui.ok, Color.parseColor("#141E31"), Ui.innerStroke)
         setBadge(lanBadge, Ui.ok)
         group.addView(row(R.drawable.ic_network, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "LAN access", lanSub, lanBadge) {})
@@ -218,14 +218,20 @@ class MainActivity : Activity() {
         busy = true
         Thread {
             val up = HostControl.isHostUp()
-            val root = try { RootShell.isRoot(this) } catch (_: Exception) { false }
+            val root = try { RootShell.status(this) } catch (e: Exception) {
+                RootStatus(false, "unknown", "unknown", "Unknown su manager", e.message ?: "Root check failed")
+            }
             runOnUiThread {
                 busy = false
                 if (!visible || isFinishing) return@runOnUiThread
                 hostPill.set(if (up) "Host running" else "Host stopped", if (up) Ui.ok else Ui.bad)
-                rootBadge.text = if (root) "Granted" else "Not granted"
-                setBadge(rootBadge, if (root) Ui.ok else Ui.bad)
-                rootSub.text = if (root) "Tap to re-check" else "Install/allow Magisk, KernelSU or APatch"
+                rootBadge.text = if (root.granted) "Granted" else "Not granted"
+                setBadge(rootBadge, if (root.granted) Ui.ok else Ui.bad)
+                rootSub.text = if (root.granted) {
+                    "${root.managerHint} · UID 0 · Tap to re-check"
+                } else {
+                    root.detail.take(100) + " · Tap to retry"
+                }
             }
         }.start()
     }

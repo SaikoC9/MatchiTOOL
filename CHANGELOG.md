@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.2.0 — Stability-first integration
+- Added bounded, on-demand Advanced Network Diagnostics for IPv4/IPv6 addresses and routes, gateway reachability, public IP reachability, and DNS resolution. Checks are read-only and do not rewrite network state.
+- Added Smart F50 Monitor: on-demand read-only CPU, memory, battery, thermal-zone, load, uptime, and per-interface network-rate telemetry.
+- Monitor polls only while open and visible, slows polling at elevated temperatures, and never changes CPU/GPU clocks, charging controls, or vendor thermal services.
+- Added explicit telemetry caveats: modem sensor availability is firmware-dependent; temperature thresholds are advisory and do not claim confirmed hardware throttling.
+- Preserved existing root concurrency/output limits, network access restrictions, Bypass implementation, SFP filters, plugin bridge, and existing tools.
+- Bumped Android versionCode to 200 and web page version to 1.2.0.
+- Added static validation for the new monitor and version metadata.
+
+# MatchiTOOL Changelog
+
+## 1.1.54 stability patch 1 — bounded root output
+- Added a best-effort 1 MiB file-size ceiling to persistent root-command output capture, complementing the existing in-memory output and queue bounds.
+- Root command results now explicitly report when output is truncated by the capture limit.
+- Kept command execution, root-manager authorization, network/bypass rules, thermal policy, and app version metadata unchanged.
+- Runtime validation on the ZTE F50 is still required; Android shell implementations may differ in `ulimit -f` support.
+
+
+## 1.1.53 - ZTE F50 thermal-aware efficiency
+- Live Status now caches modem AT reads for 60 s when the router API is unavailable, reducing repeated modem wakeups.
+- Device telemetry polling now backs off from 45 s to 90 s and 120 s as reported battery, modem, or system temperatures rise.
+- Added a compact advisory banner for warm/hot/critical readings with conservative cooling guidance.
+- Kept thermal thresholds advisory only: no CPU governor, clock, voltage, charging-limit, fan, or thermal-daemon changes are made. Firmware thermal throttling and shutdown protections remain untouched.
+- Version updated to 1.1.53 (versionCode 163).
+
+## 1.1.52 - Root integration reliability
+- Added a read-only root status model with effective UID, resolved `su` path, and best-effort Magisk/KernelSU/APatch detection.
+- Native home screen now reports the detected root manager and a concise grant failure detail.
+- Added authenticated `GET /api/root/status` for the web console and trusted plugins.
+- Root shell sessions now close their streams and are retired cleanly when HostService shuts down.
+- Web ping now reads the installed app version instead of returning a stale hard-coded value.
+- Kept root authorization under the installed `su` manager; no exploit, boot-image patching, or automatic flashing was added.
+
+## 1.1.49 - Built-in app review and safety clarity
+- Updated the built-in Bypass asset revision to v65.14 (carried forward from the compatibility update).
+- Added a plain-language unencrypted-HTTP warning to the native LAN access status and web-console login screen.
+- Corrected the source validation script to locate the current embedded Bypass filename instead of assuming v65.13.
+- Aligned README network exposure, tool count, and install instructions with the actual 1.1.48/1.1.49 service behavior.
+- Clarified that the service explicitly binds to `0.0.0.0` for ZTE hotspot/USB-tether companion access, while API routes apply source-subnet checks.
+- Updated Android versionName to 1.1.49 and versionCode to 159.
+
+
+## 1.1.48 - Security and lifecycle hardening
+- Router admin credentials are now encrypted at rest with an Android Keystore AES-GCM key. Existing installations migrate the legacy preference transparently on first read; if Keystore encryption is unavailable, the legacy storage fallback preserves compatibility.
+- Web API and HTML responses now include defensive browser headers; API responses are explicitly non-cacheable. Cross-origin API requests carrying an Origin header are rejected while same-origin page and plugin calls remain supported.
+- Root command execution rejects NUL bytes and scripts over 128 KB at the backend boundary, in addition to the web API request validation. Root session pool release/removal is synchronized to avoid a session being handed out while it is being retired.
+- HostService startup work is deduplicated; router auto-detection and firewall checks use a bounded scheduled executor, boot tasks cannot overlap, and service shutdown stops workers and the web server.
+- LAN firewall opening now discovers matching bridge/AP/USB/RNDIS/ECM interface names rather than assuming only br0/usb0/rndis0/ecm0. Existing LAN web access and ZTE F50 support are retained.
+- Version metadata updated to 1.1.48 (versionCode 158).
+- HTTP remains unencrypted for existing LAN compatibility. Do not expose port 2334 beyond a trusted hotspot/USB-tether network; use a trusted VPN/tunnel when remote access is required.
+
+# Changelog
+
+## 1.1.47 - Permanent signing key + OTA update
+- **Fixes "Update rejected: Signature mismatch".** All builds (debug and release) are now signed with one permanent keystore (`keystore.properties` locally, GitHub Secrets `MATCHI_KEYSTORE_B64` and `MATCHI_KEYSTORE_PASSWORD` in CI). Before, every CI build used a random debug key, so no build could update another.
+- **OTA update:** in the web console, Update app, paste an https link to the APK (e.g. a GitHub release asset); the device downloads it (max 120 MB, https only, redirects stay on https) and applies the same checks as an uploaded file: same package, newer versionCode, same signing key, SHA-256 confirm. New route `POST /api/update/fetch`.
+- One-time step: the installed 1.1.46 has a different key, so reinstall once with a 1.1.47 APK signed by the new key; later updates then work in place.
+
 ## 1.1.46 - Cooler running: lighter Live Status
 - **Root cause of the heat:** the Live device status panel on the web console home page ran every 10 s. Each run started about 80 root processes (one `cat` per thermal zone and per zone type, plus `dumpsys battery`) and sent four modem AT commands even when the router API already supplied the same data.
 - Thermal zones and battery are now read with shell built-ins only (`read`, no forks), and battery level, temperature and status come straight from `/sys/class/power_supply/battery` instead of `dumpsys battery`.
@@ -363,3 +421,21 @@
 - Added a clickable local MatchiTOOL web address (127.0.0.1:2334).
 - Added long-press token access and live root authorization status.
 - Updated Android versionCode to 115 and versionName to 1.1.5.
+
+
+## 1.1.54 — F50 stability hardening
+- Bounded root-shell output buffering and limited concurrent root commands to two.
+- Added clear back-pressure response when root command capacity is exhausted.
+- Improved screen-stream process teardown by waiting briefly, force-killing if needed, and closing both process streams.
+- Reduced Live Status background heartbeat frequency and lengthened thermal-aware polling intervals to reduce modem/root wakeups.
+- Kept vendor thermal controls, CPU/GPU clocks, charging policy, TTL BPF, and existing SFP filters unchanged.
+- LAN firewall setup now skips interfaces identified as default-route uplinks (including policy-table routes).
+- Added regression checks for root queue bounds, screen process cleanup, and uplink exclusion.
+
+## 1.2.0 follow-up — Bypass Manager 2.0 and Plugin Manager 2.0
+
+- Added a consolidated Bypass Manager view for TTL, Anti-DPI, boot auto-apply and keep-alive state, plus refresh, existing quick actions, self-test and report shortcuts.
+- Kept the existing Bypass implementation and isolated rule chains; the manager does not flush global firewall tables or alter SFP filters.
+- Upgraded Plugin Manager with search, enabled/disabled filters, refresh, per-plugin source export, full JSON backup export/import, JavaScript syntax preflight and explicit replacement confirmation.
+- Added server-side custom-plugin limits: 50 plugins, 1 MB per plugin, 5 MB total, and reserved built-in filenames.
+- Custom plugins remain executable JavaScript with the signed-in console's permissions. Import only trusted plugin source.

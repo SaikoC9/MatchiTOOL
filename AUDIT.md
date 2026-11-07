@@ -1,6 +1,6 @@
 # MatchiTOOL source audit
 
-Audit date: 2026-11-05
+Audit date: 2026-11-07
 
 ## Scope inspected
 
@@ -20,7 +20,7 @@ The publicly documented `dikeckaan/zte-f50-toolkit` route is specifically for st
 
 ### Privileged web API
 
-The web server exposes an authenticated `/api/shell` endpoint that can run arbitrary root shell commands. It binds to a local web port and checks the source IP and access token, but HTTP is unencrypted and anyone who obtains the token on the LAN can execute privileged commands. Do not expose/forward this port to the internet. For a public release, prefer a loopback-only default, explicit LAN enablement, TLS or an authenticated tunnel, and per-plugin capability restrictions.
+The web server exposes an authenticated `/api/shell` endpoint that can run arbitrary root shell commands. The 1.1.47 baseline binds to the LAN and checks the source IP and access token, but HTTP is unencrypted and anyone who obtains the token on the LAN can execute privileged commands. Do not expose/forward this port to the internet. For a public release, prefer a loopback-only default, explicit LAN enablement, TLS or an authenticated tunnel, and per-plugin capability restrictions.
 
 ### Plugin trust
 
@@ -78,3 +78,35 @@ The source validation script checks the new security defaults, API routes, manif
 - Removed ADB and Fastboot discovery from the web UI, backend routes, diagnostics tool list, validation assertions, and current feature documentation.
 - Firmware manifest inspection, device diagnostics unrelated to platform-tools discovery, root bridge, settings, and bundled plugins remain.
 - No chipset-level Qualcomm, MediaTek, or Unisoc identification is claimed by this release.
+
+
+## 1.1.48 follow-up hardening
+
+- Router admin credentials now use Android Keystore AES-GCM storage with transparent migration from the previous `zte_pass` preference. A compatibility fallback retains the legacy preference only if Keystore encryption cannot be initialized; this should be visible in device testing on the target firmware.
+- API/HTML responses include no-sniff, frame denial, referrer and permissions headers; API responses are non-cacheable. Cross-origin browser requests with an Origin header are rejected.
+- RootShell enforces a backend command-size/NUL guard and synchronizes session-pool release.
+- HostService uses a bounded scheduled executor and deduplicates initialization and boot-task execution.
+- Firewall setup discovers matching bridge/AP/USB/RNDIS/ECM interfaces rather than assuming a fixed small interface list.
+- HTTP encryption is not solved in this revision because the existing browser/LAN workflow depends on plain HTTP and a self-signed TLS certificate would require a deliberate trust/onboarding flow. Keep the service on trusted hotspot/USB-tether networks; do not expose port 2334 publicly.
+- Verification still requires an Android SDK/Gradle build and physical-device tests on a rooted Android host and the ZTE F50.
+
+
+## 1.1.49 whole-app review
+
+Reviewed the Android host, web server, root shell bridge, service lifecycle, embedded web tools, and device-facing documentation. The active network model is LAN-bound for companion-device support: `HostService` passes `0.0.0.0` to `WebServer`; the API then checks the remote address against the device and detected hotspot/USB-tether subnets. The constructor's loopback default is not the active service binding. The `Prefs.lanAccess()` method remains a compatibility shim and returns true.
+
+The primary security limitation remains plaintext HTTP. A subnet allowlist narrows reachability but does not encrypt credentials or session tokens. This release makes that limitation visible in both the native screen and web login screen. Do not port-forward port 2334 or use the service on an untrusted network.
+
+Static source validation now discovers the embedded Bypass tool by prefix, so versioned filenames do not break the test. Android Gradle compilation and physical-device runtime testing remain release gates; source checks alone do not prove device behavior.
+
+
+## 1.1.52 root integration follow-up
+
+- Added read-only `RootStatus` reporting: effective UID, `su` executable path, and best-effort manager markers for Magisk, KernelSU, and APatch. UID 0, not the marker, is the authoritative grant test.
+- Added authenticated `GET /api/root/status`; it does not change device state.
+- Native home screen now displays manager/UID or the current root request failure detail.
+- Persistent root shell sessions are closed on `HostService` teardown; process stream closure and a short graceful wait precede force termination.
+- `/api/ping` now reports the installed package version dynamically, avoiding stale version metadata.
+- No root exploit, bootloader unlock, partition flashing, or root-manager installation is included.
+- Remaining risk: `/api/shell` is an authenticated arbitrary-root-command interface over plain HTTP. Restrict port 2334 to a trusted hotspot/USB-tether network and do not expose it to the internet. Plugin code is privileged.
+- Validation is source-level. An Android Gradle build and device runtime test are still required.

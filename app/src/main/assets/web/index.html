@@ -74,13 +74,255 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
 .modal-bg .modal .mbody>*{max-width:100%!important;min-width:0}
 .modal-bg .modal[role=alertdialog] .mbody+div{margin-top:10px!important;gap:6px!important}
 }
-</style></head>
+
+/* MatchiTOOL 1.1.50 — calm, modern web UI polish */
+:root{
+  color-scheme:dark;
+  --bg:#080d18;--panel:#101a2b;--panel2:#142238;
+  --fg:#edf4ff;--mut:#9aabc2;--acc:#55a8ff;--acc2:#82c2ff;
+  --bd:rgba(139,170,211,.16);--good:#39d6a0;--danger:#ff7187;
+  --shadow:0 18px 54px rgba(0,0,0,.28);
+}
+html{scroll-behavior:smooth;scroll-padding-top:88px}
+body{
+  min-height:100vh;
+  background:
+    radial-gradient(ellipse at 8% -12%,rgba(56,135,255,.16),transparent 38%),
+    radial-gradient(ellipse at 100% 15%,rgba(49,94,170,.10),transparent 32%),
+    var(--bg);
+  color:var(--fg);letter-spacing:.005em;
+}
+header{
+  min-height:66px;padding:11px max(18px,calc((100vw - 1180px)/2));
+  gap:16px;background:rgba(8,13,24,.88);
+  border-bottom:1px solid var(--bd);
+  box-shadow:0 8px 28px rgba(0,0,0,.12);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+}
+.brand{font-size:18px;letter-spacing:-.035em;gap:10px}
+.brand-mark{width:36px;height:36px;border-radius:12px;box-shadow:0 5px 18px rgba(22,140,255,.25)}
+.host{padding:7px 12px;border-color:var(--bd);background:rgba(255,255,255,.025)}
+main{gap:18px;padding:28px 20px 72px}
+.card{
+  background:linear-gradient(155deg,rgba(19,31,50,.96),rgba(13,23,38,.96));
+  border:1px solid var(--bd);border-radius:18px;padding:22px;
+  box-shadow:0 12px 34px rgba(0,0,0,.16);
+  transition:border-color .2s ease,box-shadow .2s ease;
+}
+.card:not(.pop):hover{border-color:rgba(130,194,255,.28);box-shadow:0 16px 40px rgba(0,0,0,.22)}
+.card>.mut:first-child{font-size:11px;letter-spacing:.14em;color:#8fc7ff}
+h1,h2,h3{letter-spacing:-.035em;line-height:1.22}
+h2{font-size:clamp(21px,3vw,27px)!important}
+p{line-height:1.65}
+.mut{color:var(--mut)}
+button{
+  min-height:42px;padding:10px 16px;border-radius:11px;
+  border:1px solid rgba(119,166,225,.23);
+  background:linear-gradient(180deg,#1b3454,#172b46);
+  color:var(--fg);font-family:inherit;font-size:13px;font-weight:650;line-height:1.2;
+  box-shadow:0 2px 5px rgba(0,0,0,.12);
+  transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease;
+  -webkit-tap-highlight-color:transparent;
+}
+button:active{transform:scale(.98)}
+@media(hover:hover){button:hover{transform:translateY(-1px);border-color:rgba(130,194,255,.7);background:#203d61;box-shadow:0 6px 18px rgba(0,0,0,.18)}}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid var(--acc2);outline-offset:2px;
+}
+button:disabled{box-shadow:none}
+input,select,textarea{
+  min-height:44px;border-radius:11px;border:1px solid rgba(139,170,211,.22);
+  background:#0a1423;color:var(--fg);padding:11px 13px;
+  transition:border-color .18s ease,box-shadow .18s ease;
+}
+input:focus,select:focus,textarea:focus{border-color:rgba(85,168,255,.75);box-shadow:0 0 0 3px rgba(85,168,255,.12);outline:0}
+input::placeholder,textarea::placeholder{color:#71849f}
+.actions-buttons,.btnrow{gap:10px}
+.actions-buttons button{flex:0 1 auto}
+.row{border-color:var(--bd);padding:13px 0}
+.row strong{border-radius:8px}
+pre{
+  background:#080f1b;border:1px solid rgba(139,170,211,.15);
+  border-radius:12px;padding:15px;color:#c5d5eb;line-height:1.6;
+}
+a{color:var(--acc2)}
+#popbg.show{background:rgba(2,7,16,.72);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px)}
+.card.pop.open{
+  border-color:rgba(139,183,235,.24);border-radius:18px;
+  box-shadow:0 28px 90px rgba(0,0,0,.55);
+  overscroll-behavior:contain;
+}
+.popfoot{background:linear-gradient(180deg,rgba(16,26,43,.94),rgba(16,26,43,1));border-top:1px solid var(--bd)}
+/* Scrollbars remain subtle and usable rather than disappearing completely. */
+*{scrollbar-width:thin;scrollbar-color:rgba(139,170,211,.28) transparent;-ms-overflow-style:auto}
+*::-webkit-scrollbar{display:block;width:6px;height:6px}
+*::-webkit-scrollbar-thumb{background:rgba(139,170,211,.25);border-radius:99px}
+*::-webkit-scrollbar-track{background:transparent}
+@media(max-width:760px){
+  header{min-height:60px;padding:9px 14px;gap:10px}
+  .brand{font-size:16px}.brand-mark{width:33px;height:33px}
+  .host{font-size:11px;padding:6px 9px}
+  main{display:grid;grid-template-columns:minmax(0,1fr);gap:13px;padding:16px 13px 42px}
+  .card{padding:18px;border-radius:16px}
+  #home,#login,#terminal,#pluginmgr,#selftest{grid-column:1}
+  .actions-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .actions-buttons button{width:100%;min-width:0;min-height:42px;padding:9px 10px;white-space:normal}
+  .btnrow{gap:8px}
+  .card.pop.open,#selftest.pop.open{
+    width:calc(100vw - 20px)!important;max-width:620px!important;
+    max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important;
+    padding:17px!important;border-radius:17px!important;
+    font-size:13px!important;line-height:1.55!important;
+  }
+  .card.pop.open h1,.card.pop.open h2,.card.pop.open h3{font-size:19px!important;margin:2px 0 9px!important}
+  .card.pop.open p{font-size:13px!important;line-height:1.55!important;margin:8px 0 11px!important}
+  .card.pop.open button{min-height:40px!important;padding:9px 12px!important;font-size:12px!important;border-radius:10px!important}
+  .card.pop.open input,.card.pop.open select,.card.pop.open textarea{min-height:42px!important;padding:9px 11px!important;font-size:13px!important;border-radius:10px!important}
+  .card.pop.open pre{font-size:11px!important;line-height:1.5!important;max-height:42vh!important;padding:11px!important}
+  .card.pop.open .row{padding:9px 0!important}
+  .card.pop.open .popfoot{bottom:-17px!important;margin:12px -17px -17px!important;padding:10px 17px!important}
+  .modal-bg{padding:12px!important}
+  .modal-bg .modal{width:min(100%,560px)!important;padding:17px!important;border-radius:16px!important;font-size:13px!important;line-height:1.55!important}
+}
+@media(max-width:360px){
+  .actions-buttons{grid-template-columns:1fr}
+  .host{max-width:130px;overflow:hidden}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+
+
+/* MatchiTOOL 1.1.51 — compact, calm, responsive UI */
+:root{--shadow:0 8px 24px rgba(0,0,0,.20)}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+body{font-size:13px;line-height:1.45;letter-spacing:0;background:var(--bg)}
+header{min-height:52px;padding:7px max(12px,calc((100vw - 1120px)/2));gap:10px}
+.brand{font-size:16px;gap:8px}.brand-mark{width:29px;height:29px;border-radius:9px}
+nav{gap:3px;min-width:0}nav a{padding:5px 8px;font-size:11.5px}
+.host{padding:4px 8px;font-size:10.5px;gap:6px}
+main{max-width:1120px;padding:16px 14px 38px;gap:11px}
+.card{padding:14px;border-radius:12px;box-shadow:0 5px 18px rgba(0,0,0,.14);scroll-margin-top:62px}
+.card:not(.pop):hover{box-shadow:0 7px 20px rgba(0,0,0,.17)}
+.card>.mut:first-child{font-size:10px;letter-spacing:.10em}
+h1,h2,h3{line-height:1.25}h2{font-size:20px!important}
+p{margin:6px 0 9px;line-height:1.5}
+.btnrow,.actions-buttons{gap:6px}
+button{min-height:34px;padding:6px 10px;border-radius:8px;font-size:12px;box-shadow:none;transition:background .12s ease,border-color .12s ease,transform .12s ease}
+button:active{transform:scale(.985)}
+input,select,textarea{min-height:36px;padding:7px 10px;border-radius:8px;font-size:12.5px}
+.row{padding:7px 0;gap:7px}.row strong{padding:2px 6px;font-size:10.5px;border-radius:6px}
+pre{padding:9px;border-radius:9px;font-size:11px;line-height:1.45;max-height:300px}
+.card.pop.open{width:min(580px,calc(100vw - 20px));max-height:84vh;max-height:84dvh;padding:14px;border-radius:13px}
+.card.pop.open h1,.card.pop.open h2,.card.pop.open h3{font-size:16px!important}
+.popfoot{margin:9px -14px -14px;padding:7px 14px}
+.modal-bg{padding:10px}.modal{padding:13px;border-radius:12px;max-height:88vh;max-height:88dvh}
+.modal h3{font-size:15px;margin-bottom:8px}
+.mfoot{margin:8px -13px -13px;padding:8px 13px}
+#toasts{top:8px;gap:5px}.toast{padding:8px 11px;border-radius:8px;font-size:12px}
+footer{padding:0 14px 20px;font-size:10.5px}
+*{scrollbar-width:thin;scrollbar-color:rgba(139,170,211,.22) transparent}
+*::-webkit-scrollbar{width:5px;height:5px}
+*::-webkit-scrollbar-thumb{background:rgba(139,170,211,.22);border-radius:9px}
+@media(max-width:760px){
+ header{min-height:46px;padding:6px 10px;gap:7px;flex-wrap:wrap}
+ .brand{font-size:15px}.brand-mark{width:27px;height:27px}
+ nav{order:3;flex:0 0 100%;padding:1px 0 0;gap:2px;white-space:nowrap}
+ nav a{padding:5px 7px;font-size:11px}
+ .host{margin-left:auto;font-size:10px;padding:4px 7px}
+ main{grid-template-columns:minmax(0,1fr);padding:9px 9px 26px;gap:8px}
+ #home,#login,#terminal,#pluginmgr,#selftest{grid-column:1}
+ .card{padding:11px;border-radius:10px}
+ #home h2{font-size:18px!important}
+ .actions-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .actions-buttons button{width:100%;min-width:0;min-height:34px;padding:6px 7px;white-space:normal}
+ .btnrow{gap:5px}
+ .card.pop.open,#selftest.pop.open{width:calc(100vw - 18px)!important;max-width:520px!important;max-height:82vh!important;max-height:82dvh!important;padding:11px!important;border-radius:11px!important;font-size:12px!important;line-height:1.4!important}
+ .card.pop.open h1,.card.pop.open h2,.card.pop.open h3{font-size:15px!important;margin:0 0 6px!important}
+ .card.pop.open p{font-size:11.5px!important;margin:4px 0 6px!important}
+ .card.pop.open button{min-height:29px!important;padding:4px 8px!important;font-size:11px!important}
+ .card.pop.open input,.card.pop.open select,.card.pop.open textarea{min-height:30px!important;padding:4px 7px!important;font-size:11.5px!important}
+ .card.pop.open pre{max-height:220px!important;padding:7px!important;font-size:10px!important}
+ .card.pop.open .row{padding:4px 0!important}
+ .card.pop.open .popfoot{margin:7px -11px -11px!important;padding:6px 11px!important}
+ .modal-bg{padding:7px!important}.modal-bg .modal{padding:10px!important;border-radius:10px!important;max-height:82vh!important;max-height:82dvh!important}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+
+</style><style id="pm-style">
+#pluginmgr.pop.open{width:min(440px,calc(100vw - 24px));padding:12px 12px 0}
+#pluginmgr .popfoot{margin:10px -12px 0;padding:7px 12px;bottom:0}
+.pm-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.pm-title{font-size:15px;font-weight:800;line-height:1.2}
+.pm-sub{font-size:11px;color:var(--mut)}
+.pm-ico{width:28px;height:28px;min-height:0!important;padding:0!important;display:grid;place-items:center;border-radius:8px!important;flex:none}
+.pm-ico svg{width:14px;height:14px}
+.pm-tools{display:flex;gap:6px;margin-bottom:8px;align-items:center}
+.pm-search{flex:1;position:relative;min-width:0}
+.pm-search svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--mut);pointer-events:none;width:13px;height:13px}
+#pluginmgr.card.pop.open .pm-search input{width:100%;padding:0 8px 0 28px!important;min-height:30px!important;height:30px;margin:0;font-size:12px!important;border-radius:8px!important}
+.pm-seg{display:flex;flex:none;padding:2px;gap:1px;background:#08111f;border:1px solid var(--bd);border-radius:8px}
+.pm-seg button{min-height:0!important;height:24px;padding:0 8px!important;border:0!important;background:transparent!important;box-shadow:none!important;color:var(--mut);font-size:11px;border-radius:6px!important}
+.pm-seg button.on{background:#168cff26!important;color:var(--acc2)}
+.pm-list{display:flex;flex-direction:column;gap:5px}
+.pm-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--bd);border-radius:10px;background:#0b1626}
+.pm-item.off .pm-glyph,.pm-item.off .pm-name{opacity:.5}
+.pm-glyph{flex:none;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:9px;font-weight:850;color:var(--acc2);background:#168cff1c;border:1px solid #168cff3a}
+.pm-name{flex:1;min-width:0;line-height:1.25}
+.pm-n{font-weight:700;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-m{font-size:10px;color:var(--mut)}
+.pm-sw{flex:none;position:relative;width:32px!important;height:18px!important;min-width:0!important;min-height:0!important;padding:0!important;border-radius:999px!important;border:1px solid var(--bd)!important;background:#1a2a42!important;transition:background .18s}
+.pm-sw i{display:block;position:absolute;top:50%;margin-top:-6px;left:2px;width:12px;height:12px;border-radius:50%;background:#8da2bf;transition:transform .18s,background .18s}
+.pm-sw[aria-checked=true]{background:var(--acc)!important;border-color:var(--acc)!important}
+.pm-sw[aria-checked=true] i{transform:translateX(14px);background:#fff}
+.pm-acts{flex:none;display:flex;gap:4px}
+.pm-t{display:none!important}.pm-acts button{display:grid!important;place-items:center;width:26px!important;height:26px!important;min-width:0!important;min-height:0!important;padding:0!important;border-radius:7px!important}
+.pm-acts button svg{width:13px;height:13px}
+.pm-acts .pm-del{color:var(--danger);border-color:#ff647c40!important}
+.pm-empty{padding:10px;text-align:center;border:1px dashed var(--bd);border-radius:10px;color:var(--mut);font-size:12px}
+.pm-drop{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;padding:8px 10px;border:1px dashed #2a4a74;border-radius:10px;color:var(--acc2);cursor:pointer;background:#168cff0a}
+.pm-drop:hover,.pm-drop.over{background:#168cff1c;border-color:var(--acc2)}
+.pm-drop input{display:none}
+.pm-drop svg{width:16px;height:16px;flex:none}
+.pm-drop-t{font-weight:700;font-size:12.5px;color:var(--fg)}
+.pm-drop-s{display:none}
+.pm-backup{display:flex;gap:6px;margin-top:6px}
+.pm-backup button{flex:1;min-height:0!important;height:28px;padding:0 8px!important;font-size:11.5px;border-radius:8px!important}
+.pm-warn{display:flex;gap:6px;align-items:center;margin-top:6px;color:#d9b66a;font-size:10.5px;line-height:1.35}
+.pm-warn svg{flex:none;width:12px;height:12px}
+</style>
+<style id="pop-compact">
+.card.pop.open:not(#pluginmgr){width:min(440px,calc(100vw - 20px))!important;max-width:440px!important;padding:12px 12px 0!important;border-radius:13px!important;font-size:12px!important;line-height:1.4!important}
+#selftest.pop.open{width:min(560px,calc(100vw - 20px))!important;max-width:560px!important}
+.card.pop.open:not(#pluginmgr)>.mut:first-child{font-size:14px!important;font-weight:800!important;letter-spacing:0!important;text-transform:none!important;color:var(--fg)!important;margin:0 0 6px!important;line-height:1.2}
+.card.pop.open:not(#pluginmgr) p{font-size:10.5px!important;line-height:1.4!important;margin:4px 0 6px!important}
+.card.pop.open:not(#pluginmgr) p.mut{color:var(--mut)}
+.card.pop.open:not(#pluginmgr) button{min-height:28px!important;height:28px;padding:0 10px!important;font-size:11.5px!important;border-radius:8px!important}
+.card.pop.open:not(#pluginmgr) .btnrow,.card.pop.open:not(#pluginmgr) .actions-buttons{display:flex!important;flex-wrap:wrap;gap:5px!important;margin:4px 0 6px}
+.card.pop.open:not(#pluginmgr) .actions-buttons button,.card.pop.open:not(#pluginmgr) .btnrow button{flex:1 1 calc(50% - 5px);width:auto!important;min-width:0}
+.card.pop.open:not(#pluginmgr) input,.card.pop.open:not(#pluginmgr) select,.card.pop.open:not(#pluginmgr) textarea{min-height:28px!important;height:28px;padding:0 9px!important;font-size:11.5px!important;border-radius:8px!important}
+.card.pop.open:not(#pluginmgr) input[type=file]{height:auto;padding:4px 6px!important}
+.card.pop.open:not(#pluginmgr) input[type=file]::file-selector-button{min-height:0;height:22px;padding:0 8px;margin-right:8px;border-radius:6px;font-size:11px}
+.card.pop.open:not(#pluginmgr) .row{padding:5px 0!important;gap:6px!important;font-size:12px}
+.card.pop.open:not(#pluginmgr) .row strong{font-size:10px!important;padding:1px 6px!important}
+.card.pop.open:not(#pluginmgr) pre{font-size:10px!important;line-height:1.4!important;padding:7px!important;border-radius:8px!important;max-height:200px!important;margin:6px 0 0!important}
+#selftest.pop.open pre{max-height:300px!important}
+.card.pop.open:not(#pluginmgr) .popfoot{position:sticky;bottom:0!important;margin:8px -12px 0!important;padding:6px 12px!important;border-radius:0 0 13px 13px}
+.card.pop.open:not(#pluginmgr) .popfoot .popx{height:26px;min-height:0!important;padding:0 14px!important}
+.modal-bg .modal{max-width:440px}
+.modal-bg .modal h3{font-size:13.5px!important;margin:0 0 5px!important}
+.modal-bg .modal .mfoot{margin:6px -10px -10px!important;padding:5px 10px!important}
+.modal-bg .modal button{min-height:26px!important;padding:2px 9px!important;font-size:11px!important}
+.modal-bg .modal input:not([type=checkbox]):not([type=radio]),.modal-bg .modal select{min-height:26px!important;padding:2px 7px!important;font-size:11.5px!important}
+</style>
+</head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
 <div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div></header>
 <main>
   <div class="card" id="login" style="display:none">
-    <p>Sign in with your router admin password (the same one as 192.168.0.1).</p>
+    <p>Sign in with your router admin password (the same one as 192.168.0.1).</p>\n    <p class="mut" style="color:#d99b42">Security: this console uses unencrypted HTTP. Use it only on your trusted ZTE hotspot or USB-tether network. Never expose port 2334 to the internet.</p>
     <input id="tok" type="password" placeholder="Admin password" autocomplete="current-password">
     <p><button id="tokbtn">Connect</button> <span id="tokerr" class="mut"></span></p>
   </div>
@@ -88,7 +330,7 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><div class="mut">CONTROL CENTER</div><button type="button" id="rebootbtn" style="color:#e03131;padding:4px 12px">Reboot</button></div>
     <h2 style="margin:2px 0 4px;font-size:22px">Device overview</h2>
     <p class="mut">Manage device diagnostics, USB connectivity, firmware metadata, root access and installed extensions.</p>
-    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('appupdate')">Update app</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Built-in tools &amp; plugins</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('appupdate')">Update app</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Plugins</button></div>
   </div>
   <div class="card pop" id="diagnostics">
     <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
@@ -129,6 +371,9 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     <p class="mut">Import a newer MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself, a newer version (no downgrade), and signed with the same key as the installed app. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
+    <p class="mut" style="margin-top:12px">Or update over the air: paste an https link to the new APK (for example a GitHub release asset). The device downloads it and runs the same checks.</p>
+    <input id="updurl" type="url" placeholder="https://github.com/you/MatchiTOOL/releases/latest/download/app-debug.apk" style="width:100%;box-sizing:border-box">
+    <p><button id="updfetch">Download &amp; check</button></p>
     <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -139,11 +384,22 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="pluginmgr">
-    <div class="mut" style="margin-bottom:8px">Built-in tools</div>
-    <div id="builtinlist"></div>
-    <div class="mut" style="margin:14px 0 8px">Custom plugins <span>(changes apply after reload)</span></div>
-    <div id="pluglist"></div>
-    <p><input id="plugfile" type="file" accept=".js" multiple></p>
+    <div class="pm-head">
+      <div><div class="pm-title">Plugins</div><div class="pm-sub" id="plugin_summary">Loading…</div></div>
+      <button type="button" class="pm-ico" id="plugin_refresh" title="Refresh list" aria-label="Refresh list"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+    </div>
+    <div class="pm-tools">
+      <div class="pm-search"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="plugin_search" type="search" placeholder="Search plugins" autocomplete="off"></div>
+      <div class="pm-seg" id="plugin_filter" role="tablist" aria-label="Filter plugins"><button type="button" class="on" data-f="all">All</button><button type="button" data-f="enabled">On</button><button type="button" data-f="disabled">Off</button></div>
+    </div>
+    <div id="pluglist" class="pm-list"></div>
+    <label class="pm-drop" id="plugdrop" for="plugfile">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+      <span class="pm-drop-t">Add plugin (.js)</span>
+      <input id="plugfile" type="file" accept=".js" multiple>
+    </label>
+    <div class="pm-backup"><button type="button" id="plugin_export">Export all</button><button type="button" id="plugin_import">Import backup</button><input id="plugin_backup_file" type="file" accept=".json,application/json" style="display:none"></div>
+    <div class="pm-warn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg><span>Plugins run with full console access. Install only trusted code.</span></div>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
 </main>
@@ -398,10 +654,10 @@ pre{padding:9px;font-size:11.5px;line-height:1.5;border-radius:9px}
 })();
 
 </script>
-<script type="text/plain" class="webtool" data-name="Bypass_v65_13.js">
+<script type="text/plain" class="webtool" data-name="Bypass_v65_14.js">
 //
 /*
- * Bypass (F50) for MatchiTOOL - standalone fork of the UFI-TOOLS plugin (v65.13)
+ * Bypass (F50) for MatchiTOOL - standalone fork of the UFI-TOOLS plugin (v65.14)
  * Copyright (c) 2026 saiko (GitHub: SaikoC9). MIT License. A plugin for UFI-TOOLS; the nfqws program is not included.
  * BPF_TAG below is the cache key of the embedded eBPF program, not the plugin version.
  */
@@ -2342,6 +2598,7 @@ cat ${CONF} 2>/dev/null
       }
       markSw('dpi', parts.length ? 'dpi_apply' : 'dpi_remove');
       const watching = get('WATCH') === 'running';
+      lastState.watching = watching;
       put('#dpi_watch', watching ? 'bp-good' : 'bp-warn', watching ? 'Running' : (boot ? 'Stopped' : 'Off'));
 
       if (syncForm) {
@@ -2471,10 +2728,18 @@ echo NET=$ok M=$m`, 25000);
         const rw = nfqNeedsReplies(s.args) ? ` Note: ${NFQ_REPLY_NOTE}.` : '';
         setNfqMsg((t.method === 'https' ? 'nfqws is on and HTTPS still works.' : 'nfqws is on. Only a ping was checked, so test your sites yourself.') + rw, t.method === 'https' && !rw ? 'good' : 'warn');
         toast(t.method === 'https' ? 'nfqws is on and HTTPS still works' : 'nfqws is on. Only a ping was checked here, so test your sites yourself', t.method === 'https' && !rw ? 'green' : 'orange', 6000);
+      } else if (s.nfq && !base?.ok) {
+        setNfqMsg('nfqws was applied, but internet was already unreachable before the test. The plugin cannot tell whether NFQ caused the outage; turn NFQ off and verify mobile data first.', 'warn');
       } else if (s.nfq && nfqNeedsReplies(s.args)) {
         setNfqMsg(`nfqws started. Note: ${NFQ_REPLY_NOTE}.`, 'warn');
       }
-      if (/RC=0\s*$/.test(r.text)) toast('Anti-DPI rules applied', 'green', 4000);
+      if (/connbytes match is missing/i.test(r.text)) {
+        setNfqMsg('This kernel has no connbytes match: every outgoing HTTPS packet is sent to nfqws, which can increase CPU/load and break connectivity. Prefer disabling NFQ or use a kernel with connbytes support.', 'warn');
+      }
+      if (/RC=0\s*$/.test(r.text)) {
+        const cbNote = /connbytes match is missing/i.test(r.text) ? ' (connbytes unavailable; all HTTPS is queued)' : '';
+        toast('Anti-DPI rules applied' + cbNote, /connbytes match is missing/i.test(r.text) ? 'orange' : 'green', 6500);
+      }
       else toast(`Some rules failed: ${r.text.replace(/RC=\d+\s*$/, '').trim().slice(0, 200)}`, 'red', 9000);
     };
 
@@ -3717,7 +3982,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       onClose: () => { stopAutoCheck(); return true; },
       content: `
         <div class="bp-wrap">
-          <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button></div>
+          <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button><button type="button" class="bp-tab" data-tab="mgr">Manager</button></div>
           <div class="bp-pane" data-pane="qs">
             <div class="bp-section">
               <div id="qs_hero" class="bp-hero warn">● Checking…</div>
@@ -3784,6 +4049,23 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
               </details>
             </div>
           </div>
+          <div class="bp-pane" data-pane="mgr" style="display:none">
+            <div class="bp-section">
+              <div class="bp-hero warn" id="bp_mgr_state">● Checking current bypass state…</div>
+              <div class="bp-card"><div class="bp-head"><span class="bp-title">Unified status</span><button class="bp-act" id="bp_mgr_refresh">Refresh</button></div>
+                <div class="bp-grid">
+                  <div class="bp-stat"><div class="bp-label">TTL / hop limit</div><div class="bp-value" id="bp_mgr_ttl">—</div></div>
+                  <div class="bp-stat"><div class="bp-label">Anti-DPI rules</div><div class="bp-value" id="bp_mgr_dpi">—</div></div>
+                  <div class="bp-stat"><div class="bp-label">Auto-apply</div><div class="bp-value" id="bp_mgr_boot">—</div></div>
+                  <div class="bp-stat"><div class="bp-label">Keep-alive</div><div class="bp-value" id="bp_mgr_watch">—</div></div>
+                </div><div class="bp-note">Combined view of the existing modules. No rules are changed by opening this page.</div>
+              </div>
+              <div class="bp-card"><div class="bp-title">Quick actions</div><div class="bp-row"><button class="bp-act" id="bp_mgr_off">Turn bypass off</button><button class="bp-act" id="bp_mgr_standard">Standard</button><button class="bp-act" id="bp_mgr_strong">Strong</button></div>
+                <div class="bp-note">Off removes MatchiTOOL-managed bypass rules while keeping saved settings. Standard applies TTL only. Strong applies TTL and saved Anti-DPI options. Unrelated firewall chains and SFP filters are not targeted.</div>
+              </div>
+              <div class="bp-card"><div class="bp-title">Diagnostics</div><div class="bp-row"><button class="bp-act" id="bp_mgr_test">Run self-test</button><button class="bp-act" id="bp_mgr_report">Copy report</button></div><div class="bp-note">Self-test reads managed rules and counters; it does not intentionally change firewall or routing state.</div></div>
+            </div>
+          </div>
           <div class="bp-pane" data-pane="adv" style="display:none">
             <div class="bp-section">
               <div class="bp-sub"><button type="button" class="bp-subt on" data-sub="ttl">TTL</button><button type="button" class="bp-subt" data-sub="dpi">Anti-DPI</button><button type="button" class="bp-subt" data-sub="nfq">nfqws</button><button type="button" class="bp-subt" data-sub="tools">Tools</button></div>
@@ -3845,14 +4127,37 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       if (still) toast('Some rules are still active. Check the status above, or use Remove on the Advanced tab', 'orange', 7000);
       else toast('Everything stopped: rules removed, auto-apply at boot off, keep-alive stopped', 'green', 5000);
     }, 'Stopping…');
+    const refreshManagerView = async () => {
+      const hero = q('#bp_mgr_state'); if (hero) hero.textContent = '● Refreshing…';
+      try {
+        await Promise.all([ttlModule.refresh(), dpiModule.refresh()]);
+        const ts=ttlModule.state(), ds=dpiModule.state();
+        const put=(id,v)=>{const el=q(id);if(el)el.textContent=v;};
+        put('#bp_mgr_ttl',ts.on?`Active (${ts.value||'value unknown'})`:'Off');
+        put('#bp_mgr_dpi',ds.any?'Active':'Off');
+        put('#bp_mgr_boot',(ts.boot||ds.boot)?'Enabled':'Disabled');
+        put('#bp_mgr_watch',(ts.watching||ds.watching)?'Running':'Stopped');
+        if(hero){hero.classList.toggle('off',!ts.on&&!ds.any);hero.classList.toggle('warn',!!(ts.on||ds.any));hero.textContent=ts.on||ds.any?'● MatchiTOOL bypass rules are active':'● No MatchiTOOL bypass rules detected';}
+      } catch(e) { if(hero)hero.textContent='● Status unavailable: '+(e?.message||e); }
+    };
     const tabs = modalEl.querySelectorAll('.bp-tab');
     tabs.forEach((t) => {
       t.onclick = () => {
         tabs.forEach((x) => x.classList.toggle('on', x === t));
         modalEl.querySelectorAll('.bp-pane').forEach((pn) => { pn.style.display = pn.dataset.pane === t.dataset.tab ? '' : 'none'; });
         modalEl.querySelector('.bp-wrap')?.scrollTo?.({ top: 0, behavior: 'instant' });
+        if(t.dataset.tab==='mgr')refreshManagerView();
       };
     });
+    q('#bp_mgr_refresh').onclick=guarded(refreshManagerView,'Refreshing…');
+    q('#bp_mgr_off').onclick=async()=>{
+      if(!(await askConfirm('Turn off MatchiTOOL bypass and disable its boot auto-apply? Saved configuration will be kept.','Turn bypass off',true)))return;
+      q('#qs_stop')?.click();
+    };
+    q('#bp_mgr_standard').onclick=()=>q('#qs_std')?.click();
+    q('#bp_mgr_strong').onclick=()=>q('#qs_strong')?.click();
+    q('#bp_mgr_test').onclick=()=>q('#st_run')?.click();
+    q('#bp_mgr_report').onclick=()=>q('#qs_report_copy')?.click();
     const subs = modalEl.querySelectorAll('.bp-subt');
     subs.forEach((t) => {
       t.onclick = () => {
@@ -3953,6 +4258,171 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
 })();
 
 </script>
+<script type="text/plain" class="webtool" data-name="Smart_F50_Monitor.js">
+/*
+ * Smart F50 Monitor - read-only, on-demand device telemetry.
+ * Polls only while the monitor is open and the page is visible; slows when hot.
+ * Temperature thresholds are advisory, not a replacement for vendor thermal policy.
+ */
+(() => {
+  'use strict';
+  const BTN = 'matchi_f50_monitor_btn', MODAL = 'matchi_f50_monitor_modal';
+  if (document.getElementById(BTN)) return;
+  const esc = (v) => String(v ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const SCRIPT = String.raw`
+echo "cpu=$(head -n 1 /proc/stat 2>/dev/null)"
+awk '/^MemTotal:/{t=$2}/^MemAvailable:/{a=$2}END{print "mem=" t "|" a}' /proc/meminfo 2>/dev/null
+b=/sys/class/power_supply/battery
+for k in capacity status temp voltage_now current_now; do [ -r "$b/$k" ] && echo "bat_$k=$(cat "$b/$k" 2>/dev/null)"; done
+for z in /sys/class/thermal/thermal_zone*; do
+  [ -r "$z/temp" ] || continue
+  n=$(cat "$z/type" 2>/dev/null); v=$(cat "$z/temp" 2>/dev/null)
+  case "$v" in ''|*[!0-9-]*) continue;; esac
+  echo "thermal=$n|$v"
+done
+for n in /sys/class/net/*; do
+  [ -d "$n" ] || continue
+  i=$(echo "$n" | sed 's|.*/||')
+  [ "$i" = lo ] && continue
+  r=$(cat "$n/statistics/rx_bytes" 2>/dev/null); t=$(cat "$n/statistics/tx_bytes" 2>/dev/null)
+  case "$r:$t" in *[!0-9:]*|'':*) continue;; esac
+  echo "net=$i|$r|$t"
+done
+echo "load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
+echo "uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)"
+echo "thermal_status=$(dumpsys thermalservice 2>/dev/null | grep -im1 -E 'Current thermal status|Thermal Status' | head -c 120)"
+`;
+  let timer = null, busy = false, previous = null, lastHeat = 0;
+  const parse = (s) => {
+    const o = {thermal:[],net:[]};
+    String(s || '').split(/\r?\n/).forEach(line => {
+      const p = line.indexOf('=');
+      if (p < 1) return;
+      const k=line.slice(0,p),v=line.slice(p+1).trim();
+      if (k==='thermal') { const a=v.split('|'); if(a.length>1) o.thermal.push([a[0],Number(a[1])]); }
+      else if(k==='net') { const a=v.split('|'); if(a.length===3) o.net.push([a[0],Number(a[1]),Number(a[2])]); }
+      else o[k]=v;
+    });
+    return o;
+  };
+  const tempC = v => { const n=Number(v); return !Number.isFinite(n)?null:(Math.abs(n)>=1000?n/1000:Math.abs(n)>=100?n/10:n); };
+  const fmtBytes = n => { if(!Number.isFinite(n)||n<0)return '—'; const u=['B','KB','MB','GB']; let i=0; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+  const cpuTicks = line => { const a=String(line||'').trim().split(/\s+/).slice(1).map(Number); if(a.length<4||a.some(x=>!Number.isFinite(x)))return null; return {total:a.reduce((x,y)=>x+y,0),idle:a[3]+(a[4]||0)}; };
+  const render = o => {
+    const now=Date.now(), c=cpuTicks(o.cpu); let cpu='—';
+    if(c&&previous?.cpu){const dt=c.total-previous.cpu.total,di=c.idle-previous.cpu.idle;if(dt>0)cpu=Math.round(100*(dt-di)/dt)+'%';}
+    const mem=(o.mem||'').split('|').map(Number), memPct=mem.length===2&&mem[0]>0?Math.round(100*(mem[0]-mem[1])/mem[0]):null;
+    const bt=tempC(o.bat_temp), temps=o.thermal.map(([n,v])=>[n,tempC(v)]).filter(x=>x[1]!==null);
+    const max=temps.reduce((m,x)=>Math.max(m,x[1]),bt??-Infinity);
+    const heat=max>=65?'Hot':max>=55?'Warm':'Normal';
+    const old=previous, secs=old?Math.max(.5,(now-old.at)/1000):0;
+    const rates=o.net.map(([n,rx,tx])=>{const prior=old?.net?.find(x=>x[0]===n);return [n,prior&&secs>0?(rx-prior[1])/secs:null,prior&&secs>0?(tx-prior[2])/secs:null];});
+    previous={at:now,cpu:c,net:o.net};
+    const rows=[
+      ['CPU usage',cpu],['Memory used',memPct===null?'—':memPct+'% ('+fmtBytes((mem[0]-mem[1])*1024)+' / '+fmtBytes(mem[0]*1024)+')'],
+      ['Battery', (o.bat_capacity||'—')+'% · '+(o.bat_status||'')],['Battery temperature',bt===null?'—':bt.toFixed(1)+' °C'],
+      ['Thermal watch',heat+' · highest reported '+(Number.isFinite(max)?max.toFixed(1)+' °C':'—')],
+      ['Load average',o.load||'—'],['Uptime',o.uptime?Math.floor(Number(o.uptime)/3600)+' h':'—']
+    ];
+    temps.slice(0,12).forEach(([n,v])=>rows.push(['Thermal '+n,v.toFixed(1)+' °C']));
+    rates.forEach(([n,rx,tx])=>rows.push([n+' network',rx===null?'Collecting baseline':'↓ '+fmtBytes(rx)+'/s · ↑ '+fmtBytes(tx)+'/s']));
+    if(o.thermal_status)rows.push(['Android thermal service',o.thermal_status]);
+    const warning=max>=65?'Elevated temperature detected. Reduce load and allow the device to cool; vendor protections remain enabled.':max>=55?'Temperature is elevated. Monitoring interval will be reduced.':'No high temperature reported by readable sensors.';
+    const body=document.getElementById('matchi_f50_body'); if(!body)return;
+    body.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><b>CPU '+esc(cpu)+'</b><span class="mut">Memory '+esc(memPct===null?'—':memPct+'%')+'</span><span class="mut">Thermal '+esc(heat)+'</span></div>'+
+      '<table style="width:100%;border-collapse:collapse">'+rows.map(r=>'<tr><td style="padding:5px 8px 5px 0;opacity:.7;border-bottom:1px solid var(--bd)">'+esc(r[0])+'</td><td style="padding:5px 0;text-align:right;border-bottom:1px solid var(--bd)">'+esc(r[1])+'</td></tr>').join('')+'</table>'+
+      '<p class="mut" style="margin-top:10px">'+esc(warning)+'</p><p class="mut">Read-only telemetry. Modem sensor names and thermal status depend on firmware/kernel exposure. This is not a certified throttling detector and never changes clocks, charging, or thermal services.</p>'+
+      '<p class="mut">Updated '+new Date(now).toLocaleTimeString()+' · next check '+(max>=65?'60 s':max>=55?'90 s':'30 s')+'</p>';
+    lastHeat=max;
+  };
+  async function refresh(){
+    if(busy||document.hidden||!document.getElementById('matchi_f50_body'))return;
+    busy=true;
+    try{
+      const r=await runShellWithRoot(SCRIPT,12000);
+      if(!r.success&&!r.content){const b=document.getElementById('matchi_f50_body');if(b)b.textContent='Root telemetry unavailable: '+(r.content||'root access not granted');return;}
+      render(parse(r.content));
+    }catch(e){const b=document.getElementById('matchi_f50_body');if(b)b.textContent='Monitor error: '+e.message;}
+    finally{busy=false;schedule();}
+  }
+  function schedule(){
+    clearTimeout(timer); if(!document.getElementById('matchi_f50_body')||document.hidden)return;
+    const interval=lastHeat>=65?60000:lastHeat>=55?90000:30000;
+    timer=setTimeout(refresh,interval);
+  }
+  function stop(){clearTimeout(timer);timer=null;previous=null;}
+  function open(){
+    createModal({name:MODAL,title:'Smart F50 Monitor',maxWidth:'520px',showConfirm:false,onClose:()=>{stop();return true;},
+      content:'<div id="matchi_f50_body">Starting read-only telemetry…</div><div style="display:flex;gap:8px;margin-top:12px"><button type="button" id="matchi_f50_refresh">Refresh now</button></div>'});
+    showModal(MODAL);
+    document.getElementById('matchi_f50_refresh').onclick=()=>{stop();refresh();};
+    refresh();
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();else if(document.getElementById('matchi_f50_body'))refresh();});
+  const host=document.querySelector('.actions-buttons'); if(!host)return;
+  const b=document.createElement('button');b.id=BTN;b.textContent='Smart F50 Monitor';b.onclick=open;host.appendChild(b);
+})();
+</script>
+
+<script type="text/plain" class="webtool" data-name="Network_Diagnostics.js">
+/*
+ * Network Diagnostics - bounded, read-only connectivity checks.
+ * Performs short gateway/public-IP/DNS probes only when explicitly opened.
+ */
+(() => {
+  'use strict';
+  const BTN='matchi_network_diag_btn', MODAL='matchi_network_diag_modal';
+  if(document.getElementById(BTN))return;
+  const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const SCRIPT=String.raw`
+echo "ipv4_addr=$(ip -4 -o addr show 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
+echo "ipv6_addr=$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
+echo "route4=$(ip -4 route show default 2>/dev/null | head -n 3)"
+echo "route6=$(ip -6 route show default 2>/dev/null | head -n 3)"
+gw=$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $3}')
+if [ -n "$gw" ] && command -v ping >/dev/null 2>&1; then
+  echo "gateway_ping=$(ping -c 2 -W 2 "$gw" 2>&1 | tail -n 2 | tr '\n' ' ')"
+else echo "gateway_ping=No IPv4 gateway or ping utility"; fi
+if command -v ping >/dev/null 2>&1; then
+  echo "public_ipv4=$(ping -c 2 -W 2 1.1.1.1 2>&1 | tail -n 2 | tr '\n' ' ')"
+  echo "public_ipv6=$(ping -6 -c 2 -W 2 2606:4700:4700::1111 2>&1 | tail -n 2 | tr '\n' ' ')"
+else echo "public_ipv4=ping utility unavailable"; fi
+if command -v getent >/dev/null 2>&1; then
+  echo "dns=$(getent hosts example.com 2>&1 | head -n 2 | tr '\n' ' ')"
+elif command -v nslookup >/dev/null 2>&1; then
+  echo "dns=$(nslookup example.com 2>&1 | tail -n 5 | tr '\n' ' ')"
+else echo "dns=No getent/nslookup utility"; fi
+echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
+`;
+  function rows(text){
+    const o={};String(text||'').split(/\r?\n/).forEach(l=>{const i=l.indexOf('=');if(i>0)o[l.slice(0,i)]=l.slice(i+1).trim();});
+    const tests=[
+      ['IPv4 addresses',o.ipv4_addr],['IPv6 global addresses',o.ipv6_addr],['IPv4 default route',o.route4],['IPv6 default route',o.route6],
+      ['Gateway reachability',o.gateway_ping],['Public IPv4 reachability',o.public_ipv4],['Public IPv6 reachability',o.public_ipv6],['DNS lookup',o.dns],['Android DNS properties',o.dns_props]
+    ];
+    return tests.map(([k,v])=>'<tr><td style="padding:6px 8px 6px 0;vertical-align:top;border-bottom:1px solid var(--bd);opacity:.75">'+esc(k)+'</td><td style="padding:6px 0;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid var(--bd)">'+esc(v||'Not reported')+'</td></tr>').join('');
+  }
+  async function run(){
+    const box=document.getElementById('matchi_network_diag_body');if(!box)return;
+    box.textContent='Running short connectivity checks…';
+    try{
+      const r=await runShellWithRoot(SCRIPT,22000);
+      if(!r.success&&!r.content){box.textContent='Diagnostics unavailable: '+(r.content||'root access not granted');return;}
+      box.innerHTML='<table style="width:100%;border-collapse:collapse">'+rows(r.content)+'</table>'+
+        '<p class="mut" style="margin-top:10px">Read-only checks. Ping failures can mean ICMP is filtered; they do not prove the internet is down. No routes, DNS settings, firewall rules, or modem settings were changed.</p>'+
+        '<p class="mut">Completed '+new Date().toLocaleTimeString()+'</p>';
+    }catch(e){box.textContent='Network diagnostics failed: '+e.message;}
+  }
+  function open(){
+    createModal({name:MODAL,title:'Advanced Network Diagnostics',maxWidth:'560px',showConfirm:false,onClose:()=>true,
+      content:'<div id="matchi_network_diag_body">Ready to run…</div><div style="display:flex;gap:8px;margin-top:12px"><button type="button" id="matchi_network_diag_run">Run checks</button></div>'});
+    showModal(MODAL);document.getElementById('matchi_network_diag_run').onclick=run;run();
+  }
+  const host=document.querySelector('.actions-buttons');if(!host)return;
+  const b=document.createElement('button');b.id=BTN;b.textContent='Network Diagnostics';b.onclick=open;host.appendChild(b);
+})();
+</script>
+
 <script type="text/plain" class="webtool" data-name="Device_Status.js">
 /*
  * Device Status - MatchiTOOL plugin
@@ -4110,7 +4580,8 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   const antIcon = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 12v9M8 21h8M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4M9.2 9.2a3.8 3.8 0 0 0 0 5.6M14.8 9.2a3.8 3.8 0 0 1 0 5.6" fill="none" stroke="#55b6ff" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="1.5" fill="#55b6ff"/></svg>';
 
   // ---- data collection -----------------------------------------------------------------------------------
-  let teleAt = 0, teleCache = '';   // `dumpsys telephony.registry` is heavy: refresh it every 30 s only
+  let teleAt = 0, teleCache = '';   // `dumpsys telephony.registry` is expensive: cache it for 2 minutes
+  let atAt = 0, atCache = [];       // modem AT polling is cached to avoid waking the modem too often
   let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
 
   async function collect() {
@@ -4131,7 +4602,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
         tele = teleCache;
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
     })();
-    const atP = (async () => { if (zteOk) return; const a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
+    const atP = (async () => { if (zteOk) return; let a = atCache; if (!a.length || Date.now() - atAt >= 60000) { a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); atCache = a || []; atAt = Date.now(); } raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
     await Promise.all([shellP, atP]);
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -4174,10 +4645,15 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     if (hasNr && !/5G/i.test(net)) net = '5G NSA';
     const sysMax = zones.length ? Math.max(...zones.map((z) => z.v)) : undefined;
     const modemTemp = mz.length ? Math.max(...mz.map((z) => z.v)) : range(first(zte.pm_sensor_mdm, zte.pm_modem_5g), 1, 150);
+    const batTemp = has(temp) ? Number(temp) / 10 : undefined;
+    // Advisory thresholds only; never write CPU governors, clocks, voltage, charging limits or thermal services.
+    const thermalLevel = (sysMax !== undefined && sysMax >= 80) || (batTemp !== undefined && batTemp >= 50) || (modemTemp !== undefined && modemTemp >= 90) ? 3
+      : (sysMax !== undefined && sysMax >= 70) || (batTemp !== undefined && batTemp >= 45) || (modemTemp !== undefined && modemTemp >= 80) ? 2
+      : (sysMax !== undefined && sysMax >= 60) || (batTemp !== undefined && batTemp >= 40) || (modemTemp !== undefined && modemTemp >= 70) ? 1 : 0;
     return {
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
-      batTemp: has(temp) ? Number(temp) / 10 : undefined, sysMax, modemTemp, errs,
+      batTemp, sysMax, modemTemp, thermalLevel, errs,
       rawText: [zteNote || 'Router web API: used', 'AT+COPS?: ' + raw.cops.trim(), 'AT+CSQ: ' + raw.csq.trim(), 'AT+CESQ: ' + raw.cesq.trim(), 'AT+CEREG?: ' + raw.cereg.trim(), '', 'telephony.registry:', tele.trim() || '(no output)'].join('\n'),
       source: zteNote ? 'modem AT + Android telephony' : 'router API + modem',
     };
@@ -4214,7 +4690,10 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
       ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
-    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + tiles + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+    const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
+      : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
+      : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
+    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + tiles + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
   // ---- page + popup --------------------------------------------------------------------------------------
@@ -4230,7 +4709,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
 .liv-box h4{margin:0 0 6px;font-size:12px;display:flex;align-items:center;gap:7px}.liv-ms{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.liv-m{display:block;font-size:12px}.liv-mt{display:flex;justify-content:space-between;align-items:baseline;gap:4px;margin-bottom:4px}.liv-m b{font-size:12px}.liv-ml{color:var(--mut);font-size:11px;font-weight:700}
 .liv-bar{height:5px;border-radius:99px;background:#16283f;overflow:hidden}.liv-bar i{display:block;height:100%;border-radius:99px;transition:width .5s}
 .liv-kv{margin-left:auto;font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap}.liv-kv b{color:var(--fg)}
-.liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}
+.liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}.liv-heat{margin-top:8px;padding:7px 10px;border-radius:9px;font-size:11px;font-weight:750}.liv-heat.warm{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24}.liv-heat.hot{background:#f9731618;border:1px solid #f9731655;color:#fb923c}.liv-heat.critical{background:#ef444418;border:1px solid #ef444466;color:#f87171}
 .liv-tl{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.2}.liv-tv{font-size:14px;font-weight:800;line-height:1.2}.liv-ts{font-size:10px;color:var(--mut)}.liv-foot{margin-top:8px;font-size:11px;color:var(--mut)}
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 @media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;
@@ -4276,10 +4755,16 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     catch (e) { lastErr = 'Could not read device: ' + e.message; when(); }
     finally { busy = false; }
   }
-  // Poll every 30 s (60 s when the system is hot) with a self-rescheduling timer; `when` only repaints text.
-  const nextDelay = () => (last && last.sysMax !== undefined && last.sysMax >= 60 ? 60000 : 30000);
+  // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
+  // not a substitute for the firmware's thermal protection and does not alter CPU/charging controls.
+  const nextDelay = () => {
+    if (!last) return 60000;
+    if (last.thermalLevel >= 2) return 180000;
+    if (last.thermalLevel === 1) return 120000;
+    return 60000;
+  };
   const loop = async () => { await tick(); timer = setTimeout(loop, nextDelay()); };
-  timer = setTimeout(loop, 30000); tickTimer = setInterval(when, 5000);
+  timer = setTimeout(loop, 60000); tickTimer = setInterval(when, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && (!lastOk || Date.now() - lastOk > 30000)) tick(); });
   tick();
 
@@ -6042,62 +6527,88 @@ function closeModal(id,cb){
   el.classList.remove('show');
 }
 function loadBuiltin(){
-  const box=document.getElementById('builtinlist');box.textContent='';
   for(const t of document.querySelectorAll('script.webtool')){
     const name=t.dataset.name;BUILTIN.add(name);
-    const row=document.createElement('div');row.className='row';
-    const n=document.createElement('span');n.className='n';n.textContent=name.replace(/\.js$/,'').replace(/_v\d.*$/,'').replace(/_/g,' ');
-    const tag=document.createElement('strong');tag.textContent='Built in';
-    row.append(n,tag);box.appendChild(row);
-    try{const s=document.createElement('script');s.textContent=t.textContent;s.dataset.builtin=name;document.head.appendChild(s)}
-    catch(e){createToast('Could not load '+name,'red')}
+    try{const s=document.createElement('script');s.textContent=t.textContent;s.dataset.builtin=name;document.head.appendChild(s)}catch(e){createToast('Could not load '+name,'red')}
   }
 }
-const BUILTIN=new Set();
-async function loadPlugins(){
-  let list=await api('/api/plugins');
-  if(!Array.isArray(list))throw new Error('The plugin list returned an unexpected response');
-  // copies of the built-in tools uploaded earlier would load twice: remove them from the device
-  for(const p of list.filter(p=>BUILTIN.has(p.name))){try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}}
-  list=list.filter(p=>!BUILTIN.has(p.name));
-  renderPlugins(list);
-  for(const p of list){
-    if(!p.enabled)continue;
-    const s=document.createElement('script');s.textContent=p.code;s.dataset.plugin=p.name;
-    s.onerror=()=>createToast('Could not load plugin: '+p.name,'red');
-    document.head.appendChild(s);
-  }
-  if(!list.length){
-    const empty=document.createElement('div');empty.className='empty-state';
-    empty.textContent='No custom plugins. Upload a trusted .js plugin below to add your own tool.';
-    document.getElementById('pluglist').appendChild(empty);
-  }
+const BUILTIN=new Set();let pluginCache=[];
+function downloadText(name,text,type='application/json'){
+  const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
+let pmFilter='all';
+function pmIcon(d){return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>'}
 function renderPlugins(list){
-  const box=document.getElementById('pluglist');box.textContent='';
-  for(const p of list){
-    const row=document.createElement('div');row.className='row';
-    const n=document.createElement('span');n.className='n';n.textContent=p.name;
-    const t=document.createElement('button');t.textContent=p.enabled?'Disable':'Enable';
-    t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
-    const d=document.createElement('button');d.textContent='Delete';
-    d.onclick=async()=>{if(!(await askConfirm('Delete '+p.name+'?','Delete',true)))return;d.disabled=true;try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})});location.reload()}catch(e){d.disabled=false;createToast(e.message,'red')}};
-    row.append(n,t,d);box.appendChild(row);
+  pluginCache=list;const box=document.getElementById('pluglist');box.textContent='';
+  const query=(document.getElementById('plugin_search')?.value||'').trim().toLowerCase(),filter=pmFilter;
+  const shown=list.filter(p=>(!query||p.name.toLowerCase().includes(query))&&(filter==='all'||(filter==='enabled'?p.enabled:!p.enabled)));
+  const enabled=list.filter(p=>p.enabled).length,summary=document.getElementById('plugin_summary');
+  if(summary)summary.textContent=list.length?`${list.length} installed · ${enabled} on · ${list.length-enabled} off`:'None installed';
+  for(const p of shown){
+    const row=document.createElement('div');row.className='pm-item'+(p.enabled?'':' off');
+    const ic=document.createElement('div');ic.className='pm-glyph';ic.textContent='JS';
+    const wrap=document.createElement('div');wrap.className='pm-name';
+    const n=document.createElement('div');n.className='pm-n';n.textContent=p.name.replace(/\.js$/i,'');
+    const meta=document.createElement('div');meta.className='pm-m';meta.textContent=`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB · ${p.enabled?'On':'Off'}`;wrap.append(n,meta);
+    const t=document.createElement('button');t.type='button';t.className='pm-sw';t.setAttribute('role','switch');t.setAttribute('aria-checked',p.enabled?'true':'false');t.setAttribute('aria-label',(p.enabled?'Disable ':'Enable ')+p.name);t.innerHTML='<i></i>';
+    t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});await refreshPluginList();location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
+    const acts=document.createElement('div');acts.className='pm-acts';
+    const ex=document.createElement('button');ex.type='button';ex.innerHTML=pmIcon('<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>')+'<span class="pm-t">Export</span>';ex.title='Export';ex.setAttribute('aria-label','Export '+p.name);ex.onclick=()=>downloadText(p.name,p.code||'','text/javascript');
+    const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
+    d.onclick=async()=>{if(!(await askConfirm('Delete '+p.name+'? Export a backup first if you may need it again.','Delete',true)))return;d.disabled=true;try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})});await refreshPluginList()}catch(e){d.disabled=false;createToast(e.message,'red')}};
+    acts.append(ex,d);
+    row.append(ic,wrap,acts,t);box.appendChild(row);
   }
+  if(!shown.length){const empty=document.createElement('div');empty.className='pm-empty';empty.textContent=list.length?'No plugins match your search.':'No plugins yet. Add a trusted .js file below.';box.appendChild(empty)}
 }
+async function refreshPluginList(){
+  const list=await api('/api/plugins');if(!Array.isArray(list))throw new Error('The plugin list returned an unexpected response');
+  for(const p of list.filter(p=>BUILTIN.has(p.name))){try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}}
+  const clean=list.filter(p=>!BUILTIN.has(p.name));renderPlugins(clean);return clean;
+}
+async function loadPlugins(){
+  const list=await refreshPluginList();
+  for(const p of list){if(!p.enabled)continue;const s=document.createElement('script');s.textContent=p.code;s.dataset.plugin=p.name;s.onerror=()=>createToast('Could not load plugin: '+p.name,'red');document.head.appendChild(s)}
+}
+document.getElementById('plugin_search').oninput=()=>renderPlugins(pluginCache);
+document.getElementById('plugin_filter').onclick=(e)=>{const b=e.target.closest('button[data-f]');if(!b)return;pmFilter=b.dataset.f;for(const x of document.querySelectorAll('#plugin_filter button'))x.classList.toggle('on',x===b);renderPlugins(pluginCache)};
+(()=>{const z=document.getElementById('plugdrop'),f=document.getElementById('plugfile');
+ for(const ev of ['dragenter','dragover'])z.addEventListener(ev,e=>{e.preventDefault();z.classList.add('over')});
+ for(const ev of ['dragleave','drop'])z.addEventListener(ev,e=>{e.preventDefault();z.classList.remove('over')});
+ z.addEventListener('drop',e=>{if(e.dataTransfer&&e.dataTransfer.files.length){f.files=e.dataTransfer.files;f.dispatchEvent(new Event('change'))}});})();
+document.getElementById('plugin_refresh').onclick=async()=>{try{await refreshPluginList();createToast('Plugin list refreshed')}catch(e){createToast(e.message,'red')}};
+document.getElementById('plugin_export').onclick=async()=>{try{const list=await refreshPluginList();downloadText('MatchiTOOL_plugins_backup.json',JSON.stringify({format:'MatchiTOOL.plugins.v1',exportedAt:new Date().toISOString(),plugins:list.map(p=>({name:p.name,code:p.code,enabled:p.enabled}))},null,2));createToast('Plugin backup exported')}catch(e){createToast(e.message,'red')}};
+document.getElementById('plugin_import').onclick=()=>document.getElementById('plugin_backup_file').click();
+document.getElementById('plugin_backup_file').onchange=async(e)=>{
+  const f=e.target.files?.[0];if(!f)return;
+  try{
+    if(f.size>6*1024*1024)throw new Error('Backup exceeds 6 MB');
+    const data=JSON.parse(await f.text());
+    if(data.format!=='MatchiTOOL.plugins.v1'||!Array.isArray(data.plugins)||data.plugins.length>50)throw new Error('Unsupported or invalid plugin backup');
+    for(const p of data.plugins){
+      if(!/^[A-Za-z0-9._-]{1,80}\.js$/.test(p.name)||p.name.includes('..')||BUILTIN.has(p.name))throw new Error('Invalid or reserved plugin name: '+p.name);
+      if(typeof p.code!=='string'||!p.code.trim()||p.code.length>1024*1024)throw new Error('Invalid plugin source: '+p.name);
+      new Function(p.code);
+    }
+    if(!(await askConfirm(`Import ${data.plugins.length} plugins? Matching filenames will be replaced. Continue only if you trust this backup.`,'Import backup',true)))return;
+    for(const p of data.plugins){await api('/api/plugins',{method:'POST',body:JSON.stringify({name:p.name,code:p.code})});await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:p.enabled!==false})})}
+    await refreshPluginList();createToast('Plugin backup imported');
+  }catch(err){createToast('Import failed: '+err.message,'red')}finally{e.target.value=''}
+};
 document.getElementById('plugfile').onchange=async(e)=>{
-  const files=[...e.target.files];if(!files.length)return;
-  let done=0;
+  const files=[...e.target.files];if(!files.length)return;let done=0;
   for(const f of files){
     if(!f.name.toLowerCase().endsWith('.js')){createToast('Skipped '+f.name+': not a .js file','red');continue}
     if(f.size>1024*1024){createToast(f.name+' exceeds the 1 MB limit','red');continue}
+    if(BUILTIN.has(f.name)){createToast('Cannot replace a built-in tool: '+f.name,'red');continue}
     try{
-      const r=await api('/api/plugins',{method:'POST',body:JSON.stringify({name:f.name,code:await f.text()})});
-      if(r.ok){done++;createToast('Uploaded '+f.name)}else createToast(r.error||('Upload failed: '+f.name),'red');
+      const code=await f.text();new Function(code);
+      if(pluginCache.some(p=>p.name===f.name)&&!(await askConfirm('Replace '+f.name+'? Export the old source first if needed.','Replace plugin',true)))continue;
+      await api('/api/plugins',{method:'POST',body:JSON.stringify({name:f.name,code})});done++;createToast('Uploaded '+f.name);
     }catch(err){createToast(f.name+': '+err.message,'red')}
   }
-  e.target.value='';
-  if(done)setTimeout(()=>location.reload(),800);
+  e.target.value='';if(done){await refreshPluginList();setTimeout(()=>location.reload(),500)}
 };
 document.getElementById('cmd').onkeydown=async(e)=>{
   if(e.key!=='Enter')return;
@@ -6107,11 +6618,11 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.1.46';
+const PAGE_VERSION='1.2.0';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
-  {file:'Bypass_v65_13.js',btn:'kano_bypass_btn'},
+  {file:'Bypass_v65_14.js',btn:'kano_bypass_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
   {file:'Signal_Info.js',btn:'matchi_signal_btn'},
   {file:'Live_Status.js',btn:'liv_inline'},
@@ -6119,7 +6630,7 @@ const ST_TOOLS=[
   {file:'Network_Debug.js',btn:'matchi_netdbg_btn'},
   {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
-const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','cmd','plugfile','builtinlist','pluglist','stbtn','stcopy','stdl'];
+const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
 const ST_ERRS=[];window.addEventListener('error',e=>ST_ERRS.push(String(e.message||'error').slice(0,120)));window.addEventListener('unhandledrejection',e=>ST_ERRS.push('promise: '+String(e.reason&&e.reason.message||e.reason).slice(0,120)));
 const stSleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -6722,6 +7233,11 @@ document.getElementById('fwinspect').onclick=async()=>{
   out.textContent='Inspecting manifest…';
   try{const r=await api('/api/firmware/inspect',{method:'POST',body:JSON.stringify({name:f.name,content:await f.text()})});out.textContent=JSON.stringify(r,null,2)}catch(e){out.textContent='Inspection failed: '+e.message}
 };
+function updShow(r){
+  const out=document.getElementById('updout'),inst=document.getElementById('updinstall');
+  out.textContent='Update file accepted\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n✓ Same app, newer version\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press Install update (valid for 10 minutes).';
+  inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.style.display='inline-block';
+}
 document.getElementById('updcheck').onclick=async()=>{
   const f=document.getElementById('updfile').files[0],out=document.getElementById('updout'),inst=document.getElementById('updinstall');
   out.style.display='block';inst.style.display='none';inst.dataset.sha='';
@@ -6733,9 +7249,18 @@ document.getElementById('updcheck').onclick=async()=>{
     const resp=await fetch('/api/update/stage',{method:'POST',headers:{'x-token':TOKEN},body:fd});
     const raw=await resp.text();let r={};try{r=JSON.parse(raw)}catch(_){r={error:raw}}
     if(!resp.ok)throw new Error(r.error||('Request failed ('+resp.status+')'));
-    out.textContent='Update file accepted\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n✓ Same app, newer version\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press Install update (valid for 10 minutes).';
-    inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.style.display='inline-block';
+    updShow(r);
   }catch(e){out.textContent='Update rejected: '+e.message}
+};
+document.getElementById('updurl').value=(()=>{try{return localStorage.getItem('matchi_ota_url')||''}catch(_){return ''}})();
+document.getElementById('updfetch').onclick=async()=>{
+  const u=document.getElementById('updurl').value.trim(),out=document.getElementById('updout'),inst=document.getElementById('updinstall');
+  out.style.display='block';inst.style.display='none';inst.dataset.sha='';
+  if(!/^https:\/\//i.test(u)){out.textContent='Enter an https:// link to the APK';return}
+  try{localStorage.setItem('matchi_ota_url',u)}catch(_){}
+  out.textContent='The device is downloading and checking the update…';
+  try{updShow(await api('/api/update/fetch',{method:'POST',body:JSON.stringify({url:u})}))}
+  catch(e){out.textContent='Update rejected: '+e.message}
 };
 document.getElementById('updinstall').onclick=async()=>{
   const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha;

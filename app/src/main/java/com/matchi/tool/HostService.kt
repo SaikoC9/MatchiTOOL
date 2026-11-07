@@ -5,9 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HostService : Service() {
-    private var server: WebServer? = null
+    @Volatile private var server: WebServer? = null
+    private val initialized = AtomicBoolean(false)
+    private val bootTasksRunning = AtomicBoolean(false)
+    private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(2) }
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -16,55 +24,64 @@ class HostService : Service() {
             .setContentTitle("MatchiTOOL running").setContentText("LAN · port ${Prefs.PORT}")
             .setSmallIcon(R.drawable.ic_stat_matchi).build()
         startForeground(1, n)
-        if (server == null) {
-            val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
-            server = srv
-            // start() throws if the port is still held by the previous instance (the service was restarted);
-            // that used to crash the service. Retry for a few seconds off the main thread instead.
-            Thread {
-                for (attempt in 1..8) {
-                    try { srv.start(); return@Thread } catch (e: java.io.IOException) {
-                        android.util.Log.w("MatchiTOOL", "Web host start failed (attempt $attempt): ${e.message}")
-                        try { Thread.sleep(700) } catch (_: InterruptedException) { return@Thread }
-                    }
-                }
-            }.start()
-        }
-        // Learn the router admin password automatically (root + verified against the router); no typing in the app.
-        Thread {
-            try { Thread.sleep(4000) } catch (_: InterruptedException) { return@Thread }
-            try { ZteClient.autoDetect(applicationContext) } catch (_: Exception) { }
-        }.apply { isDaemon = true; start() }
-        // Make sure clients connected to the ZTE hotspot can reach the console. The hotspot may come up late
-        // after boot and the firmware can rebuild its firewall, so the (idempotent) rule is re-checked a few times.
-        Thread {
-            for (wait in longArrayOf(3_000, 30_000, 90_000)) {
-                try { Thread.sleep(wait) } catch (_: InterruptedException) { return@Thread }
-                try { HostControl.openLanFirewall(applicationContext) } catch (_: Exception) {}
+
+        if (initialized.compareAndSet(false, true)) {
+            workers.execute { startWebHost() }
+            workers.schedule({
+                try { ZteClient.autoDetect(applicationContext) }
+                catch (e: Exception) { Log.w("MatchiTOOL", "Router auto-detect failed: ${e.message}") }
+            }, 4, TimeUnit.SECONDS)
+            // Recheck the firewall after boot/network bring-up without spawning duplicate thread sets.
+            for (delay in longArrayOf(3, 30, 90)) {
+                workers.schedule({
+                    try { HostControl.openLanFirewall(applicationContext) }
+                    catch (e: Exception) { Log.w("MatchiTOOL", "LAN firewall check failed: ${e.message}") }
+                }, delay, TimeUnit.SECONDS)
             }
-        }.apply { isDaemon = true; start() }
+        }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
         return START_STICKY
     }
-    private fun runBootTasks() {
-        Thread {
-            val result = RootShell.run(
-                this,
-                "if [ -f /data/local/matchitool/boot.sh ]; then /system/bin/sh /data/local/matchitool/boot.sh; else echo 'No MatchiTOOL boot tasks registered'; fi",
-                60_000
-            )
-            android.util.Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
-        }.start()
-        // Put the user's chosen IMEI back if the firmware restored the factory one during boot (waits for the modem).
-        Thread {
-            try {
-                val r = ImeiGuard.apply(this, 40, false)
-                android.util.Log.i("MatchiTOOL", "IMEI keeper: ${r.take(600)}")
-            } catch (e: Exception) { android.util.Log.w("MatchiTOOL", "IMEI keeper failed: ${e.message}") }
-        }.apply { isDaemon = true; start() }
+
+    private fun startWebHost() {
+        if (server != null) return
+        val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
+        server = srv
+        for (attempt in 1..8) {
+            try { srv.start(); Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT}"); return }
+            catch (e: java.io.IOException) {
+                Log.w("MatchiTOOL", "Web host start failed (attempt $attempt): ${e.message}")
+                try { Thread.sleep(700) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            }
+        }
+        try { srv.stop() } catch (_: Exception) {}
+        if (server === srv) server = null
+        Log.e("MatchiTOOL", "Web host did not start after retries")
+        if (!workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
     }
 
-    override fun onDestroy() { server?.stop(); server = null }
+    private fun runBootTasks() {
+        if (!bootTasksRunning.compareAndSet(false, true)) return
+        workers.execute {
+            try {
+                val result = RootShell.run(this,
+                    "if [ -f /data/local/matchitool/boot.sh ]; then /system/bin/sh /data/local/matchitool/boot.sh; else echo 'No MatchiTOOL boot tasks registered'; fi",
+                    60_000)
+                Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
+            } catch (e: Exception) { Log.e("MatchiTOOL", "Boot tasks failed: ${e.message}") }
+            finally { bootTasksRunning.set(false) }
+        }
+    }
+
+    override fun onDestroy() {
+        try { workers.shutdownNow() } catch (_: Exception) {}
+        try { server?.stop() } catch (_: Exception) {}
+        server = null
+        RootShell.closeAll()
+        initialized.set(false)
+        super.onDestroy()
+    }
+
     override fun onBind(i: Intent?): IBinder? = null
 
     companion object { const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS" }

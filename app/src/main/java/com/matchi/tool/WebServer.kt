@@ -23,8 +23,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
     /**
-     * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The six tools
-     * (Bypass, Device Status, AT & Radio, SMS, Signal Info, Live Status, Memory Cleaner) are part of the web page itself (web/index.html).
+     * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The built-in tools
+     * are embedded in the web page itself (web/index.html), not copied into the custom plugin directory.
      */
     private fun seedPlugins() {
         @Suppress("DEPRECATION")
@@ -50,6 +50,9 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
     private fun fail(ip: String) = synchronized(fails) {
         val now = System.currentTimeMillis()
+        if (ip !in fails && fails.size >= 256) {
+            fails.entries.minByOrNull { it.value.second }?.key?.let { fails.remove(it) }
+        }
         val f = fails[ip]
         fails[ip] = if (f == null || now - f.second > LOCK_MS) Pair(1, now) else Pair(f.first + 1, now)
     }
@@ -61,8 +64,15 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         override fun getDescription() = "429 Too Many Requests"
     }
 
-    private fun json(code: Response.IStatus, o: Any) =
-        newFixedLengthResponse(code, "application/json", o.toString()).also { it.addHeader("Cache-Control", "no-store") }
+    private fun harden(response: Response): Response = response.also {
+        it.addHeader("Cache-Control", "no-store")
+        it.addHeader("X-Content-Type-Options", "nosniff")
+        it.addHeader("X-Frame-Options", "DENY")
+        it.addHeader("Referrer-Policy", "no-referrer")
+        it.addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    }
+
+    private fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json", o.toString()))
 
     private fun body(s: IHTTPSession): JSONObject {
         val b = HashMap<String, String>(); s.parseBody(b)
@@ -76,8 +86,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     private fun servePage(s: IHTTPSession): Response {
         if (s.headers["if-none-match"] == pageTag)
-            return newFixedLengthResponse(Response.Status.NOT_MODIFIED, "text/html", "").also { it.addHeader("ETag", pageTag) }
-        return newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", ByteArrayInputStream(pageBytes), pageBytes.size.toLong()).also {
+            return harden(newFixedLengthResponse(Response.Status.NOT_MODIFIED, "text/html", "")).also { it.addHeader("ETag", pageTag) }
+        return harden(newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", ByteArrayInputStream(pageBytes), pageBytes.size.toLong())).also {
             it.addHeader("ETag", pageTag)
             it.addHeader("Cache-Control", "no-cache")
         }
@@ -91,6 +101,17 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         if (!uri.startsWith("/api/")) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404")
 
         val ip = s.remoteIpAddress ?: "?"
+        // Reject cross-origin browser requests. Same-origin page/plugin requests continue to work.
+        val origin = s.headers["origin"]
+        if (origin != null) {
+            val hostUri = try { java.net.URI("http://${s.headers["host"] ?: ""}") } catch (_: Exception) { null }
+            val originUri = try { java.net.URI(origin) } catch (_: Exception) { null }
+            val sameOrigin = hostUri != null && originUri != null && originUri.scheme == "http" &&
+                originUri.host?.equals(hostUri.host, ignoreCase = true) == true &&
+                (if (originUri.port >= 0) originUri.port else 80) == (if (hostUri.port >= 0) hostUri.port else 80)
+            if (!sameOrigin)
+                return json(Response.Status.FORBIDDEN, JSONObject().put("error", "cross-origin request refused"))
+        }
         // Only this device and clients on the ZTE's own hotspot / USB-tether network may use the API; clients arriving from
         // another Wi-Fi, mobile data or the internet are rejected even if the port is reachable.
         if (!HostControl.isHotspotClient(ctx, ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "ZTE hotspot network access only"))
@@ -353,6 +374,15 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             .put("size", staged.size).put("sha256", staged.sha256))
     }
 
+    /** OTA: {"url":"https://..."}; downloaded by the device, then verified exactly like an uploaded file. */
+    private fun updateFetch(req: JSONObject): Response {
+        val staged = ApkUpdater.stageFromUrl(ctx, req.optString("url"))
+        return json(Response.Status.OK, JSONObject().put("ok", true)
+            .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
+            .put("newName", staged.newName).put("newCode", staged.newCode)
+            .put("size", staged.size).put("sha256", staged.sha256))
+    }
+
     private fun updateInstall(req: JSONObject): Response {
         ApkUpdater.installStaged(ctx, req.optString("sha256"))
         return json(Response.Status.OK, JSONObject().put("ok", true).put("note", "Installing. The host restarts in a few seconds; reload the page when it comes back."))
@@ -366,14 +396,28 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun route(s: IHTTPSession, uri: String): Response = when {
-        uri == "/api/ping" -> json(Response.Status.OK, JSONObject().put("ok", true).put("version", "1.1.46"))
+        uri == "/api/ping" -> {
+            @Suppress("DEPRECATION")
+            val v = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+            json(Response.Status.OK, JSONObject().put("ok", true).put("version", v.versionName ?: ""))
+        }
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
+        uri == "/api/root/status" && s.method == Method.GET -> {
+            val status = RootShell.status(ctx)
+            json(Response.Status.OK, JSONObject()
+                .put("granted", status.granted)
+                .put("uid", status.uid)
+                .put("suPath", status.suPath)
+                .put("manager", status.managerHint)
+                .put("detail", status.detail))
+        }
         uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
         uri == "/api/screen/input" && s.method == Method.POST -> screenInput(body(s))
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
         uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
         uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
+        uri == "/api/update/fetch" && s.method == Method.POST -> updateFetch(body(s))
         uri == "/api/update/install" && s.method == Method.POST -> updateInstall(body(s))
         uri == "/api/update/status" && s.method == Method.GET -> updateStatus(s)
         uri == "/api/shell" && s.method == Method.POST -> {
@@ -464,7 +508,15 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val req = body(s)
             val name = req.optString("name"); val code = req.optString("code")
             if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
-            if (code.isBlank() || code.length > 2_000_000) throw IllegalArgumentException("empty or too large")
+            val codeBytes = code.toByteArray(Charsets.UTF_8).size
+            if (code.isBlank() || codeBytes > 1_048_576) throw IllegalArgumentException("plugin must be 1 byte to 1 MB")
+            val reserved = setOf("AT_Radio.js", "Bypass_v65_14.js", "Smart_F50_Monitor.js", "Network_Diagnostics.js",
+                "Device_Status.js", "Live_Status.js", "Memory_Cleaner.js", "Network_Debug.js", "SMS.js", "Signal_Info.js", "Screen_Control.js")
+            if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
+            val files = pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".js") }?.toList().orEmpty()
+            if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
+            val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes
+            if (total > 5L * 1024L * 1024L) throw IllegalArgumentException("custom plugin storage limit is 5 MB")
             File(pluginDir, name).writeText(code)
             json(Response.Status.OK, JSONObject().put("ok", true))
         }

@@ -116,15 +116,18 @@ object ScreenStreamer {
     private class Proc(val p: Process) {
         val out = p.outputStream
         val inp = DataInputStream(BufferedInputStream(p.inputStream, 1 shl 16))
-        init {
-            Thread({
-                try { val b = ByteArray(1024); val e = p.errorStream; while (e.read(b) >= 0) { /* drain */ } } catch (_: Exception) { }
-            }, "MatchiScreenErr").apply { isDaemon = true; start() }
-        }
+        private val errThread = Thread({
+            try { val b = ByteArray(1024); val e = p.errorStream; while (e.read(b) >= 0) { /* drain */ } } catch (_: Exception) { }
+        }, "MatchiScreenErr").apply { isDaemon = true; start() }
         fun close() {
             try { out.close() } catch (_: Exception) { }
             try { p.destroy() } catch (_: Exception) { }
-            try { if (p.isAlive) p.destroyForcibly() } catch (_: Exception) { }
+            try { if (!p.waitFor(250, TimeUnit.MILLISECONDS) && p.isAlive) p.destroyForcibly() } catch (_: Exception) {
+                try { if (p.isAlive) p.destroyForcibly() } catch (_: Exception) { }
+            }
+            try { p.inputStream.close() } catch (_: Exception) { }
+            try { p.errorStream.close() } catch (_: Exception) { }
+            try { errThread.join(150) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
         }
     }
 

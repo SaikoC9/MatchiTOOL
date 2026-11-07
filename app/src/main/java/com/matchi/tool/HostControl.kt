@@ -1,8 +1,6 @@
 package com.matchi.tool
 
 import android.content.Context
-import android.content.Intent
-import android.os.Build
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -12,6 +10,7 @@ object HostControl {
     private val hotspotIf = Regex("^(br|ap|swlan|usb|rndis|ecm)[0-9a-z_]*$")
     private class Net(val addr: Int, val mask: Int)
     @Volatile private var cachedNets: List<Net> = emptyList()
+    @Volatile private var cachedV6Nets: List<Pair<ByteArray, Int>> = emptyList()
     @Volatile private var cachedAt = 0L
 
     private fun v4(s: String): Int? {
@@ -29,20 +28,27 @@ object HostControl {
         val now = System.currentTimeMillis()
         if (now - cachedAt < 5_000) return cachedNets
         val out = ArrayList<Net>()
+        val out6 = ArrayList<Pair<ByteArray, Int>>()
         try {
             for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return cachedNets)) {
                 if (!nif.isUp || nif.isLoopback || !hotspotIf.matches(nif.name.lowercase())) continue
                 for (ia in nif.interfaceAddresses) {
-                    val a = ia.address as? java.net.Inet4Address ?: continue
                     val prefix = ia.networkPrefixLength.toInt()
-                    if (!a.isSiteLocalAddress || prefix < 16 || prefix > 30) continue
-                    val mask = (-1) shl (32 - prefix)
-                    out.add(Net(v4(a.hostAddress ?: continue) ?: continue, mask))
+                    val a = ia.address
+                    if (a is java.net.Inet4Address) {
+                        if (!a.isSiteLocalAddress || prefix < 16 || prefix > 30) continue
+                        val mask = (-1) shl (32 - prefix)
+                        out.add(Net(v4(a.hostAddress ?: continue) ?: continue, mask))
+                    } else if (a is java.net.Inet6Address && !a.isLinkLocalAddress && !a.isMulticastAddress && prefix in 1..128) {
+                        out6.add(a.address to prefix)
+                    }
                 }
             }
         } catch (_: Exception) {}
         if (out.isEmpty()) v4(Prefs.zteHost(ctx).substringBefore(':'))?.let { out.add(Net(it, (-1) shl 8)) }
-        cachedNets = out; cachedAt = now
+        cachedNets = out
+        cachedV6Nets = out6
+        cachedAt = now
         return out
     }
 
@@ -51,6 +57,22 @@ object HostControl {
         var ip = raw.substringBefore('%').lowercase()
         if (ip.startsWith("::ffff:")) ip = ip.removePrefix("::ffff:")
         if (ip == "::1" || ip == "0:0:0:0:0:0:0:1" || ip == "localhost") return true
+        if (ip.contains(':')) {
+            hotspotNets(ctx) // refresh both address-family caches
+            val address = try { java.net.InetAddress.getByName(ip) as? java.net.Inet6Address } catch (_: Exception) { null } ?: return false
+            val bytes = address.address
+            return cachedV6Nets.any { (network, prefix) ->
+                val full = prefix / 8
+                val rem = prefix % 8
+                var matches = true
+                for (i in 0 until full) if (bytes[i] != network[i]) { matches = false; break }
+                if (matches && rem > 0) {
+                    val mask = (0xff shl (8 - rem)) and 0xff
+                    matches = (bytes[full].toInt() and mask) == (network[full].toInt() and mask)
+                }
+                matches
+            }
+        }
         val v = v4(ip) ?: return false
         if ((v ushr 24) == 127) return true
         return hotspotNets(ctx).any { (v and it.mask) == (it.addr and it.mask) }
@@ -93,9 +115,11 @@ object HostControl {
      */
     fun openLanFirewall(ctx: Context) {
         val p = Prefs.PORT
-        val script = "for t in iptables ip6tables; do command -v \$t >/dev/null 2>&1 || continue; " +
-            "for i in br0 usb0 rndis0 ecm0; do " +
-            "\$t -C INPUT -i \$i -p tcp --dport $p -j ACCEPT 2>/dev/null || \$t -I INPUT 1 -i \$i -p tcp --dport $p -j ACCEPT 2>/dev/null; " +
+        val script = "UP=\" \$( { ip route show default 2>/dev/null; ip route show table all 2>/dev/null | grep '^default'; ip route get 8.8.8.8 2>/dev/null; } | sed -n 's/.* dev \\([^ ]*\\).*/\\1/p' | sort -u | tr '\\n' ' ')\"; " +
+            "for t in iptables ip6tables; do command -v \$t >/dev/null 2>&1 || continue; " +
+            "for path in /sys/class/net/*; do [ -e \"\$path\" ] || continue; i=\${path##*/}; " +
+            "case \"\$i\" in br*|ap*|swlan*|usb*|rndis*|ecm*) case \"\$UP\" in *\" \$i \"*) continue;; esac; " +
+            "\$t -C INPUT -i \"\$i\" -p tcp --dport $p -j ACCEPT 2>/dev/null || \$t -I INPUT 1 -i \"\$i\" -p tcp --dport $p -j ACCEPT 2>/dev/null;; esac; " +
             "done; done; echo done"
         RootShell.run(ctx, script, 15_000)
     }
