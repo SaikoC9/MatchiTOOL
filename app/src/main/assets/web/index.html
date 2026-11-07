@@ -429,8 +429,8 @@ header #logoutbtn,header .hd-reboot{flex:none}
 .modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .modal-bg:not([id=kano_bypass_modal]) .modal .mfoot button{width:100%;min-width:0;text-align:center}
 @media(min-width:701px){.modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{grid-template-columns:minmax(0,220px);justify-content:end}}
-/* toasts: same soft look as the dialogs (dark panel, thin tinted border and accent bar) instead of a solid colour block */
-.toast{--tc:100,230,164;background:linear-gradient(rgba(var(--tc),.14),rgba(var(--tc),.14)),#0f1a2c;border:1px solid rgba(var(--tc),.4);border-left:3px solid rgb(var(--tc));color:var(--fg);font-weight:600;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+/* toasts: flat dark panel with a thin even border in the message colour (no tint, no side bar, no shadow) */
+.toast{--tc:100,230,164;background:#101b2e;border:1px solid rgba(var(--tc),.45);color:var(--fg);font-weight:600;border-radius:12px;box-shadow:none}
 .toast[data-k=red]{--tc:255,138,138}
 .toast[data-k=orange]{--tc:255,184,77}
 .toast[data-k=blue]{--tc:85,182,255}
@@ -470,6 +470,12 @@ header #logoutbtn,header .hd-reboot{flex:none}
 #home .liv-foot{margin-top:4px!important;font-size:9.5px!important}
 @media(max-width:520px){#home .liv-t4{--cols:2}}
 @media(min-width:521px){#home .liv-t4{--cols:4}}
+/* a little more room on the left and right of every dialog and popup (the :not(#_) pairs make these win over the per-dialog rules) */
+.modal-bg:not(#_):not(#__){padding-left:20px!important;padding-right:20px!important}
+.modal-bg:not(#_):not(#__) .modal{padding-left:20px!important;padding-right:20px!important}
+.modal-bg:not(#_):not(#__) .modal .mfoot{margin-left:-20px!important;margin-right:-20px!important;padding-left:20px!important;padding-right:20px!important}
+.card.pop.open:not(#_):not(#__){width:min(680px,calc(100vw - 40px))!important}
+#selftest.pop.open:not(#_):not(#__){width:min(900px,calc(100vw - 40px))!important}
 </style>
 </head>
 <body>
