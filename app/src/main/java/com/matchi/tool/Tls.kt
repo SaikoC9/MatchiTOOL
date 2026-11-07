@@ -78,7 +78,7 @@ object Tls {
             true
         }
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "TLS self-test failed: ${e.message}")
+        Log.w("MatchiTOOL", "TLS self-test failed: ${e.javaClass.simpleName}: ${e.message}" + (e.cause?.let { " (cause: ${it.javaClass.simpleName}: ${it.message})" } ?: ""))
         false
     }
 }
