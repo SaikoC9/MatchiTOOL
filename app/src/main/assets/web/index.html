@@ -416,8 +416,8 @@ header #logoutbtn,header .hd-reboot{flex:none}
    popup and card. The Bypass dialog keeps its own rules (it is excluded below); only colours, borders and radii change here, never layouts or sizes. */
 .modal-bg:not([id=kano_bypass_modal]) .modal{border-radius:16px;border-color:rgba(255,255,255,.09);box-sizing:border-box;overflow-x:hidden}
 .modal-bg:not([id=kano_bypass_modal]) .modal h3{font-weight:800;letter-spacing:.2px}
-.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose),.card :is(button:not([class]),.mclose),.card.pop button:not([class]){background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:10px!important;font-weight:650;box-shadow:none}
-@media(hover:hover){.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose):not(:disabled):hover,.card :is(button:not([class]),.mclose):not(:disabled):hover{background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.2)!important;transform:none;box-shadow:none}}
+.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose),.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn),.card.pop button:not([class]){background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:10px!important;font-weight:650;box-shadow:none}
+@media(hover:hover){.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose):not(:disabled):hover,.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn):not(:disabled):hover{background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.2)!important;transform:none;box-shadow:none}}
 .modal-bg:not([id=kano_bypass_modal]) .modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea),.card :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea){background:rgba(0,0,0,.25)!important;border:1px solid rgba(255,255,255,.2)!important;border-radius:10px!important;color:inherit}
 .modal-bg:not([id=kano_bypass_modal]) .modal :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus,.card :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus{outline:none;border-color:rgba(80,160,255,.7)!important;box-shadow:0 0 0 3px rgba(80,160,255,.18)}
 .modal-bg:not([id=kano_bypass_modal]) .modal input[type=checkbox],.card input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:32px!important;min-width:32px;height:18px!important;min-height:0!important;padding:0!important;border:0!important;border-radius:9px!important;background-color:rgba(255,255,255,.25)!important;background-image:radial-gradient(circle,#fff 7px,transparent 7.5px);background-size:18px 18px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .2s cubic-bezier(.4,0,.2,1),background-color .2s;cursor:pointer}
@@ -429,6 +429,47 @@ header #logoutbtn,header .hd-reboot{flex:none}
 .modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .modal-bg:not([id=kano_bypass_modal]) .modal .mfoot button{width:100%;min-width:0;text-align:center}
 @media(min-width:701px){.modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{grid-template-columns:minmax(0,220px);justify-content:end}}
+/* toasts: same soft look as the dialogs (dark panel, thin tinted border and accent bar) instead of a solid colour block */
+.toast{--tc:100,230,164;background:linear-gradient(rgba(var(--tc),.14),rgba(var(--tc),.14)),#0f1a2c;border:1px solid rgba(var(--tc),.4);border-left:3px solid rgb(var(--tc));color:var(--fg);font-weight:600;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.toast[data-k=red]{--tc:255,138,138}
+.toast[data-k=orange]{--tc:255,184,77}
+.toast[data-k=blue]{--tc:85,182,255}
+/* live device status: small and compact (phone and PC) */
+#home .liv-head{margin-bottom:4px!important}
+#home .liv-title{font-size:10.5px!important;letter-spacing:.1em!important}
+#home .liv-live{font-size:10.5px!important;gap:5px!important}
+#home .liv-hero{padding:5px 9px!important;gap:8px!important;border-radius:10px!important}
+#home .liv-sig,#home .liv-bat{gap:7px!important}
+#home .liv-sig svg{width:30px!important;height:30px!important}
+#home .liv-bat svg{width:30px!important;height:auto!important;max-height:20px}
+#home .liv-dbm{font-size:17px!important}#home .liv-bat .liv-dbm{font-size:16px!important}
+#home .liv-dbm small{font-size:10px!important}
+#home .liv-q{font-size:10px!important;margin-top:0!important}
+#home .liv-op{font-size:13px!important}
+#home .liv-badge{font-size:10.5px!important;padding:0 7px!important}
+#home .liv-hero .mut{font-size:10.5px!important}
+#home .liv-hero>div:nth-child(2)>div:nth-child(2){margin-top:2px!important;gap:6px!important}
+#home .liv-grid{gap:5px!important;margin-top:5px!important}
+#home .liv-box{padding:4px 8px 6px!important;border-radius:9px!important}
+#home .liv-box h4{font-size:11px!important;margin:0 0 3px!important;gap:5px!important}
+#home .liv-box h4 svg{width:13px!important;height:13px!important}
+#home .liv-kv{font-size:10px!important}
+#home .liv-ms{gap:8px!important}
+#home .liv-ml{font-size:10px!important}#home .liv-m b{font-size:11px!important}#home .liv-m small{font-size:9px!important}
+#home .liv-mt{margin-bottom:2px!important}
+#home .liv-bar{height:3px!important}
+#home .liv-tiles{display:grid!important;grid-template-columns:repeat(var(--cols,3),minmax(0,1fr));gap:5px!important;margin-top:5px!important}
+#home .liv-t3{--cols:3}
+#home .liv-tile{flex-direction:row!important;align-items:center!important;gap:6px!important;padding:3px 8px!important;border-radius:9px!important;min-width:0}
+#home .liv-tile>div:last-child{min-width:0}
+#home .liv-ti svg{width:14px!important;height:14px!important;display:block}
+#home .liv-tl{font-size:9.5px!important;line-height:1.15!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#home .liv-tv{font-size:12px!important;line-height:1.15!important;white-space:nowrap}
+#home .liv-ts{font-size:9px!important;line-height:1.15!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#home .liv-heat{margin-top:5px!important;padding:4px 8px!important;font-size:10.5px!important}
+#home .liv-foot{margin-top:4px!important;font-size:9.5px!important}
+@media(max-width:520px){#home .liv-t4{--cols:2}}
+@media(min-width:521px){#home .liv-t4{--cols:4}}
 </style>
 </head>
 <body>
@@ -1006,11 +1047,11 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const boxes = [];
     if (M.hasNr) boxes.push(radioBox('5G NR', M.nr));
     if (M.hasLte || !M.hasNr) boxes.push(radioBox('4G LTE', M.lte));
-    const tiles = `<div class="liv-tiles">
+    const tiles = `<div class="liv-tiles liv-t3">
       ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
-    const sys = `<div class="liv-tiles">
+    const sys = `<div class="liv-tiles liv-t4">
       ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu + ' %' : '—', '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
@@ -6151,10 +6192,15 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       }
       #${MODAL_NAME} .bp-grid .bp-stat{min-height:2.5em;padding:4px 9px}
       #${MODAL_NAME} .bp-tabs{position:static;margin-bottom:8px}
-      #${MODAL_NAME} .bp-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:stretch;flex-wrap:nowrap}
-      #${MODAL_NAME} .bp-bar button{width:100%;min-width:0;margin:0 !important;text-align:center;white-space:normal;line-height:1.2;padding:9px 8px !important}
-      #${MODAL_NAME} .bp-bar .bp-close{margin-left:0 !important}
-      @media (min-width:701px){#${MODAL_NAME} .bp-bar{grid-template-columns:repeat(4,minmax(0,1fr))}}
+      #${MODAL_NAME} .bp-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:8px}
+      #${MODAL_NAME} .bp-bar button{flex:0 0 auto;width:auto !important;min-width:0;min-height:30px !important;margin:0 !important;padding:4px 11px !important;font-size:.72rem !important;font-weight:650;line-height:1.2;white-space:nowrap;text-align:center;border-radius:9px !important}
+      #${MODAL_NAME} .bp-bar .bp-close{margin-left:auto !important}
+      @media (max-width:420px){#${MODAL_NAME} .bp-bar{gap:5px}#${MODAL_NAME} .bp-bar button{padding:4px 8px !important;font-size:.68rem !important}}
+      #${MODAL_NAME} .bp-switch{position:relative;width:40px !important;height:22px !important;min-width:40px;min-height:0 !important;padding:0 !important;border:0 !important;border-radius:999px !important;background-image:none !important;background-color:rgba(255,255,255,.22);transition:background-color .2s}
+      #${MODAL_NAME} .bp-switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .2s cubic-bezier(.4,0,.2,1)}
+      #${MODAL_NAME} .bp-switch.on,#${MODAL_NAME} .bp-switch[aria-checked=true]{background-color:rgba(100,230,164,.75)}
+      #${MODAL_NAME} .bp-switch.on::after,#${MODAL_NAME} .bp-switch[aria-checked=true]::after{transform:translateX(18px)}
+      #${MODAL_NAME} .bp-srow .bp-switch{width:40px !important;height:22px !important;background-size:auto !important}
     `;
     document.head.appendChild(style);
   };
@@ -6782,10 +6828,11 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
 </script>
 <script>
 const COLORS={red:'#c92a2a',orange:'#e8590c',green:'#2b8a3e',blue:'#1c7ed6'};
+const TOAST_MS=4000; /* every popup at the top stays 4 seconds, whatever time the caller asks for */
 function createToast(msg,color,ms){
   const t=document.createElement('div');t.className='toast';t.textContent=msg;
-  t.style.background=COLORS[color]||color||COLORS.green;
-  document.getElementById('toasts').appendChild(t);setTimeout(()=>t.remove(),ms||3000);
+  if(COLORS[color])t.dataset.k=color;else if(color)t.style.background=color;else t.dataset.k='green';
+  document.getElementById('toasts').appendChild(t);setTimeout(()=>t.remove(),TOAST_MS);
 }
 /* In-page confirm dialog (replaces the browser's "192.168.0.1:2334 says" box). Resolves true / false. */
 function askConfirm(message,okText,danger){
