@@ -548,7 +548,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/ping" -> {
             @Suppress("DEPRECATION")
             val v = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-            json(Response.Status.OK, JSONObject().put("ok", true).put("version", v.versionName ?: ""))
+            json(Response.Status.OK, JSONObject().put("ok", true).put("version", v.versionName ?: "").put("page", pageTag.trim('"')))
         }
         uri == "/api/logout" && s.method == Method.POST -> {
             Sessions.revoke(ctx, s.headers["x-token"])

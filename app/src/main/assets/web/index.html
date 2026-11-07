@@ -519,8 +519,8 @@ header{background:rgba(7,11,20,.8)!important;-webkit-backdrop-filter:blur(14px) 
 /* buttons: one flat soft look, clear press and hover, key actions in blue */
 .card :is(button:not([class]),.mclose):not(:disabled):active,.modal :is(button:not([class]),.mclose):not(:disabled):active{background:rgba(255,255,255,.18)!important}
 button:disabled{opacity:.45;cursor:not-allowed}
-#updinstall,#tokbtn{background:linear-gradient(180deg,#2185ec,#1568c8)!important;border:1px solid rgba(140,200,255,.5)!important;color:#fff!important;box-shadow:0 4px 14px rgba(22,140,255,.28)!important}
-@media(hover:hover){#updinstall:not(:disabled):hover,#tokbtn:not(:disabled):hover{background:linear-gradient(180deg,#2b8ff5,#1a72d6)!important;border-color:rgba(170,215,255,.7)!important}}
+#updinstall,#updonline,#tokbtn{background:linear-gradient(180deg,#2185ec,#1568c8)!important;border:1px solid rgba(140,200,255,.5)!important;color:#fff!important;box-shadow:0 4px 14px rgba(22,140,255,.28)!important}
+@media(hover:hover){#updinstall:not(:disabled):hover,#updonline:not(:disabled):hover,#tokbtn:not(:disabled):hover{background:linear-gradient(180deg,#2b8ff5,#1a72d6)!important;border-color:rgba(170,215,255,.7)!important}}
 .popx{letter-spacing:.01em}
 
 /* inputs: file field matches the other fields, and its button matches the other buttons (flat, soft) */
@@ -590,12 +590,12 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
   </div>
   <div class="card pop" id="appupdate">
     <div class="mut" style="margin-bottom:8px">Update MatchiTOOL</div>
-    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, the same version number with a different SHA-256 updates too, an identical file reinstalls, and an older version rolls back (app settings are kept). You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
+    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, and the same version number with a different SHA-256 updates too. If the SHA-256 is identical it tells you MatchiTOOL is already the latest, and an older version is refused. App settings are kept. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
-    <p class="mut" style="margin-top:12px">Or update over the air from the MatchiTOOL releases. Press <b>Check for update</b> first: it only asks what is online and downloads nothing. When a build is found the button turns into <b>Download &amp; verify</b>.</p>
+    <p class="mut" style="margin-top:12px">Or update online from the MatchiTOOL releases. <b>Check for update</b> only asks what is online and downloads nothing. When a newer build exists, <b>Install online</b> downloads it on the device, verifies it and installs it after you confirm. <b>Download APK</b> saves the file to this phone only; nothing is installed.</p>
     <input id="updurl" type="url" hidden style="display:none!important" tabindex="-1" aria-hidden="true">
-    <p><button id="updfetch">Check for update</button></p>
+    <p><button id="updfetch">Check for update</button> <button id="updonline" style="display:none">Install online</button> <button id="upddl">Download APK</button></p>
     <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -1185,7 +1185,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
   // pause the 5 s polling while another tool window (SMS, ...) is open so it does not compete for the root shell
   const otherOpen = () => [...document.querySelectorAll('.modal-bg.show')].some((m) => m.id !== ID);
-  const visible = () => !document.hidden && !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());
+  const visible = () => !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());
 
   function paint() {
     const html = render(last);
@@ -1200,7 +1200,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
     const t = busy && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
-    const stale = s < 0 || s > 90;
+    const stale = s < 0 || s > 45;
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
@@ -1218,18 +1218,18 @@ rm -f $P.g $P.4 $P.6 $P.d
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
   // not a substitute for the firmware's thermal protection.
   const nextDelay = () => {
-    if (!last) return 60000;
-    if (last.thermalLevel >= 2) return 180000;
-    if (last.thermalLevel === 1) return 120000;
-    return 60000;
+    if (!last) return 3000;
+    if (last.thermalLevel >= 2) return 30000;
+    if (last.thermalLevel === 1) return 10000;
+    return 3000;
   };
   // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
   let auto = true;
   try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
   const syncAuto = () => { const b = inl && inl.querySelector('.liv-sw'); if (b) b.setAttribute('aria-checked', String(auto)); const l = inl && inl.querySelector('.liv-autolbl'); if (l) l.textContent = 'Live refresh: ' + (auto ? 'On' : 'Off'); };
   const loop = async () => { if (auto) await tick(); timer = setTimeout(loop, nextDelay()); };
-  timer = setTimeout(loop, 60000); tickTimer = setInterval(when, 15000);
-  document.addEventListener('visibilitychange', () => { if (auto && !document.hidden && (!lastOk || Date.now() - lastOk > 30000)) tick(); });
+  timer = setTimeout(loop, 3000); tickTimer = setInterval(when, 1000);
+  document.addEventListener('visibilitychange', () => { if (auto && !document.hidden && (!lastOk || Date.now() - lastOk > 8000)) tick(); });
   if (inl) {
     syncAuto();
     inl.querySelector('.liv-auto').onclick = () => {
@@ -1237,7 +1237,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       try { localStorage.setItem('liv_auto', auto ? '1' : '0'); } catch (_) {  }
       syncAuto();
       clearTimeout(timer);
-      timer = setTimeout(loop, auto ? nextDelay() : 60000);
+      timer = setTimeout(loop, auto ? nextDelay() : 60000);  // off: loop only re-arms, it does not poll
       if (auto) tick();
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
@@ -7861,11 +7861,11 @@ document.getElementById('fwinspect').onclick=async()=>{
 };
 const UPD_REL={newer:{head:'Update file accepted',line:'✓ Newer version than the installed app',btn:'Install update',ask:'Install'},
   rebuild:{head:'Different build of the same version',line:'✓ Same version number, but a different file (the SHA-256 differs from the installed app): installing will update it (settings are kept)',btn:'Install update',ask:'Install'},
-  same:{head:'Identical to the installed app',line:'• Same version and the same SHA-256: installing will only reinstall it (settings are kept)',btn:'Reinstall same file',ask:'Reinstall'},
-  older:{head:'Older version: rollback',line:'• Older version: installing will roll the app back (settings are kept)',btn:'Roll back to this version',ask:'Roll back'}};
+  same:{head:'You are on the latest version',line:'✓ The SHA-256 is identical to the installed app, so MatchiTOOL is already the latest. Nothing to install.',btn:'',ask:''}};
 function updShow(r){
   const out=document.getElementById('updout'),inst=document.getElementById('updinstall'),R=UPD_REL[r.relation]||UPD_REL.newer;
-  out.textContent=R.head+'\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256 installed: '+(r.installedSha256||'(could not be read)')+'\nSHA-256 new:       '+r.sha256+'\nSHA-256 match:     '+(r.installedSha256?(r.installedSha256.toLowerCase()===String(r.sha256).toLowerCase()?'yes (same file)':'no (different file)'):'unknown')+'\n\n'+R.line+'\n✓ Same app\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press the button below (valid for 10 minutes).';
+  out.textContent=R.head+'\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256 installed: '+(r.installedSha256||'(could not be read)')+'\nSHA-256 new:       '+r.sha256+'\nSHA-256 match:     '+(r.installedSha256?(r.installedSha256.toLowerCase()===String(r.sha256).toLowerCase()?'yes (same file)':'no (different file)'):'unknown')+'\n\n'+R.line+'\n✓ Same app\n✓ Signed with the same key as the installed app'+(r.relation==='same'?'':'\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press the button below (valid for 10 minutes).');
+  if(r.relation==='same'){inst.dataset.sha='';inst.style.display='none';return}
   inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.dataset.rel=r.relation;inst.textContent=R.btn;inst.style.display='inline-block';
 }
 document.getElementById('updcheck').onclick=async()=>{
@@ -7883,36 +7883,61 @@ document.getElementById('updcheck').onclick=async()=>{
   }catch(e){out.textContent='Update rejected: '+e.message}
 };
 document.getElementById('updurl').value=(()=>{const D='https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk';try{const v=localStorage.getItem('matchi_ota_url')||'';return v&&!/\/releases\/tag\//.test(v)?v:D}catch(_){return D}})();
-let otaStep='check',otaUrl='';
-function otaSet(step){otaStep=step;document.getElementById('updfetch').textContent=step==='download'?'Download & verify':'Check for update'}
-document.getElementById('updurl').addEventListener('input',()=>{otaSet('check');document.getElementById('updinstall').style.display='none'});
+const otaLink=()=>document.getElementById('updurl').value.trim();
+const otaOk=(u,out)=>{if(/^https:\/\//i.test(u))return true;out.style.display='block';out.textContent='Enter an https:// link to the APK';return false};
+// Step 1: ask what is online (downloads nothing).
 document.getElementById('updfetch').onclick=async()=>{
-  const u=document.getElementById('updurl').value.trim(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),btn=document.getElementById('updfetch');
-  out.style.display='block';inst.style.display='none';inst.dataset.sha='';
-  if(!/^https:\/\//i.test(u)){out.textContent='Enter an https:// link to the APK';otaSet('check');return}
+  const u=otaLink(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),btn=document.getElementById('updfetch'),on=document.getElementById('updonline');
+  out.style.display='block';inst.style.display='none';inst.dataset.sha='';on.style.display='none';
+  if(!otaOk(u,out))return;
   try{localStorage.setItem('matchi_ota_url',u)}catch(_){}
   btn.disabled=true;
   try{
-    if(otaStep==='check'||u!==otaUrl){
-      out.textContent='Checking what is online (nothing is downloaded)…';
-      const c=await api('/api/update/check',{method:'POST',body:JSON.stringify({url:u})});
-      otaUrl=u;
-      const rel={newer:'A newer version is available.',rebuild:'Same version number, but the online SHA-256 differs from the installed app, so it is a different build and installing it updates the app.',same:c.sha256?'Identical to the installed app (same SHA-256). You can still download it to reinstall.':'Same version number as the installed app. The online SHA-256 is not published, so Download & verify will compare the files.',older:'This is an OLDER version than the installed app (you can download it to roll back).',unknown:'The online version could not be compared; download it to see its exact version.'}[c.relation]||'';
-      out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.installedSha256?'\nSHA-256 installed: '+c.installedSha256:'')+(c.sha256?'\nSHA-256 online:    '+c.sha256:'')+'\n\n'+rel+'\n\nPress Download & verify to fetch it; it is fully checked again before anything can be installed.';
-      otaSet('download');
-    }else{
-      out.textContent='The device is downloading and checking the file…';
-      updShow(await api('/api/update/fetch',{method:'POST',body:JSON.stringify({url:u})}));
-      otaSet('check');
-    }
-  }catch(e){out.textContent=(otaStep==='download'?'Update rejected: ':'Check failed: ')+e.message;otaSet('check')}
+    out.textContent='Checking what is online (nothing is downloaded)…';
+    const c=await api('/api/update/check',{method:'POST',body:JSON.stringify({url:u})});
+    const latest=(c.relation==='same'&&!!c.sha256)||c.relation==='older';
+    const rel={newer:'A newer version is available.',rebuild:'Same version number, but the online SHA-256 differs from the installed app, so it is a different build and installing it updates the app.',same:c.sha256?'You are on the latest version (the online SHA-256 is identical to the installed app). Nothing to install.':'Same version number as the installed app. The online SHA-256 is not published, so Install online will compare the files and only install if they differ.',older:'The online file is an older version than the installed app, so it is not offered (rollback is not supported).',unknown:'The online version could not be compared; Install online will download and check it before anything is installed.'}[c.relation]||'';
+    out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.installedSha256?'\nSHA-256 installed: '+c.installedSha256:'')+(c.sha256?'\nSHA-256 online:    '+c.sha256:'')+'\n\n'+rel+(latest?'':'\n\nPress Install online to download it on the device, verify it and install it (you confirm first). Or press Download APK to save the file to this phone only.');
+    on.style.display=latest?'none':'inline-block';
+  }catch(e){out.textContent='Check failed: '+e.message}
   finally{btn.disabled=false}
+};
+// Step 2 (online install): the device downloads and verifies the file, then the normal confirm-and-install dialog opens.
+document.getElementById('updonline').onclick=async()=>{
+  const u=otaLink(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),on=document.getElementById('updonline');
+  if(!otaOk(u,out))return;
+  on.disabled=true;inst.style.display='none';inst.dataset.sha='';
+  out.style.display='block';
+  const t0=Date.now(),tick=()=>{out.textContent='The device is downloading and checking the file… '+Math.round((Date.now()-t0)/1000)+' s\nThe install window opens by itself when the download is done.'};
+  tick();const tm=setInterval(tick,1000);
+  try{
+    const r=await api('/api/update/fetch',{method:'POST',body:JSON.stringify({url:u})});
+    clearInterval(tm);
+    updShow(r);
+    on.style.display='none';
+    if(r.relation==='same'||r.relation==='older')return;
+    try{createToast('Download complete','green',4000)}catch(_){}
+    try{navigator.vibrate&&navigator.vibrate(120)}catch(_){}
+    inst.dataset.src='online';
+    await inst.onclick();   // opens the install window right away
+  }catch(e){out.textContent='Update rejected: '+e.message}
+  finally{clearInterval(tm);on.disabled=false}
+};
+// Download only: the phone's own browser saves the APK; the device does not download or install anything.
+document.getElementById('upddl').onclick=()=>{
+  const u=otaLink(),out=document.getElementById('updout');
+  if(!otaOk(u,out))return;
+  try{localStorage.setItem('matchi_ota_url',u)}catch(_){}
+  const a=document.createElement('a');a.href=u;a.download='MatchiTOOL.apk';a.rel='noopener';a.style.display='none';
+  document.body.appendChild(a);a.click();a.remove();
+  out.style.display='block';out.textContent='Download started in this phone\'s browser. The APK is saved to the phone (usually the Downloads folder). Nothing was installed.';
 };
 document.getElementById('updinstall').onclick=async()=>{
   const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha,rel=inst.dataset.rel||'newer',R=UPD_REL[rel]||UPD_REL.newer;
   if(!sha)return;
-  const extra=rel==='older'?'\n\nRollback: settings and saved data are kept. If Android refuses the downgrade, the app is removed with its data kept and the older build is installed in its place.':rel==='rebuild'?'\n\nSame version number, but a different file (SHA-256 differs from the installed app). Settings and saved data are kept.':rel==='same'?'\n\nThis is the identical file (same SHA-256) and only reinstalls the build you already have.':'';
-  if(!(await askConfirm(R.ask+' MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+extra+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.',R.ask,true)))return;
+  const extra=rel==='rebuild'?'\n\nSame version number, but a different file (SHA-256 differs from the installed app). Settings and saved data are kept.':'';
+  const fromOnline=inst.dataset.src==='online';inst.dataset.src='';
+  if(!(await askConfirm((fromOnline?'Download complete and verified.\n\n':'')+R.ask+' MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+extra+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.',fromOnline?'Install now':R.ask,false)))return;
   inst.style.display='none';
   out.textContent='Starting the installer…';
   let before=null;try{before=await api('/api/update/status')}catch(_){}
@@ -7925,7 +7950,7 @@ document.getElementById('updinstall').onclick=async()=>{
       try{const st=await api('/api/update/status'+(Date.now()-t0>45000?'?log=1':''));
         // A same-version reinstall keeps the same version text, so also watch the package's last-update time.
         const replaced=before?(st.lastUpdate!==before.lastUpdate||st.code!==before.code):true;
-        if(st.version===want&&Number(st.code)===wantCode&&replaced){out.textContent='MatchiTOOL '+(rel==='older'?'rolled back to ':rel==='same'?'reinstalled as ':'updated to ')+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';otaSet('check');createToast('MatchiTOOL '+want+' installed','green',8000);return}
+        if(st.version===want&&Number(st.code)===wantCode&&replaced){out.textContent='MatchiTOOL '+'updated to '+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';createToast('MatchiTOOL '+want+' installed','green',8000);return}
         if(Date.now()-t0>45000&&st.log)out.textContent='Still version '+st.version+'. Installer output:\n'+st.log;
       }catch(_){/* host is restarting */}
     }
@@ -7944,7 +7969,20 @@ document.getElementById('tokbtn').onclick=async()=>{
 };
 start();
 let pingBusy=false;
-function hostPing(){if(pingBusy||!TOKEN||document.hidden)return;pingBusy=true;api('/api/ping').then(()=>setHostStatus(true,'Host connected')).catch(()=>setHostStatus(false,'Host disconnected')).finally(()=>{pingBusy=false})}
+// Auto-reload after an app update: the host reports a fingerprint of the page it serves. The first one seen after
+// this page loads is remembered; if a later ping reports a different one (new APK installed, host restarted),
+// the page reloads itself so nobody has to refresh the tab by hand.
+let pageSeen=null;
+function checkNewPage(d){
+  const t=d&&(d.page||d.version);if(!t)return;
+  if(pageSeen===null){pageSeen=t;return}
+  if(t===pageSeen)return;
+  let last=0;try{last=Number(sessionStorage.getItem('matchi_reload_at'))||0}catch(_){}
+  if(Date.now()-last<10000)return;   // never loop
+  try{sessionStorage.setItem('matchi_reload_at',String(Date.now()))}catch(_){}
+  pageSeen=t;location.reload();
+}
+function hostPing(){if(pingBusy||!TOKEN)return;pingBusy=true;api('/api/ping').then((d)=>{setHostStatus(true,'Host connected');checkNewPage(d)}).catch(()=>setHostStatus(false,'Host disconnected')).finally(()=>{pingBusy=false})}
 document.addEventListener('visibilitychange',hostPing);
 setInterval(hostPing,15000);
 </script>
