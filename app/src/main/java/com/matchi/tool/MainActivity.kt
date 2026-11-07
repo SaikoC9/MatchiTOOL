@@ -201,7 +201,7 @@ class MainActivity : Activity() {
 
     /** Values that come from preferences, not from the modem. */
     private fun refreshStatic() {
-        webSub.text = "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}"
+        webSub.text = "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
         routerSub.text = Prefs.zteHost(this)
     }
 

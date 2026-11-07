@@ -27,10 +27,14 @@ data class RootStatus(
 
 object RootShell {
     private const val MAX_OUTPUT_CHARS = 1_000_000
-    private const val MAX_SESSIONS = 2          // keep root concurrency modest on the F50
+    private const val MAX_SESSIONS = 3          // keep root concurrency modest on the F50
+    private const val MAX_LONG_JOBS = 2         // jobs longer than LONG_JOB_MS may use at most this many of the slots
+    private const val LONG_JOB_MS = 30_000L     // the remaining slot stays free for short commands (status polls)
     private const val MAX_QUEUED_LINES = 2048
     private const val IDLE_MS = 180_000L        // an idle shell is closed after 3 minutes
     private const val EOF = "\u0000EOF"
+    private const val DENIAL_COOLDOWN_MS = 45_000L // after a refused su, do not ask the root manager again for this long
+    private const val TMP = "/data/local/tmp"
 
     /**
      * A long-lived `su -c sh`. Starting su for every command costs 150-400 ms (more on a hot, loaded device),
@@ -90,10 +94,74 @@ object RootShell {
         }
     }
 
+    // ---- Denied root: remember it briefly so polling cannot trigger a prompt per command ----
+    @Volatile private var suBlockedUntil = 0L
+    @Volatile private var suBlockedMsg = ""
+
+    /** A ready-made error while su is in its cool-down, or null when su may be tried. */
+    private fun blockedResult(): ShellResult? {
+        val left = suBlockedUntil - System.currentTimeMillis()
+        if (left <= 0L) return null
+        return ShellResult(false, "$suBlockedMsg (not asking again for ${(left + 999) / 1000}s)")
+    }
+
+    private fun blockSu() {
+        suBlockedMsg = "Root was denied or su is not available. Allow MatchiTOOL in your root manager, then try again"
+        suBlockedUntil = System.currentTimeMillis() + DENIAL_COOLDOWN_MS
+    }
+
+    /** Forget a stored denial (for a manual retry after the user granted root). */
+    fun resetDenial() { suBlockedUntil = 0L }
+
+    private val SU_REFUSAL = Regex("denied|not allowed|permission|authori|not found|no such file|unable to start|cannot run|inaccessible")
+
+    /** True when a failed one-shot looks like su itself refused/vanished, not like the script failing. */
+    private fun looksLikeSuRefusal(r: ShellResult): Boolean {
+        if (r.success || r.content.contains("[timeout after")) return false
+        return r.content.isBlank() || SU_REFUSAL.containsMatchIn(r.content.lowercase())
+    }
+
+    // ---- Timeout: run every script in its own process group and kill that group ----
+
+    /**
+     * Shell lines that start `sh` as the leader of its own session/process group (when `setsid` exists) and
+     * record its pid in [pf]. `exec sh` keeps that pid, so the pid is also the group id. The script follows as a
+     * here-document ([delim]) that is handed to `sh` on file descriptor 3, NOT on stdin: stdin is /dev/null, so a
+     * command in the script that reads stdin (cat, read) gets end-of-file instead of swallowing the rest of the
+     * script. [redirect] is appended to the command line.
+     */
+    private fun launcher(pf: String, delim: String, redirect: String): String =
+        "if command -v setsid >/dev/null 2>&1; then MS=setsid; else MS=; fi\n" +
+        "\$MS sh -c 'echo \$\$ >$pf; exec sh /dev/fd/3' $redirect </dev/null 3<<'$delim'\n"
+
+    /**
+     * Stops everything a timed-out script started. Kills the whole process group, and also walks the child
+     * tree (frozen first, so nothing can fork again), which covers shells where `setsid` is missing.
+     */
+    private fun killScriptTree(pf: String, outFile: String?) {
+        val rm = if (outFile != null) "$pf $outFile" else pf
+        val script = listOf(
+            "P=\$(cat $pf 2>/dev/null)",
+            "case \"\$P\" in ''|*[!0-9]*) P= ;; esac",
+            "if [ -n \"\$P\" ] && [ \"\$P\" -gt 1 ]; then",
+            "  kids() { ps -A -o PID,PPID 2>/dev/null | while read a b; do [ \"\$b\" = \"\$1\" ] && echo \"\$a\"; done; }",
+            "  tree() { echo \"\$1\"; for c in \$(kids \"\$1\"); do tree \"\$c\"; done; }",
+            "  L=\$(tree \"\$P\")",
+            "  kill -STOP \$L 2>/dev/null",
+            "  kill -9 -- -\$P 2>/dev/null",
+            "  kill -9 \$L 2>/dev/null",
+            "fi",
+            "rm -f $rm"
+        ).joinToString("\n")
+        try { runOnce(script, 5_000L, isolate = false) } catch (_: Exception) {}
+    }
+
     private val pool = ArrayList<Session>()
     private val counter = AtomicLong()
     // Hard cap includes one-shot fallback commands; never spawn unlimited concurrent su processes.
     private val commandSlots = Semaphore(MAX_SESSIONS, true)
+    // One long job plus one more must not starve the UI polls: long jobs share this smaller pool.
+    private val longSlots = Semaphore(MAX_LONG_JOBS, true)
 
     /** An idle session, a new one if the pool has room, or null when every shell is busy. */
     private fun acquire(): Session? {
@@ -126,20 +194,21 @@ object RootShell {
         val id = counter.incrementAndGet().toString(36) + System.nanoTime().toString(36)
         val delim = "MATCHI_EOF_$id"
         val end = "@@MATCHI_END_$id:"
+        val pf = "$TMP/.matchi_pid_$id"
+        val o = "$TMP/.matchi_out_$id"
         s.lines.clear()
         s.droppedLines = 0
         try {
             // Output goes to a temp file, not the session pipe, so a daemon the script leaves running in the
             // background cannot write into a later command's output. The file is read back and removed at the end.
-            val o = "/data/local/tmp/.matchi_out_$id"
-            s.writer.write("sh >$o 2>&1 <<'$delim'\n")
+            s.writer.write(launcher(pf, delim, ">$o 2>&1"))
             // ulimit -f applies to every file the command (and anything it starts) writes, so it must be generous:
             // a 1 MiB cap broke downloads, installs and backups run through plugins. This only stops a runaway
             // writer from filling storage; the captured OUTPUT is bounded separately by head -c below.
             s.writer.write("ulimit -f 4194304 2>/dev/null || true\n") // 4194304 * 512 bytes = 2 GiB
             s.writer.write(script)
             if (!script.endsWith("\n")) s.writer.write("\n")
-            s.writer.write("$delim\nrc=\$?; head -c 1100000 $o 2>/dev/null; rm -f $o; printf '\\n$end%d\\n' \"\$rc\"\n")
+            s.writer.write("$delim\nrc=\$?; head -c 1100000 $o 2>/dev/null; rm -f $o $pf; printf '\\n$end%d\\n' \"\$rc\"\n")
             s.writer.flush()
         } catch (_: IOException) { return null }
         val sb = StringBuilder()
@@ -149,13 +218,15 @@ object RootShell {
             val remain = deadline - System.currentTimeMillis()
             if (remain <= 0) {
                 s.kill()
-                Thread { try { runOnce("rm -f /data/local/tmp/.matchi_out_$id", 5_000L) } catch (_: Exception) {} }.apply { isDaemon = true; start() }
+                // su alone dying does not stop the script's own shell or anything it started: kill the group.
+                killScriptTree(pf, o)
                 return ShellResult(false, sb.toString().trimEnd() + "\n[timeout after ${timeout}ms]")
             }
             val line = s.lines.poll(remain, TimeUnit.MILLISECONDS) ?: continue
             if (line == EOF) {
-                return if (!s.used && sb.isEmpty()) null
-                else ShellResult(false, (sb.toString().trimEnd() + "\n[root shell closed]").trim())
+                if (!s.used && sb.isEmpty()) return null
+                killScriptTree(pf, o) // the shell is gone, but its script's processes may not be
+                return ShellResult(false, (sb.toString().trimEnd() + "\n[root shell closed]").trim())
             }
             if (line.startsWith(end)) {
                 val rc = line.removePrefix(end).trim().toIntOrNull() ?: 1
@@ -182,30 +253,49 @@ object RootShell {
         if (script.isBlank()) return ShellResult(false, "No command supplied")
         if (script.length > 128_000 || script.indexOf('\u0000') >= 0)
             return ShellResult(false, "Command rejected: maximum 128 KB and no NUL bytes")
-        val timeout = timeoutMs.coerceIn(1_000L, 120_000L)
+        val timeout = timeoutMs.coerceIn(1_000L, 180_000L) // ImeiGuard asks for 150 s; the web console caps its own calls at 120 s
+        // Root was just refused: answer at once instead of making the root manager ask again.
+        blockedResult()?.let { return it }
         // A busy router should fail clearly instead of queuing/spawning an unbounded number of root processes.
         if (!commandSlots.tryAcquire(2, TimeUnit.SECONDS))
             return ShellResult(false, "Root command capacity reached; wait for the current operation to finish")
+        var longHeld = false
         try {
-            val s = try { acquire() } catch (_: Exception) { null }
+            if (timeout > LONG_JOB_MS) {
+                if (!longSlots.tryAcquire(2, TimeUnit.SECONDS))
+                    return ShellResult(false, "Root command capacity reached; wait for the current operation to finish")
+                longHeld = true
+            }
+            blockedResult()?.let { return it } // another command may have been refused while we waited for a slot
+            var sessionFailedToStart = false
+            val s = try { acquire() } catch (_: Exception) { sessionFailedToStart = true; null }
             if (s != null) {
                 var broken = true
+                var r: ShellResult? = null
                 try {
-                    val r = runOn(s, script, timeout)
+                    r = runOn(s, script, timeout)
                     broken = r == null || !s.alive()
-                    if (r != null) return r
                 } catch (_: Exception) {
                 } finally { release(s, broken) }
+                if (r != null) return r
+                sessionFailedToStart = true
             }
-            return runOnce(script, timeout)
+            val one = runOnce(script, timeout)
+            // The session could not start AND the one-shot su failed like a refusal: remember it, ask once.
+            if (sessionFailedToStart && looksLikeSuRefusal(one)) blockSu()
+            return one
         } finally {
+            if (longHeld) longSlots.release()
             commandSlots.release()
         }
     }
 
     /** The original one-process-per-command path: used when all shells are busy or a session cannot start. */
-    private fun runOnce(script: String, timeout: Long): ShellResult {
+    private fun runOnce(script: String, timeout: Long, isolate: Boolean = true): ShellResult {
         var process: Process? = null
+        val uid = counter.incrementAndGet().toString(36) + System.nanoTime().toString(36)
+        val pf: String? = if (isolate) "$TMP/.matchi_pid_$uid" else null
+        val delim = "MATCHI_EOF_$uid"
         val output = StringBuilder()
         var readError: String? = null
         try {
@@ -232,8 +322,16 @@ object RootShell {
 
             p.outputStream.bufferedWriter(Charsets.UTF_8).use { w ->
                 w.write("#!/system/bin/sh\n")
-                w.write(script)
-                if (!script.endsWith("\n")) w.write("\n")
+                if (pf != null) {
+                    // Same isolation as the session path: the script runs in its own process group.
+                    w.write(launcher(pf, delim, ""))
+                    w.write(script)
+                    if (!script.endsWith("\n")) w.write("\n")
+                    w.write("$delim\nrc=\$?; rm -f $pf; exit \$rc\n")
+                } else {
+                    w.write(script)
+                    if (!script.endsWith("\n")) w.write("\n")
+                }
                 w.flush()
             }
 
@@ -242,6 +340,7 @@ object RootShell {
                 p.destroy()
                 if (p.isAlive) p.destroyForcibly()
                 reader.join(500)
+                if (pf != null) killScriptTree(pf, null)
                 return ShellResult(false, synchronized(output) { output.toString().trimEnd() } + "\n[timeout after ${timeout}ms]")
             }
             reader.join(1_000)

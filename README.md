@@ -28,7 +28,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - Browser interface on port **2334** with admin-password login and per-login expiring sessions (2 h idle / 12 h maximum, Sign out button). The service binds to LAN interfaces so other devices on the ZTE hotspot / USB-tether network can connect; API access is restricted to the device itself and detected hotspot-side subnets. The transport is plain HTTP, not encrypted.
 - Full diagnose with copy/download (read-only checks). Eight built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
-- **Update app** (web console): upload a MatchiTOOL APK (or check an https link first, then download). It is only accepted if it is this app and signed with the same key; newer versions update, the same version reinstalls, older versions roll back (data kept). You confirm the SHA-256 before it is installed through root (`pm install -r`, `-d` for rollback).
+- **Update app** (web console): upload a MatchiTOOL APK (or check an https link first, then download). It is only accepted if it is this app and signed with the same key; newer versions update, the same version number with a different SHA-256 (a different build) updates too, an identical file reinstalls, older versions roll back (data kept). You confirm the SHA-256 before it is installed through root (`pm install -r`, `-d` for rollback).
 - **Screen control**: view and control the device's own screen from the web page (root `screencap` frames + root `input` events), e.g. from a second phone. A screenshot stream, not video. Requires the companion device to be on the trusted ZTE hotspot / USB-tether network.
 - AT command execution through the bundled `sendat` executable (device/architecture compatibility required).
 - **OTA update with a private repo:** keep the source private and publish only the signed APK to a separate public repo (see `docs/OTA_RELEASES.md`). In the web console, Update app, paste `https://github.com/OWNER/REPO/releases/latest/download/MatchiTOOL.apk`.
@@ -76,6 +76,12 @@ may have been exposed.
 ## Compatibility notes
 
 **UFI-TOOLS plugins (1.2.15):** the page also provides `uploadFileKano`, `downloadUrl`, `createFixedToast`, `requestInterval` and `UFI_DATA.lan_ipaddr`, and the host serves `/api/upload` and `/api/uploads/<name>`. Plugins that hard-code UFI paths (`/data/data/com.minikano.f50_sms/...`, `/sdcard/ufi_tools_boot.sh`) or need UFI's bundled `curl` still have to be converted; the boot file for MatchiTOOL is `/data/local/matchitool/boot.sh`.
+
+**Plugin data is erased when you delete the plugin (1.2.26).** MatchiTOOL cannot see what arbitrary plugin code wrote, so a plugin tells it. The delete dialog lists what will be erased and asks first.
+- Every plugin has its own folder, `/data/local/matchitool/plugin_data/<plugin name without .js>/`. Keep the plugin's files there and they are removed automatically.
+- Other folders: add header lines to the plugin source, one per path: `// @matchi-data /data/local/myplugin`. Allowed: folders inside `/data/local/` (not `tmp`, `matchitool` or MatchiTOOL's `ufi_*` folders), inside `/data/local/tmp/` (not MatchiTOOL's own `matchi*`, `mt_*`, `sqlite` names) and inside `/sdcard/` (not `Android`, and not a standard folder such as `Download` itself, but a folder inside it is fine). Letters, digits, `.`, `_`, `-` and `/` only, no `..`, at most 20 lines. Anything else is refused and listed in the dialog.
+- Browser settings: `// @matchi-localstorage myplugin_` removes the saved keys that start with that prefix. The prefix has to start with the plugin's own name (letters and digits, any case) and can never match MatchiTOOL's own keys.
+- Not covered: processes the plugin started, firewall rules, uploaded files, anything outside the allowed folders. A plugin that needs those should clean up in its own code.
 
 The web bridge retains the existing plugin-facing functions (`runShellWithRoot`, `createToast`, `createModal`, and
 `showModal`) and the `.actions-buttons` insertion point. Plugin compatibility is best-effort: plugins may still rely on

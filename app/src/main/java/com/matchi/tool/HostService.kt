@@ -85,11 +85,7 @@ class HostService : Service() {
         if (!bootTasksRunning.compareAndSet(false, true)) return
         workers.execute {
             try {
-                val result = RootShell.run(this,
-                    "if [ -f /data/local/matchitool/boot.sh ]; then /system/bin/sh /data/local/matchitool/boot.sh; else echo 'No MatchiTOOL boot tasks registered'; fi; " +
-                    // boot.d: one small script per tool (e.g. 10-cpu.sh from Live status), run in name order after boot.sh. Regular files only.
-                    "for f in /data/local/matchitool/boot.d/*.sh; do [ -f \"\$f\" ] && [ ! -L \"\$f\" ] && /system/bin/sh \"\$f\"; done; true",
-                    60_000)
+                val result = RootShell.run(this, BOOT_SCRIPT.replace('\u00a7', '$'), 60_000)
                 Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
             } catch (e: Exception) { Log.e("MatchiTOOL", "Boot tasks failed: ${e.message}") }
             finally { bootTasksRunning.set(false) }
@@ -107,5 +103,41 @@ class HostService : Service() {
 
     override fun onBind(i: Intent?): IBinder? = null
 
-    companion object { const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS" }
+    companion object {
+        const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS"
+
+        /**
+         * Boot tasks run as root, so they only run from files nobody else can change: the folder, boot.sh and every
+         * boot.d script must be a real file/folder (no symlink) owned by root. If group/other can write to a root-owned
+         * entry, that permission is removed first. Anything else is skipped and written to events.log.
+         * (\u00a7 stands for the dollar sign so this block stays readable; it is replaced before the script runs.)
+         */
+        private const val BOOT_SCRIPT = """
+D=/data/local/matchitool
+LOG=§D/events.log
+note() { echo "boot: §*"; echo "§(date '+%F %T') boot: §*" >> §LOG 2>/dev/null; }
+trusted() {
+  [ ! -L "§1" ] || return 1
+  st=§(stat -c '%u %A' "§1" 2>/dev/null) || return 1
+  set -- "§1" §st
+  [ "§2" = 0 ] || return 1
+  case "§3" in ?????-??-?) ;; *) chmod go-w "§1" 2>/dev/null ;; esac
+  return 0
+}
+[ -d §D ] || { echo 'No MatchiTOOL boot tasks registered'; exit 0; }
+trusted §D || { note "skipped: §D is a symlink or not owned by root"; exit 0; }
+if [ -f §D/boot.sh ]; then
+  if trusted §D/boot.sh; then /system/bin/sh §D/boot.sh; else note "skipped boot.sh: symlink or not owned by root"; fi
+else echo 'No MatchiTOOL boot tasks registered'; fi
+if [ -d §D/boot.d ]; then
+  if trusted §D/boot.d; then
+    for f in §D/boot.d/*.sh; do
+      [ -f "§f" ] || continue
+      if trusted "§f"; then /system/bin/sh "§f"; else note "skipped §f: symlink or not owned by root"; fi
+    done
+  else note "skipped boot.d: symlink or not owned by root"; fi
+fi
+true
+"""
+    }
 }

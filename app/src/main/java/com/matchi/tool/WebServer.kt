@@ -46,7 +46,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, s.headers["x-token"])
 
 
+    /**
+     * Every app on the device reaches the console as 127.0.0.1 / ::1, so they would all share one lockout bucket and one
+     * app could lock the owner out (or the owner's typos could lock apps out). Loopback is therefore never hard-locked;
+     * each bad password from it is answered after a short delay instead (see [login]).
+     */
+    private fun isLoopbackIp(raw: String): Boolean {
+        val x = raw.substringBefore('%').lowercase().removePrefix("::ffff:")
+        return x == "::1" || x == "0:0:0:0:0:0:0:1" || x == "localhost" || x.startsWith("127.")
+    }
+
     private fun locked(ip: String): Boolean = synchronized(fails) {
+        if (isLoopbackIp(ip)) return false
         val f = fails[ip] ?: return false
         if (System.currentTimeMillis() - f.second > LOCK_MS) { fails.remove(ip); return false }
         f.first >= MAX_FAILS
@@ -116,6 +127,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     override fun serve(s: IHTTPSession): Response {
         val uri = s.uri
+        // DNS-rebinding guard: a page on an attacker's host name that is re-pointed at this device would send
+        // "Host: attacker.example", and the Origin check below would then match it. Only IP addresses and
+        // "localhost" are valid Host values for this console, whatever the path.
+        if (!hostHeaderAllowed(s.headers["host"]))
+            return json(Response.Status.FORBIDDEN, JSONObject().put("error", "open the console by its IP address, not a host name"))
         if (uri == "/" || uri == "/index.html") {
             return servePage(s)
         }
@@ -151,6 +167,54 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
 
+    /** Paths to erase for a plugin: (allowed, rejected with reason). The plugin's own data folder is always included. */
+    private fun pluginDataPlan(name: String): Pair<List<String>, List<Pair<String, String>>> {
+        val f = File(pluginDir, name)
+        val code = if (f.isFile) try { f.readText() } catch (_: Exception) { "" } else ""
+        val ok = ArrayList<String>()
+        val bad = ArrayList<Pair<String, String>>()
+        ok.add(pluginDataDir(name))
+        for (d in pluginDataDeclarations(code)) {
+            val why = checkPluginDataPath(d)
+            if (why == null) { if (d !in ok) ok.add(d) } else bad.add(d to why)
+        }
+        return ok to bad
+    }
+
+    // Paths passed the strict character check in checkPluginDataPath, so they cannot break out of single quotes.
+    private fun quotedList(paths: List<String>) = paths.joinToString(" ") { "'$it'" }
+
+    private fun probeScript(paths: List<String>) =
+        "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
+        "echo \"EXISTS \$(du -sk -- \"\$p\" 2>/dev/null | cut -f1) \$p\"; fi; done; true"
+
+    // rm -rf on a symlink removes the link itself, never what it points to.
+    private fun eraseScript(paths: List<String>) =
+        "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
+        "if rm -rf -- \"\$p\"; then echo \"REMOVED \$p\"; else echo \"FAILED \$p\"; fi; fi; done; true"
+
+    private val auditLock = Any()
+
+    /**
+     * One line per console root command: time, client address and a short SHA-256 of the command (never the command
+     * text, which can hold passwords). Kept in the app's private folder, so it needs no root call, takes no root slot and
+     * is written even while root is denied. Trimmed to its newest ~32 KB once it passes 64 KB.
+     */
+    private fun auditShell(ip: String, command: String, kind: String = "shell") {
+        try {
+            val h = MessageDigest.getInstance("SHA-256").digest(command.toByteArray(Charsets.UTF_8)).take(6).joinToString("") { "%02x".format(it) }
+            val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+            synchronized(auditLock) {
+                val f = File(ctx.filesDir, "shell_audit.log")
+                if (f.length() > 64 * 1024) {
+                    val tail = String(f.readBytes().takeLast(32 * 1024).toByteArray(), Charsets.UTF_8)
+                    f.writeText(tail.substringAfter('\n', tail))
+                }
+                f.appendText("$stamp $kind ip=$ip sha256=$h len=${command.length}\n")
+            }
+        } catch (_: Exception) { }
+    }
+
     /** Password login: returns the session token. Bad attempts count toward the per-IP lockout. */
     private fun login(ip: String, s: IHTTPSession): Response {
         val pw = try { body(s).optString("password").take(200) } catch (e: Exception) {
@@ -166,7 +230,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
             good = true
         }
-        if (!good) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password")) }
+        if (!good) {
+            fail(ip)
+            if (isLoopbackIp(ip)) try { Thread.sleep(2_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password"))
+        }
         ok(ip)
         // A fresh random token for THIS login; it expires when idle, after 12 h, on sign-out or on a password change.
         return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Sessions.issue(ctx)))
@@ -442,7 +510,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
             .put("newName", staged.newName).put("newCode", staged.newCode)
             .put("relation", staged.relation)
-            .put("size", staged.size).put("sha256", staged.sha256))
+            .put("size", staged.size).put("sha256", staged.sha256).put("installedSha256", staged.installedSha))
     }
 
     /** OTA step 1: {"url":"https://..."}; asks what the link points to (version, size) without downloading the APK. */
@@ -451,7 +519,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return json(Response.Status.OK, JSONObject().put("ok", true)
             .put("installedName", r.installedName).put("installedCode", r.installedCode)
             .put("remoteName", r.remoteName).put("relation", r.relation)
-            .put("size", r.size).put("sha256", r.sha256).put("source", r.source))
+            .put("size", r.size).put("sha256", r.sha256).put("source", r.source).put("installedSha256", r.installedSha))
     }
 
     /** OTA step 2: {"url":"https://..."}; downloaded by the device, then verified exactly like an uploaded file. */
@@ -461,7 +529,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
             .put("newName", staged.newName).put("newCode", staged.newCode)
             .put("relation", staged.relation)
-            .put("size", staged.size).put("sha256", staged.sha256))
+            .put("size", staged.size).put("sha256", staged.sha256).put("installedSha256", staged.installedSha))
     }
 
     private fun updateInstall(req: JSONObject): Response {
@@ -512,6 +580,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
                 throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
             val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
+            auditShell(s.remoteIpAddress ?: "?", command)
             val r = RootShell.run(ctx, command, t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
         }
@@ -613,12 +682,44 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             File(pluginDir, name).writeText(code)
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
-        uri == "/api/plugins/delete" && s.method == Method.POST -> {
+        // What deleting this plugin would erase (read-only): its own data folder plus the paths it declares with
+        // "// @matchi-data /path" in its source. Used by the page to show the list before the user confirms.
+        uri == "/api/plugins/data" && s.method == Method.POST -> {
             val name = body(s).optString("name")
             if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+            val (paths, rejected) = pluginDataPlan(name)
+            val probe = RootShell.run(ctx, probeScript(paths), 15_000)
+            val found = HashMap<String, Long>()
+            if (probe.success) probe.content.lineSequence().forEach { line ->
+                val m = Regex("^EXISTS (\\d*) (/\\S+)$").find(line.trim()) ?: return@forEach
+                found[m.groupValues[2]] = m.groupValues[1].toLongOrNull() ?: -1L
+            }
+            val items = JSONArray()
+            for (p in paths) items.put(JSONObject().put("path", p).apply {
+                if (probe.success) { put("exists", p in found); if ((found[p] ?: -1L) >= 0) put("kb", found[p]) }
+            })
+            val bad = JSONArray()
+            for ((p, why) in rejected) bad.put(JSONObject().put("path", p).put("reason", why))
+            json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success))
+        }
+        // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
+        uri == "/api/plugins/delete" && s.method == Method.POST -> {
+            val req = body(s)
+            val name = req.optString("name")
+            if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+            val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
             val deleted = File(pluginDir, name).delete()
             Prefs.setEnabled(ctx, name, true)
-            json(Response.Status.OK, JSONObject().put("ok", deleted))
+            val out = JSONObject().put("ok", deleted)
+            if (plan != null && deleted) {
+                val script = eraseScript(plan.first)
+                auditShell(s.remoteIpAddress ?: "?", script, "plugin-erase")
+                val r = RootShell.run(ctx, script, 30_000)
+                val bad = JSONArray()
+                for ((p, why) in plan.second) bad.put(JSONObject().put("path", p).put("reason", why))
+                out.put("erase", JSONObject().put("success", r.success && !r.content.contains("FAILED ")).put("log", r.content.take(2000)).put("rejected", bad))
+            }
+            json(Response.Status.OK, out)
         }
         uri == "/api/plugins/toggle" && s.method == Method.POST -> {
             val req = body(s); val name = req.optString("name")
@@ -627,5 +728,75 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
         else -> json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found"))
+    }
+}
+
+private val IPV4_HOST = Regex("^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}$")
+private val IPV6_HOST = Regex("^[0-9A-Fa-f:.]{2,45}$")
+
+private fun hostPortOk(s: String): Boolean = s.length in 2..6 && s[0] == ':' && s.substring(1).all { it in '0'..'9' }
+
+/**
+ * True only for a Host header that is an IPv4 literal, a bracketed IPv6 literal or "localhost", with an optional
+ * port. Pure string checks: nothing is resolved, so a host name is never looked up.
+ */
+internal fun hostHeaderAllowed(raw: String?): Boolean {
+    val h = raw?.trim().orEmpty()
+    if (h.isEmpty() || h.length > 64) return false
+    if (h.startsWith("[")) {
+        val end = h.indexOf(']')
+        if (end < 0) return false
+        val rest = h.substring(end + 1)
+        if (rest.isNotEmpty() && !hostPortOk(rest)) return false
+        val inner = h.substring(1, end)
+        return inner.contains(':') && IPV6_HOST.matches(inner)
+    }
+    val colon = h.lastIndexOf(':')
+    val name = if (colon >= 0) {
+        if (!hostPortOk(h.substring(colon))) return false
+        h.substring(0, colon)
+    } else h
+    return name.equals("localhost", ignoreCase = true) || IPV4_HOST.matches(name)
+}
+
+// ---- Plugin data: what deleting a plugin may erase ----------------------------------------------------------------
+private const val MATCHI_DIR = "/data/local/matchitool"
+private val DATA_DECL = Regex("^\\s*//\\s*@matchi-data\\s+(\\S+)\\s*$")
+private val DATA_PATH_CHARS = Regex("^/[A-Za-z0-9._/-]+$")
+private val LOCAL_PROTECTED = setOf("tmp", "matchitool", "ufi_ttl", "ufi_dpi", "ufi_boot", "ufi_lock")
+private val SDCARD_PROTECTED = setOf("download", "dcim", "pictures", "movies", "music", "documents", "android",
+    "alarms", "notifications", "podcasts", "ringtones", "audiobooks", "recordings")
+private val TMP_OWN = Regex("^\\.?(matchi|mt_|sqlite)")
+
+/** The folder every plugin may use for its own data; it is erased automatically when the plugin is deleted. */
+internal fun pluginDataDir(pluginName: String): String = "$MATCHI_DIR/plugin_data/" + pluginName.removeSuffix(".js")
+
+/** Paths a plugin asks to have erased: header lines of the form `// @matchi-data /path` (first 400 lines, at most 20). */
+internal fun pluginDataDeclarations(code: String): List<String> =
+    code.lineSequence().take(400).mapNotNull { DATA_DECL.find(it)?.groupValues?.get(1) }.distinct().take(20).toList()
+
+/** null when [path] may be erased on plugin delete, otherwise the reason it may not. Strict on purpose: it runs `rm -rf` as root. */
+internal fun checkPluginDataPath(path: String): String? {
+    if (path.length > 200 || !DATA_PATH_CHARS.matches(path)) return "use only letters, digits . _ - and /"
+    val parts = path.split('/').drop(1)
+    if (parts.any { it.isEmpty() || it == "." || it == ".." }) return "no empty, . or .. parts and no trailing /"
+    return when {
+        path.startsWith("$MATCHI_DIR/plugin_data/") || path.startsWith("$MATCHI_DIR/plugins/") ->
+            if (parts.size >= 5) null else "name a folder inside it"
+        path == MATCHI_DIR || path.startsWith("$MATCHI_DIR/") -> "MatchiTOOL's own folder is protected"
+        path.startsWith("/data/local/tmp/") ->
+            if (parts.size < 4) "name a folder inside /data/local/tmp"
+            else if (TMP_OWN.containsMatchIn(parts[3].lowercase())) "that name belongs to MatchiTOOL" else null
+        path.startsWith("/data/local/") -> if (parts[2] in LOCAL_PROTECTED) "protected folder" else null
+        path.startsWith("/sdcard/") || path.startsWith("/storage/emulated/0/") -> {
+            val rest = if (path.startsWith("/sdcard/")) parts.drop(1) else parts.drop(3)
+            when {
+                rest.isEmpty() -> "name a folder inside it"
+                rest[0].lowercase() == "android" -> "the Android folder is protected"
+                rest.size == 1 && rest[0].lowercase() in SDCARD_PROTECTED -> "a standard folder is protected"
+                else -> null
+            }
+        }
+        else -> "only /data/local, /data/local/tmp and /sdcard may be erased"
     }
 }

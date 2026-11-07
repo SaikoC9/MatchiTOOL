@@ -22,5 +22,5 @@ The release repo only holds the APK. Nobody can push a fake update: the device i
 (and Android checks it again). Keep the keystore and `RELEASES_TOKEN` out of the public repo.
 
 ## Reinstall and rollback
-The same versionCode reinstalls, and a lower one rolls back (app data is kept). To roll back, point the link at an older release, e.g.
+The same versionCode with a different SHA-256 installs as a normal update (a different build of that version); the identical file (same SHA-256) only reinstalls, and a lower versionCode rolls back (app data is kept). To roll back, point the link at an older release, e.g.
 `https://github.com/YOURNAME/MatchiTOOL-releases/releases/download/v1.2.12/MatchiTOOL.apk`, then Check > Download & verify > Roll back. The signing key must be the same.

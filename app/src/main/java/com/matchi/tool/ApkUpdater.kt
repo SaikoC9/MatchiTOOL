@@ -14,7 +14,9 @@ import java.security.MessageDigest
  *  - it is a real, parseable Android package no larger than [MAX_BYTES] (ZIP header checked);
  *  - it is this app (same package name);
  *  - newer, same or OLDER versions are all accepted (update, reinstall of the same build, or rollback); the page shows which one it is
- *    and asks for a matching confirmation. Signature and package checks below still apply to every direction;
+ *    and asks for a matching confirmation. Signature and package checks below still apply to every direction.
+ *    Same version number is told apart by SHA-256: an identical hash is a plain reinstall ("same"), a different hash is a different
+ *    build of that version ("rebuild") and is presented and installed as a normal update;
  *  - it is signed by the same key as the installed app (or a key whose rotation lineage contains it);
  *  - the person saw version, size and SHA-256 and confirmed, and the install request quotes that same SHA-256;
  *  - it is installed within [STAGE_TTL_MS] of being checked, and the staged bytes are re-hashed first.
@@ -35,20 +37,30 @@ object ApkUpdater {
     class Staged(
         val file: File, val sha256: String, val size: Long,
         val oldName: String, val oldCode: Long, val newName: String, val newCode: Long,
+        val installedSha: String = "",
         val stagedAt: Long = System.currentTimeMillis(),
     ) {
-        /** "newer", "same" or "older" compared with the installed build. */
-        val relation: String get() = if (newCode > oldCode) "newer" else if (newCode == oldCode) "same" else "older"
+        /**
+         * "newer", "older", "same" or "rebuild" compared with the installed build. "same" means the very same file (identical SHA-256);
+         * "rebuild" means the same version number but a different file (different SHA-256), which installs as a normal update.
+         */
+        val relation: String get() = when {
+            newCode > oldCode -> "newer"
+            newCode < oldCode -> "older"
+            installedSha.isNotEmpty() && sha256.equals(installedSha, ignoreCase = true) -> "same"
+            else -> "rebuild"
+        }
     }
 
     /** Result of [check]: what the link points to, without downloading the APK body. */
     class Remote(
         val installedName: String, val installedCode: Long,
         val remoteName: String,      // tag / version text from the release, "" when unknown
-        val relation: String,        // newer | same | older | unknown
+        val relation: String,        // newer | rebuild (same version, different SHA-256) | same | older | unknown
         val size: Long,              // bytes, -1 when unknown
         val sha256: String,          // from the release metadata when published, else ""
         val source: String,
+        val installedSha: String = "", // SHA-256 of the installed APK
     )
 
     @Volatile private var current: Staged? = null
@@ -123,6 +135,7 @@ object ApkUpdater {
         val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
         val haveName = installed.versionName ?: "?"
         val haveCode = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
+        val iSha = installedSha256(ctx)
         val m = Regex("^/([^/]+)/([^/]+)/releases/(?:latest/download|download/([^/]+))/([^/]+)$").find(url.path)
         if (url.host.equals("github.com", true) && m != null) {
             val (owner, repo, tag, asset) = m.destructured
@@ -144,14 +157,19 @@ object ApkUpdater {
                     }
                 }
                 if (assets != null && size < 0) throw UpdateException("The latest release ($name) has no file called $asset.")
-                val rel2 = compareNames(name, haveName)?.let { if (it > 0) "newer" else if (it == 0) "same" else "older" } ?: "unknown"
-                return Remote(haveName, haveCode, name, rel2, size, digest, "GitHub release")
+                var rel2 = compareNames(name, haveName)?.let { if (it > 0) "newer" else if (it == 0) "same" else "older" } ?: "unknown"
+                // The version text alone cannot tell two builds of the same version apart: when GitHub publishes the SHA-256, compare it
+                // with the installed APK. Identical hash = really the same file; different hash on the same version = a different build.
+                if (digest.isNotEmpty() && iSha.isNotEmpty()) {
+                    if (digest.equals(iSha, ignoreCase = true)) rel2 = "same" else if (rel2 == "same") rel2 = "rebuild"
+                }
+                return Remote(haveName, haveCode, name, rel2, size, digest, "GitHub release", iSha)
             } finally { c.disconnect() }
         }
         val c = openHttps(url, method = "HEAD")
         try {
             if (c.responseCode != 200) throw UpdateException("The link did not answer (HTTP ${c.responseCode}).")
-            return Remote(haveName, haveCode, "", "unknown", c.contentLengthLong, "", "link")
+            return Remote(haveName, haveCode, "", "unknown", c.contentLengthLong, "", "link", iSha)
         } finally { c.disconnect() }
     }
 
@@ -277,8 +295,17 @@ object ApkUpdater {
             throw UpdateException("Android could not read the signature of the installed MatchiTOOL, so the update cannot be compared. Install the new APK with: su -c 'pm install -r <file>'.")
         if (!offered.containsAll(have))
             throw UpdateException("Signature mismatch: this APK was not signed by the same key as the installed MatchiTOOL. Android would refuse it, and it may not be a genuine update.")
-        return Staged(file, sha, size, installed.versionName ?: "?", oldCode, archive.versionName ?: "?", newCode)
+        return Staged(file, sha, size, installed.versionName ?: "?", oldCode, archive.versionName ?: "?", newCode, installedSha256(ctx))
     }
+
+    /** SHA-256 of the APK that is installed right now (the app's own base.apk); "" when it cannot be read. */
+    fun installedSha256(ctx: Context): String = try {
+        FileInputStream(File(ctx.applicationInfo.sourceDir)).use { i ->
+            val md = MessageDigest.getInstance("SHA-256"); val buf = ByteArray(256 * 1024)
+            while (true) { val n = i.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+            hex(md.digest())
+        }
+    } catch (_: Exception) { "" }
 
     @Suppress("DEPRECATION")
     private fun code(p: PackageInfo): Long = if (Build.VERSION.SDK_INT >= 28) p.longVersionCode else p.versionCode.toLong()
@@ -371,8 +398,18 @@ object ApkUpdater {
         val rollback = s.newCode < s.oldCode
         val flags = if (rollback) "-r -d" else "-r"
         val aside = "/data/local/tmp/matchi_rollback.apk"
+        val keep = "/data/local/tmp/matchi_previous.apk"
+        // The uninstall-then-install fallback can leave the device WITHOUT the app if the install fails. So the installed
+        // APK is copied aside first (path read from `pm path`) and put back when the install does not succeed.
+        // Nothing in this string may contain a single quote: it is wrapped in sh -c '...' below.
         val fallback = if (rollback)
-            "if [ ${'$'}rc -ne 0 ] && grep -qi DOWNGRADE $LOG; then cp \"$path\" $aside && pm uninstall -k $pkg >> $LOG 2>&1; pm install -r -S ${s.size} < $aside >> $LOG 2>&1; rc=${'$'}?; rm -f $aside; fi; "
+            "if [ ${'$'}rc -ne 0 ] && grep -qi DOWNGRADE $LOG; then " +
+            "o=${'$'}(pm path $pkg | head -n 1); o=${'$'}{o#package:}; " +
+            "cp \"$path\" $aside && { [ -f \"${'$'}o\" ] && cp \"${'$'}o\" $keep; " +
+            "pm uninstall -k $pkg >> $LOG 2>&1; pm install -r -S ${s.size} < $aside >> $LOG 2>&1; rc=${'$'}?; " +
+            "if [ ${'$'}rc -ne 0 ] && [ -f $keep ]; then echo ROLLBACK-INSTALL-FAILED-RESTORING-PREVIOUS-VERSION >> $LOG; " +
+            "pm install -r -S ${'$'}(wc -c < $keep) < $keep >> $LOG 2>&1 && am start --user 0 -n $pkg/.MainActivity >/dev/null 2>&1; fi; }; " +
+            "rm -f $aside $keep; fi; "
         else ""
         val script = """
             rm -f $LOG

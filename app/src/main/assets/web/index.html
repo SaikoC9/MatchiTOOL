@@ -306,6 +306,11 @@ html,body{max-width:100%}
 .card.pop.open:not(#pluginmgr) .btnrow,.card.pop.open:not(#pluginmgr) .actions-buttons{display:flex!important;flex-wrap:wrap;gap:5px!important;margin:4px 0 6px}
 .card.pop.open:not(#pluginmgr) .actions-buttons button,.card.pop.open:not(#pluginmgr) .btnrow button{flex:1 1 calc(50% - 5px);width:auto!important;min-width:0}
 .card.pop.open:not(#pluginmgr) input,.card.pop.open:not(#pluginmgr) select,.card.pop.open:not(#pluginmgr) textarea{min-height:28px!important;height:28px;padding:0 9px!important;font-size:11.5px!important;border-radius:8px!important}
+/* File inputs: the "Choose File" button looks like every other button (no grey browser default), in every popup and card */
+input[type=file]{color:var(--mut);font-size:12px;cursor:pointer}
+input[type=file]::file-selector-button{background:linear-gradient(180deg,#1b3454,#172b46)!important;color:var(--fg)!important;border:1px solid rgba(119,166,225,.23)!important;border-radius:8px!important;padding:4px 12px;margin-right:10px;font:inherit;font-size:12px;font-weight:650;line-height:1.2;box-shadow:0 2px 5px rgba(0,0,0,.12);cursor:pointer;transition:border-color .18s ease,background .18s ease}
+input[type=file]:hover::file-selector-button{border-color:rgba(130,194,255,.7)!important;background:#203d61!important}
+input[type=file]:active::file-selector-button{transform:scale(.98)}
 .card.pop.open:not(#pluginmgr) input[type=file]{height:auto;padding:4px 6px!important}
 .card.pop.open:not(#pluginmgr) input[type=file]::file-selector-button{min-height:0;height:22px;padding:0 8px;margin-right:8px;border-radius:6px;font-size:11px}
 .card.pop.open:not(#pluginmgr) .row{padding:5px 0!important;gap:6px!important;font-size:12px}
@@ -485,10 +490,61 @@ header #logoutbtn,header .hd-reboot{flex:none}
 #home .liv-sw[aria-checked=true]{background:rgba(100,230,164,.75)!important}
 #home .liv-sw[aria-checked=true]::after{transform:translateX(15px)}
 </style>
+<style id="ui-polish">
+/* Design polish (style only): same dark-navy / blue look, calmer borders, clearer hierarchy, one button and input look everywhere. No layout or logic changes. */
+:root{--line:rgba(255,255,255,.09);--soft:rgba(255,255,255,.07);--soft-h:rgba(255,255,255,.13);--ring:0 0 0 3px rgba(80,160,255,.22)}
+body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+::selection{background:rgba(22,140,255,.38);color:#fff}
+p,.mut{text-wrap:pretty}
+pre,.row strong,#home{font-variant-numeric:tabular-nums}
+
+/* top bar: soft glass, quieter divider, calmer Sign out */
+header{background:rgba(7,11,20,.8)!important;-webkit-backdrop-filter:blur(14px) saturate(1.25);backdrop-filter:blur(14px) saturate(1.25);border-bottom:1px solid var(--line)!important}
+.brand{letter-spacing:-.02em}
+.brand-mark{box-shadow:0 0 0 1px rgba(255,255,255,.14) inset,0 6px 20px rgba(22,140,255,.34)!important}
+.host{background:rgba(255,255,255,.03)}
+#logoutbtn{color:var(--mut)!important;background:transparent!important;border:1px solid rgba(255,255,255,.16)!important;opacity:1}
+@media(hover:hover){#logoutbtn:hover{color:var(--fg)!important;background:var(--soft)!important;border-color:rgba(255,255,255,.28)!important}.hd-reboot:hover{background:rgba(255,100,124,.1)!important;border-color:rgba(255,100,124,.5)!important}}
+
+/* cards and popups: faint top highlight, deeper soft shadow */
+.card{border-color:var(--line)!important;box-shadow:0 1px 0 rgba(255,255,255,.045) inset,0 12px 32px rgba(0,0,0,.22)}
+.card.pop.open{border-color:rgba(255,255,255,.13)!important;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 0 0 1px rgba(0,0,0,.45),0 26px 70px rgba(0,0,0,.62)!important}
+.card.pop.open:not(#pluginmgr)>.mut:first-child{letter-spacing:-.01em!important;padding-bottom:8px!important;margin-bottom:8px!important;border-bottom:1px solid var(--line)}
+@media(min-width:761px){.card.pop.open:not(#pluginmgr){width:min(480px,calc(100vw - 24px))!important;max-width:480px!important}
+  .card.pop.open:not(#pluginmgr) p{font-size:11.5px!important;line-height:1.55!important}
+  .card.pop.open:not(#pluginmgr)>.mut:first-child{font-size:15px!important}}
+.card.pop.open:not(#pluginmgr) p.mut{color:#9db0cb}
+.popfoot{border-top-color:var(--line)!important}
+
+/* buttons: one flat soft look, clear press and hover, key actions in blue */
+.card :is(button:not([class]),.mclose):not(:disabled):active,.modal :is(button:not([class]),.mclose):not(:disabled):active{background:rgba(255,255,255,.18)!important}
+button:disabled{opacity:.45;cursor:not-allowed}
+#updinstall,#tokbtn{background:linear-gradient(180deg,#2185ec,#1568c8)!important;border:1px solid rgba(140,200,255,.5)!important;color:#fff!important;box-shadow:0 4px 14px rgba(22,140,255,.28)!important}
+@media(hover:hover){#updinstall:not(:disabled):hover,#tokbtn:not(:disabled):hover{background:linear-gradient(180deg,#2b8ff5,#1a72d6)!important;border-color:rgba(170,215,255,.7)!important}}
+.popx{letter-spacing:.01em}
+
+/* inputs: file field matches the other fields, and its button matches the other buttons (flat, soft) */
+.card input[type=file],.modal input[type=file]{background:rgba(0,0,0,.25)!important;border:1px solid rgba(255,255,255,.2)!important;color:var(--mut)}
+input[type=file]::file-selector-button{background:var(--soft)!important;border:1px solid rgba(255,255,255,.14)!important;box-shadow:none!important;color:var(--fg)!important}
+input[type=file]:hover::file-selector-button{background:var(--soft-h)!important;border-color:rgba(255,255,255,.22)!important}
+input::placeholder,textarea::placeholder{color:#6f829e}
+:is(input,select,textarea):focus{box-shadow:var(--ring)!important}
+
+/* results and logs: easier to read */
+pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!important}
+.row{transition:background-color .15s}
+@media(hover:hover){.row:hover{background:rgba(255,255,255,.025)}}
+
+/* sign-in card */
+#login{max-width:440px;padding:24px!important}
+.lg-title{font-size:19px;letter-spacing:-.02em}
+</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
-<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div><button type="button" id="logoutbtn" class="hd-reboot" style="color:inherit!important;border-color:currentColor!important;opacity:.8;margin-right:6px" title="End this session">Sign out</button><button type="button" id="rebootbtn" class="hd-reboot" title="Reboot device">Reboot</button></header>
+<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div><button type="button" id="logoutbtn" class="hd-reboot" style="margin-right:6px" title="End this session">Sign out</button><button type="button" id="rebootbtn" class="hd-reboot" title="Reboot device">Reboot</button></header>
+<div id="insecurebar" role="alert" style="display:none;margin:0;padding:8px 16px;background:#3a2a05;color:#ffd27a;border-bottom:1px solid #6b4d0a;font-size:13px;text-align:center"><b>Not encrypted.</b> This page was opened over plain HTTP, so the password and session token cross the hotspot in clear text. HTTPS could not start on this device.</div>
+<script>(function(){try{var h=location.hostname;if(location.protocol==='http:'&&h!=='localhost'&&h!=='[::1]'&&!/^127\./.test(h)){document.getElementById('insecurebar').style.display='block';}}catch(e){}})();</script>
 <main>
   <div class="card" id="login" style="display:none">
     <div class="lg-title">Sign in</div>
@@ -534,11 +590,11 @@ header #logoutbtn,header .hd-reboot{flex:none}
   </div>
   <div class="card pop" id="appupdate">
     <div class="mut" style="margin-bottom:8px">Update MatchiTOOL</div>
-    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, the same version reinstalls, and an older version rolls back (app settings are kept). You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
+    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, the same version number with a different SHA-256 updates too, an identical file reinstalls, and an older version rolls back (app settings are kept). You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
-    <p class="mut" style="margin-top:12px">Or update over the air: paste an https link to the APK (for example a GitHub release asset). Press <b>Check for update</b> first: it only asks what is online and downloads nothing. When a build is found the button turns into <b>Download &amp; verify</b>.</p>
-    <input id="updurl" type="url" placeholder="https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk" style="width:100%;box-sizing:border-box">
+    <p class="mut" style="margin-top:12px">Or update over the air from the MatchiTOOL releases. Press <b>Check for update</b> first: it only asks what is online and downloads nothing. When a build is found the button turns into <b>Download &amp; verify</b>.</p>
+    <input id="updurl" type="url" hidden style="display:none!important" tabindex="-1" aria-hidden="true">
     <p><button id="updfetch">Check for update</button></p>
     <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -565,7 +621,7 @@ header #logoutbtn,header .hd-reboot{flex:none}
       <input id="plugfile" type="file" accept=".js" multiple>
     </label>
     <div class="pm-backup"><button type="button" id="plugin_export">Export all</button><button type="button" id="plugin_import">Import backup</button><input id="plugin_backup_file" type="file" accept=".json,application/json" style="display:none"></div>
-    <div class="pm-warn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg><span>Plugins run with full console access. Install only trusted code.</span></div>
+    <div class="pm-warn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg><span>Plugins can run any command as root through this console. Install only code you trust.</span></div>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
 </main>
@@ -831,25 +887,36 @@ header #logoutbtn,header .hd-reboot{flex:none}
   const BTN='matchi_network_diag_btn', MODAL='matchi_network_diag_modal';
   if(document.getElementById(BTN))return;
   const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // The three pings and the DNS lookup run at the same time (each in the background, output to a temp file), so a run takes about
+  // as long as the slowest one instead of all of them added up (offline: about 4 s instead of 12 s or more).
   const SCRIPT=String.raw`
+T=/data/local/tmp; { [ -d $T ] && [ -w $T ]; } || T=/data/local
+P=$T/.nd$$
+HAVEPING=0; command -v ping >/dev/null 2>&1 && HAVEPING=1
+gw=$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $3}')
+if [ "$HAVEPING" = 1 ]; then
+  [ -n "$gw" ] && ( ping -c 2 -W 2 "$gw" 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.g 2>/dev/null &
+  ( ping -c 2 -W 2 1.1.1.1 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.4 2>/dev/null &
+  ( ping -6 -c 2 -W 2 2606:4700:4700::1111 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.6 2>/dev/null &
+fi
+if command -v getent >/dev/null 2>&1; then
+  ( getent hosts example.com 2>&1 | head -n 2 | tr '\n' ' ' ) > $P.d 2>/dev/null &
+elif command -v nslookup >/dev/null 2>&1; then
+  ( nslookup example.com 2>&1 | tail -n 5 | tr '\n' ' ' ) > $P.d 2>/dev/null &
+else echo "No getent/nslookup utility" > $P.d; fi
 echo "ipv4_addr=$(ip -4 -o addr show 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
 echo "ipv6_addr=$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
 echo "route4=$(ip -4 route show default 2>/dev/null | head -n 3)"
 echo "route6=$(ip -6 route show default 2>/dev/null | head -n 3)"
-gw=$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $3}')
-if [ -n "$gw" ] && command -v ping >/dev/null 2>&1; then
-  echo "gateway_ping=$(ping -c 2 -W 2 "$gw" 2>&1 | tail -n 2 | tr '\n' ' ')"
-else echo "gateway_ping=No IPv4 gateway or ping utility"; fi
-if command -v ping >/dev/null 2>&1; then
-  echo "public_ipv4=$(ping -c 2 -W 2 1.1.1.1 2>&1 | tail -n 2 | tr '\n' ' ')"
-  echo "public_ipv6=$(ping -6 -c 2 -W 2 2606:4700:4700::1111 2>&1 | tail -n 2 | tr '\n' ' ')"
-else echo "public_ipv4=ping utility unavailable"; fi
-if command -v getent >/dev/null 2>&1; then
-  echo "dns=$(getent hosts example.com 2>&1 | head -n 2 | tr '\n' ' ')"
-elif command -v nslookup >/dev/null 2>&1; then
-  echo "dns=$(nslookup example.com 2>&1 | tail -n 5 | tr '\n' ' ')"
-else echo "dns=No getent/nslookup utility"; fi
 echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
+wait
+if [ -n "$gw" ] && [ "$HAVEPING" = 1 ]; then echo "gateway_ping=$(cat $P.g 2>/dev/null)"; else echo "gateway_ping=No IPv4 gateway or ping utility"; fi
+if [ "$HAVEPING" = 1 ]; then
+  echo "public_ipv4=$(cat $P.4 2>/dev/null)"
+  echo "public_ipv6=$(cat $P.6 2>/dev/null)"
+else echo "public_ipv4=ping utility unavailable"; fi
+echo "dns=$(cat $P.d 2>/dev/null)"
+rm -f $P.g $P.4 $P.6 $P.d
 `;
   function rows(text){
     const o={};String(text||'').split(/\r?\n/).forEach(l=>{const i=l.indexOf('=');if(i>0)o[l.slice(0,i)]=l.slice(i+1).trim();});
@@ -1193,21 +1260,23 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const nums = (s) => String(s || '').split(/\s+/).filter((x) => /^\d+$/.test(x)).map(Number);
 
     // One root call reads everything the window shows.
+    // The window polls this every 3 s, so it uses the shell's built-in `read` (no `cat` process per file): about 50 fewer processes per read.
     const READ = [
       `S=${SYS}`,
+      'rd() { v=; [ -r "$1" ] && read -r v < "$1"; return 0; }',
       'for i in 0 1 2 3 4 5 6 7; do',
       '  d=$S/cpu$i; [ -d $d ] || continue',
-      '  o=$(cat $d/online 2>/dev/null); [ -n "$o" ] || o=1',
-      '  c=$(cat $d/cpufreq/scaling_cur_freq 2>/dev/null); [ -n "$c" ] || c=0',
-      '  m=$(cat $d/cpufreq/cpuinfo_max_freq 2>/dev/null); [ -n "$m" ] || m=0',
-      '  g=$(cat $d/cpufreq/scaling_governor 2>/dev/null)',
-      '  s=$(cat $d/cpufreq/scaling_setspeed 2>/dev/null)',
+      '  rd $d/online; o=$v; [ -n "$o" ] || o=1',
+      '  rd $d/cpufreq/scaling_cur_freq; c=$v; [ -n "$c" ] || c=0',
+      '  rd $d/cpufreq/cpuinfo_max_freq; m=$v; [ -n "$m" ] || m=0',
+      '  rd $d/cpufreq/scaling_governor; g=$v',
+      '  rd $d/cpufreq/scaling_setspeed; s=$v',
       '  echo "C|$i|$o|$c|$m|$g|$s"',
       'done',
-      'echo "AGL|$(cat $S/cpu0/cpufreq/scaling_available_governors 2>/dev/null)"',
-      'echo "AGB|$(cat $S/cpu4/cpufreq/scaling_available_governors 2>/dev/null)"',
-      'echo "AFL|$(cat $S/cpu0/cpufreq/scaling_available_frequencies 2>/dev/null)"',
-      'echo "AFB|$(cat $S/cpu4/cpufreq/scaling_available_frequencies 2>/dev/null)"',
+      'rd $S/cpu0/cpufreq/scaling_available_governors; echo "AGL|$v"',
+      'rd $S/cpu4/cpufreq/scaling_available_governors; echo "AGB|$v"',
+      'rd $S/cpu0/cpufreq/scaling_available_frequencies; echo "AFL|$v"',
+      'rd $S/cpu4/cpufreq/scaling_available_frequencies; echo "AFB|$v"',
       `if [ -f ${BOOT_FILE} ]; then echo "BOOT|1"; else echo "BOOT|0"; fi`,
     ].join('\n');
 
@@ -1271,7 +1340,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const removeScript = () => `rm -f ${BOOT_FILE}; [ -f ${BOOT_FILE} ] && echo MATCHI_FAIL || echo MATCHI_OK`;
 
     // ---- window ----
-    let modal = null, timer = null, busy = false, opBusy = false, st = null;
+    let modal = null, timer = null, busy = false, opBusy = false, st = null, seq = 0, stAt = 0;
     const $ = (id) => document.getElementById(id);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const shown = () => !!(modal && modal.isConnected && modal.classList.contains('show'));
@@ -1284,6 +1353,9 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
 <div class="lcpu-ctl"><label>Mode<select id="lcpu_gov_${cl}"></select></label><label id="lcpu_fw_${cl}" style="display:none">Locked speed<select id="lcpu_freq_${cl}"></select></label></div>`;
     const fillSelect = (sel, items, cur) => {
       if (!sel || document.activeElement === sel) return;
+      const key = cur + '|' + items.map((x) => x[0]).join(',');
+      if (sel.dataset.k === key && String(sel.value) === String(cur)) return;   // nothing changed (and the box still shows the real value): leave the list alone
+      sel.dataset.k = key;
       sel.innerHTML = items.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(cur) ? ' selected' : ''}>${esc(l)}</option>`).join('');
     };
     const paint = () => {
@@ -1292,11 +1364,23 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
         const ids = CL[cl].filter((i) => st.cores[i]);
         const box = $('lcpu_cores_' + cl);
         if (!box) continue;
+        // Same cores on/off as last time: only update the speed text and bar in place, so a tap is never lost to a rebuilt button.
+        const ckey = ids.map((i) => i + (st.cores[i].on ? 'n' : 'f')).join(',');
+        if (box.dataset.k === ckey) {
+          for (const i of ids) {
+            const c = st.cores[i], b = box.querySelector('[data-core="' + i + '"]'); if (!b) continue;
+            const sp = b.querySelector('span'), bar = b.querySelector('.lcpu-bar i');
+            if (sp) sp.textContent = c.on ? Math.round(c.cur / 1000) + ' MHz' : 'off';
+            if (bar) bar.style.width = (c.on && c.max ? Math.min(100, Math.round(c.cur * 100 / c.max)) : 0) + '%';
+          }
+        } else {
+        box.dataset.k = ckey;
         box.innerHTML = ids.map((i) => {
           const c = st.cores[i], mhz = c.on ? Math.round(c.cur / 1000) : 0, pct = c.on && c.max ? Math.min(100, Math.round(c.cur * 100 / c.max)) : 0;
           const lab = (cl === 'little' ? 'L' : 'B') + (i - CL[cl][0] + 1);
           return `<button type="button" class="lcpu-core ${c.on ? 'on' : 'off'}" data-core="${i}" aria-pressed="${c.on}" title="${c.on ? 'Tap to turn this core off' : 'Tap to turn this core on'}"><b>${lab}</b><span>${c.on ? mhz + ' MHz' : 'off'}</span><div class="lcpu-bar"><i style="width:${pct}%"></i></div></button>`;
         }).join('');
+        }
         const gov = clusterGov(st, cl), set = clusterSet(st, cl);
         const govs = st.gov[cl].length ? st.gov[cl].slice() : GOV_DEFAULT.slice();
         if (gov && !govs.includes(gov)) govs.push(gov);
@@ -1318,23 +1402,31 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const refresh = async (force) => {
       if (!shown()) { stopTimer(); return; }
       if (force) for (let n = 0; busy && n < 40; n++) await sleep(150);
-      if (busy || (document.hidden && !force)) return;
+      if (busy || (document.hidden && !force) || (opBusy && !force)) return;
       busy = true;
+      const my = ++seq;
       try {
         const r = await run(READ, 15000);
-        if (r.ok && /^C\|/m.test(r.text)) { st = parse(r.text); paint(); }
+        if (my !== seq) return;   // a change was made while this read was running: its own read-back is newer
+        if (r.ok && /^C\|/m.test(r.text)) { st = parse(r.text); stAt = Date.now(); paint(); }
         else if (!st) { const b = $('lcpu_boot'); if (b) b.textContent = 'Could not read the CPU state. Check that root access is granted to MatchiTOOL.'; }
       } finally { busy = false; }
     };
     const op = async (what, script, okMsg) => {
       if (opBusy) return false;
       opBusy = true;
-      let ok = false;
+      let ok = false, fresh = false;
+      ++seq;
       try {
-        const r = await run(script, 20000);
-        ok = r.text.includes('MATCHI_OK');
-        createToast(ok ? okMsg : what + ' failed' + (r.text && !ok ? ': ' + r.text.replace(/MATCHI_FAIL/g, '').trim().slice(0, 100) : ''), ok ? 'green' : 'red');
-      } finally { opBusy = false; await refresh(true); }
+        // The change and the read-back of the new state go in ONE root call (the change runs in a sub-shell so its own `exit` cannot skip the read).
+        const r = await run('(\n' + script + '\n)\necho MATCHI_READ\n' + READ, 25000);
+        const i = r.text.indexOf('MATCHI_READ');
+        const head = i >= 0 ? r.text.slice(0, i) : r.text, tail = i >= 0 ? r.text.slice(i) : '';
+        ok = head.includes('MATCHI_OK');
+        createToast(ok ? okMsg : what + ' failed' + (head && !ok ? ': ' + head.replace(/MATCHI_FAIL/g, '').trim().slice(0, 100) : ''), ok ? 'green' : 'red');
+        if (/^C\|/m.test(tail)) { st = parse(tail); stAt = Date.now(); fresh = true; }
+      } finally { opBusy = false; }
+      if (fresh) paint(); else await refresh(true);
       return ok;
     };
     const toggleCore = async (n) => {
@@ -1346,7 +1438,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     };
     const save = async () => {
       if (opBusy) return;
-      await refresh(true);
+      if (!st || Date.now() - stAt > 4000) await refresh(true);
       if (!st) return;
       const sum = ['little', 'big'].map((cl) => { const g = clusterGov(st, cl); return CL_NAME[cl] + ': ' + (GOV_NAME[g] || g || 'unchanged'); }).join(', ');
       const off = CORES.filter((i) => st.cores[i] && !st.cores[i].on).length;
@@ -3355,19 +3447,38 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     sharedRootQueue = { tail: Promise.resolve() };
     window[ROOT_QUEUE_KEY] = sharedRootQueue;
   }
+  // Host retry is only on while a Standard / Strong / Off style action runs (hostRetry > 0). Every other call fails fast, so buttons stay quick.
+  const HOST_RETRIES = 8, HOST_RETRY_MS = 1500;
+  let hostRetry = 0;
+  const withHostRetry = (fn) => async (...a) => { hostRetry++; try { return await fn(...a); } finally { hostRetry--; } };
   const runRoot = (command, timeout = 20000) => {
     const limit = timeout || 20000;
     let resolveResult;
     const result = new Promise((resolve) => { resolveResult = resolve; });
     sharedRootQueue.tail = sharedRootQueue.tail.then(async () => {
       let timer = null;
-      const call = Promise.resolve().then(() => { if (typeof runShellWithRoot !== 'function') throw new Error('Root-shell function is unavailable'); return runShellWithRoot(command, limit); });
+      // Applying TTL / firewall rules can reset the mobile link for a moment, so the very next call may fail with
+      // "Cannot reach MatchiTOOL host" although the rules were applied. Wait for the host and try again instead of failing the step.
+      const callHost = async () => {
+        let lastErr;
+        const max = hostRetry > 0 ? HOST_RETRIES : 0;
+        for (let i = 0; i <= max; i++) {
+          try { return await runShellWithRoot(command, limit); }
+          catch (e) {
+            lastErr = e;
+            if (!/Cannot reach MatchiTOOL host/.test(String(e?.message || e)) || i === max) throw e;
+            await sleep(HOST_RETRY_MS);
+          }
+        }
+        throw lastErr;
+      };
+      const call = Promise.resolve().then(() => { if (typeof runShellWithRoot !== 'function') throw new Error('Root-shell function is unavailable'); return callHost(); });
       const settled = call.then(
         (res) => ({ kind: 'success', res }),
         (err) => ({ kind: 'error', err }),
       );
       const timed = new Promise((resolve) => {
-        timer = setTimeout(() => resolve({ kind: 'timeout' }), limit + 8000);
+        timer = setTimeout(() => resolve({ kind: 'timeout' }), limit + 8000 + (hostRetry > 0 ? HOST_RETRIES * HOST_RETRY_MS : 0));
       });
       const outcome = await Promise.race([settled, timed]);
       clearTimeout(timer);
@@ -3413,18 +3524,26 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     const nl = text.indexOf('\n');
     return `${text.slice(0, nl + 1)}# script-id: ${scriptId(text)}\n${text.slice(nl + 1)}`;
   };
+  // Scripts already written or verified in the last 5 minutes are not written again (each write is a large root call).
+  const helperOkAt = {};
+  const helperFresh = (path) => Date.now() - (helperOkAt[path] || 0) < 300000;
   const installHelper = async (path, raw) => {
     const id = scriptId(raw);
     const w = await runRoot(`${writeFile(path, stampScript(raw))} && chmod 755 ${path} && test -x ${path} && sh -n ${path} && grep -q '^# script-id: ${id}$' ${path} && echo WROTE`);
     if (!w.text.includes('WROTE')) throw new Error(`Could not write the helper script, or the file on the device does not match what was written. ${w.text.slice(0, 120)}`);
+    helperOkAt[path] = Date.now();
+  };
+  const restartMarker = '__BYPASS_WATCH_RESTART_OK__';
+  const restartCmd = (p) => {
+    const pid = p.replace(/[^/]*$/, 'watch.pid');
+    return `if [ "$(sh ${p} status 2>/dev/null)" = running ] && [ ${p} -nt ${pid} ]; then ` +
+      `(sh ${p} stop && sh ${p} start && sleep 1 && [ "$(sh ${p} status 2>/dev/null)" = running ]) ` +
+      `|| { echo __BYPASS_WATCH_RESTART_FAILED__; exit 1; }; echo ${restartMarker}; ` +
+      `else echo __BYPASS_WATCH_UNCHANGED__; fi`;
   };
   const restartIfStale = async (p) => {
-    const pid = p.replace(/[^/]*$/, 'watch.pid');
-    const marker = '__BYPASS_WATCH_RESTART_OK__';
-    const command = `if [ "$(sh ${p} status 2>/dev/null)" = running ] && [ ${p} -nt ${pid} ]; then ` +
-      `(sh ${p} stop && sh ${p} start && sleep 1 && [ "$(sh ${p} status 2>/dev/null)" = running ]) ` +
-      `|| { echo __BYPASS_WATCH_RESTART_FAILED__; exit 1; }; echo ${marker}; ` +
-      `else echo __BYPASS_WATCH_UNCHANGED__; fi`;
+    const marker = restartMarker;
+    const command = restartCmd(p);
     const result = await runRoot(command, 30000);
     if (!result.ok || result.text.includes('__BYPASS_WATCH_RESTART_FAILED__')) {
       throw new Error(`Could not restart or verify watcher for ${p}: ${result.text || 'root command failed'}`);
@@ -3433,11 +3552,16 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   };
   const ensureHelper = async (path, raw) => {
     const id = scriptId(raw);
-    const c = await runRoot(`grep -q '^# script-id: ${id}$' ${path} 2>/dev/null && echo CURRENT || echo STALE`);
-    const rewritten = !c.text.includes('CURRENT');
-    if (rewritten) await installHelper(path, raw);
+    // One root call when the script is already current (check + keep-alive restart test together).
+    const c = await runRoot(`if grep -q '^# script-id: ${id}$' ${path} 2>/dev/null; then echo CURRENT; ${restartCmd(path)}; else echo STALE; fi`, 30000);
+    if (c.text.includes('CURRENT')) {
+      if (!c.ok || c.text.includes('__BYPASS_WATCH_RESTART_FAILED__')) throw new Error(`Could not restart or verify watcher for ${path}: ${c.text || 'root command failed'}`);
+      helperOkAt[path] = Date.now();
+      return false;
+    }
+    await installHelper(path, raw);
     await restartIfStale(path);
-    return rewritten;
+    return true;
   };
 
   // Older versions wrote their boot line with /data/local/matchitool/ttl|dpi/ instead of /data/local/ufi_ttl|ufi_dpi/. Those lines
@@ -4257,6 +4381,7 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
     };
 
     const installScript = async () => {
+      if (helperFresh(SCRIPT)) return;
       await installHelper(SCRIPT, TTL_SCRIPT);
     };
     const isBootOn = async () => (await runRoot(bootCheckCmd(SCRIPT))).text.includes('YES');
@@ -5304,6 +5429,7 @@ cat ${CONF} 2>/dev/null
     };
 
     const installScript = async () => {
+      if (helperFresh(SCRIPT)) return;
       await installHelper(SCRIPT, DPI_SCRIPT);
     };
     const isBootOn = async () => (await runRoot(bootCheckCmd(SCRIPT))).text.includes('YES');
@@ -6256,6 +6382,20 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   };
   let qsPicked = false;
   const markQs = (id) => { qsPicked = true; showQs(id); };
+  // Full check: the internet ping and the DNS ping run at the same time (offline this takes about 7 s instead of about 14 s).
+  // If the temporary files cannot be used, it falls back to the old one-after-the-other pings.
+  const PING_SEQ = '(ping -c 1 -W 3 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_IP + ' >/dev/null 2>&1) && echo "@@NET=1" || echo "@@NET=0"\n(ping -c 1 -W 3 ' + PING_HOST + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_HOST + ' >/dev/null 2>&1) && echo "@@DNS=1" || echo "@@DNS=0"';
+  const PING_FULL = [
+    'T=/data/local/tmp; { [ -d $T ] && [ -w $T ]; } || T=/data/local',
+    'A=$T/.bp_n$$; B=$T/.bp_d$$',
+    '( (ping -c 1 -W 3 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_IP + ' >/dev/null 2>&1) && echo 1 || echo 0 ) > $A 2>/dev/null &',
+    '( (ping -c 1 -W 3 ' + PING_HOST + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_HOST + ' >/dev/null 2>&1) && echo 1 || echo 0 ) > $B 2>/dev/null &',
+    'wait',
+    'N=$(cat $A 2>/dev/null); D=$(cat $B 2>/dev/null); rm -f $A $B',
+    'if [ -n "$N" ] && [ -n "$D" ]; then echo "@@NET=$N"; echo "@@DNS=$D"; else',
+    PING_SEQ,
+    'fi',
+  ].join('\n');
   const PING_QUICK = [
     'if ping -c 1 -W 2 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 3 ' + PING_IP + ' >/dev/null 2>&1; then',
     '  echo "@@NET=1"',
@@ -6317,9 +6457,10 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   let lastDns = null;
   const runCheck = async (withPing = true, quick = false) => {
     const sess = session;
-    const r = !withPing ? { text: '' } : await runRoot(quick ? PING_QUICK : '(ping -c 1 -W 3 ' + PING_IP + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_IP + ' >/dev/null 2>&1) && echo "@@NET=1" || echo "@@NET=0"\n(ping -c 1 -W 3 ' + PING_HOST + ' >/dev/null 2>&1 || ping -c 1 -w 4 ' + PING_HOST + ' >/dev/null 2>&1) && echo "@@DNS=1" || echo "@@DNS=0"', 25000);
+    const r = !withPing ? { text: '' } : await runRoot(quick ? PING_QUICK : PING_FULL, 25000);
     if (quick && (sess !== session || busy > 0)) return;
     await ttlModule.refresh();
+    if (quick && (sess !== session || busy > 0)) return;
     await dpiModule.refresh();
     if (sess !== session) return;
     const kv = parseStatus(r.text).kv;
@@ -6388,12 +6529,12 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
     const b = await dpiModule.ensureScript();
     return a || b;
   };
-  const refreshAfter = (fn) => async () => {
+  const refreshAfter = (fn) => withHostRetry(async () => {
     let err = null;
     try { await fn(); } catch (e) { err = e; qsPicked = false; }
     try { await runCheck(); } catch (e) { err = err || e; }
     if (err) throw err;
-  };
+  });
 
   const ST_READ = String.raw`D=/data/local/ufi_ttl
 P=/data/local/ufi_dpi
@@ -6742,7 +6883,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       await copyText(text, 'Full report copied');
     }, 'Collecting\u2026');
     q('#qs_strong').onclick = guarded(refreshAfter(async () => { markQs('qs_strong'); await quickStep('Helper scripts', ensureScripts); await quickStep('TTL step (Anti-DPI was not applied)', () => ttlModule.setup(QUICK_TTL)); await quickStep('Anti-DPI step (TTL is already on)', () => dpiModule.setup()); }), 'Setting up\u2026');
-    q('#qs_stop').onclick = guarded(async () => {
+    q('#qs_stop').onclick = guarded(withHostRetry(async () => {
       markQs('qs_stop');
       const errs = [];
       for (const m of [ttlModule, dpiModule]) { try { await m.stopAll(); } catch (e) { errs.push(e); } }
@@ -6751,7 +6892,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       const still = ttlModule.state().on || dpiModule.state().any;
       if (still) toast('Some rules are still active. Check the status above, or use Remove on the Advanced tab', 'orange', 7000);
       else toast('Everything stopped: rules removed, auto-apply at boot off, keep-alive stopped', 'green', 5000);
-    }, 'Stopping\u2026');
+    }), 'Stopping\u2026');
     const tabs = modalEl.querySelectorAll('.bp-tab');
     tabs.forEach((t) => {
       t.onclick = () => {
@@ -7006,11 +7147,45 @@ function renderPlugins(list){
     const acts=document.createElement('div');acts.className='pm-acts';
     const ex=document.createElement('button');ex.type='button';ex.innerHTML=pmIcon('<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>')+'<span class="pm-t">Export</span>';ex.title='Export';ex.setAttribute('aria-label','Export '+p.name);ex.onclick=()=>downloadText(p.name,p.code||'','text/javascript');
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
-    d.onclick=async()=>{if(!(await askConfirm('Delete '+p.name+'? Export a backup first if you may need it again.','Delete',true)))return;d.disabled=true;try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})});await refreshPluginList()}catch(e){d.disabled=false;createToast(e.message,'red')}};
+    d.onclick=async()=>{
+      let info=null;try{info=await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}
+      const lsKeys=pluginLsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
+      let msg='Delete '+p.name+'? Export a backup first if you may need it again.';
+      if(present.length||lsKeys.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(lsKeys.length)msg+='\n\u2022 '+lsKeys.length+' saved browser setting'+(lsKeys.length>1?'s':'')}
+      if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased (not allowed): '+info.rejected.map(r=>r.path).join(', ');
+      if(!(await askConfirm(msg,'Delete',true)))return;
+      d.disabled=true;
+      try{
+        const r=await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name,erase:true})});
+        for(const k of lsKeys){try{localStorage.removeItem(k)}catch(_){}}
+        const failed=r&&r.erase&&r.erase.success===false;
+        createToast(failed?'Deleted '+p.name+', but some data could not be erased':'Deleted '+p.name+(present.length||lsKeys.length?' and its data':''),failed?'orange':undefined);
+        await refreshPluginList();
+      }catch(e){d.disabled=false;createToast(e.message,'red')}
+    };
     acts.append(ex,d);
     row.append(ic,wrap,acts,t);box.appendChild(row);
   }
   if(!shown.length){const empty=document.createElement('div');empty.className='pm-empty';empty.textContent=list.length?'No plugins match your search.':'No plugins yet. Add a trusted .js file below.';box.appendChild(empty)}
+}
+/* Browser settings a plugin may ask to have removed on delete: "// @matchi-localstorage prefix" in its source.
+   The prefix must start with the plugin's own name (letters/digits, case-insensitive) and can never reach MatchiTOOL's own keys. */
+function pluginNorm(x){return String(x).toLowerCase().replace(/[^a-z0-9]+/g,'_')}
+function pluginLsPrefixes(p){
+  const slug=pluginNorm(String(p.name||'').replace(/\.js$/i,''));const out=[];
+  if(slug.length<3)return out;
+  for(const line of String(p.code||'').split('\n').slice(0,400)){
+    const g=/^\s*\/\/\s*@matchi-localstorage\s+(\S+)\s*$/.exec(line);if(!g)continue;
+    const np=pluginNorm(g[1]);
+    if(np.length<4||!np.startsWith(slug)||'matchi_token'.startsWith(np)||np.startsWith('matchi_')||np.startsWith('liv_'))continue;
+    out.push(g[1].toLowerCase());
+  }
+  return out;
+}
+function pluginLsKeys(p){
+  const pre=pluginLsPrefixes(p);const keys=[];if(!pre.length)return keys;
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&pre.some(x=>k.toLowerCase().startsWith(x)))keys.push(k)}}catch(_){}
+  return keys;
 }
 async function refreshPluginList(){
   const list=await api('/api/plugins');if(!Array.isArray(list))throw new Error('The plugin list returned an unexpected response');
@@ -7048,7 +7223,7 @@ document.getElementById('plugin_backup_file').onchange=async(e)=>{
       if(typeof p.code!=='string'||!p.code.trim()||p.code.length>1024*1024)throw new Error('Invalid plugin source: '+p.name);
       new Function(p.code);
     }
-    if(!(await askConfirm(`Import ${data.plugins.length} plugins? Matching filenames will be replaced. Continue only if you trust this backup.`,'Import backup',true)))return;
+    if(!(await askConfirm(`Import ${data.plugins.length} plugins? Matching filenames will be replaced. Plugins can run any command as root. Continue only if you trust this backup.`,'Import backup',true)))return;
     for(const p of data.plugins){await api('/api/plugins',{method:'POST',body:JSON.stringify({name:p.name,code:p.code})});await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:p.enabled!==false})})}
     await refreshPluginList();createToast('Plugin backup imported');
   }catch(err){createToast('Import failed: '+err.message,'red')}finally{e.target.value=''}
@@ -7061,7 +7236,8 @@ document.getElementById('plugfile').onchange=async(e)=>{
     if(BUILTIN.has(f.name)){createToast('Cannot replace a built-in tool: '+f.name,'red');continue}
     try{
       const code=await f.text();new Function(code);
-      if(pluginCache.some(p=>p.name===f.name)&&!(await askConfirm('Replace '+f.name+'? Export the old source first if needed.','Replace plugin',true)))continue;
+      const exists=pluginCache.some(p=>p.name===f.name);
+      if(!(await askConfirm(exists?'Replace '+f.name+'? Export the old source first if needed. A plugin can run any command as root, so keep only code you trust.':'Add '+f.name+'? A plugin can run any command as root. Add it only if you trust where it came from.',exists?'Replace plugin':'Add plugin',true)))continue;
       await api('/api/plugins',{method:'POST',body:JSON.stringify({name:f.name,code})});done++;createToast('Uploaded '+f.name);
     }catch(err){createToast(f.name+': '+err.message,'red')}
   }
@@ -7075,7 +7251,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.25';
+const PAGE_VERSION='1.2.26';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
@@ -7676,11 +7852,12 @@ document.getElementById('fwinspect').onclick=async()=>{
   try{const r=await api('/api/firmware/inspect',{method:'POST',body:JSON.stringify({name:f.name,content:await f.text()})});out.textContent=JSON.stringify(r,null,2)}catch(e){out.textContent='Inspection failed: '+e.message}
 };
 const UPD_REL={newer:{head:'Update file accepted',line:'✓ Newer version than the installed app',btn:'Install update',ask:'Install'},
-  same:{head:'Same version as the installed app',line:'• Same version: installing will reinstall it (settings are kept)',btn:'Reinstall same version',ask:'Reinstall'},
+  rebuild:{head:'Different build of the same version',line:'✓ Same version number, but a different file (the SHA-256 differs from the installed app): installing will update it (settings are kept)',btn:'Install update',ask:'Install'},
+  same:{head:'Identical to the installed app',line:'• Same version and the same SHA-256: installing will only reinstall it (settings are kept)',btn:'Reinstall same file',ask:'Reinstall'},
   older:{head:'Older version: rollback',line:'• Older version: installing will roll the app back (settings are kept)',btn:'Roll back to this version',ask:'Roll back'}};
 function updShow(r){
   const out=document.getElementById('updout'),inst=document.getElementById('updinstall'),R=UPD_REL[r.relation]||UPD_REL.newer;
-  out.textContent=R.head+'\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n'+R.line+'\n✓ Same app\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press the button below (valid for 10 minutes).';
+  out.textContent=R.head+'\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256 installed: '+(r.installedSha256||'(could not be read)')+'\nSHA-256 new:       '+r.sha256+'\nSHA-256 match:     '+(r.installedSha256?(r.installedSha256.toLowerCase()===String(r.sha256).toLowerCase()?'yes (same file)':'no (different file)'):'unknown')+'\n\n'+R.line+'\n✓ Same app\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press the button below (valid for 10 minutes).';
   inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.dataset.rel=r.relation;inst.textContent=R.btn;inst.style.display='inline-block';
 }
 document.getElementById('updcheck').onclick=async()=>{
@@ -7712,8 +7889,8 @@ document.getElementById('updfetch').onclick=async()=>{
       out.textContent='Checking what is online (nothing is downloaded)…';
       const c=await api('/api/update/check',{method:'POST',body:JSON.stringify({url:u})});
       otaUrl=u;
-      const rel={newer:'A newer version is available.',same:'This is the same version that is installed (you can still download it to reinstall).',older:'This is an OLDER version than the installed app (you can download it to roll back).',unknown:'The online version could not be compared; download it to see its exact version.'}[c.relation]||'';
-      out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.sha256?'\nSHA-256:   '+c.sha256:'')+'\n\n'+rel+'\n\nPress Download & verify to fetch it; it is fully checked again before anything can be installed.';
+      const rel={newer:'A newer version is available.',rebuild:'Same version number, but the online SHA-256 differs from the installed app, so it is a different build and installing it updates the app.',same:c.sha256?'Identical to the installed app (same SHA-256). You can still download it to reinstall.':'Same version number as the installed app. The online SHA-256 is not published, so Download & verify will compare the files.',older:'This is an OLDER version than the installed app (you can download it to roll back).',unknown:'The online version could not be compared; download it to see its exact version.'}[c.relation]||'';
+      out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.installedSha256?'\nSHA-256 installed: '+c.installedSha256:'')+(c.sha256?'\nSHA-256 online:    '+c.sha256:'')+'\n\n'+rel+'\n\nPress Download & verify to fetch it; it is fully checked again before anything can be installed.';
       otaSet('download');
     }else{
       out.textContent='The device is downloading and checking the file…';
@@ -7726,7 +7903,7 @@ document.getElementById('updfetch').onclick=async()=>{
 document.getElementById('updinstall').onclick=async()=>{
   const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha,rel=inst.dataset.rel||'newer',R=UPD_REL[rel]||UPD_REL.newer;
   if(!sha)return;
-  const extra=rel==='older'?'\n\nRollback: settings and saved data are kept. If Android refuses the downgrade, the app is removed with its data kept and the older build is installed in its place.':rel==='same'?'\n\nThis reinstalls the build you already have.':'';
+  const extra=rel==='older'?'\n\nRollback: settings and saved data are kept. If Android refuses the downgrade, the app is removed with its data kept and the older build is installed in its place.':rel==='rebuild'?'\n\nSame version number, but a different file (SHA-256 differs from the installed app). Settings and saved data are kept.':rel==='same'?'\n\nThis is the identical file (same SHA-256) and only reinstalls the build you already have.':'';
   if(!(await askConfirm(R.ask+' MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+extra+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.',R.ask,true)))return;
   inst.style.display='none';
   out.textContent='Starting the installer…';
