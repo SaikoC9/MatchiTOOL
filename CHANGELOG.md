@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.13 — Tools merged into Live device status
+- Removed four tools: **Smart F50 Monitor**, **Device status**, **Network debug** and **Signal info** (home buttons, embedded scripts, Full diagnose checks and reserved plugin file names). The page now embeds 6 tools.
+- **Live device status** gained the useful parts of the two monitors: CPU usage, memory used, load average, uptime and the IPv4 address of each interface. They come from the same single root-shell call it already makes (no extra processes per thermal zone), at the same thermal-aware refresh rate. CPU % needs two samples, so it shows "—" until the second refresh.
+- Not carried over: per-interface network rates and the full per-thermal-zone list. Battery, system-max and modem temperatures stay as before.
+- Full diagnose: the Live Status check now also verifies that /proc (CPU, load, memory) is readable.
+- Version 1.2.13 (versionCode 213). Not device-tested.
+
+## 1.2.12 — Bypass removed
+- The Bypass (F50) tool is removed: its home button, its embedded script (the page is about 200 KB smaller), its Full diagnose check and its reserved plugin file name. The page now embeds 10 tools.
+- **Not touched on the device:** TTL/DPI rules and any `/data/local/matchitool/boot.sh` created by Bypass stay as they were, and the boot receiver still runs that file if it exists. Delete or edit it by hand with `su -c` if you want those rules gone. Full diagnose still has a "Boot script health" check for it.
+- Version 1.2.12 (versionCode 212).
+
+## 1.2.11 — Same compact buttons on phones
+- Phone view (760 px and narrower) now uses the same compact buttons as the PC console: 28 px tall, centered text, and text size that scales with the screen width (9.5-12 px). A long label such as "Network Diagnostics" or "Smart F50 Monitor" wraps onto two lines inside its box instead of being cut off. Still 3 columns.
+- Version 1.2.11 (versionCode 211). CSS only; not device-tested.
+
+## 1.2.10 — Compact 3-column buttons on PC
+- In the two-column PC console the button panel is now 3 columns (was 2) with smaller, tighter buttons. The button text scales with the window width and wraps inside its box when a label is long, so nothing is cut off. The panel width adjusts to the window (380-460 px). Phone view is unchanged.
+- Version 1.2.10 (versionCode 210). CSS only; not device-tested.
+
 ## 1.2.9 — Two-column PC console
 - On screens 1000 px and wider the console is now two columns: the compact buttons in a left panel and the live device status filling the right, instead of one very wide stretched strip. The version line stays fixed at the bottom of the window on wide screens. Screens 900-999 px keep one column with compact buttons; phone view (760 px and narrower) is unchanged.
 - Version 1.2.9 (versionCode 209). CSS only; not device-tested.

@@ -21,7 +21,6 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 ## Features
 
 - **Advanced Network Diagnostics (1.2.0)**: on-demand IPv4/IPv6 address and route inspection, gateway/public-IP ping checks, and DNS lookup. Read-only; ICMP filtering is reported as a limitation rather than proof of an outage.
-- **Smart F50 Monitor (1.2.0)**: on-demand CPU, RAM, battery, thermal-zone, load, uptime, and per-interface network-rate telemetry. Polling pauses when hidden/closed and slows under elevated temperature. Read-only; it does not alter clocks, charging, or vendor thermal policy.
 - **Read-only device diagnostics**: Android build, root identity, kernel, network interfaces/routes, storage, and optional tool availability.
 - **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
@@ -36,7 +35,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - ZTE router API proxy for SMS and live signal information.
 - Boot receiver restarts the web host and runs the app-managed root startup script (when present); root access is separately authorized by `su`.
 
-The eleven built-in tools (AT Radio, Bypass, Device Status, Live Status, Memory Cleaner, Network Debug, SMS, Signal Info, Screen Control, Smart F50 Monitor, and Advanced Network Diagnostics) are embedded in `web/index.html` and load automatically.
+The six built-in tools (AT Radio, Live Status, Memory Cleaner, SMS, Screen Control, and Advanced Network Diagnostics) are embedded in `web/index.html` and load automatically.
 Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
 plugins execute with the privileges of the host bridge and should be treated as trusted code.
 
@@ -69,7 +68,7 @@ The web console still uses HTTP to preserve compatibility with the existing LAN 
 4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
 5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
 
-The Bypass plugin stores TTL/DPI helper state under `/data/local/matchitool/` and its boot entries in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to execute that file. This requires the root manager to retain MatchiTOOL's grant across reboot. If upgrading from an older UFI-based setup, first disable the old UFI boot entries and remove/stop the old helpers to avoid duplicate firewall management.
+The Bypass tool was removed in 1.2.12. If you used it earlier, its boot entries may still be in `/data/local/matchitool/boot.sh`; on boot, MatchiTOOL's receiver still asks the already-authorized `su` manager to run that file if it exists, so those firewall/TTL rules keep applying. Edit or delete that file by hand (`su -c`) if you no longer want them. Running the file requires the root manager to retain MatchiTOOL's grant across reboot.
 
 The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep your admin password private and press Sign out on shared computers. Sessions end by themselves after 2 h idle or 12 h.
 may have been exposed.
@@ -85,7 +84,7 @@ CPU architecture and runtime environment of the target device.
 
 - MatchiTOOL project code: MIT, see `LICENSE`.
 - UFI-TOOLS-derived components and notices: see `LICENSE-UFI-TOOLS` and the retained source/plugin headers.
-- `Bypass_v65_13.js` retains its original author/copyright header; its MIT license is reproduced in `LICENSE-BYPASS`.
+- The Bypass tool (a fork of a UFI-TOOLS plugin) was removed in 1.2.12; its MIT license text stays in `LICENSE-BYPASS` for reference.
 - Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
 
 Do not remove upstream copyright or license notices when modifying or redistributing derived components.
@@ -97,7 +96,7 @@ The historical 1.1.1 note about opt-in LAN mode was superseded by later compatib
 
 **Security limitation:** this is still HTTP. The subnet check is not a substitute for encryption, and any trusted-LAN client that obtains a valid session token can access privileged APIs. Never port-forward the port or use it on an untrusted network.
 \n\n## Stability-first integration 1.2.0
-The Smart F50 Monitor is deliberately read-only and on-demand. It reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes CPU/GPU/charging controls.
+The Live device status panel (which now also shows CPU, memory, load, uptime and IP addresses) is deliberately read-only. It reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes CPU/GPU/charging controls.
 
 ## Stability update 1.1.54
 See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression, and 24-hour soak tests. For the 1.2.0 monitor and network-diagnostics checks, see `docs/TESTING_1.2.0.md`. This release applies app-side back-pressure and polling reductions; device runtime validation is still required.\n

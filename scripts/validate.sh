@@ -13,7 +13,7 @@ for i, js in enumerate(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, r
     path.write_text(js)
     subprocess.run(['node', '--check', str(path)], check=True)
 tools = re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">(.*?)</script>', html, re.S)
-assert len(tools) == 11, f'expected 11 embedded tools, found {len(tools)}'
+assert len(tools) == 6, f'expected 6 embedded tools, found {len(tools)}'
 for name, js in tools:
     path = Path('/tmp') / ('matchitool-tool-' + name)
     path.write_text(js)
@@ -25,12 +25,6 @@ assert 'ArrayBlockingQueue' in root_shell and 'MAX_QUEUED_LINES' in root_shell, 
 assert 'Semaphore(MAX_SESSIONS' in root_shell and 'commandSlots.tryAcquire' in root_shell, 'root command concurrency must be bounded'
 main = (root / 'app/src/main/java/com/matchi/tool/MainActivity.kt').read_text()
 assert 'ufi_tools_boot' not in main and 'writeStartScript' not in main
-bypass_names = [n for n, _ in tools if n.startswith('Bypass_') and n.endswith('.js')]
-assert len(bypass_names) == 1, f'expected one embedded Bypass tool, found {bypass_names}'
-bypass = dict(tools)[bypass_names[0]]
-for legacy in ('/sdcard/ufi_tools_boot.sh', '/data/data/com.minikano.f50_sms', '/data/local/ufi_ttl', '/data/local/ufi_dpi'):
-    assert legacy not in bypass, f'legacy UFI path remains: {legacy}'
-assert '/data/local/matchitool/boot.sh' in bypass
 prefs = (root / 'app/src/main/java/com/matchi/tool/Prefs.kt').read_text()
 server = (root / 'app/src/main/java/com/matchi/tool/WebServer.kt').read_text()
 service = (root / 'app/src/main/java/com/matchi/tool/HostService.kt').read_text()
@@ -52,7 +46,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.2.9'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.2.13'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -63,7 +57,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 209' in gradle and 'versionName = "1.2.9"' in gradle
+assert 'versionCode = 213' in gradle and 'versionName = "1.2.13"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -108,18 +102,17 @@ assert 'data class RootStatus' in root_shell and 'fun status(ctx: Context)' in r
 assert 'fun closeAll()' in root_shell and 'RootShell.closeAll()' in service, 'root shell lifecycle cleanup missing'
 assert 'RootShell.status(this)' in main and 'managerHint' in main, 'native root manager status missing'
 assert 'handler.postDelayed(this, 60000)' in main, 'root status polling should be rate-limited'
-monitor = dict(tools)['Smart_F50_Monitor.js']
-for marker in ('/proc/stat', 'MemAvailable', '/sys/class/thermal/thermal_zone*', 'visibilitychange', 'lastHeat>=65', 'never changes clocks'):
-    assert marker in monitor, f'smart monitor safety/telemetry marker missing: {marker}'
 network = dict(tools)['Network_Diagnostics.js']
 for marker in ('ip -4 route show default', 'ip -6 route show default', 'ping -c 2 -W 2 1.1.1.1', 'getent hosts example.com', 'Read-only checks'):
     assert marker in network, f'network diagnostics safety/check marker missing: {marker}'
 live = dict(tools)['Live_Status.js']
 assert 'atAt = 0, atCache = []' in live and 'Date.now() - atAt >= 60000' in live, 'modem AT cache missing'
 assert 'thermalLevel' in live and 'return 180000' in live and 'return 120000' in live and 'return 60000' in live, 'thermal-aware polling missing'
+for marker in ('/proc/stat', 'MemAvailable', '/proc/loadavg', '/proc/uptime', 'prevCpu'):
+    assert marker in live, f'live status telemetry marker missing: {marker}'
 assert 'liv-heat critical' in live and 'does not alter CPU/charging controls' in live, 'thermal safety messaging missing'
-assert "PAGE_VERSION='1.2.9'" in html and 'versionCode = 209' in gradle and 'versionName = "1.2.9"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.2.13'" in html and 'versionCode = 213' in gradle and 'versionName = "1.2.13"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
-print('MatchiTOOL 1.2.9 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, F50 monitoring, network diagnostics, and version metadata.')
+print('MatchiTOOL 1.2.13 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY

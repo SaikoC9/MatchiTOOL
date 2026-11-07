@@ -518,8 +518,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
             val codeBytes = code.toByteArray(Charsets.UTF_8).size
             if (code.isBlank() || codeBytes > 1_048_576) throw IllegalArgumentException("plugin must be 1 byte to 1 MB")
-            val reserved = setOf("AT_Radio.js", "Bypass_v65_14.js", "Smart_F50_Monitor.js", "Network_Diagnostics.js",
-                "Device_Status.js", "Live_Status.js", "Memory_Cleaner.js", "Network_Debug.js", "SMS.js", "Signal_Info.js", "Screen_Control.js")
+            val reserved = setOf("AT_Radio.js", "Network_Diagnostics.js",
+                "Live_Status.js", "Memory_Cleaner.js", "SMS.js", "Screen_Control.js")
             if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
             val files = pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".js") }?.toList().orEmpty()
             if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
