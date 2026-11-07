@@ -24,6 +24,10 @@
 - **Home screen polish:** the Live device status is smaller and compact (smaller signal and battery icons, tighter radio box, temperature and system tiles in one line each with icon beside text, 2 x 2 system tiles on phones). The Clean memory button now matches the other buttons. The popups at the top (toasts) are a flat dark panel with a thin even border in the message colour (green, blue, amber, red): no tint, no thick side bar, no shadow, everywhere. Not tested on a real device.
 - **Popups at the top now stay 4 seconds** (one setting, `TOAST_MS`, next to `createToast`), including the ones that used to stay 8 to 12 seconds.
 - **A little more room at the left and right** of every dialog (20 px outside and inside, the footer follows) and a slightly narrower popup card on phones, so nothing sits against the screen edge.
+- **Live status data:** the CPU line is read even when the shell output has trailing spaces or a carriage return, and 5G RSRQ / SINR (and RSRP) also fall back to the `csi*` values from Android telephony when the router API and `ss*` values are empty. Not tested on a real device.
+- **Live device status:** the "Live · updated N s ago" indicator is removed (the data still refreshes by itself).
+- **Auto refresh switch** in the Live device status header (on by default, remembered in this browser). Off: the status is read once and stays as it is; turning it on reads it again right away. Not tested on a real device.
+- **Live refresh switch label:** the switch in the Live device status header now reads "Live refresh: On / Off" so the state is visible at a glance. Not tested on a real device.
 - Version 1.2.25 (versionCode 225).
 
 ## 1.2.24 - Fix: Bypass turned itself on again after being turned off
