@@ -371,15 +371,26 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return json(Response.Status.OK, JSONObject().put("ok", true)
             .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
             .put("newName", staged.newName).put("newCode", staged.newCode)
+            .put("relation", staged.relation)
             .put("size", staged.size).put("sha256", staged.sha256))
     }
 
-    /** OTA: {"url":"https://..."}; downloaded by the device, then verified exactly like an uploaded file. */
+    /** OTA step 1: {"url":"https://..."}; asks what the link points to (version, size) without downloading the APK. */
+    private fun updateCheck(req: JSONObject): Response {
+        val r = ApkUpdater.check(ctx, req.optString("url"))
+        return json(Response.Status.OK, JSONObject().put("ok", true)
+            .put("installedName", r.installedName).put("installedCode", r.installedCode)
+            .put("remoteName", r.remoteName).put("relation", r.relation)
+            .put("size", r.size).put("sha256", r.sha256).put("source", r.source))
+    }
+
+    /** OTA step 2: {"url":"https://..."}; downloaded by the device, then verified exactly like an uploaded file. */
     private fun updateFetch(req: JSONObject): Response {
         val staged = ApkUpdater.stageFromUrl(ctx, req.optString("url"))
         return json(Response.Status.OK, JSONObject().put("ok", true)
             .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
             .put("newName", staged.newName).put("newCode", staged.newCode)
+            .put("relation", staged.relation)
             .put("size", staged.size).put("sha256", staged.sha256))
     }
 
@@ -391,7 +402,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     @Suppress("DEPRECATION")
     private fun updateStatus(s: IHTTPSession): Response {
         val ver = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-        return json(Response.Status.OK, JSONObject().put("version", ver.versionName ?: "").put("code", ver.versionCode)
+        return json(Response.Status.OK, JSONObject().put("version", ver.versionName ?: "").put("code", ver.versionCode).put("lastUpdate", ver.lastUpdateTime)
             .also { if (s.parameters["log"]?.firstOrNull() == "1") it.put("log", ApkUpdater.lastLog(ctx)) })
     }
 
@@ -421,6 +432,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
         uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
         uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
+        uri == "/api/update/check" && s.method == Method.POST -> updateCheck(body(s))
         uri == "/api/update/fetch" && s.method == Method.POST -> updateFetch(body(s))
         uri == "/api/update/install" && s.method == Method.POST -> updateInstall(body(s))
         uri == "/api/update/status" && s.method == Method.GET -> updateStatus(s)

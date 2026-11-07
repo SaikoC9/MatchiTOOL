@@ -398,33 +398,6 @@ button:active{transform:scale(.97)}
 .toast{animation:u-rise .2s ease-out}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
 </style>
-<style id="ui-newlook">
-/* 1.2.14 new look: PC = tools sidebar + live status dashboard; phone/tablet (up to 999px) = tool bar pinned at the top. Styling only; no markup or script changes. */
-body #home .actions-buttons button{background:transparent!important;border:1px solid transparent!important;box-shadow:none!important;color:var(--mut)!important;font-weight:600!important;transform:none!important}
-body #home .actions-buttons button:hover{background:#14253f!important;color:var(--fg)!important}
-body #home .liv-hero{background:linear-gradient(160deg,#11213b,#0d192d 60%)!important;border:1px solid #22385c!important;border-radius:18px!important}
-body #home .liv-box,body #home .liv-tile{background:#0f1829!important;border:1px solid #1f2f4a!important}
-body #home .liv-box{border-radius:16px!important}body #home .liv-tile{border-radius:14px!important}
-body #home .liv-tiles{flex-wrap:wrap}body #home .liv-tile{flex:1 1 96px!important}
-body #home .liv-dbm,body #home .liv-op,body #home .liv-tv{font-family:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif}
-@media(min-width:1000px){
-body #home:not([style*="none"]){grid-template-columns:248px minmax(0,1fr)!important;gap:0!important;padding:0!important;overflow:hidden;border-radius:18px!important;align-items:stretch!important;min-height:calc(100vh - 110px)}
-body #home .actions-buttons{display:flex!important;flex-direction:column;flex-wrap:nowrap;gap:2px!important;padding:16px 12px 24px!important;background:#0b1322;border-right:1px solid #1b2a44;align-content:flex-start}
-body #home .actions-buttons::before{content:"TOOLS";padding:2px 10px 10px;font-size:11px;font-weight:700;letter-spacing:.12em;color:#8496b3}
-body #home .actions-buttons button{width:100%;justify-content:flex-start!important;text-align:left!important;min-height:38px!important;padding:8px 12px!important;font-size:13px!important;border-radius:9px!important}
-body #home .liv{padding:22px 26px!important;border-left:0!important}
-body #home .liv-hero{padding:20px 24px!important}body #home .liv-dbm{font-size:40px!important}body #home .liv-op{font-size:22px!important}
-body #home .liv-tile{padding:12px 16px!important}body #home .liv-tv{font-size:20px!important}body #home .liv-box{padding:14px 18px 16px!important}
-}
-@media(max-width:999px){
-body #home:not([style*="none"]){display:block!important;padding:0!important;background:none!important;border:0!important;box-shadow:none!important;border-radius:0!important}
-body #home .actions-buttons{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto;gap:6px!important;padding:8px 10px!important;margin:0 -10px 12px;position:sticky;top:45px;z-index:25;background:rgba(11,19,34,.96);border-bottom:1px solid #1b2a44;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
-body #home .actions-buttons button{flex:none!important;width:auto!important;min-height:40px!important;padding:0 16px!important;border-radius:999px!important;background:#101c30!important;border:1px solid #22385c!important;color:var(--fg)!important;font-size:12.5px!important;white-space:nowrap!important}
-body #home .liv{margin-top:0!important;padding-top:0!important;border-top:0!important}
-}
-@media(max-width:640px){body #home .liv-tiles+.liv-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){header .host #hostlabel{display:none}header .host{padding:6px 8px!important}}
-</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -474,12 +447,12 @@ body #home .liv{margin-top:0!important;padding-top:0!important;border-top:0!impo
   </div>
   <div class="card pop" id="appupdate">
     <div class="mut" style="margin-bottom:8px">Update MatchiTOOL</div>
-    <p class="mut">Import a newer MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself, a newer version (no downgrade), and signed with the same key as the installed app. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
+    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, the same version reinstalls, and an older version rolls back (app settings are kept). You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
-    <p class="mut" style="margin-top:12px">Or update over the air: paste an https link to the new APK (for example a GitHub release asset). The device downloads it and runs the same checks.</p>
+    <p class="mut" style="margin-top:12px">Or update over the air: paste an https link to the APK (for example a GitHub release asset). Press <b>Check for update</b> first: it only asks what is online and downloads nothing. When a build is found the button turns into <b>Download &amp; verify</b>.</p>
     <input id="updurl" type="url" placeholder="https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk" style="width:100%;box-sizing:border-box">
-    <p><button id="updfetch">Download &amp; check</button></p>
+    <p><button id="updfetch">Check for update</button></p>
     <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -925,7 +898,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
     const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
     // CPU / memory / load / uptime / IPs (from /proc via the same root shell call)
-    const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
+    const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+)$/m, sh) || '').trim().split(/\s+/).map(Number);
     let cpu;
     if (cpuA.length >= 4 && cpuA.every(Number.isFinite)) {
       const cur = { total: cpuA.reduce((a, b) => a + b, 0), idle: cpuA[3] + (cpuA[4] || 0) };
@@ -3227,10 +3200,13 @@ document.getElementById('fwinspect').onclick=async()=>{
   out.textContent='Inspecting manifest…';
   try{const r=await api('/api/firmware/inspect',{method:'POST',body:JSON.stringify({name:f.name,content:await f.text()})});out.textContent=JSON.stringify(r,null,2)}catch(e){out.textContent='Inspection failed: '+e.message}
 };
+const UPD_REL={newer:{head:'Update file accepted',line:'✓ Newer version than the installed app',btn:'Install update',ask:'Install'},
+  same:{head:'Same version as the installed app',line:'• Same version: installing will reinstall it (settings are kept)',btn:'Reinstall same version',ask:'Reinstall'},
+  older:{head:'Older version: rollback',line:'• Older version: installing will roll the app back (settings are kept)',btn:'Roll back to this version',ask:'Roll back'}};
 function updShow(r){
-  const out=document.getElementById('updout'),inst=document.getElementById('updinstall');
-  out.textContent='Update file accepted\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n✓ Same app, newer version\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press Install update (valid for 10 minutes).';
-  inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.style.display='inline-block';
+  const out=document.getElementById('updout'),inst=document.getElementById('updinstall'),R=UPD_REL[r.relation]||UPD_REL.newer;
+  out.textContent=R.head+'\n\nInstalled: '+r.oldName+' (code '+r.oldCode+')\nNew:       '+r.newName+' (code '+r.newCode+')\nSize:      '+(r.size/1048576).toFixed(1)+' MB\nSHA-256:   '+r.sha256+'\n\n'+R.line+'\n✓ Same app\n✓ Signed with the same key as the installed app\n\nCompare the SHA-256 with the one published by whoever gave you the file, then press the button below (valid for 10 minutes).';
+  inst.dataset.sha=r.sha256;inst.dataset.ver=r.newName;inst.dataset.code=r.newCode;inst.dataset.rel=r.relation;inst.textContent=R.btn;inst.style.display='inline-block';
 }
 document.getElementById('updcheck').onclick=async()=>{
   const f=document.getElementById('updfile').files[0],out=document.getElementById('updout'),inst=document.getElementById('updinstall');
@@ -3247,29 +3223,49 @@ document.getElementById('updcheck').onclick=async()=>{
   }catch(e){out.textContent='Update rejected: '+e.message}
 };
 document.getElementById('updurl').value=(()=>{const D='https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk';try{const v=localStorage.getItem('matchi_ota_url')||'';return v&&!/\/releases\/tag\//.test(v)?v:D}catch(_){return D}})();
+let otaStep='check',otaUrl='';
+function otaSet(step){otaStep=step;document.getElementById('updfetch').textContent=step==='download'?'Download & verify':'Check for update'}
+document.getElementById('updurl').addEventListener('input',()=>{otaSet('check');document.getElementById('updinstall').style.display='none'});
 document.getElementById('updfetch').onclick=async()=>{
-  const u=document.getElementById('updurl').value.trim(),out=document.getElementById('updout'),inst=document.getElementById('updinstall');
+  const u=document.getElementById('updurl').value.trim(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),btn=document.getElementById('updfetch');
   out.style.display='block';inst.style.display='none';inst.dataset.sha='';
-  if(!/^https:\/\//i.test(u)){out.textContent='Enter an https:// link to the APK';return}
+  if(!/^https:\/\//i.test(u)){out.textContent='Enter an https:// link to the APK';otaSet('check');return}
   try{localStorage.setItem('matchi_ota_url',u)}catch(_){}
-  out.textContent='The device is downloading and checking the update…';
-  try{updShow(await api('/api/update/fetch',{method:'POST',body:JSON.stringify({url:u})}))}
-  catch(e){out.textContent='Update rejected: '+e.message}
+  btn.disabled=true;
+  try{
+    if(otaStep==='check'||u!==otaUrl){
+      out.textContent='Checking what is online (nothing is downloaded)…';
+      const c=await api('/api/update/check',{method:'POST',body:JSON.stringify({url:u})});
+      otaUrl=u;
+      const rel={newer:'A newer version is available.',same:'This is the same version that is installed (you can still download it to reinstall).',older:'This is an OLDER version than the installed app (you can download it to roll back).',unknown:'The online version could not be compared; download it to see its exact version.'}[c.relation]||'';
+      out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.sha256?'\nSHA-256:   '+c.sha256:'')+'\n\n'+rel+'\n\nPress Download & verify to fetch it; it is fully checked again before anything can be installed.';
+      otaSet('download');
+    }else{
+      out.textContent='The device is downloading and checking the file…';
+      updShow(await api('/api/update/fetch',{method:'POST',body:JSON.stringify({url:u})}));
+      otaSet('check');
+    }
+  }catch(e){out.textContent=(otaStep==='download'?'Update rejected: ':'Check failed: ')+e.message;otaSet('check')}
+  finally{btn.disabled=false}
 };
 document.getElementById('updinstall').onclick=async()=>{
-  const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha;
+  const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha,rel=inst.dataset.rel||'newer',R=UPD_REL[rel]||UPD_REL.newer;
   if(!sha)return;
-  if(!(await askConfirm('Install MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.','Install',true)))return;
+  const extra=rel==='older'?'\n\nRollback: settings and saved data are kept. If Android refuses the downgrade, the app is removed with its data kept and the older build is installed in its place.':rel==='same'?'\n\nThis reinstalls the build you already have.':'';
+  if(!(await askConfirm(R.ask+' MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+extra+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.',R.ask,true)))return;
   inst.style.display='none';
   out.textContent='Starting the installer…';
+  let before=null;try{before=await api('/api/update/status')}catch(_){}
   try{
     await api('/api/update/install',{method:'POST',body:JSON.stringify({sha256:sha})});
-    out.textContent='Installing… the host restarts in a few seconds. Waiting for the new version…';
-    const want=inst.dataset.ver,t0=Date.now();
+    out.textContent='Installing… the host restarts in a few seconds. Waiting for the app to come back…';
+    const want=inst.dataset.ver,wantCode=Number(inst.dataset.code),t0=Date.now();
     while(Date.now()-t0<120000){
       await new Promise(r=>setTimeout(r,4000));
       try{const st=await api('/api/update/status'+(Date.now()-t0>45000?'?log=1':''));
-        if(st.version===want){out.textContent='MatchiTOOL updated to '+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';createToast('MatchiTOOL updated to '+want,'green',8000);return}
+        // A same-version reinstall keeps the same version text, so also watch the package's last-update time.
+        const replaced=before?(st.lastUpdate!==before.lastUpdate||st.code!==before.code):true;
+        if(st.version===want&&Number(st.code)===wantCode&&replaced){out.textContent='MatchiTOOL '+(rel==='older'?'rolled back to ':rel==='same'?'reinstalled as ':'updated to ')+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';otaSet('check');createToast('MatchiTOOL '+want+' installed','green',8000);return}
         if(Date.now()-t0>45000&&st.log)out.textContent='Still version '+st.version+'. Installer output:\n'+st.log;
       }catch(_){/* host is restarting */}
     }

@@ -1,12 +1,12 @@
 # Changelog
 
-## 1.2.14 — New look
-- **PC (1000 px and wider):** the tools are now a dark sidebar down the left of the console (one tool per row), and the Live device status fills the rest as a dashboard with larger signal and system cards.
-- **Phone / tablet (up to 999 px):** the tool bar moves to the top, as one horizontal strip of pill buttons pinned under the header while you scroll. The live status cards follow below it.
-- Styling only (one added `<style id="ui-newlook">` block); no markup, script or behaviour changed. The font falls back to the system font if Space Grotesk is not installed.
-- Phone header: below 480 px the "Host connected" pill shows only its dot, so Sign out and Reboot are no longer pushed off the screen.
-- Live status: the CPU reading now tolerates a trailing carriage return in the shell output; on phones the CPU / Memory / Load / Uptime tiles form a 2x2 grid.
-- Version 1.2.14 (versionCode 214). Not device-tested.
+## 1.2.14 — OTA: check first, reinstall and rollback allowed
+- **Check, then Download.** The over-the-air box now starts with **Check for update**. It only asks what is online (for a GitHub release link: the release tag, file size and SHA-256 when published; for other https links: file size) and downloads nothing. When a build is found the same button turns into **Download & verify**; changing the link puts it back to Check. Download still runs every safety check on the real file.
+- **Same version and rollback are allowed.** The updater no longer refuses the same build or an older one. The page says which it is (update, reinstall, or rollback) and the install button and confirmation match. Package name and signing-key checks, the SHA-256 confirmation and the 10-minute window are unchanged.
+- **Rollback install:** older builds use `pm install -r -d`; if Android still refuses the downgrade (non-debuggable app), the APK is copied aside, `pm uninstall -k` (keeps app data) runs, and the older build is installed in its place.
+- **Fix:** after installing, the page decided success by comparing version text, so a same-version reinstall was reported as done instantly. It now also watches the package's last-update time and version code.
+- New `POST /api/update/check`; `/api/update/status` returns `lastUpdate`; stage/fetch results include `relation` (newer / same / older).
+- Version 1.2.14 (versionCode 214). Not compiled or device-tested (no Android SDK here); `scripts/validate.sh` passes.
 
 ## 1.2.13 — Tools merged into Live device status
 - Removed four tools: **Smart F50 Monitor**, **Device status**, **Network debug** and **Signal info** (home buttons, embedded scripts, Full diagnose checks and reserved plugin file names). The page now embeds 6 tools.

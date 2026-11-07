@@ -13,13 +13,15 @@ import java.security.MessageDigest
  * Safe update import for the web console. An APK uploaded from the browser is only installed when ALL hold:
  *  - it is a real, parseable Android package no larger than [MAX_BYTES] (ZIP header checked);
  *  - it is this app (same package name);
- *  - it is strictly NEWER (versionCode): no downgrades and no same-build reinstalls;
+ *  - newer, same or OLDER versions are all accepted (update, reinstall of the same build, or rollback); the page shows which one it is
+ *    and asks for a matching confirmation. Signature and package checks below still apply to every direction;
  *  - it is signed by the same key as the installed app (or a key whose rotation lineage contains it);
  *  - the person saw version, size and SHA-256 and confirmed, and the install request quotes that same SHA-256;
  *  - it is installed within [STAGE_TTL_MS] of being checked, and the staged bytes are re-hashed first.
  * The file is staged in the app's private cache (not readable by other apps) and replaced on the next upload.
  * When the install finishes, the staged APK is deleted; on success the installer log and old root temp files go too (on failure the log is kept to show why).
- * Installation uses `pm install -r` through the root manager (never `-d`), so Android enforces the signature check again.
+ * Installation uses `pm install -r` through the root manager (plus `-d` only for a rollback, falling back to `pm uninstall -k` + install
+ * when Android refuses a downgrade of a non-debuggable app; app data is kept). Android enforces the signature check again.
  */
 object ApkUpdater {
     const val MAX_BYTES = 120L * 1024 * 1024
@@ -34,6 +36,19 @@ object ApkUpdater {
         val file: File, val sha256: String, val size: Long,
         val oldName: String, val oldCode: Long, val newName: String, val newCode: Long,
         val stagedAt: Long = System.currentTimeMillis(),
+    ) {
+        /** "newer", "same" or "older" compared with the installed build. */
+        val relation: String get() = if (newCode > oldCode) "newer" else if (newCode == oldCode) "same" else "older"
+    }
+
+    /** Result of [check]: what the link points to, without downloading the APK body. */
+    class Remote(
+        val installedName: String, val installedCode: Long,
+        val remoteName: String,      // tag / version text from the release, "" when unknown
+        val relation: String,        // newer | same | older | unknown
+        val size: Long,              // bytes, -1 when unknown
+        val sha256: String,          // from the release metadata when published, else ""
+        val source: String,
     )
 
     @Volatile private var current: Staged? = null
@@ -54,9 +69,95 @@ object ApkUpdater {
         try { ctx.cacheDir.listFiles { f -> f.name.startsWith("NanoHTTPD-") }?.forEach { it.delete() } } catch (_: Exception) {}
     }
 
+
+    // ---- check (no APK download) -------------------------------------------------------------------------
+
+    private fun openHttps(link: java.net.URL, method: String = "GET", accept: String? = null): java.net.HttpURLConnection {
+        var url = link
+        var hops = 0
+        while (true) {
+            if (url.protocol != "https") throw UpdateException("The link redirects to a non-https address; refused.")
+            val c = url.openConnection() as java.net.HttpURLConnection
+            c.connectTimeout = 15_000; c.readTimeout = 20_000; c.instanceFollowRedirects = false
+            c.requestMethod = method
+            c.setRequestProperty("User-Agent", "MatchiTOOL-OTA")
+            if (accept != null) c.setRequestProperty("Accept", accept)
+            val code = c.responseCode
+            if (code in 301..308 && code != 304) {
+                val loc = c.getHeaderField("Location") ?: throw UpdateException("Redirect without a target.")
+                c.disconnect()
+                if (++hops > 5) throw UpdateException("Too many redirects.")
+                url = java.net.URL(url, loc)
+                continue
+            }
+            return c
+        }
+    }
+
+    /** Dotted-number compare of version names ("v1.2.13" vs "1.2.9"); null when either side has no digits. */
+    private fun compareNames(a: String, b: String): Int? {
+        fun parts(x: String) = Regex("\\d+").findAll(x).map { it.value.toLongOrNull() ?: 0L }.toList()
+        val pa = parts(a); val pb = parts(b)
+        if (pa.isEmpty() || pb.isEmpty()) return null
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val d = pa.getOrElse(i) { 0L }.compareTo(pb.getOrElse(i) { 0L })
+            if (d != 0) return d
+        }
+        return 0
+    }
+
+    /**
+     * Ask what [link] points to WITHOUT downloading the APK: for a GitHub release link the release metadata (tag, asset size, SHA-256
+     * when GitHub publishes it); for any other https link a HEAD request (size only). Nothing is staged or installed here; the later
+     * download runs every safety check again on the real file.
+     */
+    @Suppress("DEPRECATION")
+    fun check(ctx: Context, link: String): Remote = try { checkInner(ctx, link) }
+        catch (e: UpdateException) { throw e }
+        catch (e: Exception) { throw UpdateException("Could not reach the link: ${e.message ?: e.javaClass.simpleName}. Does the device have internet?") }
+
+    @Suppress("DEPRECATION")
+    private fun checkInner(ctx: Context, link: String): Remote {
+        val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
+        if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        val haveName = installed.versionName ?: "?"
+        val haveCode = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
+        val m = Regex("^/([^/]+)/([^/]+)/releases/(?:latest/download|download/([^/]+))/([^/]+)$").find(url.path)
+        if (url.host.equals("github.com", true) && m != null) {
+            val (owner, repo, tag, asset) = m.destructured
+            val api = if (tag.isEmpty()) "latest" else "tags/" + java.net.URLEncoder.encode(tag, "UTF-8")
+            val c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
+            try {
+                if (c.responseCode == 404) throw UpdateException("No release found at that GitHub link (HTTP 404). Check the owner, repository and that the release repository is public.")
+                if (c.responseCode != 200) throw UpdateException("Release check failed (HTTP ${c.responseCode}).")
+                val body = c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+                val rel = org.json.JSONObject(body)
+                val name = rel.optString("tag_name", "").ifEmpty { rel.optString("name", "") }
+                val assets = rel.optJSONArray("assets")
+                var size = -1L; var digest = ""
+                if (assets != null) for (i in 0 until assets.length()) {
+                    val a = assets.getJSONObject(i)
+                    if (a.optString("name") == asset) {
+                        size = a.optLong("size", -1L)
+                        digest = a.optString("digest", "").removePrefix("sha256:").lowercase().takeIf { it.length == 64 } ?: ""
+                    }
+                }
+                if (assets != null && size < 0) throw UpdateException("The latest release ($name) has no file called $asset.")
+                val rel2 = compareNames(name, haveName)?.let { if (it > 0) "newer" else if (it == 0) "same" else "older" } ?: "unknown"
+                return Remote(haveName, haveCode, name, rel2, size, digest, "GitHub release")
+            } finally { c.disconnect() }
+        }
+        val c = openHttps(url, method = "HEAD")
+        try {
+            if (c.responseCode != 200) throw UpdateException("The link did not answer (HTTP ${c.responseCode}).")
+            return Remote(haveName, haveCode, "", "unknown", c.contentLengthLong, "", "link")
+        } finally { c.disconnect() }
+    }
+
     /**
      * OTA: download an APK from an https link (e.g. a GitHub release asset) into the private cache, then run it through
-     * exactly the same checks as an uploaded file (same package, newer versionCode, same signing key, SHA-256 confirm).
+     * exactly the same checks as an uploaded file (same package, same signing key, SHA-256 confirm; newer, same or older version).
      * The link is only a transport: nothing is installed without those checks and the person's confirmation.
      */
     fun stageFromUrl(ctx: Context, link: String): Staged {
@@ -123,7 +224,6 @@ object ApkUpdater {
             val total = out.length()
             if (total < 1024) throw UpdateException("The file is too small to be an APK.")
             val md = MessageDigest.getInstance("SHA-256")
-            val magic = ByteArray(4)
             FileInputStream(out).use { i ->
                 val buf = ByteArray(256 * 1024)
                 var first = true
@@ -158,11 +258,7 @@ object ApkUpdater {
         val installed = pm.getPackageInfo(ctx.packageName, flags)
         val oldCode = code(installed)
         val newCode = code(archive)
-        if (newCode <= oldCode)
-            throw UpdateException(
-                if (newCode == oldCode) "This is the same build that is already installed (version ${installed.versionName}, code $oldCode)."
-                else "Downgrade blocked: this file is older (code $newCode) than the installed app (code $oldCode)."
-            )
+        // Same or older versions are allowed on purpose (reinstall / rollback). Package and signature checks below still apply.
         // Read the signers the normal way first; some Android builds return nothing for an archive (or for the installed app)
         // with GET_SIGNING_CERTIFICATES, so fall back to the older GET_SIGNATURES lookup before giving up.
         var have = currentSigners(installed)
@@ -267,13 +363,22 @@ object ApkUpdater {
             hex(md.digest())
         }
         if (again != s.sha256) { cleanup(ctx); throw UpdateException("The staged file changed after it was checked. Update cancelled.") }
-        // Paths are app-generated (no user text). The APK is streamed to pm on stdin; no -d, so no downgrade.
+        // Paths are app-generated (no user text). The APK is streamed to pm on stdin.
+        // Newer/same: plain `pm install -r`. Older (rollback): `-d` first; if Android still refuses the downgrade (non-debuggable app on a
+        // user build), copy the APK aside, `pm uninstall -k` (keeps the app's data) and install it fresh. Signature is checked by Android either way.
         val path = s.file.absolutePath
+        val pkg = ctx.packageName
+        val rollback = s.newCode < s.oldCode
+        val flags = if (rollback) "-r -d" else "-r"
+        val aside = "/data/local/tmp/matchi_rollback.apk"
+        val fallback = if (rollback)
+            "if [ ${'$'}rc -ne 0 ] && grep -qi DOWNGRADE $LOG; then cp \"$path\" $aside && pm uninstall -k $pkg >> $LOG 2>&1; pm install -r -S ${s.size} < $aside >> $LOG 2>&1; rc=${'$'}?; rm -f $aside; fi; "
+        else ""
         val script = """
             rm -f $LOG
             if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi
             if command -v nice >/dev/null 2>&1; then N='nice -n 10'; else N=; fi
-            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install -r -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; find /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
+            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; find /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
             echo started
         """.trimIndent()
         val r = RootShell.run(ctx, script, 15_000)

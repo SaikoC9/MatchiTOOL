@@ -13,10 +13,14 @@ The device downloads the APK without logging in, so the APK must be on a public 
 ## Each release
 1. Raise `versionCode` and `versionName` in `app/build.gradle.kts` (the new versionCode must be higher than the installed one), push.
 2. Actions > **Publish APK to public releases repo** > Run workflow.
-3. On the device's web console: Update app, paste
+3. On the device's web console: Update, paste
    `https://github.com/YOURNAME/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk`
-   > Download & check > compare the SHA-256 with the one in the release notes > Install update.
+   > Check for update > Download & verify > compare the SHA-256 with the one in the release notes > Install update.
 
 ## Security
 The release repo only holds the APK. Nobody can push a fake update: the device installs only a file signed with your key
 (and Android checks it again). Keep the keystore and `RELEASES_TOKEN` out of the public repo.
+
+## Reinstall and rollback
+The same versionCode reinstalls, and a lower one rolls back (app data is kept). To roll back, point the link at an older release, e.g.
+`https://github.com/YOURNAME/MatchiTOOL-releases/releases/download/v1.2.12/MatchiTOOL.apk`, then Check > Download & verify > Roll back. The signing key must be the same.

@@ -61,10 +61,11 @@ assert 'versionCode = 214' in gradle and 'versionName = "1.2.14"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
-for marker in ('MAX_BYTES', 'archive.packageName != ctx.packageName', 'newCode <= oldCode', 'offered.containsAll(have)', 'STAGE_TTL_MS', 'expectedSha', 'renameTo(out)', 'THREAD_PRIORITY_BACKGROUND', 'nice -n 10', 'rm -f "$path"', 'cleanStale'):
+for marker in ('MAX_BYTES', 'archive.packageName != ctx.packageName', 'relation', 'fun check(', 'offered.containsAll(have)', 'STAGE_TTL_MS', 'expectedSha', 'renameTo(out)', 'THREAD_PRIORITY_BACKGROUND', 'nice -n 10', 'rm -f "$path"', 'cleanStale'):
     assert marker in upd, f'safe-update check missing: {marker}'
-assert 'pm install -r' in upd and 'pm install -r -d' not in upd and ' -d ' not in upd.split('pm install -r')[1].split('<')[0], 'update install must never allow downgrade'
-for r in ('/api/update/stage', '/api/update/install', '/api/update/status'):
+assert 'pm install $flags' in upd and '"-r -d"' in upd and 'pm uninstall -k' in upd and 'newCode < s.oldCode' in upd, 'rollback / same-version install logic missing'
+assert 'newCode <= oldCode' not in upd, 'same-version and rollback installs must be allowed'
+for r in ('/api/update/stage', '/api/update/check', '/api/update/fetch', '/api/update/install', '/api/update/status'):
     assert r in server, f'update route missing: {r}'
 assert 'ApkUpdater.MAX_BYTES + 1_000_000L' in server, 'upload size guard missing'
 assert 'legacySigners' in upd and 'looksSigned' in upd and 'GET_SIGNATURES' in upd, 'updater signature fallback missing'
