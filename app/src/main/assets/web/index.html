@@ -250,6 +250,10 @@ footer{padding:0 14px 20px;font-size:10.5px}
 }
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
 
+/* 1.2.22: size the dimmed layer to the whole window explicitly (not only inset:0) so it always covers it and centres its window */
+html,body{max-width:100%}
+.modal-bg{position:fixed;inset:auto;left:0;top:0;width:100vw;height:100vh;height:100dvh;max-width:none;box-sizing:border-box;margin:0}
+.card.pop.open{left:50%;top:50%;margin:0}
 </style><style id="pm-style">
 #pluginmgr.pop.open{width:min(440px,calc(100vw - 24px));padding:12px 12px 0}
 #pluginmgr .popfoot{margin:10px -12px 0;padding:7px 12px;bottom:0}
@@ -397,6 +401,15 @@ button:active{transform:scale(.97)}
 .modal-bg.show .modal{animation:u-rise .2s cubic-bezier(.2,.8,.2,1)}
 .toast{animation:u-rise .2s ease-out}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+/* 1.2.23: the top bar must never be wider than the screen (it was, by a few px, on phones: Reboot was cut and the page widened) */
+header{box-sizing:border-box;max-width:100%}
+header>*{min-width:0}
+header .brand{flex:0 0 auto}
+header .host{flex:0 1 auto;min-width:0;overflow:hidden}
+header #hostlabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+header #logoutbtn,header .hd-reboot{flex:none}
+@media(max-width:430px){header{gap:6px!important;padding-left:10px!important;padding-right:10px!important}header #logoutbtn{margin-right:0!important}}
+@media(max-width:340px){header{flex-wrap:wrap!important;row-gap:6px!important}}
 </style>
 </head>
 <body>
@@ -3263,13 +3276,16 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
       throw new Error(`Could not remove the rules: ${why}`);
     }
   };
+  // Turns a helper completely off: rules, keep-alive and the boot entry. "remove" also sets the helper's off switch first, so even when
+  // the boot file cannot be edited (changed by something else) the helper will not start or re-apply anything until Apply is pressed.
   const stopHelper = async (script) => {
     let bootErr = null;
     let rmErr = null;
-    try { await bootDel(script); } catch (e) { bootErr = e; }
     try { await runRemove(script); } catch (e) { rmErr = e; }
-    if (bootErr && rmErr) throw new Error(`${rmErr.message}. Also: ${bootErr.message}`);
-    if (rmErr || bootErr) throw (rmErr || bootErr);
+    try { await bootDel(script); } catch (e) { bootErr = e; }
+    if (rmErr && bootErr) throw new Error(`${rmErr.message}. Also: ${bootErr.message}`);
+    if (rmErr) throw rmErr;
+    if (bootErr) toast(`Turned off. The boot entry could not be removed (${String(bootErr.message || bootErr).slice(0, 140)}), but it cannot turn anything on while the off switch is set`, 'orange', 9000);
   };
   const bootIntegrityCmd = [
     BOOT_FN,
@@ -3491,6 +3507,9 @@ D=/data/local/ufi_ttl
 CH=UFI_TTL
 CONF=$D/ttl.conf
 PIDF=$D/watch.pid
+# Off switch: written by "remove" (the Remove / Stop buttons). While it exists, start and the keep-alive do nothing, so a boot entry that
+# could not be deleted, a second keep-alive or a late repair can never turn the TTL rule back on. "apply" and "enable" delete it.
+OFFF=$D/disabled
 IV=${WATCH_INTERVAL}; case "$IV" in ''|*[!0-9]*|0) IV=30 ;; esac
 V6=0
 W=""
@@ -3741,6 +3760,20 @@ clear_one() {
   ipt "$b" -t mangle -X $CH 2>/dev/null
   return 0
 }
+# Every keep-alive of ours, also one whose pid file was lost (a second keep-alive would re-apply the rule after Remove).
+kill_watchers() {
+  for kpd in /proc/[0-9]*; do
+    kpp=$(basename "$kpd")
+    [ "$kpp" = "$$" ] && continue
+    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/ttl.sh watch" && kill "$kpp" 2>/dev/null
+  done
+  return 0
+}
+off_exit() {
+  [ -f "$OFFF" ] || return 0
+  [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
+  exit 0
+}
 is_ours() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null && tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null | grep -qF "ttl.sh watch"; }
 running() { [ -f "$PIDF" ] && is_ours "$(cat "$PIDF" 2>/dev/null)"; }
 stop() {
@@ -3754,9 +3787,11 @@ stop() {
     fi
     [ "$(cat "$PIDF" 2>/dev/null)" = "$p" ] && rm -f "$PIDF"
   fi
+  kill_watchers
   return 0
 }
 start() {
+  [ -f "$OFFF" ] && { echo "TTL is turned off (press Apply to turn it on again)"; return 0; }
   running && return 0
   if [ -f "$PIDF" ]; then
     oldp=$(cat "$PIDF" 2>/dev/null)
@@ -3793,6 +3828,7 @@ wself() {
   return 0
 }
 watch() {
+  [ -f "$OFFF" ] && exit 0
   running && exit 0
   # Exclusive create (noclobber): two simultaneous starts cannot both publish a PID file.
   if ! ( set -C; echo $$ > "$PIDF" ) 2>/dev/null; then
@@ -3811,6 +3847,7 @@ watch() {
     wait $SP
     SP=""
     wself
+    off_exit
     load
     healthy || apply >/dev/null 2>&1
     WN=$((WN+1))
@@ -3821,6 +3858,7 @@ watch() {
     wait $SP
     SP=""
     wself
+    off_exit
     load
     # Back off (up to 4 cycles) while apply keeps failing, so an unsupported method is not retried every cycle.
     if [ "$SKIP" -gt 0 ]; then
@@ -3835,23 +3873,34 @@ watch() {
   done
 }
 remove_all() {
+  : > "$OFFF" 2>/dev/null
   stop
   if ! lock_take; then
-    echo "could not acquire the shared firewall lock; TTL remove was not run"
+    echo "could not acquire the shared firewall lock; TTL remove was not run (the off switch is set, so nothing will turn it on again)"
     return 1
   fi
-  clear_one iptables; clear_one ip6tables; bpf_clear; rm -f "$METHF" "$D"/nomark_*
+  rmt=0; rml=1
+  while [ "$rmt" -lt 3 ] && [ "$rml" != 0 ]; do
+    clear_one iptables; clear_one ip6tables; bpf_clear
+    rml=0
+    ipt iptables -t mangle -S $CH >/dev/null 2>&1 && rml=1
+    for rbi in $(bpf_all_ifaces); do bpf_ok_if "$rbi" && rml=1; done
+    if [ "$rml" != 0 ]; then rmt=$((rmt+1)); sleep 1; fi
+  done
+  rm -f "$METHF" "$D"/nomark_*
   lock_free
+  if [ "$rml" != 0 ]; then echo "TTL rules are still present after 3 removal attempts"; return 1; fi
   return 0
 }
 case "$1" in
-  apply) apply ;;
+  apply) rm -f "$OFFF"; apply ;;
+  enable) rm -f "$OFFF" ;;
   remove) remove_all; exit $? ;;
   start) start ;;
   stop) stop ;;
   status) if running; then echo running; else echo stopped; fi ;;
   watch) watch ;;
-  *) echo "usage: $0 apply|remove|start|stop|status|watch"; exit 2 ;;
+  *) echo "usage: $0 apply|remove|enable|start|stop|status|watch"; exit 2 ;;
 esac
 `;
 
@@ -3999,10 +4048,9 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
     const removeRule = async () => {
       markSw('ttl', 'ttl_remove');
       await installScript();
-      await runRemove(SCRIPT);
-      const bootOn = await isBootOn();
+      await stopHelper(SCRIPT);
       await refresh(true);
-      toast(bootOn ? 'TTL rule removed. Auto-apply at boot is still enabled and will restore it' : 'TTL rule removed', bootOn ? 'orange' : 'green', bootOn ? 6000 : 4000);
+      toast('TTL rule removed. Auto-apply at boot and the keep-alive are off too', 'green', 4500);
     };
 
     const toggleBoot = async () => {
@@ -4014,7 +4062,7 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
         const has = await runRoot(`[ -f ${SCRIPT} ] && [ -f ${CONF} ] && echo YES`);
         if (!has.text.includes('YES')) throw new Error('Apply a TTL first so there is something to run at boot');
         await bootAdd(SCRIPT, BOOT_LINE);
-        await runRoot(`sh ${SCRIPT} start`);
+        await runRoot(`sh ${SCRIPT} enable; sh ${SCRIPT} start`);
         await sleep(600);
       }
       await refresh();
@@ -4182,6 +4230,9 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
 D=/data/local/ufi_dpi
 CONF=$D/dpi.conf
 PIDF=$D/watch.pid
+# Off switch: written by "remove" (the Remove / Stop buttons). While it exists, start and the keep-alive do nothing, so a boot entry that
+# could not be deleted, a second keep-alive or a late repair can never turn Anti-DPI back on. "apply" and "enable" delete it.
+OFFF=$D/disabled
 NPID=$D/nfqws.pid
 NSIG=$D/nfqws.sig
 CH=UFI_DPI
@@ -4225,6 +4276,45 @@ load() {
 # The callers pass the full path of our nfqws ("$D/nfqws ", the trailing space ends the program name) or "dpi.sh watch",
 # so an unrelated process that merely mentions "nfqws" or "dpi.sh" is never mistaken for ours (and never killed).
 # Pid files survive reboots, so never trust a pid blindly.
+# Every keep-alive of ours, also one whose pid file was lost.
+kill_watchers() {
+  for kpd in /proc/[0-9]*; do
+    kpp=$(basename "$kpd")
+    [ "$kpp" = "$$" ] && continue
+    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/dpi.sh watch" && kill "$kpp" 2>/dev/null
+  done
+  return 0
+}
+# Every nfqws of ours, also one that has no pid file (an orphan keeps queue 200 busy, so a new nfqws exits at once, and it keeps
+# working after the rules were removed). Only a process called nfqws that runs OUR binary is touched.
+kill_nfqws_all() {
+  kna=0
+  for kpd in /proc/[0-9]*; do
+    kpp=$(basename "$kpd")
+    [ "$(cat "$kpd/comm" 2>/dev/null)" = nfqws ] || continue
+    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/nfqws " || continue
+    kill "$kpp" 2>/dev/null; kna=1
+  done
+  if [ "$kna" = 1 ]; then
+    knw=0
+    while [ "$knw" -lt 20 ]; do
+      knl=0
+      for kpd in /proc/[0-9]*; do
+        [ "$(cat "$kpd/comm" 2>/dev/null)" = nfqws ] || continue
+        cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/nfqws " && { knl=1; kill -9 "$(basename "$kpd")" 2>/dev/null; }
+      done
+      [ "$knl" = 0 ] && break
+      sleep 0.1 2>/dev/null || sleep 1
+      knw=$((knw+1))
+    done
+  fi
+  return 0
+}
+off_exit() {
+  [ -f "$OFFF" ] || return 0
+  [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
+  exit 0
+}
 is_ours() { [ -n "$2" ] && kill -0 "$2" 2>/dev/null && tr '\0' ' ' < "/proc/$2/cmdline" 2>/dev/null | grep -qF "$1"; }
 nfq_running() { [ -f "$NPID" ] && is_ours "$D/nfqws " "$(cat "$NPID" 2>/dev/null)"; }
 stop_nfq() {
@@ -4242,6 +4332,7 @@ stop_nfq() {
     fi
     rm -f "$NPID"
   fi
+  kill_nfqws_all
   rm -f "$NSIG"
   return 0
 }
@@ -4249,6 +4340,7 @@ stop_nfq() {
 nfq_sig() { echo "$QN $NFQARGS $(wc -c < "$D/nfqws" 2>/dev/null)"; }
 start_nfq() {
   [ -x "$D/nfqws" ] || { echo "nfqws binary missing at $D/nfqws"; return 1; }
+  kill_nfqws_all
   rm -f "$NPID"
   "$D/nfqws" --qnum=$QN --daemon --pidfile="$NPID" $NFQARGS || { echo "nfqws failed to start"; return 1; }
   # --daemon returns as soon as the process forks. Wait for the pid file, then make sure the process is still alive a moment later.
@@ -4624,9 +4716,11 @@ stop() {
     fi
     [ "$(cat "$PIDF" 2>/dev/null)" = "$p" ] && rm -f "$PIDF"
   fi
+  kill_watchers
   return 0
 }
 start() {
+  [ -f "$OFFF" ] && { echo "Anti-DPI is turned off (press Apply to turn it on again)"; return 0; }
   running && return 0
   if [ -f "$PIDF" ]; then
     oldp=$(cat "$PIDF" 2>/dev/null)
@@ -4780,6 +4874,7 @@ wself() {
   return 0
 }
 watch() {
+  [ -f "$OFFF" ] && exit 0
   running && exit 0
   # Exclusive create (noclobber): two simultaneous starts cannot both publish a PID file.
   if ! ( set -C; echo $$ > "$PIDF" ) 2>/dev/null; then
@@ -4804,6 +4899,7 @@ watch() {
     wait $SP
     SP=""
     wself
+    off_exit
     load
     heal_step >/dev/null 2>&1
     nfq_step
@@ -4814,6 +4910,7 @@ watch() {
     wait $SP
     SP=""
     wself
+    off_exit
     load
     heal_step >/dev/null 2>&1
     # Only the nfqws process is restarted on its own; the firewall rules stay untouched.
@@ -4821,23 +4918,36 @@ watch() {
   done
 }
 remove_all() {
+  : > "$OFFF" 2>/dev/null
   stop
   if ! lock_take; then
-    echo "could not acquire the shared firewall lock; Anti-DPI remove was not run"
+    echo "could not acquire the shared firewall lock; Anti-DPI remove was not run (the off switch is set, so nothing will turn it on again)"
     return 1
   fi
-  clear_rules
+  rmt=0; rml=1
+  while [ "$rmt" -lt 3 ] && [ "$rml" != 0 ]; do
+    clear_rules
+    rml=0
+    ipt -t mangle -S $CH >/dev/null 2>&1 && rml=1
+    ipt -t mangle -C POSTROUTING -j $CH 2>/dev/null && rml=1
+    ipt -t nat -S $NATCH >/dev/null 2>&1 && rml=1
+    if [ "$HAVE6" = 1 ]; then ipt6 -t mangle -S $CH6 >/dev/null 2>&1 && rml=1; fi
+    nfq_running && rml=1
+    if [ "$rml" != 0 ]; then rmt=$((rmt+1)); sleep 1; fi
+  done
   lock_free
+  if [ "$rml" != 0 ]; then echo "Anti-DPI rules or nfqws are still present after 3 removal attempts"; return 1; fi
   return 0
 }
 case "$1" in
-  apply) apply ;;
+  apply) rm -f "$OFFF"; apply ;;
+  enable) rm -f "$OFFF" ;;
   remove) remove_all; exit $? ;;
   start) start ;;
   stop) stop ;;
   status) if running; then echo running; else echo stopped; fi ;;
   watch) watch ;;
-  *) echo "usage: $0 apply|remove|start|stop|status|watch"; exit 2 ;;
+  *) echo "usage: $0 apply|remove|enable|start|stop|status|watch"; exit 2 ;;
 esac
 `;
 
@@ -4983,7 +5093,14 @@ echo NET=$ok M=$m`, 25000);
       const c = await runRoot(`${writeFile(CONF, confText(keep, stash))} && echo SAVED`);
       if (!c.text.includes('SAVED')) throw new Error('Could not save settings');
       if (inactive || isEmpty(keep)) await runRemove(SCRIPT);
-      else await runRoot(`sh ${SCRIPT} apply 2>&1`, 40000);
+      else {
+        await runRoot(`sh ${SCRIPT} apply 2>&1`, 40000);
+        // A swap that failed keeps the old chain: then the NFQUEUE rule and nfqws are still there although nfqws was switched off.
+        const left = await runRoot(PRELUDE + 'ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c NFQUEUE; pgrep -x nfqws >/dev/null 2>&1 && echo NFQPROC=1');
+        if (/^\s*[1-9]/.test(left.text) || /NFQPROC=1/.test(left.text)) {
+          await runRoot(`sh ${SCRIPT} remove 2>&1; sh ${SCRIPT} apply 2>&1`, 60000);
+        }
+      }
       if (await isBootOn()) await runRoot(`sh ${SCRIPT} stop; sh ${SCRIPT} start`);
     };
     const turnNfqOff = async () => {
@@ -5089,10 +5206,9 @@ echo NET=$ok M=$m`, 25000);
     const removeAll = async (sync = true) => {
       markSw('dpi', 'dpi_remove');
       await installScript();
-      await runRemove(SCRIPT);
-      const bootOn = await isBootOn();
+      await stopHelper(SCRIPT);
       await refresh(sync);
-      toast(bootOn ? 'Anti-DPI rules removed. Auto-apply at boot is still enabled and will restore them' : 'Anti-DPI rules removed', bootOn ? 'orange' : 'green', bootOn ? 6000 : 4000);
+      toast('Anti-DPI rules removed. Auto-apply at boot, the keep-alive and nfqws are off too', 'green', 4500);
     };
 
     const ELF_MACH = { 183: 'arm64 (aarch64)', 40: 'arm 32-bit' };
@@ -5356,6 +5472,7 @@ echo "== helper / boot / keep-alive"
 ls -l ${SCRIPT} 2>&1
 echo "keep-alive: $([ -f ${SCRIPT} ] && sh ${SCRIPT} status 2>/dev/null || echo stopped)"
 echo "boot line: $(grep -F ${SCRIPT} ${BOOT_FILE} 2>/dev/null || echo none)"
+echo "off switch: $([ -f ${DIR}/disabled ] && echo ON || echo not set)"
 echo "== nfqws"
 ls -l ${DIR}/nfqws 2>&1
 echo "pid file: $(cat ${DIR}/nfqws.pid 2>/dev/null || echo none)"
@@ -5435,7 +5552,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
         const has = await runRoot(`[ -f ${SCRIPT} ] && [ -f ${CONF} ] && echo YES`);
         if (!has.text.includes('YES')) throw new Error('Apply settings first so there is something to run at boot');
         await bootAdd(SCRIPT, BOOT_LINE);
-        await runRoot(`sh ${SCRIPT} start`);
+        await runRoot(`sh ${SCRIPT} enable; sh ${SCRIPT} start`);
         await sleep(600);
       }
       await refresh();
@@ -6660,7 +6777,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.21';
+const PAGE_VERSION='1.2.24';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},

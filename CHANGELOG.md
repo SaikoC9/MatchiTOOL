@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.24 - Fix: Bypass turned itself on again after being turned off
+- **Root cause 1 (most likely what you saw):** the **Remove** buttons (TTL and Anti-DPI) only deleted the firewall rules. The "Auto-apply at boot" entry stayed, so the next restart of the device or of MatchiTOOL started the keep-alive again and it rebuilt everything (the old toast even said so). **Remove now turns the whole helper off**: rules, keep-alive, nfqws and the boot entry.
+- **Root cause 2:** if the boot file had been changed by something else, MatchiTOOL refused to edit it, so Stop could not remove the boot entry and the rules came back at the next start. Both helpers now have an **off switch** (`/data/local/ufi_ttl/disabled`, `/data/local/ufi_dpi/disabled`) written first by `remove`. While it exists, `start`, the boot line and the keep-alive do nothing. Pressing **Apply / Strong / Standard** (or turning boot auto-apply on) lifts it.
+- **Root cause 3:** a keep-alive whose pid file was lost (for example after a helper update) could not be stopped, and kept re-applying the rules. `stop` and `remove` now also stop every keep-alive of ours found in `/proc`.
+- **Root cause 4 (seen in your report: saved settings say QUIC/NFQ off, but the queue rule and nfqws were still running, with no pid file):** `stop_nfq` only knew the nfqws from the pid file, so an orphan nfqws survived, kept queue 200 busy (new nfqws exits at once) and kept working. nfqws processes of ours are now found and stopped by name and path (only a process called `nfqws` that runs `/data/local/ufi_dpi/nfqws`). Switching nfqws off now **checks** that the NFQUEUE rule and the process are really gone and rebuilds from scratch if a failed swap kept the old chain.
+- **Remove is verified:** both `remove` commands retry up to 3 times and fail loudly (with a message) if rules, eBPF filters or nfqws are still present, instead of reporting success.
+- Full report now shows `off switch: ON / not set`.
+- Tested here: both helper scripts (extracted from the page) with dummy processes: orphan nfqws and a keep-alive with a lost pid file are killed by `remove`; `start` does nothing while off; `enable` + `start` works; setting the switch stops a running keep-alive within one cycle; `apply` lifts the switch. `scripts/validate.sh` passes. **Not tested on a real device** (no iptables/tc here).
+- Version 1.2.24 (versionCode 224).
+
+## 1.2.23 - Fix: phone view off-centre, Reboot button cut on the right
+- **Root cause (found by reproducing it with phone emulation):** the top bar (logo, host status, Sign out, Reboot) was forced onto one line and was about 8 px wider than a 390 px screen. The Reboot button was cut ("...ot"), and the browser widened the whole page to fit, which pushed windows and the dimmed layer off-centre.
+- **Fix:** the host status pill can now shrink (its text gets an ellipsis), the bar is capped at the screen width with slightly tighter spacing on phones, and on screens narrower than 340 px the bar wraps instead of overflowing.
+- Version 1.2.23 (versionCode 223). Checked at 320, 360, 390 and 412 px wide; `scripts/validate.sh` passes; nothing device-tested.
+
+## 1.2.22 - Fix: tool windows off-centre, dimmed layer cut short on the right
+- Reported on a desktop browser with page zoom active: the dark layer behind a tool window (seen with Bypass) covered only about 94% of the width, so the window sat left of centre and the right edge looked cut. The cause could not be reproduced here (full width at 80-125% zoom), so the layer is now sized to the whole window explicitly (`left:0; top:0; width:100vw; height:100dvh`) instead of relying on `inset:0` alone, and the page width is capped at 100%. The same applies to every window (CPU Governor, SMS, Bypass, confirm boxes).
+- Version 1.2.22 (versionCode 222). `scripts/validate.sh` passes; nothing device-tested.
+
 ## 1.2.21 - Review fixes (Change IP, CPU Governor)
 - **Change IP: wrong "public IP".** Any output with dots (an HTML error page, a proxy message) was accepted as the answer, so the curl-plain and wget fallbacks never ran. Only a clean `a.b.c.d` answer counts now.
 - **Change IP: long wait before the switch.** The "old IP" lookup used the full retry chain and could hold the button for over a minute on an offline device. It is now one short attempt (about 10 s at most).

@@ -19,8 +19,8 @@ android {
         applicationId = "com.matchi.tool"
         minSdk = 26
         targetSdk = 28   // old target: keeps legacy /sdcard + exec behaviour working on router firmware
-        versionCode = 221
-        versionName = "1.2.21"
+        versionCode = 224
+        versionName = "1.2.24"
     }
     signingConfigs {
         create("matchi") {
