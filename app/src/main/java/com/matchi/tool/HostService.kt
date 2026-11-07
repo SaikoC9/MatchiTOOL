@@ -47,18 +47,28 @@ class HostService : Service() {
         if (server != null) return
         // HTTPS first (self-signed, key kept in Android's key store); plain HTTP only if TLS cannot work on this device.
         val factory = Tls.serverFactory()
+        // Some devices (seen on the ZTE F50) fail the TLS 1.3 handshake with a key-store key ("connection closed").
+        // Try the default protocols first, then TLS 1.2 only, before giving up on HTTPS.
+        val protocolSets: List<Array<String>?> = if (factory != null) listOf(null, arrayOf("TLSv1.2")) else emptyList()
+        var protoIdx = 0
         var secure = factory != null
-        var srv = newServer(factory)
+        var srv = newServer(factory, protocolSets.firstOrNull())
         server = srv
         for (attempt in 1..8) {
             try {
                 srv.start()
-                if (secure && !Tls.selfTest(Prefs.PORT)) {
-                    Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
+                while (secure && !Tls.selfTest(Prefs.PORT)) {
                     try { srv.stop() } catch (_: Exception) {}
                     Thread.sleep(500)
-                    secure = false
-                    srv = newServer(null); server = srv
+                    protoIdx++
+                    if (protoIdx < protocolSets.size) {
+                        Log.w("MatchiTOOL", "HTTPS handshake failed; retrying with TLS 1.2 only")
+                        srv = newServer(factory, protocolSets[protoIdx]); server = srv
+                    } else {
+                        Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
+                        secure = false
+                        srv = newServer(null, null); server = srv
+                    }
                     srv.start()
                 }
                 Tls.active = secure
@@ -75,9 +85,9 @@ class HostService : Service() {
         if (!workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
     }
 
-    private fun newServer(factory: javax.net.ssl.SSLServerSocketFactory?): WebServer {
+    private fun newServer(factory: javax.net.ssl.SSLServerSocketFactory?, protocols: Array<String>?): WebServer {
         val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
-        if (factory != null) srv.makeSecure(factory, null)
+        if (factory != null) srv.makeSecure(factory, protocols)
         return srv
     }
 
