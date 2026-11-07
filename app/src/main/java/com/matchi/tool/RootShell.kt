@@ -133,12 +133,13 @@ object RootShell {
             // background cannot write into a later command's output. The file is read back and removed at the end.
             val o = "/data/local/tmp/.matchi_out_$id"
             s.writer.write("sh >$o 2>&1 <<'$delim'\n")
-            // Bound the temporary output file as well as the in-memory buffers. ulimit is
-            // best-effort because Android shells differ; the reader still enforces its own cap.
-            s.writer.write("ulimit -f 2048 2>/dev/null || true\n") // 2048 * 512 bytes = 1 MiB
+            // ulimit -f applies to every file the command (and anything it starts) writes, so it must be generous:
+            // a 1 MiB cap broke downloads, installs and backups run through plugins. This only stops a runaway
+            // writer from filling storage; the captured OUTPUT is bounded separately by head -c below.
+            s.writer.write("ulimit -f 4194304 2>/dev/null || true\n") // 4194304 * 512 bytes = 2 GiB
             s.writer.write(script)
             if (!script.endsWith("\n")) s.writer.write("\n")
-            s.writer.write("$delim\nrc=\$?; cat $o 2>/dev/null; rm -f $o; printf '\\n$end%d\\n' \"\$rc\"\n")
+            s.writer.write("$delim\nrc=\$?; head -c 1100000 $o 2>/dev/null; rm -f $o; printf '\\n$end%d\\n' \"\$rc\"\n")
             s.writer.flush()
         } catch (_: IOException) { return null }
         val sb = StringBuilder()

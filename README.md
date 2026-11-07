@@ -75,6 +75,8 @@ may have been exposed.
 
 ## Compatibility notes
 
+**UFI-TOOLS plugins (1.2.15):** the page also provides `uploadFileKano`, `downloadUrl`, `createFixedToast`, `requestInterval` and `UFI_DATA.lan_ipaddr`, and the host serves `/api/upload` and `/api/uploads/<name>`. Plugins that hard-code UFI paths (`/data/data/com.minikano.f50_sms/...`, `/sdcard/ufi_tools_boot.sh`) or need UFI's bundled `curl` still have to be converted; the boot file for MatchiTOOL is `/data/local/matchitool/boot.sh`.
+
 The web bridge retains the existing plugin-facing functions (`runShellWithRoot`, `createToast`, `createModal`, and
 `showModal`) and the `.actions-buttons` insertion point. Plugin compatibility is best-effort: plugins may still rely on
 specific modem firmware, device nodes, AT command tools, or shell utilities. The bundled `sendat` binary must match the

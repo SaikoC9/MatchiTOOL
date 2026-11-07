@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.15 — Plugin host compatibility (UFI-TOOLS plugins)
+- **Fix: root commands could not write files larger than 1 MiB.** The root shell applied `ulimit -f 2048` to everything a command started, so plugin downloads, installs, backups and archive extraction died at 1 MiB. The cap is now 2 GiB (runaway-writer protection only) and the returned output is still bounded (`head -c`, 1 MiB capture limit unchanged).
+- **File upload/download for plugins:** `POST /api/upload` (multipart field `file`, also reachable as `/api/upload_img`) stores a file in the app's `uploads` folder (max 512 MB per file, 1 GiB total); `GET /api/uploads/<name>` streams it back and `POST /api/uploads/delete` removes it. Names are sanitised to `[A-Za-z0-9._-]`.
+- **Page helpers expected by UFI-TOOLS plugins:** `showModal`/`closeModal` accept `#id`; new `createFixedToast`, `requestInterval`, `uploadFileKano`, `downloadUrl`, `KANO_baseURL`, `common_headers` and `window.UFI_DATA.lan_ipaddr` (filled from the router API, falling back to `br0`, only when an enabled plugin exists). Existing functions and the built-in tools are unchanged.
+- Not changed: the boot file stays `/data/local/matchitool/boot.sh` (the UFI boot file under `/sdcard` is deliberately NOT executed: any app can write there), and no `curl` is bundled.
+- Version 1.2.15 (versionCode 215). Web page tested in a browser against a mock host; Kotlin changes not compiled here (no Android SDK) and nothing device-tested.
+
 ## 1.2.14 — OTA: check first, reinstall and rollback allowed
 - **Check, then Download.** The over-the-air box now starts with **Check for update**. It only asks what is online (for a GitHub release link: the release tag, file size and SHA-256 when published; for other https links: file size) and downloads nothing. When a build is found the same button turns into **Download & verify**; changing the link puts it back to Check. Download still runs every safety check on the real file.
 - **Same version and rollback are allowed.** The updater no longer refuses the same build or an older one. The page says which it is (update, reinstall, or rollback) and the install button and confirmation match. Package name and signing-key checks, the SHA-256 confirmation and the 10-minute window are unchanged.

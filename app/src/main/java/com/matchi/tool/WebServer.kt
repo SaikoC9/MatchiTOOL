@@ -14,6 +14,11 @@ import java.security.MessageDigest
 class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.0.0.1") : NanoHTTPD(bindAddress, port) {
     private val pluginDir = File(ctx.filesDir, "plugins").apply { mkdirs() }
     private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.js$")
+    // Files handed to plugins (UFI-TOOLS plugins expect an upload endpoint). Root plugins read them from this folder.
+    private val uploadDir = File(ctx.filesDir, "uploads").apply { mkdirs() }
+    private val uploadNameRx = Regex("^[A-Za-z0-9._-]{1,120}$")
+    private val MAX_UPLOAD_BYTES = 512L * 1024L * 1024L
+    private val MAX_UPLOAD_TOTAL_BYTES = 1024L * 1024L * 1024L
 
     // Brute-force protection: after MAX_FAILS bad tokens an IP is locked out for LOCK_MS.
     private val fails = HashMap<String, Pair<Int, Long>>()
@@ -359,6 +364,53 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return json(Response.Status.OK, JSONObject().put("success", r.success).put("output", r.content))
     }
 
+    /**
+     * Multipart upload (field "file") for plugins: {"ok":true,"name":"x.tar.gz","url":"/uploads/x.tar.gz","path":"..."}.
+     * The name is sanitised to [A-Za-z0-9._-]; an existing file of the same name is replaced.
+     */
+    private fun uploadFile(s: IHTTPSession): Response {
+        val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
+        if (len < 0 || len > MAX_UPLOAD_BYTES + 1_000_000L)
+            throw IllegalArgumentException("Upload must be at most ${MAX_UPLOAD_BYTES / 1024 / 1024} MB")
+        val files = HashMap<String, String>()
+        s.parseBody(files)
+        val tmp = files["file"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"file\")")
+        try {
+            val original = s.parameters["file"]?.firstOrNull().orEmpty()
+            var name = original.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+            if (name.isBlank() || name.all { it == '.' || it == '_' }) name = "upload_" + System.currentTimeMillis()
+            if (name.startsWith(".")) name = "_$name"
+            if (!uploadNameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid file name")
+            val dest = File(uploadDir, name)
+            val used = uploadDir.listFiles()?.filter { it.isFile && it.name != name }?.sumOf { it.length() } ?: 0L
+            if (used + tmp.length() > MAX_UPLOAD_TOTAL_BYTES)
+                throw IllegalArgumentException("Upload folder is full; delete old uploads first")
+            if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true) }
+            dest.setReadable(true, false)
+            return json(Response.Status.OK, JSONObject().put("ok", true).put("name", name)
+                .put("url", "/uploads/$name").put("path", dest.absolutePath).put("size", dest.length()))
+        } finally {
+            try { if (tmp.exists()) tmp.delete() } catch (_: Exception) {}
+        }
+    }
+
+    /** Streams a previously uploaded (or root-copied) file from the uploads folder. */
+    private fun serveUpload(name: String): Response {
+        if (!uploadNameRx.matches(name) || name.contains(".."))
+            throw IllegalArgumentException("invalid file name")
+        val f = File(uploadDir, name)
+        if (!f.isFile) return json(Response.Status.NOT_FOUND, JSONObject().put("error", "file not found"))
+        val r = newFixedLengthResponse(Response.Status.OK, "application/octet-stream", java.io.FileInputStream(f), f.length())
+        r.addHeader("Content-Disposition", "attachment; filename=\"$name\"")
+        return harden(r)
+    }
+
+    private fun deleteUpload(name: String): Response {
+        if (!uploadNameRx.matches(name) || name.contains(".."))
+            throw IllegalArgumentException("invalid file name")
+        return json(Response.Status.OK, JSONObject().put("ok", File(uploadDir, name).delete()))
+    }
+
     /** Multipart upload (field "apk"): saved to a temp file by NanoHTTPD, then size-capped, parsed and verified by ApkUpdater. */
     private fun updateStage(s: IHTTPSession): Response {
         val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
@@ -515,6 +567,9 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             }
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
+        (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s)
+        uri == "/api/uploads/delete" && s.method == Method.POST -> deleteUpload(body(s).optString("name"))
+        uri.startsWith("/api/uploads/") && s.method == Method.GET -> serveUpload(uri.removePrefix("/api/uploads/"))
         uri == "/api/plugins" && s.method == Method.GET -> {
             val off = Prefs.disabled(ctx)
             val arr = JSONArray()
