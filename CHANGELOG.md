@@ -19,6 +19,7 @@
 - Not tested on a real device.
 - **Fix: Bypass (F50) dialog was cut off on the right (phone and PC).** A `width:94vw` rule was applied to the full-screen dimmed layer instead of the dialog, so the layer stopped short of the right edge and the toggles and the Close button were clipped. The dimmed layer is full width again, the dialog is `min(100%, 640px)` wide, and the inner cards and the button row can no longer push it wider (the button row wraps). Not tested on a real device.
 - **Bottom buttons tidied:** Run check, Copy report, Clean old leftovers and Close now sit in an even grid (2 x 2 on a phone, one row of 4 on a wide screen) instead of one cramped row.
+- **One look everywhere:** the Bypass style is now shared by every dialog (AT & Radio, Diagnostics, SMS, Screen control, CPU Governor), popup and card: soft rounded cards, flat rounded buttons, round switches instead of checkboxes, matching inputs, and an even full-width Close button. Colours, borders and radii only; layouts and sizes are unchanged and the Bypass dialog keeps its own rules. Not tested on a real device.
 - Version 1.2.25 (versionCode 225).
 
 ## 1.2.24 - Fix: Bypass turned itself on again after being turned off
