@@ -22,12 +22,24 @@ jobs:
           KEYSTORE_B64: ${{ secrets.MATCHI_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.MATCHI_KEYSTORE_PASSWORD }}
         run: |
+          set -euo pipefail
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
             echo "::error::Secrets MATCHI_KEYSTORE_B64 and MATCHI_KEYSTORE_PASSWORD must be set. Without them every build gets a random key and can never update an installed MatchiTOOL."
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchitool-release.jks"
-          echo "MATCHI_KEYSTORE_FILE=$RUNNER_TEMP/matchitool-release.jks" >> "$GITHUB_ENV"
+          KS="$RUNNER_TEMP/matchitool-release.jks"
+          # Strip whitespace, CRs and stray quotes that sneak in when pasting a secret, then decode.
+          printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n"' | base64 -d > "$KS" || {
+            echo "::error::MATCHI_KEYSTORE_B64 is not valid base64. Re-create it with: base64 -w0 matchitool-release.jks"; exit 1; }
+          SIZE=$(stat -c %s "$KS")
+          echo "Decoded keystore size: $SIZE bytes"
+          if [ "$SIZE" -lt 500 ]; then
+            echo "::error::Decoded keystore is only $SIZE bytes; MATCHI_KEYSTORE_B64 is empty, truncated or not the .jks content"; exit 1
+          fi
+          # Verify the file, store password and alias now, with a clear error instead of a Gradle stack trace.
+          keytool -list -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" -alias matchitool > /dev/null || {
+            echo "::error::keytool cannot open the keystore with alias 'matchitool' and the given password"; exit 1; }
+          echo "MATCHI_KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
       - name: Build signed release APK
