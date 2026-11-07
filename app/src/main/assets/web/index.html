@@ -3004,6 +3004,128 @@ calc_lan() {
   LANIFS=$(echo $LANIFS)
 }
 calc_lan`;
+  // LEGACY-BEGIN
+  // Registry of OLD on-device layouts. When a feature moves its files, processes or boot line, add ONE entry here (the old values);
+  // the generic routine below (legacy_scan / legacy_clean) then finds and removes the leftovers everywhere it is used:
+  // inside the helper scripts (Stop, Apply, start), in the Quick setup button "Clean old leftovers", and in the Full report.
+  // It only ever touches what an entry names, and only scripts that carry our own header.
+  const LEGACY = [
+    { feature: 'TTL', newScript: '/data/local/ufi_ttl/ttl.sh', oldDir: '/data/local/matchitool/ttl', script: 'ttl.sh', header: 'UFI TTL helper',
+      procs: ['/data/local/matchitool/ttl/ttl.sh watch'], files: [] },
+    { feature: 'Anti-DPI', newScript: '/data/local/ufi_dpi/dpi.sh', oldDir: '/data/local/matchitool/dpi', script: 'dpi.sh', header: 'UFI anti-DPI helper',
+      procs: ['/data/local/matchitool/dpi/dpi.sh watch', '/data/local/matchitool/dpi/nfqws'],
+      files: ['/data/local/matchitool/dpi/nfqws.pid'] },
+  ];
+  // Entry fields: feature, newScript, oldDir, script, header, procs (command-line patterns of old keep-alives),
+  // files (old pid/state files, removed once no old process is left; nothing else in the folder is ever deleted).
+  // The old folder itself is removed only when it ends up empty. Values go into a shell string, so unsafe ones are rejected up front.
+  for (const e of LEGACY) {
+    for (const v of [e.newScript, e.oldDir, e.script, e.header, ...e.procs, ...(e.files || [])]) {
+      if (typeof v !== 'string' || !v || /['|\\\n\r]/.test(v)) throw new Error(`LEGACY entry "${e.feature}" has an empty or unsafe value`);
+    }
+    if (!e.oldDir.startsWith('/data/local/')) throw new Error(`LEGACY entry "${e.feature}": oldDir must be under /data/local/`);
+  }
+  const legacyScriptOf = (m) => { const e = LEGACY.find((x) => x.newScript === m); return e ? `${e.oldDir}/${e.script}` : m; };
+  const legacyReg = LEGACY.flatMap((e) => [...e.procs.map((x) => `P|${x}`), `S|${e.oldDir}|${e.script}|${e.header}`, ...(e.files || []).map((x) => `F|${x}`), `D|${e.oldDir}`]).join('\n');
+  const LEGACY_SH = `LEGACY_REG='${legacyReg}'\n` + String.raw`lg_log() {
+  lgf=/data/local/matchitool/events.log
+  mkdir -p /data/local/matchitool 2>/dev/null
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$lgf" 2>/dev/null
+  lgs=$(wc -c < "$lgf" 2>/dev/null); lgs=$((lgs+0))
+  if [ "$lgs" -gt 65536 ]; then tail -c 32768 "$lgf" > "$lgf.t" 2>/dev/null && mv -f "$lgf.t" "$lgf"; fi
+  return 0
+}
+# $1 = pid. Sets lg_hit to the registry pattern when that process is an old leftover (empty otherwise). No subshell, no extra process
+# for anything that is not a shell or nfqws, and never matches the command that is running this very scan.
+legacy_proc_hit() {
+  lg_hit=""
+  lcm=""; { read -r lcm < "/proc/$1/comm"; } 2>/dev/null
+  case "$lcm" in sh|mksh|nfqws|*.sh) ;; *) return 0 ;; esac
+  lg_cmd=$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null)
+  [ -n "$lg_cmd" ] || return 0
+  case "$lg_cmd" in *LEGACY_REG=*) return 0 ;; esac
+  while IFS='|' read -r lk lv lx lh; do
+    [ "$lk" = P ] || continue
+    case "$lg_cmd" in *"$lv"*) lg_hit="$lv"; break ;; esac
+  done <<LGEOF
+$LEGACY_REG
+LGEOF
+  return 0
+}
+# One line per leftover: "PROC <pid> <command line>", "SCRIPT <path>" or "FILE <path>". Changes nothing. One pass over /proc (shell glob in a subshell, no ls).
+legacy_scan() {
+  for lsp in $(cd /proc 2>/dev/null && echo [0-9]*); do
+    case "$lsp" in ''|*[!0-9]*) continue ;; esac
+    [ "$lsp" = "$$" ] && continue
+    [ "$lsp" = "$PPID" ] && continue
+    legacy_proc_hit "$lsp"
+    [ -n "$lg_hit" ] && echo "PROC $lsp $(echo "$lg_cmd" | cut -c1-120)"
+  done
+  while IFS='|' read -r lk ld lsn lhd; do
+    case "$lk" in
+      S) [ -f "$ld/$lsn" ] || continue
+         grep -q 'MATCHI_LEGACY_STUB' "$ld/$lsn" 2>/dev/null && continue
+         grep -q "$lhd" "$ld/$lsn" 2>/dev/null && echo "SCRIPT $ld/$lsn" ;;
+      F) [ -f "$ld" ] && echo "FILE $ld" ;;
+    esac
+  done <<LGEOF
+$LEGACY_REG
+LGEOF
+  return 0
+}
+# Stops every leftover process, replaces every leftover script with a no-op stub (so an old boot line or a second keep-alive can never
+# bring the old behaviour back), then removes old pid/state files and the old folder if it is empty.
+# Old keep-alives are FROZEN first (SIGSTOP) so they cannot restart each other while the others are being stopped, then TERM + CONT, then KILL
+# for anything still there. LEGACY_DRY=1 only prints WOULD_* lines and changes nothing.
+# Prints KILLED / STUBBED / DISABLED / REMOVED / LEFT lines.
+legacy_clean() {
+  lcl=$(legacy_scan)
+  lcp=$(echo "$lcl" | grep '^PROC ')
+  if [ "$LEGACY_DRY" = 1 ]; then
+    echo "$lcl" | sed -e 's/^PROC /WOULD_KILL /' -e 's/^SCRIPT /WOULD_STUB /' -e 's/^FILE /WOULD_REMOVE /'
+    return 0
+  fi
+  if [ -n "$lcp" ]; then
+    echo "$lcp" | while read -r lt lpa lrest; do
+      kill -STOP "$lpa" 2>/dev/null
+      echo "KILLED $lpa $lrest"; lg_log "legacy: stopped pid $lpa $lrest"
+    done
+    echo "$lcp" | while read -r lt lpa lrest; do kill -TERM "$lpa" 2>/dev/null; kill -CONT "$lpa" 2>/dev/null; done
+    lcn=0
+    while [ "$lcn" -lt 15 ]; do
+      sleep 0.2 2>/dev/null || sleep 1
+      lcp=$(legacy_scan | grep '^PROC ')
+      [ -n "$lcp" ] || break
+      lcs="-TERM"; [ "$lcn" -ge 4 ] && lcs="-KILL"
+      echo "$lcp" | while read -r lt lpa lrest; do kill -STOP "$lpa" 2>/dev/null; kill $lcs "$lpa" 2>/dev/null; kill -CONT "$lpa" 2>/dev/null; done
+      lcn=$((lcn+1))
+    done
+  fi
+  lcl=$(legacy_scan)
+  echo "$lcl" | grep '^SCRIPT ' | while read -r lt lpa; do
+    printf '#!/system/bin/sh\n# MATCHI_LEGACY_STUB: replaced by MatchiTOOL, the helper now lives in its new folder\nexit 0\n' > "$lpa.new.$$" && chmod 755 "$lpa.new.$$" && mv -f "$lpa.new.$$" "$lpa" && { echo "STUBBED $lpa"; lg_log "legacy: stubbed $lpa"; }
+    rm -f "$lpa.new.$$"
+    # could not write the stub (read-only or odd mount): at least make sure the old script cannot run again
+    if ! grep -q 'MATCHI_LEGACY_STUB' "$lpa" 2>/dev/null; then chmod 000 "$lpa" 2>/dev/null && { echo "DISABLED $lpa"; lg_log "legacy: disabled $lpa (no stub written)"; }; fi
+  done
+  # Old pid/state files go only when no old process is left that could still be using them.
+  if [ -z "$(echo "$lcl" | grep '^PROC ')" ]; then
+    echo "$lcl" | grep '^FILE ' | while read -r lt lpa; do
+      rm -f "$lpa" 2>/dev/null && { echo "REMOVED $lpa"; lg_log "legacy: removed $lpa"; }
+    done
+    while IFS='|' read -r lk lv lx lh; do
+      [ "$lk" = D ] || continue
+      [ -d "$lv" ] && rmdir "$lv" 2>/dev/null && { echo "REMOVED $lv/"; lg_log "legacy: removed empty folder $lv"; }
+    done <<LGEOF
+$LEGACY_REG
+LGEOF
+  fi
+  echo "$lcl" | grep '^PROC ' | while read -r lt lpa lrest; do
+    echo "LEFT $lpa $lrest"; lg_log "legacy: could not stop pid $lpa $lrest"
+  done
+  return 0
+}`;
+  // LEGACY-END
   const QUICK_TTL = 64;
   const WATCH_INTERVAL = 30;
   const BPF_TAG = 'v29';
@@ -3230,10 +3352,11 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
 
   // Older versions wrote their boot line with /data/local/matchitool/ttl|dpi/ instead of /data/local/ufi_ttl|ufi_dpi/. Those lines
   // belong to us too: they are removed together with ours, and are not reported as foreign lines.
-  const legacyOf = (m) => m.replace(/^\/data\/local\/ufi_(ttl|dpi)\//, '/data/local/matchitool/$1/');
   const reEsc = (t) => t.replace(/[.[\]*+?^${}()|\\]/g, '\\$&');
-  const bootLineRe = (marker) => `^[[:space:]]*sh (${reEsc(marker)}|${reEsc(legacyOf(marker))}) start([[:space:]]+>/dev/null 2>&1)?([[:space:]]*&)?[[:space:]]*$`;
-  const bootCheckCmd = (marker) => `grep -qE '${bootLineRe(marker)}' ${BOOT_FILE} 2>/dev/null && echo YES || echo NO`;
+  // Without legacyOnly the pattern matches the current boot line AND the old-layout one (so Apply / Remove replace both);
+  // with legacyOnly it matches only the old-layout line (used by "Clean old leftovers", which must keep the current boot entry).
+  const bootLineRe = (marker, legacyOnly = false) => `^[[:space:]]*sh (${legacyOnly ? '' : reEsc(marker) + '|'}${reEsc(legacyScriptOf(marker))}) start([[:space:]]+>/dev/null 2>&1)?([[:space:]]*&)?[[:space:]]*$`
+  const bootCheckCmd = (marker, legacyOnly = false) => `grep -qE '${bootLineRe(marker, legacyOnly)}' ${BOOT_FILE} 2>/dev/null && echo YES || echo NO`;
   const BOOT_DIR = '/data/local/ufi_boot';
   const BOOT_HASH = `${BOOT_DIR}/boot.sha256`;
   const BOOT_FN = String.raw`bsum() { ( sha256sum "$1" || busybox sha256sum "$1" || toybox sha256sum "$1" || openssl dgst -sha256 "$1" ) 2>/dev/null | grep -oE '[0-9a-f]{64}' | head -n 1; }`;
@@ -3248,8 +3371,8 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   const bootSealCmd = () => [
     `if [ "$PRE" = ok ]; then S=$(bsum ${BOOT_FILE}); if [ -n "$S" ]; then mkdir -p ${BOOT_DIR}; chmod 700 ${BOOT_DIR}; echo "$S" > ${BOOT_HASH}.new.$$ && chmod 600 ${BOOT_HASH}.new.$$ && mv -f ${BOOT_HASH}.new.$$ ${BOOT_HASH} && echo BOOT_SEALED; else echo BOOT_NOHASHTOOL; fi; else echo BOOT_UNSEALED; fi`,
   ].join('\n');
-  const bootDelRaw = (marker) => String.raw`if [ "$PRE" != ok ]; then echo BOOT_UNTRUSTED; exit 1; fi; if [ -f ${BOOT_FILE} ]; then BT=${BOOT_FILE}.tmp.$$; grep -vE '${bootLineRe(marker)}' ${BOOT_FILE} > "$BT"; BR=$?; if [ "$BR" -le 1 ] && mv -f "$BT" ${BOOT_FILE}; then :; else rm -f "$BT"; echo BOOT_EDIT_FAILED; exit 1; fi; fi`;
-  const bootDelCmd = (marker) => [bootPreCmd(), bootDelRaw(marker), bootSealCmd()].join('\n');
+  const bootDelRaw = (marker, legacyOnly = false) => String.raw`if [ "$PRE" != ok ]; then echo BOOT_UNTRUSTED; exit 1; fi; if [ -f ${BOOT_FILE} ]; then BT=${BOOT_FILE}.tmp.$$; grep -vE '${bootLineRe(marker, legacyOnly)}' ${BOOT_FILE} > "$BT"; BR=$?; if [ "$BR" -le 1 ] && mv -f "$BT" ${BOOT_FILE}; then :; else rm -f "$BT"; echo BOOT_EDIT_FAILED; exit 1; fi; fi`;
+  const bootDelCmd = (marker, legacyOnly = false) => [bootPreCmd(), bootDelRaw(marker, legacyOnly), bootSealCmd()].join('\n');
   const bootAddCmd = (marker, line) => [
     bootPreCmd(),
     String.raw`[ -f ${BOOT_FILE} ] || printf '#!/system/bin/sh\n' > ${BOOT_FILE}`,
@@ -3260,11 +3383,11 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     `grep -qE '${bootLineRe(marker)}' ${BOOT_FILE} && echo BOOT_OK`,
   ].join('\n');
   const BOOT_UNTRUSTED_MSG = 'The boot file was changed by something else, so the boot entry was not touched. Open Quick setup > Info, read the file, press "Trust current boot file" if every line is yours, then try again';
-  const bootDel = async (marker) => {
-    const r = await runRoot(bootDelCmd(marker));
+  const bootDel = async (marker, legacyOnly = false) => {
+    const r = await runRoot(bootDelCmd(marker, legacyOnly));
     if (/BOOT_UNTRUSTED/.test(r.text)) throw new Error(BOOT_UNTRUSTED_MSG);
     if (/BOOT_EDIT_FAILED/.test(r.text) || !r.ok) throw new Error(`Could not remove the boot entry. ${r.text.slice(0, 120)}`);
-    const c = await runRoot(bootCheckCmd(marker));
+    const c = await runRoot(bootCheckCmd(marker, legacyOnly));
     if (c.text.includes('YES')) throw new Error('The boot entry is still in the boot file after removing it');
   };
   const bootAdd = async (marker, line) => {
@@ -3282,6 +3405,42 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   };
   // Turns a helper completely off: rules, keep-alive and the boot entry. "remove" also sets the helper's off switch first, so even when
   // the boot file cannot be edited (changed by something else) the helper will not start or re-apply anything until Apply is pressed.
+  // ---- Old leftovers: scan / clean from the page (registry: LEGACY) ----
+  const legacyBootChecks = () => LEGACY.map((e) => `grep -qE '${bootLineRe(e.newScript, true)}' ${BOOT_FILE} 2>/dev/null && echo "BOOT ${e.oldDir}/${e.script}"`).join('\n');
+  const legacyLines = (text) => String(text || '').split('\n').map((l) => l.trim()).filter((l) => /^(PROC|SCRIPT|FILE|BOOT) /.test(l));
+  const legacyScanLines = async () => {
+    const r = await runRoot(`${LEGACY_SH}\nlegacy_scan\n${legacyBootChecks()}\ntrue`, 30000);
+    if (!r.ok) throw new Error(`Could not scan for old leftovers. ${String(r.text || '').slice(0, 120)}`);
+    return legacyLines(r.text);
+  };
+  const legacyDescribe = (lines) => lines.map((l) => {
+    const sp = l.indexOf(' ');
+    const t = l.slice(0, sp);
+    const rest = l.slice(sp + 1).replace(/^\d+\s+/, '');
+    if (t === 'PROC') return `\u2022 old keep-alive still running: ${rest}`;
+    if (t === 'SCRIPT') return `\u2022 old helper script: ${rest}`;
+    if (t === 'FILE') return `\u2022 old pid/state file: ${rest}`;
+    return `\u2022 old boot line in boot.sh for ${rest}`;
+  });
+  const legacyClean = async () => {
+    const before = await legacyScanLines();
+    if (!before.length) return { before, after: [], bootErr: null };
+    // One root call: log, clean, and re-scan the processes/scripts/files (so no separate scan call is needed afterwards).
+    const run = await runRoot(`${LEGACY_SH}\nlg_log "cleanup from the page: ${before.length} found"\nlegacy_clean\necho LG_AFTER\nlegacy_scan\ntrue`, 45000);
+    if (!run.ok) throw new Error(`Could not clean old leftovers. ${String(run.text || '').slice(0, 120)}`);
+    const afterShell = legacyLines(String(run.text || '').split('LG_AFTER').pop());
+    let bootErr = null;
+    for (const e of LEGACY) {
+      if (before.includes(`BOOT ${e.oldDir}/${e.script}`)) {
+        try { await bootDel(e.newScript, true); } catch (x) { bootErr = x; }
+      }
+    }
+    // Only the boot file needs a fresh look after the boot lines were removed.
+    const bootLeft = before.some((l) => l.startsWith('BOOT ')) ? await runRoot(`${legacyBootChecks()}\ntrue`, 15000).then((r) => (r.ok ? legacyLines(r.text) : [])).catch(() => []) : [];
+    const after = [...afterShell.filter((l) => !l.startsWith('BOOT ')), ...bootLeft];
+    return { before, after, bootErr };
+  };
+
   const stopHelper = async (script) => {
     let bootErr = null;
     let rmErr = null;
@@ -3303,8 +3462,7 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   const OWN_BOOT_LINES = [
     'sh /data/local/ufi_ttl/ttl.sh start >/dev/null 2>&1 &',
     'sh /data/local/ufi_dpi/dpi.sh start >/dev/null 2>&1 &',
-    'sh /data/local/matchitool/ttl/ttl.sh start >/dev/null 2>&1 &',
-    'sh /data/local/matchitool/dpi/dpi.sh start >/dev/null 2>&1 &',
+    ...LEGACY.map((e) => `sh ${e.oldDir}/${e.script} start >/dev/null 2>&1 &`),
   ];
   const foreignPipeline = () => {
     const own = OWN_BOOT_LINES.map((l) => `-e '${l}'`).join(' ');
@@ -3776,21 +3934,9 @@ kill_watchers() {
   kill_legacy
   return 0
 }
-# Older versions kept their helper in /data/local/matchitool/ttl and knew nothing about our off switch, so their keep-alive
-# rebuilt the rules after every Remove. Stop those too, and turn the old script into a no-op so an old boot line cannot revive it.
-LEGD=/data/local/matchitool/ttl
-kill_legacy() {
-  for klp in /proc/[0-9]*; do
-    klq=$(basename "$klp")
-    [ "$klq" = "$$" ] && continue
-    cat "$klp/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$LEGD/ttl.sh watch" && kill "$klq" 2>/dev/null
-  done
-  if [ -f "$LEGD/ttl.sh" ] && grep -q 'UFI TTL helper' "$LEGD/ttl.sh" 2>/dev/null && ! grep -q 'MATCHI_LEGACY_STUB' "$LEGD/ttl.sh" 2>/dev/null; then
-    printf '#!/system/bin/sh\n# MATCHI_LEGACY_STUB: replaced, the helper now lives in /data/local/ufi_ttl\nexit 0\n' > "$LEGD/ttl.sh.new.$$" && chmod 755 "$LEGD/ttl.sh.new.$$" && mv -f "$LEGD/ttl.sh.new.$$" "$LEGD/ttl.sh"
-    rm -f "$LEGD/ttl.sh.new.$$"
-  fi
-  return 0
-}
+# Old-layout leftovers (processes, scripts) are found by the shared registry routine; see LEGACY in the page source.
+${LEGACY_SH}
+kill_legacy() { legacy_clean >/dev/null 2>&1; return 0; }
 off_exit() {
   [ -f "$OFFF" ] || return 0
   [ "$(cat "$PIDF" 2>/dev/null)" = "$$" ] && rm -f "$PIDF"
@@ -4308,27 +4454,14 @@ kill_watchers() {
   kill_legacy
   return 0
 }
-# Older versions kept their helper in /data/local/matchitool/dpi and knew nothing about our off switch (see the TTL script).
-LEGD=/data/local/matchitool/dpi
-kill_legacy() {
-  for klp in /proc/[0-9]*; do
-    klq=$(basename "$klp")
-    [ "$klq" = "$$" ] && continue
-    cat "$klp/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$LEGD/dpi.sh watch" && kill "$klq" 2>/dev/null
-  done
-  if [ -f "$LEGD/dpi.sh" ] && grep -qE 'UFI (anti-)?DPI helper|UFI DPI' "$LEGD/dpi.sh" 2>/dev/null && ! grep -q 'MATCHI_LEGACY_STUB' "$LEGD/dpi.sh" 2>/dev/null; then
-    printf '#!/system/bin/sh\n# MATCHI_LEGACY_STUB: replaced, the helper now lives in /data/local/ufi_dpi\nexit 0\n' > "$LEGD/dpi.sh.new.$$" && chmod 755 "$LEGD/dpi.sh.new.$$" && mv -f "$LEGD/dpi.sh.new.$$" "$LEGD/dpi.sh"
-    rm -f "$LEGD/dpi.sh.new.$$"
-  fi
-  return 0
-}
-# True when /proc/<pid> is an nfqws of ours: our binary, or the one an older version ran from /data/local/matchitool/dpi
-# (that one is started as plain "nfqws --pidfile=/data/local/matchitool/dpi/nfqws.pid ...", so the path is not in argv[0]).
+# Old-layout leftovers (processes, scripts) are found by the shared registry routine; see LEGACY in the page source.
+${LEGACY_SH}
+kill_legacy() { legacy_clean >/dev/null 2>&1; return 0; }
+# True when /proc/<pid> (argument is the /proc/<pid> path) is an nfqws of ours: our binary, or one an older layout ran
+# (those start as plain "nfqws --pidfile=<old folder>/nfqws.pid ...", so the path is not in argv[0]).
 nfq_mine() {
-  case "$(cat "$1/cmdline" 2>/dev/null | tr '\0' ' ')" in
-    *"$D/nfqws "*|*"$LEGD/nfqws"*) return 0 ;;
-  esac
-  return 1
+  case "$(cat "$1/cmdline" 2>/dev/null | tr '\0' ' ')" in *"$D/nfqws "*) return 0 ;; esac
+  [ -n "$(legacy_proc_hit "$1")" ]
 }
 # Every nfqws of ours, also one that has no pid file (an orphan keeps queue 200 busy, so a new nfqws exits at once, and it keeps
 # working after the rules were removed). Only a process called nfqws that runs OUR binary is touched.
@@ -6454,6 +6587,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
         <div class="bp-bar">
           <button class="bp-act bp-primary" id="qs_check">Run check</button>
           <button class="bp-act" id="qs_report_copy">Copy report</button>
+          <button class="bp-act" id="qs_legacy">Clean old leftovers</button>
         </div>`,
     });
     if (!created?.id) throw new Error('createModal did not return a dialog (is the page fully loaded?)');
@@ -6473,6 +6607,16 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       await ttlModule.setBoot(want);
       if (!want || dpiModule.state().active) await dpiModule.setBoot(want);
     }), '');
+    q('#qs_legacy').onclick = guarded(async () => {
+      const found = await legacyScanLines();
+      if (!found.length) { toast('No old leftovers found', 'green', 3500); return; }
+      const ok = await askConfirm(`Found leftovers from an earlier version:\n\n${legacyDescribe(found).join('\n')}\n\nThey will be stopped, old scripts replaced with harmless stubs, and old boot lines removed. Your current settings and boot entry are not touched. Rules that are active right now stay until you press Off or Apply.`, 'Clean up', false);
+      if (!ok) return;
+      const res = await legacyClean();
+      try { await ttlModule.refresh(); await dpiModule.refresh(); } catch (_) {  }
+      if (res.after.length) toast(`Cleaned, but ${res.after.length} item(s) are still there${res.bootErr ? ` (${String(res.bootErr.message || res.bootErr).slice(0, 140)})` : ''}`, 'orange', 10000);
+      else toast(`Old leftovers removed (${res.before.length})`, 'green', 5000);
+    }, 'Cleaning\u2026');
     q('#qs_report_copy').onclick = guarded(async () => {
       await ttlModule.diagnose();
       await dpiModule.diagnose();
@@ -6488,6 +6632,9 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
         '',
         '===== ANTI-DPI =====',
         get('#dpi_diag'),
+        '',
+        '===== OLD LEFTOVERS =====',
+        await legacyScanLines().then((l) => (l.length ? legacyDescribe(l).join('\n') : 'none')).catch(() => 'could not scan'),
       ].join('\n');
       await copyText(text, 'Full report copied');
     }, 'Collecting\u2026');
@@ -6518,6 +6665,8 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       };
     });
     showModal(created.id);
+    // Read-only look for leftovers of an earlier layout; nothing is changed until the person presses Clean old leftovers.
+    legacyScanLines().then((l) => { if (l.length) toast(`Found ${l.length} leftover(s) from an earlier version. Quick setup > Clean old leftovers removes them`, 'orange', 9000); }).catch(() => {  });
     const moveTabs = () => {
       try {
         const wrap = q('.bp-wrap');

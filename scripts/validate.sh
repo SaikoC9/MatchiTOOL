@@ -116,8 +116,9 @@ assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and '
 for needle in ('OFFF=$D/disabled', 'kill_watchers()', 'kill_nfqws_all()', 'off_exit()', 'enable) rm -f "$OFFF" ;;'):
     assert html.count(needle) >= 1, 'Bypass off switch missing: ' + needle
 assert html.count('apply) rm -f "$OFFF"; kill_legacy; apply ;;') == 2, 'explicit apply must lift the off switch in both helpers'
-assert html.count('kill_legacy()') == 2 and html.count('MATCHI_LEGACY_STUB') >= 4 and 'nfq_mine()' in html, 'legacy keep-alive cleanup missing'
-assert 'matchitool/ttl/ttl.sh start' in html and 'legacyOf' in html, 'legacy boot line handling missing'
+assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both helpers must use the shared legacy cleanup'
+for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
+    assert needle in html, 'legacy cleanup piece missing: ' + needle
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
 assert "PAGE_VERSION='1.2.25'" in html and 'versionCode = 225' in gradle and 'versionName = "1.2.25"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
@@ -129,3 +130,10 @@ for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
 print('MatchiTOOL 1.2.25 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
+
+# Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).
+if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+  bash "$(dirname "$0")/test_legacy_cleanup.sh" </dev/null || exit 1
+else
+  echo "skipped: legacy cleanup upgrade test (setsid, pgrep or node missing)"
+fi
