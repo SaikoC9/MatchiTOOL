@@ -2,7 +2,7 @@
 
 ## What this update does
 
-MatchiTOOL reduces its own telemetry workload as the F50 warms up. When the router API is unavailable, modem AT reads are cached for 60 seconds. Live Status refreshes every 45 seconds when cool, 90 seconds when warm, and 120 seconds when hot/critical. The dashboard uses battery, modem, and thermal-zone readings to show an advisory status.
+MatchiTOOL reduces its own telemetry workload as the F50 warms up. When the router API is unavailable, modem AT reads are cached for 60 seconds. Live Status refreshes every 60 seconds when cool, 120 seconds when warm, and 180 seconds when hot/critical (from 1.2.26). The dashboard uses battery, modem, and thermal-zone readings to show an advisory status.
 
 These thresholds are conservative UI heuristics, not ZTE factory limits or a calibration of every F50 firmware/thermal sensor. Sensor labels and scaling can differ by firmware. Use the values as trends, not as a guarantee of safe operating temperature.
 

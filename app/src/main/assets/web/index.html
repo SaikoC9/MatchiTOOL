@@ -590,7 +590,7 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
   </div>
   <div class="card pop" id="appupdate">
     <div class="mut" style="margin-bottom:8px">Update MatchiTOOL</div>
-    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, and the same version number with a different SHA-256 updates too. If the SHA-256 is identical it tells you MatchiTOOL is already the latest, and an older version is refused. App settings are kept. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
+    <p class="mut">Import a MatchiTOOL APK. It is checked on the device first: it must be MatchiTOOL itself and signed with the same key as the installed app. A newer version updates, the same version number with a different SHA-256 updates too, and an older version rolls back. If the SHA-256 is identical it tells you MatchiTOOL is already the latest. App settings are kept. You see the version and SHA-256 and confirm before anything is installed. Needs root access.</p>
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
     <p class="mut" style="margin-top:12px">Or update online from the MatchiTOOL releases. <b>Check for update</b> only asks what is online and downloads nothing. When a newer build exists, <b>Install online</b> downloads it on the device, verifies it and installs it after you confirm. <b>Download APK</b> saves the file to this phone only; nothing is installed.</p>
@@ -1183,7 +1183,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     home.appendChild(inl);
   }
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
-  // pause the 5 s polling while another tool window (SMS, ...) is open so it does not compete for the root shell
+  // pause the polling while another tool window (SMS, ...) is open so it does not compete for the root shell
   const otherOpen = () => [...document.querySelectorAll('.modal-bg.show')].some((m) => m.id !== ID);
   const visible = () => !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());
 
@@ -1200,7 +1200,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
     const t = busy && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
-    const stale = s < 0 || s > 45;
+    const stale = s < 0 || s > nextDelay() / 1000 + 45;   // stale only when a poll is overdue, not merely between slow polls
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
@@ -1218,10 +1218,10 @@ rm -f $P.g $P.4 $P.6 $P.d
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
   // not a substitute for the firmware's thermal protection.
   const nextDelay = () => {
-    if (!last) return 3000;
-    if (last.thermalLevel >= 2) return 30000;
-    if (last.thermalLevel === 1) return 10000;
-    return 3000;
+    if (!last) return 3000;                         // first read / retry after a failed read
+    if (last.thermalLevel >= 2) return 180000;      // hot or critical: every 3 minutes
+    if (last.thermalLevel === 1) return 120000;     // warm: every 2 minutes
+    return 60000;                                   // cool: every minute
   };
   // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
   let auto = true;
@@ -7861,6 +7861,7 @@ document.getElementById('fwinspect').onclick=async()=>{
 };
 const UPD_REL={newer:{head:'Update file accepted',line:'✓ Newer version than the installed app',btn:'Install update',ask:'Install'},
   rebuild:{head:'Different build of the same version',line:'✓ Same version number, but a different file (the SHA-256 differs from the installed app): installing will update it (settings are kept)',btn:'Install update',ask:'Install'},
+  older:{head:'Older version: rollback',line:'✓ Older version than the installed app: installing will roll back (settings and saved data are kept)',btn:'Roll back',ask:'Roll back to'},
   same:{head:'You are on the latest version',line:'✓ The SHA-256 is identical to the installed app, so MatchiTOOL is already the latest. Nothing to install.',btn:'',ask:''}};
 function updShow(r){
   const out=document.getElementById('updout'),inst=document.getElementById('updinstall'),R=UPD_REL[r.relation]||UPD_REL.newer;
@@ -7895,8 +7896,8 @@ document.getElementById('updfetch').onclick=async()=>{
   try{
     out.textContent='Checking what is online (nothing is downloaded)…';
     const c=await api('/api/update/check',{method:'POST',body:JSON.stringify({url:u})});
-    const latest=(c.relation==='same'&&!!c.sha256)||c.relation==='older';
-    const rel={newer:'A newer version is available.',rebuild:'Same version number, but the online SHA-256 differs from the installed app, so it is a different build and installing it updates the app.',same:c.sha256?'You are on the latest version (the online SHA-256 is identical to the installed app). Nothing to install.':'Same version number as the installed app. The online SHA-256 is not published, so Install online will compare the files and only install if they differ.',older:'The online file is an older version than the installed app, so it is not offered (rollback is not supported).',unknown:'The online version could not be compared; Install online will download and check it before anything is installed.'}[c.relation]||'';
+    const latest=c.relation==='same'&&!!c.sha256;
+    const rel={newer:'A newer version is available.',rebuild:'Same version number, but the online SHA-256 differs from the installed app, so it is a different build and installing it updates the app.',same:c.sha256?'You are on the latest version (the online SHA-256 is identical to the installed app). Nothing to install.':'Same version number as the installed app. The online SHA-256 is not published, so Install online will compare the files and only install if they differ.',older:'The online file is an older version than the installed app. Install online will roll back to it after you confirm (settings are kept).',unknown:'The online version could not be compared; Install online will download and check it before anything is installed.'}[c.relation]||'';
     out.textContent='Installed: '+c.installedName+' (code '+c.installedCode+')\nOnline:    '+(c.remoteName||'unknown version')+'  ['+c.source+']\nSize:      '+(c.size>0?(c.size/1048576).toFixed(1)+' MB':'unknown')+(c.installedSha256?'\nSHA-256 installed: '+c.installedSha256:'')+(c.sha256?'\nSHA-256 online:    '+c.sha256:'')+'\n\n'+rel+(latest?'':'\n\nPress Install online to download it on the device, verify it and install it (you confirm first). Or press Download APK to save the file to this phone only.');
     on.style.display=latest?'none':'inline-block';
   }catch(e){out.textContent='Check failed: '+e.message}
@@ -7915,7 +7916,7 @@ document.getElementById('updonline').onclick=async()=>{
     clearInterval(tm);
     updShow(r);
     on.style.display='none';
-    if(r.relation==='same'||r.relation==='older')return;
+    if(r.relation==='same')return;
     try{createToast('Download complete','green',4000)}catch(_){}
     try{navigator.vibrate&&navigator.vibrate(120)}catch(_){}
     inst.dataset.src='online';
@@ -7935,7 +7936,7 @@ document.getElementById('upddl').onclick=()=>{
 document.getElementById('updinstall').onclick=async()=>{
   const inst=document.getElementById('updinstall'),out=document.getElementById('updout'),sha=inst.dataset.sha,rel=inst.dataset.rel||'newer',R=UPD_REL[rel]||UPD_REL.newer;
   if(!sha)return;
-  const extra=rel==='rebuild'?'\n\nSame version number, but a different file (SHA-256 differs from the installed app). Settings and saved data are kept.':'';
+  const extra=rel==='rebuild'?'\n\nSame version number, but a different file (SHA-256 differs from the installed app). Settings and saved data are kept.':rel==='older'?'\n\nThis is an OLDER version, so the app is rolled back. Settings and saved data are kept; the installed build is copied aside while Android swaps it.':'';
   const fromOnline=inst.dataset.src==='online';inst.dataset.src='';
   if(!(await askConfirm((fromOnline?'Download complete and verified.\n\n':'')+R.ask+' MatchiTOOL '+inst.dataset.ver+' (code '+inst.dataset.code+')?\n\nSHA-256 '+sha.slice(0,16)+'…'+sha.slice(-8)+extra+'\n\nThe host restarts for a few seconds. Only install a file from a source you trust.',fromOnline?'Install now':R.ask,false)))return;
   inst.style.display='none';

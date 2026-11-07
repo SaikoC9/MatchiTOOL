@@ -13,14 +13,16 @@ import java.security.MessageDigest
  * Safe update import for the web console. An APK uploaded from the browser is only installed when ALL hold:
  *  - it is a real, parseable Android package no larger than [MAX_BYTES] (ZIP header checked);
  *  - it is this app (same package name);
- *  - it is newer than the installed app, or the same version number with a different SHA-256 ("rebuild", installed as a normal update).
- *    An identical SHA-256 means the app is already the latest ("same") and nothing is installed; older versions are refused (no rollback);
+ *  - it is newer than the installed app, the same version number with a different SHA-256 ("rebuild", installed as a normal update),
+ *    or an older version (rollback, app data is kept). An identical SHA-256 means the app is already the latest ("same") and nothing is installed;
  *  - it is signed by the same key as the installed app (or a key whose rotation lineage contains it);
  *  - the person saw version, size and SHA-256 and confirmed, and the install request quotes that same SHA-256;
  *  - it is installed within [STAGE_TTL_MS] of being checked, and the staged bytes are re-hashed first.
  * The file is staged in the app's private cache (not readable by other apps) and replaced on the next upload.
  * When the install finishes, the staged APK is deleted; on success the installer log and old root temp files go too (on failure the log is kept to show why).
- * Installation uses `pm install -r` through the root manager (app data is kept). Android enforces the signature check again.
+ * Installation uses `pm install -r` through the root manager (app data is kept); a rollback uses `pm install -r -d`. If Android still refuses
+ * the downgrade (non-debuggable app), the installed APK is copied aside, `pm uninstall -k` (keeps app data) runs, the older build is installed,
+ * and if that fails the copied APK is installed again so the device is never left without the app. Android enforces the signature check again.
  */
 object ApkUpdater {
     const val MAX_BYTES = 120L * 1024 * 1024
@@ -172,7 +174,7 @@ object ApkUpdater {
 
     /**
      * OTA: download an APK from an https link (e.g. a GitHub release asset) into the private cache, then run it through
-     * exactly the same checks as an uploaded file (same package, same signing key, SHA-256 confirm; newer, newer or same-version file; older versions are refused).
+     * exactly the same checks as an uploaded file (same package, same signing key, SHA-256 confirm; newer, same-version or older file).
      * The link is only a transport: nothing is installed without those checks and the person's confirmation.
      */
     fun stageFromUrl(ctx: Context, link: String): Staged {
@@ -273,7 +275,7 @@ object ApkUpdater {
         val installed = pm.getPackageInfo(ctx.packageName, flags)
         val oldCode = code(installed)
         val newCode = code(archive)
-        // Older versions are refused below (no rollback); an identical file is reported as already the latest.
+        // Older versions are allowed (rollback); an identical file is reported as already the latest.
         // Read the signers the normal way first; some Android builds return nothing for an archive (or for the installed app)
         // with GET_SIGNING_CERTIFICATES, so fall back to the older GET_SIGNATURES lookup before giving up.
         var have = currentSigners(installed)
@@ -292,8 +294,6 @@ object ApkUpdater {
             throw UpdateException("Android could not read the signature of the installed MatchiTOOL, so the update cannot be compared. Install the new APK with: su -c 'pm install -r <file>'.")
         if (!offered.containsAll(have))
             throw UpdateException("Signature mismatch: this APK was not signed by the same key as the installed MatchiTOOL. Android would refuse it, and it may not be a genuine update.")
-        if (newCode < oldCode)
-            throw UpdateException("This is an older version (${archive.versionName ?: "?"}) than the installed MatchiTOOL (${installed.versionName ?: "?"}). Rolling back is not supported.")
         return Staged(file, sha, size, installed.versionName ?: "?", oldCode, archive.versionName ?: "?", newCode, installedSha256(ctx))
     }
 
@@ -382,7 +382,6 @@ object ApkUpdater {
         val s = current ?: throw UpdateException("Nothing is staged. Choose the APK again.")
         if (!s.sha256.equals(expectedSha, ignoreCase = true)) throw UpdateException("The SHA-256 does not match the file that was checked. Choose the APK again.")
         if (s.relation == "same") { cleanup(ctx); throw UpdateException("MatchiTOOL is already the latest version (identical SHA-256). Nothing to install.") }
-        if (s.relation == "older") { cleanup(ctx); throw UpdateException("Rolling back to an older version is not supported.") }
         if (System.currentTimeMillis() - s.stagedAt > STAGE_TTL_MS) { cleanup(ctx); throw UpdateException("The checked file expired (10 minutes). Choose the APK again.") }
         if (!s.file.isFile || s.file.length() != s.size) { cleanup(ctx); throw UpdateException("The staged file is missing. Choose the APK again.") }
         val again = FileInputStream(s.file).use { i ->
@@ -392,15 +391,29 @@ object ApkUpdater {
         }
         if (again != s.sha256) { cleanup(ctx); throw UpdateException("The staged file changed after it was checked. Update cancelled.") }
         // Paths are app-generated (no user text). The APK is streamed to pm on stdin.
-        // Plain `pm install -r` (app data is kept). Android checks the signature again.
+        // `pm install -r` (app data is kept). A rollback adds -d (allow downgrade). Android checks the signature again.
         val path = s.file.absolutePath
-        val flags = "-r"
-        val fallback = ""
+        val rollback = s.newCode < s.oldCode
+        val flags = if (rollback) "-r -d" else "-r"
+        // Rollback fallback: on a non-debuggable app `-d` is refused (INSTALL_FAILED_VERSION_DOWNGRADE). Copy the installed APK aside first,
+        // then `pm uninstall -k` (keeps app data) and install the older build. If that install fails, put the copied build back and start it.
+        // Paths are app-generated (no quotes or spaces); the whole thing runs inside sh -c '...', so no single quotes here.
+        val base = ctx.applicationInfo.sourceDir
+        val prev = "/data/local/tmp/.matchi_out_prev.apk"
+        val prevSize = File(base).length()
+        val pkg = ctx.packageName
+        val d = "$"
+        val fallback = if (!rollback) "" else
+            "if [ ${d}rc -ne 0 ] && grep -q DOWNGRADE $LOG; then " +
+            "if cp \"$base\" \"$prev\" && [ \"${d}(wc -c < $prev)\" -eq $prevSize ]; then " +
+            "pm uninstall -k $pkg >> $LOG 2>&1; pm install -r -S ${s.size} < \"$path\" >> $LOG 2>&1; rc=${d}?; " +
+            "if [ ${d}rc -ne 0 ]; then pm install -r -S $prevSize < \"$prev\" >> $LOG 2>&1; am start --user 0 -n $pkg/.MainActivity >/dev/null 2>&1; fi; " +
+            "else echo \"Could not copy the installed APK aside; rollback cancelled\" >> $LOG; fi; fi; "
         val script = """
             rm -f $LOG
             if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi
             if command -v nice >/dev/null 2>&1; then N='nice -n 10'; else N=; fi
-            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; find /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
+            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; rm -f "$prev"; find /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
             echo started
         """.trimIndent()
         val r = RootShell.run(ctx, script, 15_000)
