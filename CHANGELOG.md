@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.8 — Version footer
+- The web console now shows the installed app version and the web page version at the bottom of the page. If the two differ (an old page cached after an update), the footer turns amber and tells you to reload with Ctrl+F5.
+- Version 1.2.8 (versionCode 208). Web page only; not device-tested.
+
+## 1.2.7 — Full-width compact console on PC
+- On wide screens (900 px and up) the web console now uses the full window width. The buttons are small and compact and wrap into as many columns as fit; the live status card stretches across the page with moderate text sizes. Phone view (760 px and narrower) is unchanged.
+- Version 1.2.7 (versionCode 207). CSS only; not device-tested.
+
 ## 1.2.6 — Wider console on PC
 - On wide screens (900 px and up) the web console is now 1040 px wide instead of a narrow 640 px strip: 5 button columns, larger buttons and larger live-status text. Phone view (760 px and narrower) is unchanged.
 - Version 1.2.6 (versionCode 206). CSS only; not device-tested.

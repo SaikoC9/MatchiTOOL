@@ -363,20 +363,24 @@ main{padding:6px 6px 24px!important;gap:6px!important}
 #home .liv-dbm{font-size:18px!important}#home .liv-op{font-size:13px!important}
 #home .liv-ms{gap:6px!important}#home .liv-tile{padding:3px 7px!important}
 }
-/* 1.2.6 desktop layout: screens 900px and wider get a wider console, 5 button columns and larger live status. Phones (760px and narrower) are unchanged. */
+/* 1.2.7 desktop layout: screens 900px and wider use the full window width with small compact buttons that wrap into as many columns as fit. Phones (760px and narrower) are unchanged. */
 @media(min-width:900px){
-main{max-width:1040px!important;padding:18px 20px 40px!important;gap:14px!important}
-#home{padding:18px!important;border-radius:16px!important}
-#home .actions-buttons{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:9px!important}
-#home .actions-buttons button{min-height:40px!important;padding:8px 10px!important;font-size:13px!important;border-radius:10px!important}
-#home .liv-head{margin-bottom:10px!important}
-#home .liv-hero{padding:14px 20px!important;gap:20px!important;border-radius:14px!important}
-#home .liv-dbm{font-size:30px!important}#home .liv-op{font-size:20px!important}#home .liv-q{font-size:12.5px!important}
-#home .liv-box{padding:10px 14px 12px!important;border-radius:11px!important}
-#home .liv-grid{gap:12px!important;margin-top:12px!important}
-#home .liv-tiles{gap:12px!important;margin-top:12px!important}#home .liv-tile{padding:8px 14px!important}#home .liv-tv{font-size:16px!important}
-#home .liv-foot{margin-top:8px!important}
+main{max-width:none!important;padding:12px 24px 36px!important;gap:12px!important}
+#home{padding:14px!important;border-radius:14px!important}
+#home .actions-buttons{grid-template-columns:repeat(auto-fill,minmax(125px,1fr))!important;gap:6px!important}
+#home .actions-buttons button{min-height:30px!important;padding:4px 8px!important;font-size:12px!important;line-height:1.2!important;border-radius:8px!important}
+#home .liv-head{margin-bottom:8px!important}
+#home .liv-hero{padding:10px 18px!important;gap:16px!important;border-radius:12px!important}
+#home .liv-dbm{font-size:24px!important}#home .liv-op{font-size:17px!important}#home .liv-q{font-size:12px!important}
+#home .liv-box{padding:8px 12px 10px!important;border-radius:10px!important}
+#home .liv-grid{gap:10px!important;margin-top:10px!important}
+#home .liv-tiles{gap:10px!important;margin-top:10px!important}#home .liv-tile{padding:5px 12px!important}#home .liv-tv{font-size:14px!important}
+#home .liv-foot{margin-top:6px!important}
 }
+/* 1.2.8 version footer: shows the installed app version and the web page version at the bottom (amber when they differ) */
+.verfoot{text-align:center;font-size:11px;color:var(--mut);padding:2px 10px 18px;letter-spacing:.2px}
+.verfoot b{color:var(--fg);font-weight:650}
+.verfoot.warn,.verfoot.warn b{color:#ffb84d}
 button,.card,input,select{transition:background .15s ease,border-color .15s ease,box-shadow .2s ease,transform .12s ease,opacity .15s ease}
 button:active{transform:scale(.97)}
 .card.pop.open{animation:u-pop .2s cubic-bezier(.2,.8,.2,1)}
@@ -470,6 +474,7 @@ button:active{transform:scale(.97)}
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
 </main>
+<div id="verfoot" class="verfoot">MatchiTOOL &middot; App <b id="verapp">&hellip;</b> &middot; Web <b id="verweb">&hellip;</b></div>
 
 <div id="popbg" onclick="closePop()"></div>
 <div id="toasts"></div>
@@ -6656,7 +6661,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.6';
+const PAGE_VERSION='1.2.8';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -7333,5 +7338,25 @@ document.getElementById('tokbtn').onclick=async()=>{
 start();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&TOKEN)api('/api/ping').then(()=>setHostStatus(true,'Host connected')).catch(()=>setHostStatus(false,'Host disconnected'))});
 setInterval(()=>{if(TOKEN&&!document.hidden)api('/api/ping').then(()=>setHostStatus(true,'Host connected')).catch(()=>setHostStatus(false,'Host disconnected'))},15000);
+</script>
+<script>
+(function(){
+  var got=false;
+  function paint(app){
+    var f=document.getElementById('verfoot'),a=document.getElementById('verapp'),w=document.getElementById('verweb');
+    if(!f||!a||!w)return;
+    var web=(typeof PAGE_VERSION==='string')?PAGE_VERSION:'?';
+    w.textContent=web==='?'?'?':'v'+web;
+    if(app){a.textContent='v'+app;var diff=(web!=='?'&&app!==web);f.classList.toggle('warn',diff);f.title=diff?'App and web page versions differ - reload the page (Ctrl+F5)':''}
+    else a.textContent='-';
+  }
+  function tick(){
+    paint('');
+    if(got||typeof TOKEN!=='string'||!TOKEN||typeof api!=='function')return;
+    api('/api/ping').then(function(d){if(d&&d.version){got=true;paint(d.version)}}).catch(function(){});
+  }
+  window.addEventListener('load',tick);
+  setInterval(function(){if(!got&&!document.hidden)tick()},3000);
+})();
 </script>
 </body></html>
