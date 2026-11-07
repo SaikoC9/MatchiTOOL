@@ -22,7 +22,7 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v8
         with:
-          name: MatchiTOOL-debug
+          name: MatchiTOOL-release
           path: ./artifact
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -45,10 +45,10 @@ jobs:
           RELEASES_REPO: ${{ vars.RELEASES_REPO }}
           SHA: ${{ steps.apk.outputs.sha }}
         run: |
-          TAG="debug-${{ github.event.workflow_run.run_number }}"
+          TAG="build-${{ github.event.workflow_run.run_number }}"
           gh release create "$TAG" \
             release/MatchiTOOL.apk#MatchiTOOL.apk \
             --repo "$RELEASES_REPO" \
             --title "MatchiTOOL $TAG" \
-            --notes "Debug APK build.
+            --notes "Signed release APK build.
           SHA-256: $SHA"
