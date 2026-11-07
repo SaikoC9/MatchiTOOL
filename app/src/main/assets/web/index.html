@@ -476,6 +476,14 @@ header #logoutbtn,header .hd-reboot{flex:none}
 .modal-bg:not(#_):not(#__) .modal .mfoot{margin-left:-20px!important;margin-right:-20px!important;padding-left:20px!important;padding-right:20px!important}
 .card.pop.open:not(#_):not(#__){width:min(680px,calc(100vw - 40px))!important}
 #selftest.pop.open:not(#_):not(#__){width:min(900px,calc(100vw - 40px))!important}
+/* live status: no "Live · updated N s ago" indicator (the data still refreshes every few seconds) */
+.liv-live,#home .liv-live{display:none!important}
+#home .liv-auto{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--mut);font-weight:650;cursor:pointer;margin:0;user-select:none;-webkit-user-select:none}
+#home .liv-sw{position:relative;flex:0 0 auto;width:34px;min-width:34px;height:19px;min-height:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;transition:background-color .2s}
+#home .liv-sw::after{content:'';position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .2s cubic-bezier(.4,0,.2,1)}
+#home .liv-sw::before{content:'';position:absolute;inset:-12px -8px}
+#home .liv-sw[aria-checked=true]{background:rgba(100,230,164,.75)!important}
+#home .liv-sw[aria-checked=true]::after{transform:translateX(15px)}
 </style>
 </head>
 <body>
@@ -970,14 +978,14 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
     const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
     const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
-    const tNrRsrp = range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), tNrSinr = range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), tNrRsrq = range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20);
+    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, tele), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, tele), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, tele), -43, 20));
     const tBands = grab(/\bbands\s*=\s*\[([^\]]*)\]/i, tele), tPci = grab(/\bmPci\s*=\s*(\d+)/, tele), tChan = grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i, tele);
     const tLevel = range(grab(/CellSignalStrength(?:Nr|Lte)[^\n]*?\blevel\s*=\s*(\d)/, tele), 0, 4);
     // battery / thermal
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
     const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
     // CPU / memory / load / uptime / IPs (from /proc via the same root shell call)
-    const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+)$/m, sh) || '').trim().split(/\s+/).map(Number);
+    const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     let cpu;
     if (cpuA.length >= 4 && cpuA.every(Number.isFinite)) {
       const cur = { total: cpuA.reduce((a, b) => a + b, 0), idle: cpuA[3] + (cpuA[4] || 0) };
@@ -1096,7 +1104,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
   let inl = null;
   if (home) {
     inl = document.createElement('div'); inl.id = INL; inl.className = 'liv';
-    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div>';
+    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><div class="liv-auto" title="Turn automatic live refresh on or off"><span class="liv-autolbl">Live refresh: On</span><button type="button" class="liv-sw" role="switch" aria-checked="true" aria-label="Automatic refresh"></button></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div>';
     home.appendChild(inl);
   }
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
@@ -1140,9 +1148,25 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     if (last.thermalLevel === 1) return 120000;
     return 60000;
   };
-  const loop = async () => { await tick(); timer = setTimeout(loop, nextDelay()); };
+  // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
+  let auto = true;
+  try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
+  const syncAuto = () => { const b = inl && inl.querySelector('.liv-sw'); if (b) b.setAttribute('aria-checked', String(auto)); const l = inl && inl.querySelector('.liv-autolbl'); if (l) l.textContent = 'Live refresh: ' + (auto ? 'On' : 'Off'); };
+  const loop = async () => { if (auto) await tick(); timer = setTimeout(loop, nextDelay()); };
   timer = setTimeout(loop, 60000); tickTimer = setInterval(when, 15000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && (!lastOk || Date.now() - lastOk > 30000)) tick(); });
+  document.addEventListener('visibilitychange', () => { if (auto && !document.hidden && (!lastOk || Date.now() - lastOk > 30000)) tick(); });
+  if (inl) {
+    syncAuto();
+    inl.querySelector('.liv-auto').onclick = () => {
+      auto = !auto;
+      try { localStorage.setItem('liv_auto', auto ? '1' : '0'); } catch (_) {  }
+      syncAuto();
+      clearTimeout(timer);
+      timer = setTimeout(loop, auto ? nextDelay() : 60000);
+      if (auto) tick();
+      createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
+    };
+  }
   tick();
 
   // ---- CPU Governor window (tap the CPU tile) ------------------------------------------------------------
