@@ -26,7 +26,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
 
 - Browser interface on port **2334** with admin-password login and per-login expiring sessions (2 h idle / 12 h maximum, Sign out button). The service binds to LAN interfaces so other devices on the ZTE hotspot / USB-tether network can connect; API access is restricted to the device itself and detected hotspot-side subnets. The transport is plain HTTP, not encrypted.
-- Full diagnose with copy/download (read-only checks). Nine built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
+- Full diagnose with copy/download (read-only checks). Eight built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
 - **Update app** (web console): upload a MatchiTOOL APK (or check an https link first, then download). It is only accepted if it is this app and signed with the same key; newer versions update, the same version reinstalls, older versions roll back (data kept). You confirm the SHA-256 before it is installed through root (`pm install -r`, `-d` for rollback).
 - **Screen control**: view and control the device's own screen from the web page (root `screencap` frames + root `input` events), e.g. from a second phone. A screenshot stream, not video. Requires the companion device to be on the trusted ZTE hotspot / USB-tether network.
@@ -98,7 +98,11 @@ The historical 1.1.1 note about opt-in LAN mode was superseded by later compatib
 
 **Security limitation:** this is still HTTP. The subnet check is not a substitute for encryption, and any trusted-LAN client that obtains a valid session token can access privileged APIs. Never port-forward the port or use it on an untrusted network.
 \n\n## Stability-first integration 1.2.0
-The Live device status panel (which now also shows CPU, memory, load and uptime) is deliberately read-only. It reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes CPU/GPU/charging controls.
+The Live device status panel (which also shows CPU, memory, load and uptime) only reads: it reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes GPU/charging controls.
+
+The one exception is the **CPU Governor** window, opened by tapping the CPU tile. It writes to `/sys/devices/system/cpu` only when you change something: core on/off, the mode (governor) per cluster and, in Manual mode, a locked speed. Changes last until restart unless you press **Save for boot**, which writes `/data/local/matchitool/boot.d/10-cpu.sh` (run by the host after `boot.sh`); **Remove from boot** deletes it. If a saved setting ever makes the device unusable, delete that file with adb or a root shell.
+
+**Change IP** (home button) turns mobile data off and on to get a new carrier address and shows the local and public IP. Hotspot clients lose internet for a few seconds.
 
 ## Stability update 1.1.54
 See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression, and 24-hour soak tests. For the 1.2.0 monitor and network-diagnostics checks, see `docs/TESTING_1.2.0.md`. This release applies app-side back-pressure and polling reductions; device runtime validation is still required.\n

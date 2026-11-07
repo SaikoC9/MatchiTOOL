@@ -75,9 +75,27 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         it.addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     }
 
-    private fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json", o.toString()))
+    private fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json; charset=utf-8", o.toString()))
+
+    // NanoHTTPD 2.3.1 decodes a request body with no charset as US-ASCII, so every non-ASCII character in a posted
+    // plugin (the dots, ellipses and check marks in Bypass, for one) was saved as U+FFFD and showed as "?" boxes.
+    // The JSON body is therefore read as raw bytes and decoded as UTF-8 here, whatever the Content-Type says.
+    private val MAX_JSON_BODY = 16 * 1024 * 1024
 
     private fun body(s: IHTTPSession): JSONObject {
+        val len = s.headers["content-length"]?.trim()?.toIntOrNull()
+        if (len != null && len in 0..MAX_JSON_BODY) {
+            val buf = ByteArray(len)
+            var off = 0
+            val input = s.inputStream
+            while (off < len) {
+                val n = input.read(buf, off, len - off)
+                if (n < 0) break
+                off += n
+            }
+            val text = String(buf, 0, off, Charsets.UTF_8).trim()
+            return JSONObject(if (text.isEmpty()) "{}" else text)
+        }
         val b = HashMap<String, String>(); s.parseBody(b)
         return JSONObject(b["postData"] ?: "{}")
     }
@@ -586,7 +604,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val codeBytes = code.toByteArray(Charsets.UTF_8).size
             if (code.isBlank() || codeBytes > 1_048_576) throw IllegalArgumentException("plugin must be 1 byte to 1 MB")
             val reserved = setOf("AT_Radio.js", "Network_Diagnostics.js",
-                "Live_Status.js", "Memory_Cleaner.js", "SMS.js", "Screen_Control.js")
+                "Live_Status.js", "Memory_Cleaner.js", "SMS.js", "Screen_Control.js", "Bypass.js")
             if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
             val files = pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".js") }?.toList().orEmpty()
             if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")

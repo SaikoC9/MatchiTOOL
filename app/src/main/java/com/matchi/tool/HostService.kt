@@ -86,7 +86,9 @@ class HostService : Service() {
         workers.execute {
             try {
                 val result = RootShell.run(this,
-                    "if [ -f /data/local/matchitool/boot.sh ]; then /system/bin/sh /data/local/matchitool/boot.sh; else echo 'No MatchiTOOL boot tasks registered'; fi",
+                    "if [ -f /data/local/matchitool/boot.sh ]; then /system/bin/sh /data/local/matchitool/boot.sh; else echo 'No MatchiTOOL boot tasks registered'; fi; " +
+                    // boot.d: one small script per tool (e.g. 10-cpu.sh from Live status), run in name order after boot.sh. Regular files only.
+                    "for f in /data/local/matchitool/boot.d/*.sh; do [ -f \"\$f\" ] && [ ! -L \"\$f\" ] && /system/bin/sh \"\$f\"; done; true",
                     60_000)
                 Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
             } catch (e: Exception) { Log.e("MatchiTOOL", "Boot tasks failed: ${e.message}") }

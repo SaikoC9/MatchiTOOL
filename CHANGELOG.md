@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.2.21 - Review fixes (Change IP, CPU Governor)
+- **Change IP: wrong "public IP".** Any output with dots (an HTML error page, a proxy message) was accepted as the answer, so the curl-plain and wget fallbacks never ran. Only a clean `a.b.c.d` answer counts now.
+- **Change IP: long wait before the switch.** The "old IP" lookup used the full retry chain and could hold the button for over a minute on an offline device. It is now one short attempt (about 10 s at most).
+- **Change IP: timeout too short for the worst case.** The public IP lookup could outlast its 45 s limit, which kills the shared root shell session. The limit is now 90 s for the full lookup and 25 s for the quick one.
+- **CPU Governor: Manual mode showed a speed that was not applied.** After switching a cluster to Manual, the list showed the lowest speed selected though nothing was locked. It now shows "Choose a speed" until you pick one.
+- **CPU Governor:** the CPU tile keeps its normal height (the hint lives in the footer); core toasts use the L1..B4 names shown in the window.
+- **Host:** the `boot.d` loop ends with `true`, so a skipped file cannot make the boot task log "not completed".
+- README: Live status is no longer described as fully read-only; CPU Governor and Change IP are documented, with how to remove a bad boot file; the tool count is corrected to eight.
+- Checked in a browser against a mock host (no console errors): CPU window open, Manual mode and speed, core off, Save/Remove for boot, Change IP with toasts.
+- Version 1.2.21 (versionCode 221). `scripts/validate.sh` passes; nothing device-tested.
+
+## 1.2.20 - Change IP built in
+- **New home button "Change IP"** (embedded as `Change_IP.js`, now a reserved plugin name; the page embeds 8 tools). It turns mobile data off and on to get a new carrier address, then shows the local WAN IP and the public IP, with the old one for comparison. Hotspot clients lose internet for a few seconds.
+- Differences from the Change_IP v1.2 plugin: the local address is the one Android routes the internet through (the old `10.x` guess is the fallback); the public IP check tries curl (DNS-over-HTTPS, then plain) and falls back to wget, because curl is not bundled; it waits for the old link to drop before re-enabling; double taps are ignored; a "same IP" result is flagged. Root check uses `id -u`.
+- If you uploaded the old Change IP plugin, delete it in Plugins (two buttons would appear).
+- Version 1.2.20 (versionCode 220). Page script and `scripts/validate.sh` checked; nothing device-tested.
+
+## 1.2.19 - CPU Governor in Live status
+- **Tap the CPU tile in Live device status to open the CPU Governor window**: turn each of the 8 cores on or off, set the mode (governor) per cluster (Little 0-3, Big 4-7) and, in Manual (userspace) mode, a locked speed. Changes apply at once and are checked by reading the value back.
+- **Save for boot / Remove from boot** write or delete a separate file, `/data/local/matchitool/boot.d/10-cpu.sh`. `boot.sh` and Bypass's boot check are not touched.
+- **Host:** after `boot.sh`, the boot task now also runs every regular `*.sh` file in `/data/local/matchitool/boot.d/` in name order (symlinks skipped).
+- Live status is no longer purely read-only: only this window writes, and only when you change something. Polling pauses while it is open; the window refreshes itself every 3 s.
+- Version 1.2.19 (versionCode 219). Kotlin change not compiled here (no Android SDK); page scripts and `scripts/validate.sh` checked; nothing device-tested. The default frequency lists are placeholders for devices that do not report `scaling_available_frequencies`.
+
+## 1.2.18 - Stability: health pings
+- **Host health ping now has an 8 s deadline and never overlaps.** Before, a ping to a host that was busy or hung waited forever, and a new one was sent every 15 s on top of it. Browsers allow only a few connections per host, so stuck pings could block real requests (buttons that seem to do nothing, "Host disconnected" that never recovers). One ping runs at a time and a stuck one is cancelled.
+- Bypass's button re-attach check no longer runs while the tab is hidden.
+- Reviewed and left unchanged: root shell (bounded output, 2 sessions, idle close), router client (timeouts and locking), service start/retry, Bypass boot and keep-alive logic. All already bounded.
+- Version 1.2.18 (versionCode 218). Page change only; `scripts/validate.sh` passes; nothing device-tested.
+
+## 1.2.17 - Bypass (F50) built in
+- **Bypass (F50) v65.14 is embedded in the page again** (as `Bypass.js`, like the other built-in tools), so it no longer has to be uploaded and cannot be damaged by an upload. Its button appears on the home card; the rules, helper scripts and `/data/local/matchitool/boot.sh` entry are the ones the plugin already used. All non-ASCII characters in the code are written as `\u` escapes.
+- `Bypass.js` is now a reserved plugin name, and Full diagnose has a Bypass check (root shell, `tc`, `iptables`; read-only, it changes no rules). The page embeds 7 tools.
+- **If you uploaded Bypass before:** that copy is not loaded any more (it would give a second button and second timers). A toast reminds you; delete it in Plugins.
+- Includes the 1.2.16 UTF-8 fix for plugin uploads.
+- Version 1.2.17 (versionCode 217). Kotlin change not compiled here (no Android SDK); page scripts and `scripts/validate.sh` checked; nothing device-tested.
+
+## 1.2.16 - Fix: plugin text garbled after upload (Bypass showed "?" boxes)
+- **Root cause:** the page posted JSON with `content-type: application/json` (no charset) and NanoHTTPD 2.3.1 decodes such a body as US-ASCII. Every non-ASCII character in an uploaded plugin (`●`, `·`, `…`, `—`, `✓`) was saved to the plugin file as U+FFFD, so Bypass (F50) showed boxes in its status line, pills and self-test. Built-in tools were not affected because they are embedded in the page.
+- **Fix (host):** `body()` now reads the raw request bytes and decodes them as UTF-8; the page sends `charset=utf-8`; JSON responses declare `charset=utf-8`. This protects every plugin and any other JSON field, not only Bypass.
+- **After updating:** a plugin that was uploaded with the old build is already damaged on disk. Delete it in Plugins and upload it again.
+- Version 1.2.16 (versionCode 216). Kotlin change not compiled here (no Android SDK); page script and `scripts/validate.sh` checked.
+
 ## 1.2.15 — Plugin host compatibility (UFI-TOOLS plugins)
 - **Fix: root commands could not write files larger than 1 MiB.** The root shell applied `ulimit -f 2048` to everything a command started, so plugin downloads, installs, backups and archive extraction died at 1 MiB. The cap is now 2 GiB (runaway-writer protection only) and the returned output is still bounded (`head -c`, 1 MiB capture limit unchanged).
 - **File upload/download for plugins:** `POST /api/upload` (multipart field `file`, also reachable as `/api/upload_img`) stores a file in the app's `uploads` folder (max 512 MB per file, 1 GiB total); `GET /api/uploads/<name>` streams it back and `POST /api/uploads/delete` removes it. Names are sanitised to `[A-Za-z0-9._-]`.
