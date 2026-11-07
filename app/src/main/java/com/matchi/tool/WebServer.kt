@@ -93,22 +93,29 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     // The JSON body is therefore read as raw bytes and decoded as UTF-8 here, whatever the Content-Type says.
     private val MAX_JSON_BODY = 16 * 1024 * 1024
 
-    private fun body(s: IHTTPSession): JSONObject {
-        val len = s.headers["content-length"]?.trim()?.toIntOrNull()
-        if (len != null && len in 0..MAX_JSON_BODY) {
-            val buf = ByteArray(len)
-            var off = 0
-            val input = s.inputStream
-            while (off < len) {
-                val n = input.read(buf, off, len - off)
-                if (n < 0) break
-                off += n
-            }
-            val text = String(buf, 0, off, Charsets.UTF_8).trim()
-            return JSONObject(if (text.isEmpty()) "{}" else text)
+    private val MAX_LOGIN_BODY = 4 * 1024
+
+    /**
+     * Reads a JSON request body of at most [max] bytes. A missing Content-Length means an empty body, and a larger or
+     * invalid length is refused BEFORE anything is read: the old fallback handed such requests to NanoHTTPD's parseBody,
+     * which spools the whole body to a temp file, so /api/login (open to every hotspot client) could be used to fill
+     * memory or the cache folder without a password.
+     */
+    private fun body(s: IHTTPSession, max: Int = MAX_JSON_BODY): JSONObject {
+        val raw = s.headers["content-length"]?.trim()
+        val len = if (raw == null) 0 else raw.toIntOrNull() ?: throw IllegalArgumentException("bad Content-Length")
+        if (len < 0 || len > max) throw IllegalArgumentException("request body too large")
+        if (len == 0) return JSONObject()
+        val buf = ByteArray(len)
+        var off = 0
+        val input = s.inputStream
+        while (off < len) {
+            val n = input.read(buf, off, len - off)
+            if (n < 0) break
+            off += n
         }
-        val b = HashMap<String, String>(); s.parseBody(b)
-        return JSONObject(b["postData"] ?: "{}")
+        val text = String(buf, 0, off, Charsets.UTF_8).trim()
+        return JSONObject(if (text.isEmpty()) "{}" else text)
     }
 
     // The page is read once and answered from memory. NanoHTTPD gzips text/* itself when the browser accepts it,
@@ -217,7 +224,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     /** Password login: returns the session token. Bad attempts count toward the per-IP lockout. */
     private fun login(ip: String, s: IHTTPSession): Response {
-        val pw = try { body(s).optString("password").take(200) } catch (e: Exception) {
+        val pw = try { body(s, MAX_LOGIN_BODY).optString("password").take(200) } catch (e: Exception) {
             return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
         }
         // Only the admin password logs in. The old permanent access token is no longer accepted as a password.
