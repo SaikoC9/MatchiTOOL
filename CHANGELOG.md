@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.25 - Fix: Bypass came back after Stop because of a keep-alive from the old folder layout
+- **Root cause (seen in your catch.log):** the device still ran `ttl.sh watch`, `dpi.sh watch` and `nfqws` from the OLD folders `/data/local/matchitool/ttl` and `/data/local/matchitool/dpi`, and `boot.sh` still had the old-path start lines. The 1.2.24 off switch lives in `/data/local/ufi_ttl` and `/data/local/ufi_dpi`, so those old keep-alives never saw it and rebuilt `UFI_DPI` a few seconds after every Remove. `remove`/`stop` only looked for processes under the new paths (and nfqws is started as plain `nfqws`, so its path never matched).
+- **Fix:** `remove`, `stop`, `apply` and `start` now also stop old-layout keep-alives, and `remove` kills an old-layout `nfqws` (matched by `/data/local/matchitool/dpi/nfqws` in its command line). The old `ttl.sh` / `dpi.sh` files are replaced with a harmless no-op stub (only when they carry our header), so an old boot line cannot revive them.
+- **Boot file:** the old-path start lines are recognised as ours: Remove / Apply / boot toggle delete them together with the new ones, and they are no longer reported as foreign lines.
+- Not tested on a real device.
+- Version 1.2.25 (versionCode 225).
+
 ## 1.2.24 - Fix: Bypass turned itself on again after being turned off
 - **Root cause 1 (most likely what you saw):** the **Remove** buttons (TTL and Anti-DPI) only deleted the firewall rules. The "Auto-apply at boot" entry stayed, so the next restart of the device or of MatchiTOOL started the keep-alive again and it rebuilt everything (the old toast even said so). **Remove now turns the whole helper off**: rules, keep-alive, nfqws and the boot entry.
 - **Root cause 2:** if the boot file had been changed by something else, MatchiTOOL refused to edit it, so Stop could not remove the boot entry and the rules came back at the next start. Both helpers now have an **off switch** (`/data/local/ufi_ttl/disabled`, `/data/local/ufi_dpi/disabled`) written first by `remove`. While it exists, `start`, the boot line and the keep-alive do nothing. Pressing **Apply / Strong / Standard** (or turning boot auto-apply on) lifts it.

@@ -3228,7 +3228,11 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
     return rewritten;
   };
 
-  const bootLineRe = (marker) => `^[[:space:]]*sh ${marker.replace(/[.[\]*+?^${}()|\\]/g, '\\$&')} start([[:space:]]+>/dev/null 2>&1)?([[:space:]]*&)?[[:space:]]*$`;
+  // Older versions wrote their boot line with /data/local/matchitool/ttl|dpi/ instead of /data/local/ufi_ttl|ufi_dpi/. Those lines
+  // belong to us too: they are removed together with ours, and are not reported as foreign lines.
+  const legacyOf = (m) => m.replace(/^\/data\/local\/ufi_(ttl|dpi)\//, '/data/local/matchitool/$1/');
+  const reEsc = (t) => t.replace(/[.[\]*+?^${}()|\\]/g, '\\$&');
+  const bootLineRe = (marker) => `^[[:space:]]*sh (${reEsc(marker)}|${reEsc(legacyOf(marker))}) start([[:space:]]+>/dev/null 2>&1)?([[:space:]]*&)?[[:space:]]*$`;
   const bootCheckCmd = (marker) => `grep -qE '${bootLineRe(marker)}' ${BOOT_FILE} 2>/dev/null && echo YES || echo NO`;
   const BOOT_DIR = '/data/local/ufi_boot';
   const BOOT_HASH = `${BOOT_DIR}/boot.sha256`;
@@ -3299,6 +3303,8 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
   const OWN_BOOT_LINES = [
     'sh /data/local/ufi_ttl/ttl.sh start >/dev/null 2>&1 &',
     'sh /data/local/ufi_dpi/dpi.sh start >/dev/null 2>&1 &',
+    'sh /data/local/matchitool/ttl/ttl.sh start >/dev/null 2>&1 &',
+    'sh /data/local/matchitool/dpi/dpi.sh start >/dev/null 2>&1 &',
   ];
   const foreignPipeline = () => {
     const own = OWN_BOOT_LINES.map((l) => `-e '${l}'`).join(' ');
@@ -3767,6 +3773,22 @@ kill_watchers() {
     [ "$kpp" = "$$" ] && continue
     cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/ttl.sh watch" && kill "$kpp" 2>/dev/null
   done
+  kill_legacy
+  return 0
+}
+# Older versions kept their helper in /data/local/matchitool/ttl and knew nothing about our off switch, so their keep-alive
+# rebuilt the rules after every Remove. Stop those too, and turn the old script into a no-op so an old boot line cannot revive it.
+LEGD=/data/local/matchitool/ttl
+kill_legacy() {
+  for klp in /proc/[0-9]*; do
+    klq=$(basename "$klp")
+    [ "$klq" = "$$" ] && continue
+    cat "$klp/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$LEGD/ttl.sh watch" && kill "$klq" 2>/dev/null
+  done
+  if [ -f "$LEGD/ttl.sh" ] && grep -q 'UFI TTL helper' "$LEGD/ttl.sh" 2>/dev/null && ! grep -q 'MATCHI_LEGACY_STUB' "$LEGD/ttl.sh" 2>/dev/null; then
+    printf '#!/system/bin/sh\n# MATCHI_LEGACY_STUB: replaced, the helper now lives in /data/local/ufi_ttl\nexit 0\n' > "$LEGD/ttl.sh.new.$$" && chmod 755 "$LEGD/ttl.sh.new.$$" && mv -f "$LEGD/ttl.sh.new.$$" "$LEGD/ttl.sh"
+    rm -f "$LEGD/ttl.sh.new.$$"
+  fi
   return 0
 }
 off_exit() {
@@ -3893,10 +3915,10 @@ remove_all() {
   return 0
 }
 case "$1" in
-  apply) rm -f "$OFFF"; apply ;;
+  apply) rm -f "$OFFF"; kill_legacy; apply ;;
   enable) rm -f "$OFFF" ;;
   remove) remove_all; exit $? ;;
-  start) start ;;
+  start) kill_legacy; start ;;
   stop) stop ;;
   status) if running; then echo running; else echo stopped; fi ;;
   watch) watch ;;
@@ -4283,7 +4305,30 @@ kill_watchers() {
     [ "$kpp" = "$$" ] && continue
     cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/dpi.sh watch" && kill "$kpp" 2>/dev/null
   done
+  kill_legacy
   return 0
+}
+# Older versions kept their helper in /data/local/matchitool/dpi and knew nothing about our off switch (see the TTL script).
+LEGD=/data/local/matchitool/dpi
+kill_legacy() {
+  for klp in /proc/[0-9]*; do
+    klq=$(basename "$klp")
+    [ "$klq" = "$$" ] && continue
+    cat "$klp/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$LEGD/dpi.sh watch" && kill "$klq" 2>/dev/null
+  done
+  if [ -f "$LEGD/dpi.sh" ] && grep -qE 'UFI (anti-)?DPI helper|UFI DPI' "$LEGD/dpi.sh" 2>/dev/null && ! grep -q 'MATCHI_LEGACY_STUB' "$LEGD/dpi.sh" 2>/dev/null; then
+    printf '#!/system/bin/sh\n# MATCHI_LEGACY_STUB: replaced, the helper now lives in /data/local/ufi_dpi\nexit 0\n' > "$LEGD/dpi.sh.new.$$" && chmod 755 "$LEGD/dpi.sh.new.$$" && mv -f "$LEGD/dpi.sh.new.$$" "$LEGD/dpi.sh"
+    rm -f "$LEGD/dpi.sh.new.$$"
+  fi
+  return 0
+}
+# True when /proc/<pid> is an nfqws of ours: our binary, or the one an older version ran from /data/local/matchitool/dpi
+# (that one is started as plain "nfqws --pidfile=/data/local/matchitool/dpi/nfqws.pid ...", so the path is not in argv[0]).
+nfq_mine() {
+  case "$(cat "$1/cmdline" 2>/dev/null | tr '\0' ' ')" in
+    *"$D/nfqws "*|*"$LEGD/nfqws"*) return 0 ;;
+  esac
+  return 1
 }
 # Every nfqws of ours, also one that has no pid file (an orphan keeps queue 200 busy, so a new nfqws exits at once, and it keeps
 # working after the rules were removed). Only a process called nfqws that runs OUR binary is touched.
@@ -4292,7 +4337,7 @@ kill_nfqws_all() {
   for kpd in /proc/[0-9]*; do
     kpp=$(basename "$kpd")
     [ "$(cat "$kpd/comm" 2>/dev/null)" = nfqws ] || continue
-    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/nfqws " || continue
+    nfq_mine "$kpd" || continue
     kill "$kpp" 2>/dev/null; kna=1
   done
   if [ "$kna" = 1 ]; then
@@ -4301,7 +4346,7 @@ kill_nfqws_all() {
       knl=0
       for kpd in /proc/[0-9]*; do
         [ "$(cat "$kpd/comm" 2>/dev/null)" = nfqws ] || continue
-        cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/nfqws " && { knl=1; kill -9 "$(basename "$kpd")" 2>/dev/null; }
+        nfq_mine "$kpd" && { knl=1; kill -9 "$(basename "$kpd")" 2>/dev/null; }
       done
       [ "$knl" = 0 ] && break
       sleep 0.1 2>/dev/null || sleep 1
@@ -4940,10 +4985,10 @@ remove_all() {
   return 0
 }
 case "$1" in
-  apply) rm -f "$OFFF"; apply ;;
+  apply) rm -f "$OFFF"; kill_legacy; apply ;;
   enable) rm -f "$OFFF" ;;
   remove) remove_all; exit $? ;;
-  start) start ;;
+  start) kill_legacy; start ;;
   stop) stop ;;
   status) if running; then echo running; else echo stopped; fi ;;
   watch) watch ;;
@@ -6777,7 +6822,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.24';
+const PAGE_VERSION='1.2.25';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},

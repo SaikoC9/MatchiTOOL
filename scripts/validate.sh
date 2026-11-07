@@ -46,7 +46,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.2.24'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.2.25'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -57,7 +57,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 224' in gradle and 'versionName = "1.2.24"' in gradle
+assert 'versionCode = 225' in gradle and 'versionName = "1.2.25"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -115,9 +115,11 @@ assert 'liv-heat critical' in live and 'not a substitute for the firmware' in li
 assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and 'boot.d' in service, 'CPU Governor window or boot.d runner missing'
 for needle in ('OFFF=$D/disabled', 'kill_watchers()', 'kill_nfqws_all()', 'off_exit()', 'enable) rm -f "$OFFF" ;;'):
     assert html.count(needle) >= 1, 'Bypass off switch missing: ' + needle
-assert html.count('apply) rm -f "$OFFF"; apply ;;') == 2, 'explicit apply must lift the off switch in both helpers'
+assert html.count('apply) rm -f "$OFFF"; kill_legacy; apply ;;') == 2, 'explicit apply must lift the off switch in both helpers'
+assert html.count('kill_legacy()') == 2 and html.count('MATCHI_LEGACY_STUB') >= 4 and 'nfq_mine()' in html, 'legacy keep-alive cleanup missing'
+assert 'matchitool/ttl/ttl.sh start' in html and 'legacyOf' in html, 'legacy boot line handling missing'
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
-assert "PAGE_VERSION='1.2.24'" in html and 'versionCode = 224' in gradle and 'versionName = "1.2.24"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.2.25'" in html and 'versionCode = 225' in gradle and 'versionName = "1.2.25"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
@@ -125,5 +127,5 @@ assert '"/api/upload"' in server and '"/api/uploads/"' in server and 'uploadName
 for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval', 'fillUfiData'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
-print('MatchiTOOL 1.2.24 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
+print('MatchiTOOL 1.2.25 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
