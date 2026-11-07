@@ -45,11 +45,26 @@ class HostService : Service() {
 
     private fun startWebHost() {
         if (server != null) return
-        val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
+        // HTTPS first (self-signed, key kept in Android's key store); plain HTTP only if TLS cannot work on this device.
+        val factory = Tls.serverFactory()
+        var secure = factory != null
+        var srv = newServer(factory)
         server = srv
         for (attempt in 1..8) {
-            try { srv.start(); Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT}"); return }
-            catch (e: java.io.IOException) {
+            try {
+                srv.start()
+                if (secure && !Tls.selfTest(Prefs.PORT)) {
+                    Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
+                    try { srv.stop() } catch (_: Exception) {}
+                    Thread.sleep(500)
+                    secure = false
+                    srv = newServer(null); server = srv
+                    srv.start()
+                }
+                Tls.active = secure
+                Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https" else "http"})")
+                return
+            } catch (e: java.io.IOException) {
                 Log.w("MatchiTOOL", "Web host start failed (attempt $attempt): ${e.message}")
                 try { Thread.sleep(700) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
             }
@@ -58,6 +73,12 @@ class HostService : Service() {
         if (server === srv) server = null
         Log.e("MatchiTOOL", "Web host did not start after retries")
         if (!workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
+    }
+
+    private fun newServer(factory: javax.net.ssl.SSLServerSocketFactory?): WebServer {
+        val srv = WebServer(this, Prefs.PORT, "0.0.0.0")
+        if (factory != null) srv.makeSecure(factory, null)
+        return srv
     }
 
     private fun runBootTasks() {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 — HTTPS, compact UI
+- The web console is now served over **HTTPS** on port 2334 with a self-signed certificate created on the device by Android's key store (the private key never leaves it). Open `https://<device ip>:2334`; the browser shows a one-time "not trusted" warning because no public authority can certify a private IP address. If TLS cannot work on a device, the host checks itself at start-up and falls back to plain HTTP.
+- Compact Plugins popup (built-in tools list removed), compact style for all popups and the sign-in screen, the stray "\n" on the sign-in screen removed.
+- Update box is prefilled with the public releases link; SMS delete failures now show the reason.
+
 ## 1.2.0 — Stability-first integration
 - Added bounded, on-demand Advanced Network Diagnostics for IPv4/IPv6 addresses and routes, gateway reachability, public IP reachability, and DNS resolution. Checks are read-only and do not rewrite network state.
 - Added Smart F50 Monitor: on-demand read-only CPU, memory, battery, thermal-zone, load, uptime, and per-interface network-rate telemetry.

@@ -119,7 +119,7 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             elevation = Ui.dpf(this@MainActivity, 6f)
-            setOnClickListener { openAddress("http://${HostControl.localAddress()}") }
+            setOnClickListener { openAddress("${Tls.scheme}://${HostControl.localAddress()}") }
         }
         btn.addView(Ui.icon(this, R.drawable.ic_globe, Color.WHITE, 26))
         val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -201,7 +201,7 @@ class MainActivity : Activity() {
 
     /** Values that come from preferences, not from the modem. */
     private fun refreshStatic() {
-        webSub.text = "Other devices: ${HostControl.webAddress(this)}"
+        webSub.text = "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}"
         routerSub.text = Prefs.zteHost(this)
     }
 

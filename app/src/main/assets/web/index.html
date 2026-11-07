@@ -316,21 +316,51 @@ footer{padding:0 14px 20px;font-size:10.5px}
 .modal-bg .modal button{min-height:26px!important;padding:2px 9px!important;font-size:11px!important}
 .modal-bg .modal input:not([type=checkbox]):not([type=radio]),.modal-bg .modal select{min-height:26px!important;padding:2px 7px!important;font-size:11.5px!important}
 </style>
+<style id="lg-style">
+#login{max-width:380px!important;margin:5vh auto!important;padding:14px!important}
+.lg-title{font-size:16px;font-weight:800;margin-bottom:10px}
+.lg-sub{font-size:11.5px!important;color:var(--mut);margin:0 0 10px!important}
+#login input{height:36px;min-height:36px!important;margin:0}
+.lg-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+.lg-row button{height:34px;min-height:0!important;padding:0 18px!important;font-size:12.5px}
+.lg-err{font-size:11.5px;color:var(--danger);min-width:0}
+.lg-warn{margin-top:10px;font-size:10.5px;line-height:1.4;color:#d9b66a}
+</style>
+<style id="ui-smooth">
+@keyframes u-fade{from{opacity:0}to{opacity:1}}
+@keyframes u-pop{from{opacity:0;transform:translate(-50%,-48%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes u-rise{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+html{scroll-behavior:smooth}
+body{-webkit-tap-highlight-color:transparent}
+header{min-height:44px!important;padding:6px 12px!important;gap:8px!important;flex-wrap:nowrap!important}
+header .host{margin-left:auto!important}
+.hd-reboot{height:26px;min-height:0!important;padding:0 10px!important;font-size:11px!important;border-radius:999px!important;color:#ff7a8c!important;background:transparent!important;border:1px solid #ff647c55!important;flex:none}
+body:has(#home[style*="none"]) .hd-reboot{display:none}
+main{padding-top:10px!important}
+#home{padding:10px!important;animation:u-fade .25s ease-out}
+#home .actions-buttons{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px!important}
+#home .actions-buttons button{min-height:36px!important;font-size:12.5px!important;border-radius:10px!important}
+button,.card,input,select{transition:background .15s ease,border-color .15s ease,box-shadow .2s ease,transform .12s ease,opacity .15s ease}
+button:active{transform:scale(.97)}
+.card.pop.open{animation:u-pop .2s cubic-bezier(.2,.8,.2,1)}
+#popbg.show{animation:u-fade .2s ease-out}
+.modal-bg.show{animation:u-fade .18s ease-out}
+.modal-bg.show .modal{animation:u-rise .2s cubic-bezier(.2,.8,.2,1)}
+.toast{animation:u-rise .2s ease-out}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
-<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div></header>
+<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div><button type="button" id="rebootbtn" class="hd-reboot" title="Reboot device">Reboot</button></header>
 <main>
   <div class="card" id="login" style="display:none">
-    <p>Sign in with your router admin password (the same one as 192.168.0.1).</p>\n    <p class="mut" style="color:#d99b42">Security: this console uses unencrypted HTTP. Use it only on your trusted ZTE hotspot or USB-tether network. Never expose port 2334 to the internet.</p>
+    <div class="lg-title">Sign in</div>
     <input id="tok" type="password" placeholder="Admin password" autocomplete="current-password">
-    <p><button id="tokbtn">Connect</button> <span id="tokerr" class="mut"></span></p>
+    <div class="lg-row"><button id="tokbtn">Connect</button><span id="tokerr" class="lg-err"></span></div>
   </div>
   <div class="card" id="home" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><div class="mut">CONTROL CENTER</div><button type="button" id="rebootbtn" style="color:#e03131;padding:4px 12px">Reboot</button></div>
-    <h2 style="margin:2px 0 4px;font-size:22px">Device overview</h2>
-    <p class="mut">Manage device diagnostics, USB connectivity, firmware metadata, root access and installed extensions.</p>
-    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Open diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB controls</button><button onclick="openPop('firmware')">Firmware inspector</button><button onclick="openPop('appupdate')">Update app</button><button onclick="openPop('terminal')">Root terminal</button><button onclick="openPop('pluginmgr')">Plugins</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button></div>
   </div>
   <div class="card pop" id="diagnostics">
     <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
@@ -372,7 +402,7 @@ footer{padding:0 14px 20px;font-size:10.5px}
     <input id="updfile" type="file" accept=".apk,application/vnd.android.package-archive">
     <p><button id="updcheck">Check file</button> <button id="updinstall" style="display:none">Install update</button></p>
     <p class="mut" style="margin-top:12px">Or update over the air: paste an https link to the new APK (for example a GitHub release asset). The device downloads it and runs the same checks.</p>
-    <input id="updurl" type="url" placeholder="https://github.com/you/MatchiTOOL/releases/latest/download/app-debug.apk" style="width:100%;box-sizing:border-box">
+    <input id="updurl" type="url" placeholder="https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk" style="width:100%;box-sizing:border-box">
     <p><button id="updfetch">Download &amp; check</button></p>
     <pre id="updout" style="display:none;white-space:pre-wrap;max-height:360px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -3982,7 +4012,7 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       onClose: () => { stopAutoCheck(); return true; },
       content: `
         <div class="bp-wrap">
-          <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button><button type="button" class="bp-tab" data-tab="mgr">Manager</button></div>
+          <div class="bp-tabs"><button type="button" class="bp-tab on" data-tab="qs">Quick setup</button><button type="button" class="bp-tab" data-tab="adv">Advanced</button></div>
           <div class="bp-pane" data-pane="qs">
             <div class="bp-section">
               <div id="qs_hero" class="bp-hero warn">● Checking…</div>
@@ -4049,23 +4079,6 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
               </details>
             </div>
           </div>
-          <div class="bp-pane" data-pane="mgr" style="display:none">
-            <div class="bp-section">
-              <div class="bp-hero warn" id="bp_mgr_state">● Checking current bypass state…</div>
-              <div class="bp-card"><div class="bp-head"><span class="bp-title">Unified status</span><button class="bp-act" id="bp_mgr_refresh">Refresh</button></div>
-                <div class="bp-grid">
-                  <div class="bp-stat"><div class="bp-label">TTL / hop limit</div><div class="bp-value" id="bp_mgr_ttl">—</div></div>
-                  <div class="bp-stat"><div class="bp-label">Anti-DPI rules</div><div class="bp-value" id="bp_mgr_dpi">—</div></div>
-                  <div class="bp-stat"><div class="bp-label">Auto-apply</div><div class="bp-value" id="bp_mgr_boot">—</div></div>
-                  <div class="bp-stat"><div class="bp-label">Keep-alive</div><div class="bp-value" id="bp_mgr_watch">—</div></div>
-                </div><div class="bp-note">Combined view of the existing modules. No rules are changed by opening this page.</div>
-              </div>
-              <div class="bp-card"><div class="bp-title">Quick actions</div><div class="bp-row"><button class="bp-act" id="bp_mgr_off">Turn bypass off</button><button class="bp-act" id="bp_mgr_standard">Standard</button><button class="bp-act" id="bp_mgr_strong">Strong</button></div>
-                <div class="bp-note">Off removes MatchiTOOL-managed bypass rules while keeping saved settings. Standard applies TTL only. Strong applies TTL and saved Anti-DPI options. Unrelated firewall chains and SFP filters are not targeted.</div>
-              </div>
-              <div class="bp-card"><div class="bp-title">Diagnostics</div><div class="bp-row"><button class="bp-act" id="bp_mgr_test">Run self-test</button><button class="bp-act" id="bp_mgr_report">Copy report</button></div><div class="bp-note">Self-test reads managed rules and counters; it does not intentionally change firewall or routing state.</div></div>
-            </div>
-          </div>
           <div class="bp-pane" data-pane="adv" style="display:none">
             <div class="bp-section">
               <div class="bp-sub"><button type="button" class="bp-subt on" data-sub="ttl">TTL</button><button type="button" class="bp-subt" data-sub="dpi">Anti-DPI</button><button type="button" class="bp-subt" data-sub="nfq">nfqws</button><button type="button" class="bp-subt" data-sub="tools">Tools</button></div>
@@ -4127,37 +4140,14 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       if (still) toast('Some rules are still active. Check the status above, or use Remove on the Advanced tab', 'orange', 7000);
       else toast('Everything stopped: rules removed, auto-apply at boot off, keep-alive stopped', 'green', 5000);
     }, 'Stopping…');
-    const refreshManagerView = async () => {
-      const hero = q('#bp_mgr_state'); if (hero) hero.textContent = '● Refreshing…';
-      try {
-        await Promise.all([ttlModule.refresh(), dpiModule.refresh()]);
-        const ts=ttlModule.state(), ds=dpiModule.state();
-        const put=(id,v)=>{const el=q(id);if(el)el.textContent=v;};
-        put('#bp_mgr_ttl',ts.on?`Active (${ts.value||'value unknown'})`:'Off');
-        put('#bp_mgr_dpi',ds.any?'Active':'Off');
-        put('#bp_mgr_boot',(ts.boot||ds.boot)?'Enabled':'Disabled');
-        put('#bp_mgr_watch',(ts.watching||ds.watching)?'Running':'Stopped');
-        if(hero){hero.classList.toggle('off',!ts.on&&!ds.any);hero.classList.toggle('warn',!!(ts.on||ds.any));hero.textContent=ts.on||ds.any?'● MatchiTOOL bypass rules are active':'● No MatchiTOOL bypass rules detected';}
-      } catch(e) { if(hero)hero.textContent='● Status unavailable: '+(e?.message||e); }
-    };
     const tabs = modalEl.querySelectorAll('.bp-tab');
     tabs.forEach((t) => {
       t.onclick = () => {
         tabs.forEach((x) => x.classList.toggle('on', x === t));
         modalEl.querySelectorAll('.bp-pane').forEach((pn) => { pn.style.display = pn.dataset.pane === t.dataset.tab ? '' : 'none'; });
         modalEl.querySelector('.bp-wrap')?.scrollTo?.({ top: 0, behavior: 'instant' });
-        if(t.dataset.tab==='mgr')refreshManagerView();
       };
     });
-    q('#bp_mgr_refresh').onclick=guarded(refreshManagerView,'Refreshing…');
-    q('#bp_mgr_off').onclick=async()=>{
-      if(!(await askConfirm('Turn off MatchiTOOL bypass and disable its boot auto-apply? Saved configuration will be kept.','Turn bypass off',true)))return;
-      q('#qs_stop')?.click();
-    };
-    q('#bp_mgr_standard').onclick=()=>q('#qs_std')?.click();
-    q('#bp_mgr_strong').onclick=()=>q('#qs_strong')?.click();
-    q('#bp_mgr_test').onclick=()=>q('#st_run')?.click();
-    q('#bp_mgr_report').onclick=()=>q('#qs_report_copy')?.click();
     const subs = modalEl.querySelectorAll('.bp-subt');
     subs.forEach((t) => {
       t.onclick = () => {
@@ -5933,7 +5923,9 @@ rm -rf "${DEVICE_TMP_DIR}"
               // Neither the router, Android's SMS store nor the modem storage has this message to delete (the F50 keeps
               // some sent messages somewhere else). Hide it here so the list is usable, and say so plainly.
               setHidden(getHidden().concat([hk(m)]));
-              createToast('Could not delete it from the router storage, so it is hidden from this list only.', 'orange', 6000);
+              const why = (e.notes || []).join(' | ').slice(0, 420);
+              try { console.warn('SMS delete failed:', why); localStorage.setItem('matchi_sms_last_fail', why); } catch (_) {}
+              createToast('Could not delete it from the router storage, so it is hidden from this list only.' + (why ? ' Why: ' + why : ''), 'orange', 15000);
               whereIsIt(m);
               load(true).catch(() => {});
             } else { createToast(e.message, 'red', 6000); restore(); }
@@ -6618,7 +6610,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.0';
+const PAGE_VERSION='1.2.1';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -7252,7 +7244,7 @@ document.getElementById('updcheck').onclick=async()=>{
     updShow(r);
   }catch(e){out.textContent='Update rejected: '+e.message}
 };
-document.getElementById('updurl').value=(()=>{try{return localStorage.getItem('matchi_ota_url')||''}catch(_){return ''}})();
+document.getElementById('updurl').value=(()=>{const D='https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk';try{const v=localStorage.getItem('matchi_ota_url')||'';return v&&!/\/releases\/tag\//.test(v)?v:D}catch(_){return D}})();
 document.getElementById('updfetch').onclick=async()=>{
   const u=document.getElementById('updurl').value.trim(),out=document.getElementById('updout'),inst=document.getElementById('updinstall');
   out.style.display='block';inst.style.display='none';inst.dataset.sha='';

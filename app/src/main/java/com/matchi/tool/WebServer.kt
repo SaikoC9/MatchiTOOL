@@ -104,11 +104,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // Reject cross-origin browser requests. Same-origin page/plugin requests continue to work.
         val origin = s.headers["origin"]
         if (origin != null) {
-            val hostUri = try { java.net.URI("http://${s.headers["host"] ?: ""}") } catch (_: Exception) { null }
+            val hostUri = try { java.net.URI("${Tls.scheme}://${s.headers["host"] ?: ""}") } catch (_: Exception) { null }
             val originUri = try { java.net.URI(origin) } catch (_: Exception) { null }
-            val sameOrigin = hostUri != null && originUri != null && originUri.scheme == "http" &&
+            val sameOrigin = hostUri != null && originUri != null && originUri.scheme == Tls.scheme &&
                 originUri.host?.equals(hostUri.host, ignoreCase = true) == true &&
-                (if (originUri.port >= 0) originUri.port else 80) == (if (hostUri.port >= 0) hostUri.port else 80)
+                (if (originUri.port >= 0) originUri.port else if (Tls.active) 443 else 80) == (if (hostUri.port >= 0) hostUri.port else if (Tls.active) 443 else 80)
             if (!sameOrigin)
                 return json(Response.Status.FORBIDDEN, JSONObject().put("error", "cross-origin request refused"))
         }
