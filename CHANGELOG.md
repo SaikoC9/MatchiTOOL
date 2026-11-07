@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.9 — Two-column PC console
+- On screens 1000 px and wider the console is now two columns: the compact buttons in a left panel and the live device status filling the right, instead of one very wide stretched strip. The version line stays fixed at the bottom of the window on wide screens. Screens 900-999 px keep one column with compact buttons; phone view (760 px and narrower) is unchanged.
+- Version 1.2.9 (versionCode 209). CSS only; not device-tested.
+
 ## 1.2.8 — Version footer
 - The web console now shows the installed app version and the web page version at the bottom of the page. If the two differ (an old page cached after an update), the footer turns amber and tells you to reload with Ctrl+F5.
 - Version 1.2.8 (versionCode 208). Web page only; not device-tested.

@@ -52,7 +52,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.2.8'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.2.9'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -63,7 +63,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 208' in gradle and 'versionName = "1.2.8"' in gradle
+assert 'versionCode = 209' in gradle and 'versionName = "1.2.9"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -118,8 +118,8 @@ live = dict(tools)['Live_Status.js']
 assert 'atAt = 0, atCache = []' in live and 'Date.now() - atAt >= 60000' in live, 'modem AT cache missing'
 assert 'thermalLevel' in live and 'return 180000' in live and 'return 120000' in live and 'return 60000' in live, 'thermal-aware polling missing'
 assert 'liv-heat critical' in live and 'does not alter CPU/charging controls' in live, 'thermal safety messaging missing'
-assert "PAGE_VERSION='1.2.8'" in html and 'versionCode = 208' in gradle and 'versionName = "1.2.8"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.2.9'" in html and 'versionCode = 209' in gradle and 'versionName = "1.2.9"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
-print('MatchiTOOL 1.2.8 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, F50 monitoring, network diagnostics, and version metadata.')
+print('MatchiTOOL 1.2.9 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, F50 monitoring, network diagnostics, and version metadata.')
 PY

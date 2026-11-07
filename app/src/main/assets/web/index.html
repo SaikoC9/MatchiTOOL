@@ -363,19 +363,27 @@ main{padding:6px 6px 24px!important;gap:6px!important}
 #home .liv-dbm{font-size:18px!important}#home .liv-op{font-size:13px!important}
 #home .liv-ms{gap:6px!important}#home .liv-tile{padding:3px 7px!important}
 }
-/* 1.2.7 desktop layout: screens 900px and wider use the full window width with small compact buttons that wrap into as many columns as fit. Phones (760px and narrower) are unchanged. */
+/* 1.2.9 desktop layout: screens 1000px and wider use a two-column console (compact buttons on the left, live status filling the right) and the version line stays at the bottom of the window. Phones (760px and narrower) are unchanged. */
 @media(min-width:900px){
-main{max-width:none!important;padding:12px 24px 36px!important;gap:12px!important}
-#home{padding:14px!important;border-radius:14px!important}
-#home .actions-buttons{grid-template-columns:repeat(auto-fill,minmax(125px,1fr))!important;gap:6px!important}
-#home .actions-buttons button{min-height:30px!important;padding:4px 8px!important;font-size:12px!important;line-height:1.2!important;border-radius:8px!important}
-#home .liv-head{margin-bottom:8px!important}
-#home .liv-hero{padding:10px 18px!important;gap:16px!important;border-radius:12px!important}
-#home .liv-dbm{font-size:24px!important}#home .liv-op{font-size:17px!important}#home .liv-q{font-size:12px!important}
+main{max-width:1600px!important;padding:14px 24px 44px!important;gap:12px!important}
+.verfoot{position:fixed;left:0;right:0;bottom:0;z-index:1;margin:0;padding:6px 10px;background:rgba(5,9,18,.88);border-top:1px solid var(--bd)}
+}
+@media(min-width:1000px){
+#home:not([style*="none"]){display:grid!important;grid-template-columns:340px minmax(0,1fr);gap:20px;align-items:start;padding:16px!important;border-radius:14px!important}
+#home .actions-buttons{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important}
+#home .actions-buttons button{min-height:32px!important;padding:5px 8px!important;font-size:12px!important;line-height:1.2!important;border-radius:8px!important}
+#home .liv{margin-top:0!important;border-top:0!important;padding-top:0!important;border-left:1px solid var(--bd);padding-left:20px}
+#home .liv-head{margin-bottom:10px!important}
+#home .liv-hero{padding:12px 18px!important;gap:16px!important;border-radius:12px!important}
+#home .liv-dbm{font-size:26px!important}#home .liv-op{font-size:18px!important}#home .liv-q{font-size:12px!important}
 #home .liv-box{padding:8px 12px 10px!important;border-radius:10px!important}
 #home .liv-grid{gap:10px!important;margin-top:10px!important}
-#home .liv-tiles{gap:10px!important;margin-top:10px!important}#home .liv-tile{padding:5px 12px!important}#home .liv-tv{font-size:14px!important}
-#home .liv-foot{margin-top:6px!important}
+#home .liv-tiles{gap:10px!important;margin-top:10px!important}#home .liv-tile{padding:6px 12px!important}#home .liv-tv{font-size:15px!important}
+#home .liv-foot{margin-top:8px!important}
+}
+@media(min-width:900px) and (max-width:999px){
+#home .actions-buttons{grid-template-columns:repeat(auto-fill,minmax(125px,1fr))!important;gap:6px!important}
+#home .actions-buttons button{min-height:30px!important;padding:4px 8px!important;font-size:12px!important}
 }
 /* 1.2.8 version footer: shows the installed app version and the web page version at the bottom (amber when they differ) */
 .verfoot{text-align:center;font-size:11px;color:var(--mut);padding:2px 10px 18px;letter-spacing:.2px}
@@ -6661,7 +6669,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.8';
+const PAGE_VERSION='1.2.9';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
