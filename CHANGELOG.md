@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.14 — New look
+- **PC (1000 px and wider):** the tools are now a dark sidebar down the left of the console (one tool per row), and the Live device status fills the rest as a dashboard with larger signal and system cards.
+- **Phone / tablet (up to 999 px):** the tool bar moves to the top, as one horizontal strip of pill buttons pinned under the header while you scroll. The live status cards follow below it.
+- Styling only (one added `<style id="ui-newlook">` block); no markup, script or behaviour changed. The font falls back to the system font if Space Grotesk is not installed.
+- Phone header: below 480 px the "Host connected" pill shows only its dot, so Sign out and Reboot are no longer pushed off the screen.
+- Live status: the CPU reading now tolerates a trailing carriage return in the shell output; on phones the CPU / Memory / Load / Uptime tiles form a 2x2 grid.
+- Version 1.2.14 (versionCode 214). Not device-tested.
+
 ## 1.2.13 — Tools merged into Live device status
 - Removed four tools: **Smart F50 Monitor**, **Device status**, **Network debug** and **Signal info** (home buttons, embedded scripts, Full diagnose checks and reserved plugin file names). The page now embeds 6 tools.
 - **Live device status** gained the useful parts of the two monitors: CPU usage, memory used, load average and uptime. They come from the same single root-shell call it already makes (no extra processes per thermal zone), at the same thermal-aware refresh rate. CPU % needs two samples, so it shows "—" until the second refresh.
