@@ -795,7 +795,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
 
 <script type="text/plain" class="webtool" data-name="Live_Status.js">
 /*
- * Live Status - MatchiTOOL dashboard (read-only): signal, operator, battery, temperatures, CPU, memory, load, uptime and IP addresses.
+ * Live Status - MatchiTOOL dashboard (read-only): signal, operator, battery, temperatures, CPU, memory, load and uptime.
  * Shown permanently at the bottom of the Control Center card and refreshed automatically every 30 s (60 s when hot)
  * (paused while the tab is hidden or another tool window is open). There is no separate Live Status button.
  * Sources, merged in this order of preference:
@@ -871,7 +871,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ip -4 -o addr show 2>/dev/null | while read -r x i y a z; do [ "$i" = lo ] || echo "ip: $i=$a"; done; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
         tele = teleCache;
@@ -908,7 +908,6 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
-    const ips = [...sh.matchAll(/^ip:\s*(\S+)=(\S+)\s*$/gm)].map((m) => [m[1], m[2]]);
     const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
 
     const lte = { rsrp: first(range(zte.lte_rsrp, -140, -40), tLteRsrp, cesqRsrp), rsrq: first(range(zte.lte_rsrq, -34, 3), tLteRsrq, cesqRsrq), sinr: first(range(zte.lte_snr, -23, 40), tLteSnr),
@@ -940,7 +939,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
     return {
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
-      batTemp, sysMax, modemTemp, thermalLevel, cpu, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, ips, errs,
+      batTemp, sysMax, modemTemp, thermalLevel, cpu, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
       rawText: [zteNote || 'Router web API: used', 'AT+COPS?: ' + raw.cops.trim(), 'AT+CSQ: ' + raw.csq.trim(), 'AT+CESQ: ' + raw.cesq.trim(), 'AT+CEREG?: ' + raw.cereg.trim(), '', 'telephony.registry:', tele.trim() || '(no output)'].join('\n'),
       source: zteNote ? 'modem AT + Android telephony' : 'router API + modem',
     };
@@ -983,8 +982,7 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
       ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu + ' %' : '—', M.cpu === undefined ? 'next refresh' : '')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
-      ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>` +
-      (M.ips.length ? `<div class="liv-ips">${M.ips.map(([n, a]) => `<span class="liv-badge" title="${esc(n)}">${esc(n)} <b>${esc(a)}</b></span>`).join('')}</div>` : '');
+      ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>`;
     const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
       : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
       : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
@@ -1005,7 +1003,6 @@ echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
 .liv-bar{height:5px;border-radius:99px;background:#16283f;overflow:hidden}.liv-bar i{display:block;height:100%;border-radius:99px;transition:width .5s}
 .liv-kv{margin-left:auto;font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap}.liv-kv b{color:var(--fg)}
 .liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}.liv-heat{margin-top:8px;padding:7px 10px;border-radius:9px;font-size:11px;font-weight:750}.liv-heat.warm{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24}.liv-heat.hot{background:#f9731618;border:1px solid #f9731655;color:#fb923c}.liv-heat.critical{background:#ef444418;border:1px solid #ef444466;color:#f87171}
-.liv-ips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.liv-ips .liv-badge{font-weight:600;color:var(--mut)}.liv-ips b{color:var(--fg)}
 .liv-tl{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.2}.liv-tv{font-size:14px;font-weight:800;line-height:1.2}.liv-ts{font-size:10px;color:var(--mut)}.liv-foot{margin-top:8px;font-size:11px;color:var(--mut)}
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 @media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;

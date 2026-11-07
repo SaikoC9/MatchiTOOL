@@ -2,7 +2,7 @@
 
 ## 1.2.13 — Tools merged into Live device status
 - Removed four tools: **Smart F50 Monitor**, **Device status**, **Network debug** and **Signal info** (home buttons, embedded scripts, Full diagnose checks and reserved plugin file names). The page now embeds 6 tools.
-- **Live device status** gained the useful parts of the two monitors: CPU usage, memory used, load average, uptime and the IPv4 address of each interface. They come from the same single root-shell call it already makes (no extra processes per thermal zone), at the same thermal-aware refresh rate. CPU % needs two samples, so it shows "—" until the second refresh.
+- **Live device status** gained the useful parts of the two monitors: CPU usage, memory used, load average and uptime. They come from the same single root-shell call it already makes (no extra processes per thermal zone), at the same thermal-aware refresh rate. CPU % needs two samples, so it shows "—" until the second refresh.
 - Not carried over: per-interface network rates and the full per-thermal-zone list. Battery, system-max and modem temperatures stay as before.
 - Full diagnose: the Live Status check now also verifies that /proc (CPU, load, memory) is readable.
 - Version 1.2.13 (versionCode 213). Not device-tested.

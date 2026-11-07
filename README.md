@@ -96,7 +96,7 @@ The historical 1.1.1 note about opt-in LAN mode was superseded by later compatib
 
 **Security limitation:** this is still HTTP. The subnet check is not a substitute for encryption, and any trusted-LAN client that obtains a valid session token can access privileged APIs. Never port-forward the port or use it on an untrusted network.
 \n\n## Stability-first integration 1.2.0
-The Live device status panel (which now also shows CPU, memory, load, uptime and IP addresses) is deliberately read-only. It reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes CPU/GPU/charging controls.
+The Live device status panel (which now also shows CPU, memory, load and uptime) is deliberately read-only. It reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes CPU/GPU/charging controls.
 
 ## Stability update 1.1.54
 See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression, and 24-hour soak tests. For the 1.2.0 monitor and network-diagnostics checks, see `docs/TESTING_1.2.0.md`. This release applies app-side back-pressure and polling reductions; device runtime validation is still required.\n
