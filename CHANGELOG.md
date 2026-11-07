@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.5 — Compact console on phones
+- Phone view (up to 760 px wide) now matches the compact desktop look: 3 small button columns instead of 2, tighter box padding, and the Live device status keeps its single-row signal / operator / battery layout instead of stacking. Popups unchanged.
+- Version 1.2.5 (versionCode 205). CSS only; not device-tested.
+
+## 1.2.4 — Compact console
+- The web console box is narrower (max 640 px) and compact: the home buttons are small and in 3 columns (2 on narrow phones), and the Live device status card has tighter padding and smaller numbers. Popups are unchanged.
+- Version 1.2.4 (versionCode 204). CSS only; not device-tested.
+
 ## 1.2.3 — Update fix: "The APK has no valid signature"
 - **Cause:** a release build made without the keystore (local build, or CI without the `MATCHI_KEYSTORE_B64` secret) came out as `app-release-unsigned.apk`, an APK with no signature at all, so the update check refused it. 1.2.2 made release the published build type, which exposed this.
 - **Build:** release builds now fall back to the debug key when the keystore is missing, so they are never unsigned (such an APK still cannot update an install signed with the permanent key; that case gets the "Signature mismatch" message instead). The release workflow still refuses to publish without the permanent key.
