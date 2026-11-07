@@ -163,10 +163,22 @@ object ApkUpdater {
                 if (newCode == oldCode) "This is the same build that is already installed (version ${installed.versionName}, code $oldCode)."
                 else "Downgrade blocked: this file is older (code $newCode) than the installed app (code $oldCode)."
             )
-        val have = currentSigners(installed)
-        val offered = allSigners(archive)
-        if (have.isEmpty() || offered.isEmpty())
-            throw UpdateException("The APK has no valid signature, so it cannot be trusted.")
+        // Read the signers the normal way first; some Android builds return nothing for an archive (or for the installed app)
+        // with GET_SIGNING_CERTIFICATES, so fall back to the older GET_SIGNATURES lookup before giving up.
+        var have = currentSigners(installed)
+        if (have.isEmpty()) have = legacySigners { pm.getPackageInfo(ctx.packageName, PackageManager.GET_SIGNATURES) }
+        var offered = allSigners(archive)
+        if (offered.isEmpty()) offered = legacySigners { pm.getPackageArchiveInfo(file.absolutePath, PackageManager.GET_SIGNATURES) }
+        if (offered.isEmpty()) {
+            throw UpdateException(
+                if (!looksSigned(file))
+                    "This APK is not signed at all (an unsigned release build, usually app-release-unsigned.apk). Use the signed APK from the release workflow, or rebuild with the MatchiTOOL keystore."
+                else
+                    "Android could not read this APK's signature on this device, so it cannot be trusted. Rebuild it with the same MatchiTOOL keystore, or install it with: su -c 'pm install -r <file>'."
+            )
+        }
+        if (have.isEmpty())
+            throw UpdateException("Android could not read the signature of the installed MatchiTOOL, so the update cannot be compared. Install the new APK with: su -c 'pm install -r <file>'.")
         if (!offered.containsAll(have))
             throw UpdateException("Signature mismatch: this APK was not signed by the same key as the installed MatchiTOOL. Android would refuse it, and it may not be a genuine update.")
         return Staged(file, sha, size, installed.versionName ?: "?", oldCode, archive.versionName ?: "?", newCode)
@@ -176,6 +188,48 @@ object ApkUpdater {
     private fun code(p: PackageInfo): Long = if (Build.VERSION.SDK_INT >= 28) p.longVersionCode else p.versionCode.toLong()
 
     private fun sha256(b: ByteArray) = hex(MessageDigest.getInstance("SHA-256").digest(b))
+
+    /** Signers from the old (pre-Android 9) lookup; empty when the lookup fails or returns nothing. */
+    @Suppress("DEPRECATION")
+    private fun legacySigners(load: () -> PackageInfo?): Set<String> = try {
+        load()?.signatures?.map { sha256(it.toByteArray()) }?.toSet() ?: emptySet()
+    } catch (_: Exception) { emptySet() }
+
+    /**
+     * True when the APK carries any signature block: a v1 META-INF signature file, or the v2/v3 "APK Sig Block 42"
+     * that sits right before the ZIP central directory. Used only to give a clear error message.
+     */
+    private fun looksSigned(f: File): Boolean = try {
+        val v1 = java.util.zip.ZipFile(f).use { z ->
+            z.entries().asSequence().any {
+                val n = it.name.uppercase()
+                n.startsWith("META-INF/") && (n.endsWith(".RSA") || n.endsWith(".DSA") || n.endsWith(".EC"))
+            }
+        }
+        v1 || java.io.RandomAccessFile(f, "r").use { raf ->
+            val len = raf.length()
+            val n = minOf(len, 65_557L).toInt()
+            val tail = ByteArray(n)
+            raf.seek(len - n)
+            raf.readFully(tail)
+            var i = n - 22
+            while (i >= 0 && !(tail[i] == 0x50.toByte() && tail[i + 1] == 0x4b.toByte() && tail[i + 2] == 5.toByte() && tail[i + 3] == 6.toByte())) i--
+            if (i < 0) {
+                false
+            } else {
+                val off = (tail[i + 16].toLong() and 0xff) or ((tail[i + 17].toLong() and 0xff) shl 8) or
+                    ((tail[i + 18].toLong() and 0xff) shl 16) or ((tail[i + 19].toLong() and 0xff) shl 24)
+                if (off < 16) {
+                    false
+                } else {
+                    val magic = ByteArray(16)
+                    raf.seek(off - 16)
+                    raf.readFully(magic)
+                    String(magic, Charsets.US_ASCII) == "APK Sig Block 42"
+                }
+            }
+        }
+    } catch (_: Exception) { false }
 
     /** Certificates the package is signed with right now. */
     @Suppress("DEPRECATION")

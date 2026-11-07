@@ -37,10 +37,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         if (refresh) Prefs.setSeededVersion(ctx, ver)
     }
 
-    private fun authed(s: IHTTPSession): Boolean {
-        val given = s.headers["x-token"] ?: return false
-        return MessageDigest.isEqual(given.toByteArray(), Prefs.token(ctx).toByteArray())
-    }
+    /** True when the request carries a live per-login session token (see [SessionStore]). */
+    private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, s.headers["x-token"])
 
 
     private fun locked(ip: String): Boolean = synchronized(fails) {
@@ -135,18 +133,20 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val pw = try { body(s).optString("password").take(200) } catch (e: Exception) {
             return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
         }
-        var good = if (Prefs.hasAdminPassword(ctx)) Prefs.checkAdminPassword(ctx, pw)
-                   else MessageDigest.isEqual(pw.toByteArray(), Prefs.token(ctx).toByteArray())   // no password learned yet: token works
+        // Only the admin password logs in. The old permanent access token is no longer accepted as a password.
+        var good = Prefs.hasAdminPassword(ctx) && Prefs.checkAdminPassword(ctx, pw)
         // The web console accepts the router's own admin password: if it is not what is stored (nothing stored yet,
         // or the router password was changed), ask the router. When it accepts, remember it for the SMS / signal tools.
         // Skipped after 3 bad tries from this address so the router's own login lockout is not triggered.
         if (!good && pw.isNotEmpty() && failCount(ip) < 3 && ZteClient.verify(ctx, pw) == true) {
             Prefs.setZtePass(ctx, pw)
+            Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
             good = true
         }
         if (!good) { fail(ip); return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password")) }
         ok(ip)
-        return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Prefs.token(ctx)))
+        // A fresh random token for THIS login; it expires when idle, after 12 h, on sign-out or on a password change.
+        return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Sessions.issue(ctx)))
     }
 
     /** Read-only diagnostics: no modem settings or partitions are modified. */
@@ -401,6 +401,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val v = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
             json(Response.Status.OK, JSONObject().put("ok", true).put("version", v.versionName ?: ""))
         }
+        uri == "/api/logout" && s.method == Method.POST -> {
+            Sessions.revoke(ctx, s.headers["x-token"])
+            json(Response.Status.OK, JSONObject().put("ok", true))
+        }
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/root/status" && s.method == Method.GET -> {
             val status = RootShell.status(ctx)
@@ -492,7 +496,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/zte/config" && s.method == Method.POST -> {
             val req = body(s)
             if (req.has("host")) Prefs.setZteHost(ctx, req.optString("host").trim())
-            if (req.has("password")) Prefs.setZtePass(ctx, req.optString("password"))
+            if (req.has("password")) {
+                val changed = req.optString("password") != Prefs.ztePass(ctx)
+                Prefs.setZtePass(ctx, req.optString("password"))
+                if (changed) Sessions.revokeAllExcept(ctx, s.headers["x-token"])   // other sessions end; this one stays
+            }
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
         uri == "/api/plugins" && s.method == Method.GET -> {

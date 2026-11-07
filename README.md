@@ -26,7 +26,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
 
-- Browser interface on port **2334** with token/password login. The service binds to LAN interfaces so other devices on the ZTE hotspot / USB-tether network can connect; API access is restricted to the device itself and detected hotspot-side subnets. The transport is plain HTTP, not encrypted.
+- Browser interface on port **2334** with admin-password login and per-login expiring sessions (2 h idle / 12 h maximum, Sign out button). The service binds to LAN interfaces so other devices on the ZTE hotspot / USB-tether network can connect; API access is restricted to the device itself and detected hotspot-side subnets. The transport is plain HTTP, not encrypted.
 - Full diagnose with copy/download (read-only checks). Nine built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
 - **Update app** (web console): upload a newer MatchiTOOL APK. It is only accepted if it is this app, newer, and signed with the same key; you confirm the SHA-256 before it is installed through root (`pm install -r`, no downgrade).
@@ -46,10 +46,12 @@ Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 3
 
 ```sh
 ./scripts/validate.sh
-gradle :app:assembleDebug
+gradle :app:testDebugUnitTest
+gradle :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
+gradle :app:assembleRelease   # app/build/outputs/apk/release/app-release.apk (what gets published)
 ```
 
-APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+First time on a new machine: `bash scripts/bootstrap-build.sh` creates the Gradle wrapper and does the first full build.
 
 The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on push, pull request, or manual dispatch. The CI workflow pins Gradle 8.7 and the Android Gradle Plugin 8.5.2. The repository does not yet include the Gradle wrapper; use an installed Gradle 8.7 distribution or Android Studio for local builds.
 
@@ -69,7 +71,7 @@ The web console still uses HTTP to preserve compatibility with the existing LAN 
 
 The Bypass plugin stores TTL/DPI helper state under `/data/local/matchitool/` and its boot entries in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to execute that file. This requires the root manager to retain MatchiTOOL's grant across reboot. If upgrading from an older UFI-based setup, first disable the old UFI boot entries and remove/stop the old helpers to avoid duplicate firewall management.
 
-The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep the access token private. Reset the token in the Android app if it
+The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It uses unencrypted HTTP and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep your admin password private and press Sign out on shared computers. Sessions end by themselves after 2 h idle or 12 h.
 may have been exposed.
 
 ## Compatibility notes

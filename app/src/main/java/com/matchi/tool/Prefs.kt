@@ -14,15 +14,6 @@ import java.security.KeyStore
 
 object Prefs {
     private fun sp(c: Context) = c.getSharedPreferences("matchi", Context.MODE_PRIVATE)
-    fun token(c: Context): String {
-        val s = sp(c)
-        s.getString("token", null)?.let { return it }
-        val b = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val t = b.joinToString("") { "%02x".format(it) }
-        s.edit().putString("token", t).apply()
-        return t
-    }
-    fun resetToken(c: Context) { sp(c).edit().remove("token").apply() }
     fun disabled(c: Context): Set<String> = sp(c).getStringSet("disabled", emptySet())!!.toSet()
     fun setEnabled(c: Context, name: String, enabled: Boolean) {
         val d = disabled(c).toMutableSet()
@@ -100,14 +91,14 @@ object Prefs {
     fun lanAccess(c: Context): Boolean = true
     // Web console password = the router's own admin password (the one for 192.168.0.1). One password is stored
     // and used both to sign in to the web console and by the SMS / signal tools to log in to the router.
-    // Until one is saved, the web login still accepts the access token.
+    // Until one is saved (or learned from the router at first login) nobody can sign in to the web console.
     fun hasAdminPassword(c: Context): Boolean = ztePass(c).isNotEmpty()
     fun setAdminPassword(c: Context, pw: String) {
         setZtePass(c, pw)
         sp(c).edit().remove("admin_salt").remove("admin_hash").apply()   // old separate web password, no longer used
-        resetToken(c)   // signs out existing web sessions
+        Sessions.revokeAll(c)   // signs out existing web sessions
     }
-    fun clearAdminPassword(c: Context) { setZtePass(c, ""); sp(c).edit().remove("admin_salt").remove("admin_hash").apply(); resetToken(c) }
+    fun clearAdminPassword(c: Context) { setZtePass(c, ""); sp(c).edit().remove("admin_salt").remove("admin_hash").apply(); Sessions.revokeAll(c) }
     fun checkAdminPassword(c: Context, pw: String): Boolean {
         val saved = ztePass(c)
         return saved.isNotEmpty() && MessageDigest.isEqual(saved.toByteArray(Charsets.UTF_8), pw.toByteArray(Charsets.UTF_8))

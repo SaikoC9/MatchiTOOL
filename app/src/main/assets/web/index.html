@@ -336,6 +336,7 @@ header{min-height:44px!important;padding:6px 12px!important;gap:8px!important;fl
 header .host{margin-left:auto!important}
 .hd-reboot{height:26px;min-height:0!important;padding:0 10px!important;font-size:11px!important;border-radius:999px!important;color:#ff7a8c!important;background:transparent!important;border:1px solid #ff647c55!important;flex:none}
 body:has(#home[style*="none"]) .hd-reboot{display:none}
+body:has(#home[style*="none"]) #logoutbtn{display:none}
 main{padding-top:10px!important}
 #home{padding:10px!important;animation:u-fade .25s ease-out}
 #home .actions-buttons{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px!important}
@@ -352,7 +353,7 @@ button:active{transform:scale(.97)}
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
-<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div><button type="button" id="rebootbtn" class="hd-reboot" title="Reboot device">Reboot</button></header>
+<div id="hoststatus" class="host"><span class="dot"></span><span id="hostlabel">Checking host</span></div><button type="button" id="logoutbtn" class="hd-reboot" style="color:inherit!important;border-color:currentColor!important;opacity:.8;margin-right:6px" title="End this session">Sign out</button><button type="button" id="rebootbtn" class="hd-reboot" title="Reboot device">Reboot</button></header>
 <main>
   <div class="card" id="login" style="display:none">
     <div class="lg-title">Sign in</div>
@@ -6481,6 +6482,14 @@ document.addEventListener('click',async(e)=>{
   try{await api('/api/shell',{method:'POST',body:JSON.stringify({cmd:'reboot',timeout:5000})})}catch(_){}
 });
 let TOKEN=localStorage.getItem('matchi_token')||'';
+/* The host ends a session when it is idle, after 12 h, on sign-out or when the password changes: go back to the sign-in card. */
+function sessionLost(msg){
+  TOKEN='';try{localStorage.removeItem('matchi_token')}catch(_){}
+  try{closePop()}catch(_){}
+  const h=document.getElementById('home'),l=document.getElementById('login'),e=document.getElementById('tokerr');
+  if(h)h.style.display='none';if(l)l.style.display='block';if(e)e.textContent=msg||'';
+  setHostStatus(false,'Signed out');
+}
 function setHostStatus(online,label){const el=document.getElementById('hoststatus');if(!el)return;el.classList.toggle('online',!!online);el.classList.toggle('offline',!online);document.getElementById('hostlabel').textContent=label||(online?'Host connected':'Host disconnected')}
 async function api(path,opt={}){
   const headers={...(opt.headers||{}),'x-token':TOKEN};
@@ -6492,6 +6501,7 @@ async function api(path,opt={}){
   let data={};
   try{data=raw?JSON.parse(raw):{}}catch(_){data={error:raw||'Invalid server response'}}
   if(!r.ok){
+    if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
     const message=r.status===401?(data.error||'Invalid password'):r.status===429?'Too many attempts. Wait a minute and retry.':(data.error||data.message||`Request failed (${r.status})`);
     throw new Error(message);
   }
@@ -6610,7 +6620,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.1';
+const PAGE_VERSION='1.2.3';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
@@ -7273,6 +7283,10 @@ document.getElementById('updinstall').onclick=async()=>{
     }
     out.textContent+='\n\nTimed out waiting for version '+want+'. Check the app on the device, or run in the Root terminal: cat /data/local/tmp/matchi_update.log';
   }catch(e){out.textContent='Install failed: '+e.message}
+};
+document.getElementById('logoutbtn').onclick=async()=>{
+  try{await api('/api/logout',{method:'POST',body:'{}'})}catch(_){}
+  sessionLost('');
 };
 document.getElementById('tokbtn').onclick=async()=>{
   const pw=document.getElementById('tok').value;

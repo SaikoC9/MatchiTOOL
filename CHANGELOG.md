@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.3 — Update fix: "The APK has no valid signature"
+- **Cause:** a release build made without the keystore (local build, or CI without the `MATCHI_KEYSTORE_B64` secret) came out as `app-release-unsigned.apk`, an APK with no signature at all, so the update check refused it. 1.2.2 made release the published build type, which exposed this.
+- **Build:** release builds now fall back to the debug key when the keystore is missing, so they are never unsigned (such an APK still cannot update an install signed with the permanent key; that case gets the "Signature mismatch" message instead). The release workflow still refuses to publish without the permanent key.
+- **Updater:** if Android returns no signer for the new APK or the installed app with the modern lookup, it now retries with the older `GET_SIGNATURES` lookup. The error text now says what is wrong: an unsigned APK (with how to get a signed one), an unreadable signature, or a different key, and how to install by hand with `su -c 'pm install -r <file>'`.
+- Version 1.2.3 (versionCode 203). Not yet compiled or device-tested.
+- **To get past the error on the device you have now:** the *installed* app does the check, so the new updater code only helps the update after this one. Install a properly signed APK (built with the keystore), or install by hand: `su -c 'pm install -r /sdcard/Download/MatchiTOOL.apk'`.
+
+## 1.2.2 — P0 security and release fixes
+- **Per-login sessions.** The web console no longer hands out one permanent access token. Every sign-in gets its own random 256-bit token that ends after 2 h idle, after 12 h in any case, on the new **Sign out** button (`POST /api/logout`), or when the router/admin password changes (other sessions only; the changing session stays). Only SHA-256 hashes of tokens are kept, in private preferences, so a host restart or OTA update does not sign you out. At most 16 live sessions (oldest dropped).
+- The old permanent token is deleted on first start and is **no longer accepted as a password**; sign in with the router admin password. Browsers that still hold the old token are sent back to the sign-in card.
+- **Release builds.** The release workflow now builds and publishes `assembleRelease` (not debuggable, signed with the permanent key) and refuses to publish an APK that is debuggable or fails `apksigner verify`. `isDebuggable = false` is explicit; lint no longer rejects the deliberate `targetSdk 28`.
+- **Build/test groundwork.** Added JVM unit tests for the session logic (`SessionStoreTest`), a unit-test step in both workflows, a debug + release build in the CI workflow, `scripts/bootstrap-build.sh` (creates the Gradle wrapper; run once with internet) and `docs/TESTING_1.2.2.md`. CI uses `./gradlew` when it exists.
+- Version 1.2.2 (versionCode 202). Not yet compiled or device-tested.
+
 ## 1.2.1 — HTTPS, compact UI
 - The web console is now served over **HTTPS** on port 2334 with a self-signed certificate created on the device by Android's key store (the private key never leaves it). Open `https://<device ip>:2334`; the browser shows a one-time "not trusted" warning because no public authority can certify a private IP address. If TLS cannot work on a device, the host checks itself at start-up and falls back to plain HTTP.
 - Compact Plugins popup (built-in tools list removed), compact style for all popups and the sign-in screen, the stray "\n" on the sign-in screen removed.

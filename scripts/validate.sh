@@ -52,7 +52,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.2.1'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.2.3'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -63,7 +63,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 201' in gradle and 'versionName = "1.2.1"' in gradle
+assert 'versionCode = 203' in gradle and 'versionName = "1.2.3"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -73,6 +73,8 @@ assert 'pm install -r' in upd and 'pm install -r -d' not in upd and ' -d ' not i
 for r in ('/api/update/stage', '/api/update/install', '/api/update/status'):
     assert r in server, f'update route missing: {r}'
 assert 'ApkUpdater.MAX_BYTES + 1_000_000L' in server, 'upload size guard missing'
+assert 'legacySigners' in upd and 'looksSigned' in upd and 'GET_SIGNATURES' in upd, 'updater signature fallback missing'
+assert 'else if (name == "release") signingConfig = signingConfigs.getByName("debug")' in (root / 'app/build.gradle.kts').read_text(), 'release builds must never be unsigned'
 assert 'id="appupdate"' in html and "'/api/update/stage'" in html and "'/api/update/install'" in html, 'web update UI missing'
 assert 'REQUEST_INSTALL_PACKAGES' not in manifest
 ctl = (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text()
@@ -83,7 +85,18 @@ assert 'zte_pass_enc' in prefs and 'remove(ZTE_PASS_LEGACY)' in prefs, 'legacy c
 assert 'X-Content-Type-Options' in server and 'X-Frame-Options' in server and 'Referrer-Policy' in server
 assert 'cross-origin request refused' in server, 'Origin validation missing'
 assert 'originUri.port' in server and 'hostUri.port' in server, 'same-origin port validation missing'
-assert 'ByteArray(32)' in prefs, 'new access tokens must use 256-bit random material'
+sessions_src = (root / 'app/src/main/java/com/matchi/tool/SessionStore.kt').read_text()
+assert 'ByteArray(32)' in sessions_src and 'SecureRandom' in sessions_src, 'session tokens must use 256-bit random material'
+assert 'fun token(' not in prefs and 'resetToken' not in prefs, 'the permanent access token must be gone'
+assert 'Prefs.token' not in server and 'Sessions.validate(ctx' in server and 'Sessions.issue(ctx)' in server, 'web API must use per-login sessions'
+assert '/api/logout' in server and 'Sessions.revokeAll' in server, 'logout / revoke-on-password-change missing'
+assert 'IDLE_MS' in sessions_src and 'MAX_AGE_MS' in sessions_src, 'session expiry missing'
+assert (root / 'app/src/test/java/com/matchi/tool/SessionStoreTest.kt').is_file(), 'session unit tests missing'
+assert 'sessionLost' in html and 'logoutbtn' in html, 'web sign-out / expired-session handling missing'
+rel = (root / '.github/workflows/release.yml').read_text()
+assert 'assembleRelease' in rel and 'assembleDebug' not in rel and 'app-debug' not in rel, 'release workflow must publish a release build'
+assert 'application-debuggable' in rel and '/apksigner" verify' in rel, 'release workflow must refuse debuggable/unsigned APKs'
+assert 'isDebuggable = false' in (root / 'app/build.gradle.kts').read_text(), 'release build type must not be debuggable'
 assert 'fails.size >= 256' in server, 'login failure map must be bounded'
 assert 'cachedV6Nets' in ctl and 'Inet6Address' in ctl, 'hotspot IPv6 subnet filtering missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
@@ -103,8 +116,8 @@ live = dict(tools)['Live_Status.js']
 assert 'atAt = 0, atCache = []' in live and 'Date.now() - atAt >= 60000' in live, 'modem AT cache missing'
 assert 'thermalLevel' in live and 'return 180000' in live and 'return 120000' in live and 'return 60000' in live, 'thermal-aware polling missing'
 assert 'liv-heat critical' in live and 'does not alter CPU/charging controls' in live, 'thermal safety messaging missing'
-assert "PAGE_VERSION='1.2.1'" in html and 'versionCode = 201' in gradle and 'versionName = "1.2.1"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.2.3'" in html and 'versionCode = 203' in gradle and 'versionName = "1.2.3"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
-print('MatchiTOOL 1.2.1 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, F50 monitoring, network diagnostics, and version metadata.')
+print('MatchiTOOL 1.2.3 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, F50 monitoring, network diagnostics, and version metadata.')
 PY
