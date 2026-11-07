@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.6 — Wider console on PC
+- On wide screens (900 px and up) the web console is now 1040 px wide instead of a narrow 640 px strip: 5 button columns, larger buttons and larger live-status text. Phone view (760 px and narrower) is unchanged.
+- Version 1.2.6 (versionCode 206). CSS only; not device-tested.
+
 ## 1.2.5 — Compact console on phones
 - Phone view (up to 760 px wide) now matches the compact desktop look: 3 small button columns instead of 2, tighter box padding, and the Live device status keeps its single-row signal / operator / battery layout instead of stacking. Popups unchanged.
 - Version 1.2.5 (versionCode 205). CSS only; not device-tested.

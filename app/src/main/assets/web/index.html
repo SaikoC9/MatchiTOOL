@@ -363,6 +363,20 @@ main{padding:6px 6px 24px!important;gap:6px!important}
 #home .liv-dbm{font-size:18px!important}#home .liv-op{font-size:13px!important}
 #home .liv-ms{gap:6px!important}#home .liv-tile{padding:3px 7px!important}
 }
+/* 1.2.6 desktop layout: screens 900px and wider get a wider console, 5 button columns and larger live status. Phones (760px and narrower) are unchanged. */
+@media(min-width:900px){
+main{max-width:1040px!important;padding:18px 20px 40px!important;gap:14px!important}
+#home{padding:18px!important;border-radius:16px!important}
+#home .actions-buttons{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:9px!important}
+#home .actions-buttons button{min-height:40px!important;padding:8px 10px!important;font-size:13px!important;border-radius:10px!important}
+#home .liv-head{margin-bottom:10px!important}
+#home .liv-hero{padding:14px 20px!important;gap:20px!important;border-radius:14px!important}
+#home .liv-dbm{font-size:30px!important}#home .liv-op{font-size:20px!important}#home .liv-q{font-size:12.5px!important}
+#home .liv-box{padding:10px 14px 12px!important;border-radius:11px!important}
+#home .liv-grid{gap:12px!important;margin-top:12px!important}
+#home .liv-tiles{gap:12px!important;margin-top:12px!important}#home .liv-tile{padding:8px 14px!important}#home .liv-tv{font-size:16px!important}
+#home .liv-foot{margin-top:8px!important}
+}
 button,.card,input,select{transition:background .15s ease,border-color .15s ease,box-shadow .2s ease,transform .12s ease,opacity .15s ease}
 button:active{transform:scale(.97)}
 .card.pop.open{animation:u-pop .2s cubic-bezier(.2,.8,.2,1)}
@@ -6642,7 +6656,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.5';
+const PAGE_VERSION='1.2.6';
 const ST_TOOLS=[
   {file:'Device_Status.js',btn:'matchi_status_btn'},
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
