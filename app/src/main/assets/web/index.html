@@ -1011,6 +1011,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   let teleAt = 0, teleCache = '';   // `dumpsys telephony.registry` is expensive: cache it for 2 minutes
   let atAt = 0, atCache = [];       // modem AT polling is cached to avoid waking the modem too often
   let prevCpu = null;                // previous /proc/stat sample, for CPU %
+  let lastCpu;                       // last measured CPU %, shown if a poll cannot be measured
   let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
 
   async function collect() {
@@ -1025,7 +1026,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
         tele = teleCache;
@@ -1052,13 +1053,20 @@ rm -f $P.g $P.4 $P.6 $P.d
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
     const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
     // CPU / memory / load / uptime / IPs (from /proc via the same root shell call)
+    const parseCpu = (a) => (a.length >= 4 && a.every(Number.isFinite)) ? { total: a.reduce((x, y) => x + y, 0), idle: a[3] + (a[4] || 0) } : null;
     const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
+    const cpu0A = (grab(/^cpu0:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     let cpu;
-    if (cpuA.length >= 4 && cpuA.every(Number.isFinite)) {
-      const cur = { total: cpuA.reduce((a, b) => a + b, 0), idle: cpuA[3] + (cpuA[4] || 0) };
-      if (prevCpu && cur.total > prevCpu.total) cpu = Math.round(100 * ((cur.total - prevCpu.total) - (cur.idle - prevCpu.idle)) / (cur.total - prevCpu.total));
+    const cur = parseCpu(cpuA);
+    if (cur) {
+      // The first poll after a page load or a live-refresh restart has no previous sample, so the shell call
+      // takes two samples a moment apart (cpu0, then cpu) and the percentage shows immediately.
+      const base = prevCpu || parseCpu(cpu0A);
+      if (base && cur.total > base.total) cpu = Math.max(0, Math.min(100, Math.round(100 * ((cur.total - base.total) - (cur.idle - base.idle)) / (cur.total - base.total))));
       prevCpu = cur;
     }
+    if (cpu === undefined && lastCpu !== undefined) cpu = lastCpu;   // keep the last value if one poll cannot be measured
+    if (cpu !== undefined) lastCpu = cpu;
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
