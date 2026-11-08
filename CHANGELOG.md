@@ -1,3 +1,12 @@
+# MatchiTOOL 1.3.8 - Log Catcher leftovers (privacy of single-file exports, keep-every-line switch)
+
+- Redaction now also covers the single-file buttons: **Export .txt**, **Export .log** and every **Copy** button (visible log, whole boot file, boot page). The same box as for the zips (now "Hide private data in exports and copies", on by default) controls it; the toast says how many lines were changed. The rules are a JavaScript copy of `Redactor.kt`; `scripts/test_page_redact.js` runs the `RedactorTest` cases against the page so the two cannot drift apart. Files on the device are never changed.
+- New switch "Keep every line (no noise filter)" in the device capture section (`NoiseGate.keepEverything`, saved as `keep_all`, API field `keepAll`). When on, the in-app capture (app, device logcat, kernel) drops and collapses nothing at capture time; the priority level above it is still applied, so set it to Debug to keep everything. Off by default (a busy device can then fill the 4096-line write queue; refused lines are counted in `queueDropped`). `NoiseGateTest` covers it.
+- Boot capture script unchanged (still v5). The boot script never filters.
+- Not done, on purpose: gzip of finished boot files (logcat renames its own rotated parts, so a `.gz` next to them would break its rotation and the size cap; zip exports are compressed) and the log buffer per line (Android `threadtime` has no buffer field; it would need one logcat per buffer).
+- Docs: the "app events.log as its own source" item was already done in script v4 (`app_events.log`); `validate.sh` silent-catch baseline is 0 (the 1.3.7 note below still says 48).
+- Version 1.3.8 / versionCode 308 (app, web page, validation, README).
+
 # MatchiTOOL 1.3.7 - Boot capture (Log Catcher improvement path, phases 1, 2 and 5)
 
 - Phase 4: `Redactor.kt` (SMS text, phone numbers, IMEI/ICCID, passwords, tokens; unit tested) hides private data in zip exports (checkbox "Hide private data in zips", on by default; REDACTION.txt lists what was hidden); new "Full bundle (.zip, root)" export = logs + device info + dmesg + all boot capture files (context, Magisk log, modules, app files) + sessions; boot script v5 adds retention by age (`RETAIN_DAYS`, page field "Keep days", 0 = off, only rotated parts are removed). Gzip of finished files at rest was not done (logcat rotates its own files and the viewer reads them as text); the zip export is compressed.
