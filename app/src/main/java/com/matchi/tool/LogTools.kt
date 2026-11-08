@@ -46,9 +46,9 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
     companion object {
         private val SILENT_TAGS = setOf("TrafficStats", "mali_gralloc")
 
-        /** Unisoc/ZTE kernel driver heartbeat and per-packet tracing (seen at ~18 lines/s on the F50); never actionable. */
+        /** Unisoc/ZTE kernel driver heartbeat and per-packet tracing (seen at ~18 lines/s on the F50); never actionable. Kernel lines arrive with their "[ 5284.5] [c0] " prefix, which is skipped before matching. */
         private val KERNEL_CHATTER = Regex(
-            """^(sprd-wlan: (tx_cmd_pop|ctx_id \d+ (send|recv)|cmd->refcnt|\[\d+\]ctx_id|tx_mc_pkt|sc2355_pcie_find_lut_index|incoming|sprd_tx_filter_pack)""" +
+            """^(?:\[\s*\d+\.\d+\]\s*)?(?:\[c\d+\]\s*)?(sprd-wlan: (tx_cmd_pop|ctx_id \d+ (send|recv)|cmd->refcnt|\[\d+\]ctx_id|tx_mc_pkt|sc2355_pcie_find_lut_index|incoming|sprd_tx_filter_pack)""" +
             """|\[SPRD_PDBG\]|sprd-mpm:|sprd-cpufreq|WCN (BASE|PCIE)|sipa_rm:|sipa_dele:|sipa \d+\.sipa:|sc27xx-fgu|charger-manager|healthd:)""")
 
         /** Lines the platform prints as ERROR/WARNING although they are expected on this hardware. Shown as INFO. */
