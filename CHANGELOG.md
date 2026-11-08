@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased - review fixes (items from MatchiTOOL_v1_2_27_bug_report.txt)
+- **Fix, patched19** (from the first on-device self-test report on an F50): the old `sms_delete_debug.txt` (a list of SMS texts left by earlier builds) is now deleted by the one-time old-file cleanup 200 s after the service starts. `scripts/matchi_selftest.sh` added with these corrections to the test itself: a failing check no longer also prints a PASS; the T2 leak check ignores the app's own `tmp/jobs` folder; the port check also reads `/proc/net/tcp6` (the host is a dual-stack socket); the timeout case now runs the app's real kill sequence instead of the device's `timeout` tool (which on the F50 returned only after the script ended); the script no longer reports itself as an old temp file. Not compiled.
 - **Fix, patched18**: the clear keystore error added in patched15 broke the CI unit-test step (keystore file set, passwords not yet). The check now runs only when a signing task is part of the build, and an empty secret counts as missing.
 - **Review fixes, patched17 (not compiled)**: A4 over plain HTTP, answering "no" to the root-command warning is remembered until the page is reloaded (before, every poller call opened the dialog again).
 - **Review fixes, patched16 (not compiled)**: A3b the loopback daily cap no longer refuses logins (any app on the phone could lock the owner out for 24 h). After 300 wrong passwords a day a wrong answer waits 30 s instead; a correct password is never delayed and a good login clears the count.

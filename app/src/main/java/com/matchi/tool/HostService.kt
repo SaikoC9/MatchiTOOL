@@ -207,6 +207,7 @@ class HostService : Service() {
         /** Files that versions before the root-only temp folder left behind (names are fixed, nothing is matched by pattern). */
         private const val OLD_TMP_CLEANUP = "rm -rf /data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean\n" +
             "rm -f /data/local/tmp/mt_isms.sh /data/local/tmp/matchi_update.log /data/local/tmp/.matchi_out_prev.apk\n" +
+            "rm -f /data/local/matchitool/sms_delete_debug.txt\n" +   // written by 1.2.27 builds before patched14; it lists SMS text
             "exit 0"
 
         /**
