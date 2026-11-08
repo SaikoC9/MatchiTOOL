@@ -17,6 +17,7 @@ class HostService : Service() {
     private val bootTasksRunning = AtomicBoolean(false)
     @Volatile private var destroyed = false
     private val seenLanIfs = HashSet<String>()   // only touched by the single fixed-delay watcher task
+    private var lanTicks = 0                      // same: only that task
     private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(4) }   // boot scripts + IMEI keeper hold two threads for up to ~3 min; the firewall check, router detection and retries must not queue behind them
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
@@ -44,19 +45,22 @@ class HostService : Service() {
                     catch (e: Exception) { Log.w("MatchiTOOL", "LAN firewall check failed: ${e.message}") }
                 }, delay, TimeUnit.SECONDS)
             }
-            // A hotspot or USB tether switched on AFTER the checks above never got its rule. Look at the interface list every
-            // 45 s (no root needed) and open the firewall again only when a new interface name shows up; the script checks with
-            // "iptables -C" first, so a repeat is harmless. workers.shutdownNow() in onDestroy() stops this timer.
+            // A hotspot or USB tether switched on AFTER the checks above never got its rule. Every 45 s the interface list is read
+            // (no root needed) and the firewall is opened again when a new interface name shows up. As a safety net (Android may
+            // hide an interface from the app) the script also runs about every 5 minutes anyway; it checks with "iptables -C"
+            // first, so a repeat is harmless. workers.shutdownNow() in onDestroy() stops this timer.
             workers.scheduleWithFixedDelay({
                 try {
-                    val now = HostControl.lanInterfaceNames()
-                    val fresh = now.split(',').filter { it.isNotEmpty() && it !in seenLanIfs }
-                    if (fresh.isNotEmpty()) {
-                        seenLanIfs.addAll(fresh)
+                    lanTicks++
+                    val names = HostControl.lanInterfaceNames().split(',').filter { it.isNotEmpty() }
+                    val fresh = names.filter { it !in seenLanIfs }
+                    seenLanIfs.retainAll(names.toSet())   // a vanished interface is forgotten, so it is opened again when it returns
+                    val periodic = lanTicks % 7 == 0
+                    if (fresh.isNotEmpty() || periodic) {
+                        seenLanIfs.addAll(names)
+                        Log.i("MatchiTOOL", "LAN firewall opened (new interfaces: ${fresh.joinToString(",").ifEmpty { "none" }}, periodic=$periodic)")
                         HostControl.openLanFirewall(applicationContext)
                     }
-                    // an interface that went away is forgotten, so it is opened again when it comes back (the firmware may flush rules)
-                    seenLanIfs.retainAll(now.split(',').filter { it.isNotEmpty() }.toSet())
                 } catch (e: Exception) { Log.w("MatchiTOOL", "LAN interface watch failed: ${e.message}") }
             }, 45, 45, TimeUnit.SECONDS)
             // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).

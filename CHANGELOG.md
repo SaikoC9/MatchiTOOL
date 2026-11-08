@@ -3,7 +3,7 @@
 ## 1.2.28 - review fixes (items from MatchiTOOL_v1_2_27_bug_report.txt and the patched20 bug report)
 - **Fix, 1.2.28 (was patched21)** (from `MatchiTOOL_v1_2_27_patched20_bug_report.txt`, not compiled, not tested on a device):
   - Bug 1: one `rootGate()` in `WebServer` (rules in the pure `RootGate` object) now guards every root-capable call: `/api/shell`, `/api/imei/apply`, `/api/usb/control`, `/api/screen/input`, `/api/update/install`, `POST /api/plugins`, plugin delete with erase, and `/api/at` + `/api/at/batch` for anything that is not a read-only query. Needs a sign-in younger than 4 h (`403 reauth`) and, over plain HTTP, the page's confirmation (`403 insecure`). Read-only AT queries (Live Status / AT Radio polling) are not gated. The page's `api()` now answers `insecure` for every path with the same once-per-load dialog and one retry.
-  - Bug 2: `HostService` checks the hotspot/tether interface names every 45 s without root and re-runs the LAN firewall script when a new one appears.
+  - Bug 2: `HostService` checks the hotspot/tether interface names every 45 s without root and re-runs the LAN firewall script when a new one appears, and about every 5 minutes as a safety net; each run writes a "LAN firewall opened" line to logcat.
   - Bug 3: the raw screen capture no longer starts `su` while root is in its refused cool-down (`RootShell.isDenied()`); a failed start sets the shared cool-down (`RootShell.noteDenied()`).
   - Bug 4: `LoginGuard.mayAskRouter` cleans up before looking up the address, so a new address keeps its entry beyond 256 tracked addresses.
   - Bug 5: `/api/upload` answers `url: /api/uploads/<name>`.
