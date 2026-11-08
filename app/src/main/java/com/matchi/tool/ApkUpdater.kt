@@ -181,10 +181,31 @@ object ApkUpdater {
      * The link is only a transport: nothing is installed without those checks and the person's confirmation.
      */
     fun stageFromUrl(ctx: Context, link: String): Staged {
+        // GitHub (or the mobile network in between) often answers 502/503/504 or drops the connection for a moment, so a
+        // download that fails like that is tried again a few times before it is reported as failed.
+        var last = ""
+        for (attempt in 1..DOWNLOAD_TRIES) {
+            try { return downloadOnce(ctx, link) }
+            catch (e: Retryable) {
+                last = e.message ?: "unknown error"
+                LogCatcher.log("WARNING", "ApkUpdater", "Download attempt $attempt/$DOWNLOAD_TRIES failed: $last")
+                if (attempt < DOWNLOAD_TRIES) try { Thread.sleep(2_000L * attempt) } catch (_: InterruptedException) { break }
+            }
+        }
+        throw UpdateException("Download failed after $DOWNLOAD_TRIES tries ($last). GitHub is not answering right now: wait a minute and try again, or download the APK and install it by hand.")
+    }
+
+    /** A failure worth another try: a temporary HTTP status from the server, a timeout or a dropped connection. */
+    private class Retryable(msg: String) : Exception(msg)
+    private const val DOWNLOAD_TRIES = 4
+    private val RETRY_CODES = setOf(408, 425, 429, 500, 502, 503, 504)
+
+    private fun downloadOnce(ctx: Context, link: String): Staged {
         val first = try { java.net.URL(UpdateLinks.normalizeReleaseLink(link)) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
         if (first.protocol != "https") throw UpdateException("Only https:// links are accepted.")
         requireAllowedHost(first)
-        val url = resolveGithubAsset(first) ?: first
+        val resolved = try { resolveGithubAsset(first) } catch (e: java.io.IOException) { throw Retryable("${e.javaClass.simpleName}: ${e.message ?: "connection problem"}") }
+        val url = resolved ?: first
         requireAllowedHost(url)
         val tmp = File(ctx.cacheDir, "NanoHTTPD-ota-${System.currentTimeMillis()}.tmp")
         var cur = url   // the hop being fetched: a relative Location is resolved against THIS, not the first link
@@ -192,7 +213,7 @@ object ApkUpdater {
         try {
             var hops = 0
             while (true) {
-                conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.instanceFollowRedirects = false
+                conn.connectTimeout = 20_000; conn.readTimeout = 60_000; conn.instanceFollowRedirects = false
                 conn.setRequestProperty("User-Agent", "MatchiTOOL-OTA")
                 val code = conn.responseCode
                 if (code in 301..308 && code != 304) {
@@ -206,7 +227,8 @@ object ApkUpdater {
                     conn = next.openConnection() as java.net.HttpURLConnection
                     continue
                 }
-                if (code != 200) throw UpdateException("Download failed (HTTP $code). Check the link and that the device has internet.")
+                if (code in RETRY_CODES) throw Retryable("HTTP $code from ${cur.host}")
+                if (code != 200) throw UpdateException("Download failed (HTTP $code from ${cur.host}). Check the link: it must point to a GitHub release APK.")
                 break
             }
             val len = conn.contentLengthLong
@@ -224,7 +246,9 @@ object ApkUpdater {
             conn.disconnect()
             return stageFile(ctx, tmp)
         } catch (e: UpdateException) { throw e
-        } catch (e: Exception) { throw UpdateException("Download failed: ${e.message ?: e.javaClass.simpleName}. Does the device have internet?")
+        } catch (e: Retryable) { throw e
+        } catch (e: java.io.IOException) { throw Retryable("${e.javaClass.simpleName}: ${e.message ?: "connection problem"}")
+        } catch (e: Exception) { throw UpdateException("Download failed: ${e.message ?: e.javaClass.simpleName}.")
         } finally {
             try { conn.disconnect() } catch (e: Exception) { Quiet.note("ApkUpdater.stageFromUrl", e) }
             try { tmp.delete() } catch (e: Exception) { Quiet.note("ApkUpdater.stageFromUrl", e) }
