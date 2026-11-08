@@ -1,0 +1,25 @@
+Bypass compatibility update for MatchiTOOL 1.1.48
+================================================
+
+Embedded plugin revision: Bypass v65.14
+
+Changes:
+- Makes the NFQUEUE apply status explicit when the kernel's connbytes match is unavailable.
+- Warns that the fallback queues ALL outgoing HTTPS packets, which can increase load and affect connectivity.
+- Distinguishes a failed pre-apply internet check from a failure caused by enabling nfqws.
+- Keeps the existing TTL eBPF interface scope (br0, usb0, wlan0), BPF priority, and SFP filters unchanged.
+- Preserves the existing MatchiTOOL project structure, package files, saved settings format, root bridge, DPI scripts, and boot integration.
+
+Device-specific findings from the supplied ZTE F50 report:
+- TTL eBPF is confirmed attached on br0, usb0, and wlan0 at pref 1.
+- Existing SFP filters on br0 remain at pref 2 and pref 3.
+- The kernel lacks XT_TARGET_HL and XT_MATCH_CONNBYTES.
+- Because connbytes is unavailable, the DPI script falls back to queueing all outgoing TCP/443 packets.
+- The reported internet/DNS failure cannot be attributed to nfqws from that report alone because baseline connectivity was not established.
+
+Validation:
+- Embedded JavaScript syntax checked with Node.js.
+- Embedded DPI shell script checked with `sh -n`.
+- ZIP integrity checked after repacking.
+
+This is a source-level compatibility/diagnostic improvement, not a claim that anti-DPI has been proven on the device. Re-test NFQ with connectivity working before enabling it.
