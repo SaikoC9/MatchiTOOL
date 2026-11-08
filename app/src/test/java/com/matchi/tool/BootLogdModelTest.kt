@@ -10,7 +10,7 @@ class BootLogdModelTest {
     @Test fun configIsClampedToTheScriptLimits() {
         val c = BootLogdModel.Config(fileKb = 1, files = 999, minFreeMb = 0).clamped()
         assertEquals(64, c.fileKb); assertEquals(40, c.files); assertEquals(50, c.minFreeMb)
-        assertEquals("FILE_KB=2048\nFILES=10\nMIN_FREE_MB=200\n", BootLogdModel.Config().render())
+        assertEquals("FILE_KB=2048\nFILES=10\nMIN_FREE_MB=200\nRETAIN_DAYS=0\n", BootLogdModel.Config().render())
         assertEquals(2048 * 10 * 2 + 2048, BootLogdModel.Config().maxTotalKb())
     }
 
