@@ -34,6 +34,38 @@ fun entryJson(e: CatchLog): JSONObject = JSONObject()
     .put("source", e.source)
 
 /**
+ * Stops floods: the same line (same tag and text once digits are ignored) is let through [perWindow] times per
+ * [windowMs]; the rest are dropped and, when the window ends, one summary says how many were hidden. Android
+ * emits thousands of identical lines such as "tagSocket(85) with statsTag=..." that would otherwise bury real
+ * events and fill the bounded write queue. One instance per capture thread (not thread-safe on purpose).
+ */
+class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 2000L,
+                private val emit: (String, String, String) -> Unit) {
+    private class Slot(val level: String, val tag: String, val sample: String, var n: Int)
+
+    private val slots = HashMap<String, Slot>()
+    private val digits = Regex("\\d+")
+    private var windowStart = 0L
+
+    fun allow(level: String, tag: String, msg: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - windowStart >= windowMs || slots.size > 500) { flush(); windowStart = now }
+        val key = tag + "|" + digits.replace(msg, "#").take(160)
+        val slot = slots.getOrPut(key) { Slot(level, tag, msg.take(160), 0) }
+        slot.n++
+        return slot.n <= perWindow
+    }
+
+    /** Report what was hidden in the window that just ended, then start a fresh one. */
+    fun flush() {
+        for (slot in slots.values) {
+            if (slot.n > perWindow) emit(slot.level, slot.tag, "(repeated ${slot.n - perWindow} more times, hidden) ${slot.sample}")
+        }
+        slots.clear()
+    }
+}
+
+/**
  * Optional root capture of the WHOLE device (not just this app): `logcat` for every process and the kernel ring
  * buffer (`dmesg`). It only runs while a Log Catcher session is active, only when the owner switched it on, and
  * it is stopped with the session. Lines go through [LogCatcher.log], so they share the ring buffer, the session
@@ -51,7 +83,7 @@ object DeviceLogs {
     @Volatile private var running = false
 
     // threadtime: "MM-DD HH:MM:SS.mmm  PID  TID L Tag     : message"
-    private val LINE = Regex("""^\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\s+(\d+)\s+\d+\s+([VDIWEAF])\s+([^:]*?)\s*:\s?(.*)$""")
+    private val LINE = Regex("""^\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\s+(\d+)\s+\d+\s+([VDIWEAF])\s+(.+?)\s*:(?: |$)(.*)$""")
     private val KERN_ERR = Regex("""(?i)\b(error|fail(ed|ure)?|panic|oops|fatal|segfault)\b""")
     private val KERN_WARN = Regex("""(?i)\b(warn(ing)?|timeout|timed out|retry)\b""")
 
@@ -103,6 +135,7 @@ object DeviceLogs {
             procs.add(proc)
             if (gen.get() == g) {
                 val myPid = AndroidProcess.myPid().toString()
+                val gate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }
                 proc.inputStream.bufferedReader().useLines { seq ->
                     for (line in seq) {
                         if (gen.get() != g || !LogCatcher.isRunning()) break
@@ -111,9 +144,9 @@ object DeviceLogs {
                         if (m.groupValues[1] == myPid) continue          // this app is already captured separately
                         val msg = m.groupValues[4]
                         if (msg.isBlank()) continue
-                        val tag = m.groupValues[3].ifBlank { "android" }.replace('.', '_').take(60)
+                        val tag = m.groupValues[3].substringBefore(':').trim().ifBlank { "android" }.replace('.', '_').take(60)
                         val lvl = when (m.groupValues[2]) { "E", "A", "F" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
-                        LogCatcher.log(lvl, "device/$tag", msg)
+                        if (gate.allow(lvl, "device/$tag", msg)) LogCatcher.log(lvl, "device/$tag", msg)
                     }
                 }
             }

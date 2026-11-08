@@ -300,8 +300,9 @@ object LogCatcher {
         val gen = captureGen.get()
         val thread = Thread({
             var process: Process? = null
+            val gate = NoiseGate { l, t, m -> log(l, t, m) }
             try {
-                process = ProcessBuilder("logcat", "--pid=${AndroidProcess.myPid()}", "-v", "threadtime")
+                process = ProcessBuilder("logcat", "--pid=${AndroidProcess.myPid()}", "-v", "threadtime", "-T", "1")
                     .redirectErrorStream(true).start()
                 logcatProcess = process
                 // If stopped/restarted while starting, skip reading; finally destroys the process.
@@ -310,11 +311,11 @@ object LogCatcher {
                         if (!active || captureGen.get() != gen) return@forEach
                         val match = LOGCAT_LINE.matchEntire(line.trim()) ?: return@forEach
                         val priority = match.groupValues[1]
-                        val tag = match.groupValues[2].trim().ifBlank { "Android" }
+                        val tag = match.groupValues[2].substringBefore(':').trim().ifBlank { "Android" }
                         val message = match.groupValues[3]
                         if (tag == TAG || tag == "System.out" || message.isBlank()) return@forEach
                         val level = when (priority) { "E", "A" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
-                        log(level, tag, message)
+                        if (gate.allow(level, tag, message)) log(level, tag, message)
                     }
                 }
             } catch (e: Exception) {
@@ -336,7 +337,7 @@ object LogCatcher {
         logcatThread = null
     }
 
-    private val LOGCAT_LINE = Regex("\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3} +\\d+ +\\d+ ([VDIWEAF]) +([^:]+): ?(.*)")
+    private val LOGCAT_LINE = Regex("\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3} +\\d+ +\\d+ ([VDIWEAF]) +(.+?) *:(?: |$)(.*)")
 
     private fun enqueueWrite(critical: Boolean = false, task: () -> Unit): Boolean {
         val count = pendingWrites.incrementAndGet()

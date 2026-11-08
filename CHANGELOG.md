@@ -843,3 +843,8 @@
 - Regex and time-range filters in the live/history view; Group repeats (counts, last time); Prev/Next error; bookmarks (tap a line, kept in the browser); alerts on ERROR or a keyword (toast + tab title count).
 - Export: all sessions as one .zip, and a Problem report .zip (device info, recent buffer, sessions, kernel log when root allows). Current-view export now respects the active filters.
 - Native Log Catcher screen: Pause/Resume, Share (text), Delete session.
+
+## 1.3.6 - Log Catcher: stop replaying and flooding
+- Process logcat capture no longer replays the app's earlier history when a session starts (those old lines were all stamped with the start time).
+- Flood control: an identical line (digits ignored) is logged 3 times per 2 s, then hidden with a single "repeated N more times" summary. Applies to app and device capture.
+- Tags that contain a colon (for example `binder:7584_2`) are parsed correctly and shortened to `binder`, so the function list stays short and the message is complete.
