@@ -661,8 +661,21 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
         uri == "/api/logs/entries" && s.method == Method.GET -> {
             val rows = JSONArray()
-            LogCatcher.snapshot().forEach { e -> rows.put(JSONObject().put("id", e.id).put("timestamp", e.timestamp).put("level", e.level).put("function", e.function).put("message", e.message).put("session", e.session)) }
-            json(Response.Status.OK, JSONObject().put("entries", rows).put("droppedWrites", LogCatcher.droppedWriteCount()).put("running", LogCatcher.isRunning()))
+            // ?since=<id> returns only newer entries, so a 3 s poll does not resend the whole 3000-entry buffer.
+            // If the client's id is ahead of ours (app restarted, ids began again) it is told to start over.
+            val all = LogCatcher.snapshot()
+            val lastId = all.lastOrNull()?.id ?: 0L
+            val askedSince = s.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
+            val reset = askedSince > lastId
+            val since = if (reset) 0L else askedSince
+            all.filter { it.id > since }.forEach { e -> rows.put(JSONObject().put("id", e.id).put("timestamp", e.timestamp).put("level", e.level).put("function", e.function).put("message", e.message).put("session", e.session)) }
+            json(Response.Status.OK, JSONObject().put("entries", rows).put("lastId", lastId).put("reset", reset)
+                .put("droppedWrites", LogCatcher.droppedWriteCount()).put("running", LogCatcher.isRunning()))
+        }
+        uri == "/api/logs/delete" && s.method == Method.POST -> {
+            val ok = LogCatcher.deleteSession(ctx, body(s).optString("name", ""))
+            json(if (ok) Response.Status.OK else Response.Status.BAD_REQUEST, JSONObject().put("ok", ok)
+                .put("error", if (ok) JSONObject.NULL else "Session not found, or it is still logging"))
         }
         uri == "/api/logs/sessions" && s.method == Method.GET -> {
             val rows = JSONArray()

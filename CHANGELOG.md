@@ -822,3 +822,16 @@
 - Capture Android logcat output from the MatchiTOOL process during active sessions, complementing explicit LogCatcher events across app functions.
 - Automatically mirror each session into `.log` and `.txt` files, including start/stop markers.
 - Keep `.log` as the canonical history index to avoid duplicate session entries; rotate and prune paired text files with their log sessions.
+
+## 1.3.6 - Log Catcher bug fixes
+- Fixed recovery marker being written with a literal "\n" instead of a newline.
+- Stop followed by a quick Start no longer reopens the stopped session.
+- Uncaught crashes are flushed to disk (bounded wait) before the process dies.
+- Rotated session files no longer contain spaces in their names.
+- Logcat capture is generation-guarded (no leaked process, no stale lines); tags are trimmed.
+- Session history picker maps to the correct file; history level filter uses the stored level.
+
+## 1.3.6 - Log Catcher improvements
+- Web: incremental polling (`/api/logs/entries?since=`) instead of resending the whole buffer every 3 s; server tells the client to reset if the app restarted.
+- Web: Pause/Resume, Copy, and Delete session (finished sessions only); filters debounced; auto-scroll only when already at the bottom; dropped-write count shown.
+- API: `POST /api/logs/delete` removes a finished session (.log and .txt); the active session is refused.

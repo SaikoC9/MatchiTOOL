@@ -24,6 +24,7 @@ class LogCatcherActivity : Activity() {
     private var flushPosted = false
     private val flushRunnable = Runnable { flushPendingEntries() }
     private var selectedSession: File? = null
+    private var sessionFiles: List<File> = emptyList()
     private var showingHistory = false
     @Volatile private var screenStarted = false
     private var historyLines: List<String> = emptyList()
@@ -104,10 +105,11 @@ class LogCatcherActivity : Activity() {
         levelFilter.onItemSelectedListener = selection { render() }
         sessionFilter.onItemSelectedListener = selection {
             val idx = sessionFilter.selectedItemPosition
-            val files = LogCatcher.sessions(this)
+            val files = sessionFiles   // the list the spinner was built from, not a re-sorted one
             if (idx <= 0) {
                 showingHistory = false; selectedSession = null; historyLines = emptyList()
                 entries.clear(); entries.addAll(LogCatcher.snapshot())
+                lastSeenId = entries.maxOfOrNull { it.id } ?: 0L
             } else if (idx - 1 < files.size) {
                 showingHistory = true; selectedSession = files[idx - 1]
                 historyLines = LogCatcher.readSession(files[idx - 1])
@@ -214,7 +216,8 @@ class LogCatcherActivity : Activity() {
     private fun updateCount() { total = entries.size; if (::countLabel.isInitialized) { val dropped = LogCatcher.droppedWriteCount(); countLabel.text = "$total recent entries" + if (dropped > 0) " · $dropped disk writes dropped" else "" } }
 
     private fun refreshSessions() {
-        val names = listOf("Live / recent logs") + LogCatcher.sessions(this).map { it.name }
+        sessionFiles = LogCatcher.sessions(this)
+        val names = listOf("Live / recent logs") + sessionFiles.map { it.name }
         sessionFilter.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, names)
     }
 
@@ -277,13 +280,19 @@ class LogCatcherActivity : Activity() {
         // Session history is shown as exact stored lines. Filter applies to stored text.
         if (showingHistory) {
             historyLines.filter { line ->
-                (level == "All levels" || line.contains("[$level]")) &&
+                (level == "All levels" || storedLevel(line) == level) &&
                 (fn == "All functions" || storedFunction(line) == fn) &&
                 (q.isEmpty() || line.contains(q, true))
             }.takeLast(1000).asReversed().forEach { addRawEntry(it) }
         }
         val count = if (showingHistory) "${historyLines.size} stored lines · ${selectedSession?.name ?: ""}" else "${filtered.size} visible · ${entries.size} recent"
         countLabel.text = count
+    }
+
+    private fun storedLevel(line: String): String? {
+        val open = line.indexOf(" [")
+        val close = if (open >= 0) line.indexOf(']', open + 2) else -1
+        return if (close > open + 2) line.substring(open + 2, close) else null
     }
 
     private fun storedFunction(line: String): String? {

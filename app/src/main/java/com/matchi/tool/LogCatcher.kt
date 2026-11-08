@@ -37,6 +37,7 @@ object LogCatcher {
     private const val MAX_SESSIONS = 30
 
     private val ids = AtomicLong()
+    private val captureGen = AtomicInteger()
     private val pendingWrites = AtomicInteger()
     private val listeners = CopyOnWriteArrayList<(CatchLog) -> Unit>()
     private val writer = Executors.newSingleThreadExecutor { task ->
@@ -59,6 +60,7 @@ object LogCatcher {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
                 log("ERROR", "UncaughtException", "${thread.name}: ${error.javaClass.simpleName}: ${error.message}")
+                flush(1500L)   // the writer is a daemon thread: give it a moment before the process dies
                 try { previous?.uncaughtException(thread, error) } catch (handlerError: Throwable) {
                     Log.e(TAG, "Previous crash handler failed", handlerError)
                 }
@@ -97,7 +99,7 @@ object LogCatcher {
                 "Recovered interrupted logging session after process restart", id)
             recent.add(recovered)
             enqueueWrite(critical = true) {
-                val line = recovered.line() + "\\n"
+                val line = recovered.line() + "\n"
                 try {
                     BufferedWriter(FileWriter(file, true)).use { it.append(line) }
                     BufferedWriter(FileWriter(textFile, true)).use { it.append(line) }
@@ -105,6 +107,13 @@ object LogCatcher {
             }
         }
         startLogcatCapture()
+    }
+
+    /** Wait (bounded) until every write queued so far has reached disk. Never call with a long timeout on the UI thread. */
+    fun flush(timeoutMs: Long) {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        if (!enqueueWrite(critical = true) { latch.countDown() }) return
+        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { }
     }
 
     fun isRunning(): Boolean = active
@@ -159,6 +168,10 @@ object LogCatcher {
             active = false
             sessionId = null
             sessionFile = null
+            // Clear the persisted flag now (in-process reads see it at once); the queued write below makes it durable.
+            // Otherwise a quick Stop -> Start runs recovery against the stale flag and reopens the old session.
+            app?.getSharedPreferences("matchi_log_catcher", Context.MODE_PRIVATE)?.edit()
+                ?.putBoolean("session_active", false)?.apply()
         }
         stopLogcatCapture()
         enqueueWrite(critical = true) {
@@ -196,7 +209,7 @@ object LogCatcher {
             enqueueWrite {
                 try {
                     if (target.length() >= MAX_SESSION_BYTES) {
-                        val rotated = File(target.parentFile, target.nameWithoutExtension + "_part" + now().replace(":", "").replace(".", "") + ".log")
+                        val rotated = File(target.parentFile, target.nameWithoutExtension + "_part" + now().replace(Regex("[^0-9]"), "") + ".log")
                         if (!target.renameTo(rotated)) Log.w(TAG, "Log rotation failed for ${target.name}; continuing current file")
                         else {
                             val textTarget = File(target.parentFile, target.nameWithoutExtension + ".txt")
@@ -230,6 +243,20 @@ object LogCatcher {
             ?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
 
+    /**
+     * Delete one finished session (.log plus its .txt companion). The active session is refused.
+     * The delete runs on the log writer so it is ordered after any footer still queued for that file.
+     */
+    fun deleteSession(context: Context, name: String): Boolean {
+        val file = sessions(context).firstOrNull { it.name == name } ?: return false
+        synchronized(lock) { if (sessionFile?.name == file.name) return false }
+        return enqueueWrite(critical = true) {
+            val companion = File(file.parentFile, file.nameWithoutExtension + ".txt")
+            if (!file.delete()) Log.w(TAG, "Could not delete ${file.name}")
+            if (companion.exists() && !companion.delete()) Log.w(TAG, "Could not delete ${companion.name}")
+        }
+    }
+
     fun readSession(file: File): List<String> = try {
         if (!file.isFile || file.length() > MAX_SESSION_BYTES * 2) emptyList() else file.readLines().takeLast(MAX_RECENT)
     } catch (_: Exception) { emptyList() }
@@ -261,18 +288,20 @@ object LogCatcher {
      */
     private fun startLogcatCapture() {
         stopLogcatCapture()
+        val gen = captureGen.get()
         val thread = Thread({
             var process: Process? = null
             try {
                 process = ProcessBuilder("logcat", "--pid=${AndroidProcess.myPid()}", "-v", "threadtime")
                     .redirectErrorStream(true).start()
                 logcatProcess = process
-                process.inputStream.bufferedReader().useLines { lines ->
+                // If stopped/restarted while starting, skip reading; finally destroys the process.
+                if (captureGen.get() == gen) process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        if (!active) return@forEach
+                        if (!active || captureGen.get() != gen) return@forEach
                         val match = LOGCAT_LINE.matchEntire(line.trim()) ?: return@forEach
                         val priority = match.groupValues[1]
-                        val tag = match.groupValues[2].ifBlank { "Android" }
+                        val tag = match.groupValues[2].trim().ifBlank { "Android" }
                         val message = match.groupValues[3]
                         if (tag == TAG || tag == "System.out" || message.isBlank()) return@forEach
                         val level = when (priority) { "E", "A" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
@@ -283,7 +312,7 @@ object LogCatcher {
                 if (active) Log.w(TAG, "Process logcat capture unavailable: ${e.message}")
             } finally {
                 try { process?.destroy() } catch (_: Exception) { }
-                if (logcatProcess === process) logcatProcess = null
+                if (process != null && logcatProcess === process) logcatProcess = null
             }
         }, "MatchiTOOL-LogcatCapture").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
         logcatThread = thread
@@ -291,6 +320,7 @@ object LogCatcher {
     }
 
     private fun stopLogcatCapture() {
+        captureGen.incrementAndGet()
         try { logcatProcess?.destroy() } catch (_: Exception) { }
         logcatProcess = null
         logcatThread?.interrupt()
