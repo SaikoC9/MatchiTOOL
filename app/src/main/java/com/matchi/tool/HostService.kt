@@ -230,6 +230,10 @@ class HostService : Service() {
             finally { finished() }
         }
         workers.execute {
+            // Why did the app process die last time (crash, ANR, memory kill, update)? Android 11+ only.
+            try { ExitReasons.logNew(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Exit reasons failed: ${e.message}") }
+        }
+        workers.execute {
             // Boot-time log capture: re-install the Magisk script after an app update, or start it if it is not running.
             try { BootLogd.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot capture check failed: ${e.message}") }
             finally { finished() }

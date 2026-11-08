@@ -128,7 +128,6 @@ object DeviceLogs {
     @Volatile private var running = false
 
     // threadtime: "MM-DD HH:MM:SS.mmm  PID  TID L Tag     : message"
-    private val LINE = Regex("""^\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\s+(\d+)\s+\d+\s+([VDIWEAF])\s+(.+?)\s*:(?: |$)(.*)$""")
     private val KERN_ERR = Regex("""(?i)\b(error|fail(ed|ure)?|panic|oops|fatal|segfault)\b""")
     private val KERN_WARN = Regex("""(?i)\b(warn(ing)?|timeout|timed out|retry)\b""")
 
@@ -186,13 +185,9 @@ object DeviceLogs {
                         if (gen.get() != g || !LogCatcher.isRunning()) break
                         lines++
                         SourceStats.device.seen()
-                        val m = LINE.matchEntire(line.trim())
-                        if (m == null) { SourceStats.device.dropped(); continue }
-                        if (m.groupValues[1] == myPid) { SourceStats.device.dropped(); continue }          // this app is already captured separately
-                        val msg = m.groupValues[4]
-                        if (msg.isBlank()) { SourceStats.device.dropped(); continue }
-                        val tag = m.groupValues[3].substringBefore(':').trim().ifBlank { "android" }.replace('.', '_').take(60)
-                        val lvl = when (m.groupValues[2]) { "E", "A", "F" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
+                        val parsed = CaptureLines.parseDevice(line, myPid)
+                        if (parsed == null) { SourceStats.device.dropped(); continue }
+                        val tag = parsed.tag; val lvl = parsed.level; val msg = parsed.message
                         val shown = NoiseGate.levelFor(lvl, msg)
                         if (gate.allow(shown, "device/$tag", msg)) LogCatcher.log(shown, "device/$tag", msg)
                     }

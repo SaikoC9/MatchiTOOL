@@ -321,13 +321,9 @@ object LogCatcher {
                     lines.forEach { line ->
                         if (!active || captureGen.get() != gen) return@forEach
                         SourceStats.app.seen()
-                        val match = LOGCAT_LINE.matchEntire(line.trim())
-                        if (match == null) { SourceStats.app.dropped(); return@forEach }
-                        val priority = match.groupValues[1]
-                        val tag = match.groupValues[2].substringBefore(':').trim().ifBlank { "Android" }
-                        val message = match.groupValues[3]
-                        if (tag == TAG || tag == "System.out" || message.isBlank()) { SourceStats.app.dropped(); return@forEach }
-                        val level = when (priority) { "E", "A" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
+                        val parsed = CaptureLines.parseApp(line, TAG)
+                        if (parsed == null) { SourceStats.app.dropped(); return@forEach }
+                        val level = parsed.level; val tag = parsed.tag; val message = parsed.message
                         if (gate.allow(level, tag, message)) log(level, tag, message)
                     }
                 }
@@ -350,7 +346,6 @@ object LogCatcher {
         logcatThread = null
     }
 
-    private val LOGCAT_LINE = Regex("\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3} +\\d+ +\\d+ ([VDIWEAF]) +(.+?) *:(?: |$)(.*)")
 
     private fun enqueueWrite(critical: Boolean = false, task: () -> Unit): Boolean {
         val count = pendingWrites.incrementAndGet()

@@ -15,7 +15,7 @@ object BootLogdModel {
         /** Same limits the script applies, so what the page shows is what runs. */
         fun clamped() = Config(fileKb.coerceIn(64, 16384), files.coerceIn(2, 40), minFreeMb.coerceIn(50, 5000))
         /** Upper bound of disk use: two rotated sources plus small files. */
-        fun maxTotalKb(): Int { val c = clamped(); return c.fileKb * c.files * 2 + 1024 }
+        fun maxTotalKb(): Int { val c = clamped(); return c.fileKb * c.files * 2 + 2048 }
         fun render(): String { val c = clamped(); return "FILE_KB=${c.fileKb}\nFILES=${c.files}\nMIN_FREE_MB=${c.minFreeMb}\n" }
     }
 
@@ -27,7 +27,7 @@ object BootLogdModel {
     fun needsReinstall(installed: Int?, bundled: Int?): Boolean = bundled != null && (installed == null || installed < bundled)
 
     private val fileRx = Regex("^(logcat\\.log|dmesg\\.log)(\\.\\d{1,2})?$")
-    private val fixedFiles = setOf("events.log", "context.txt", "logcat.gaps", "status")
+    private val fixedFiles = setOf("events.log", "context.txt", "logcat.gaps", "status", "magisk.log", "modules.txt", "app_shell_audit.log", "updater.log", "app_events.log")
     /** Only these names can be opened through the web API (no path separators, nothing outside the capture folder). */
     fun isSafeFileName(name: String): Boolean = name.length <= 24 && (fixedFiles.contains(name) || fileRx.matches(name))
 

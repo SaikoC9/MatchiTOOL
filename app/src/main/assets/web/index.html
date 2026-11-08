@@ -7445,7 +7445,11 @@ const ST_TOOLS=[
 ];
 const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
-const ST_ERRS=[];window.addEventListener('error',e=>ST_ERRS.push(String(e.message||'error').slice(0,120)));window.addEventListener('unhandledrejection',e=>ST_ERRS.push('promise: '+String(e.reason&&e.reason.message||e.reason).slice(0,120)));
+const ST_ERRS=[];
+/* Page errors also go to the device log (max 20 per page load, never throws). */
+let JS_ERR_SENT=0;
+const jsErrToLog=(msg,src,line)=>{if(JS_ERR_SENT>=20||typeof TOKEN==='undefined'||!TOKEN)return;JS_ERR_SENT++;try{fetch('/api/logs/clienterror',{method:'POST',headers:{'x-token':TOKEN,'content-type':'application/json; charset=utf-8'},body:JSON.stringify({msg:String(msg||'error').slice(0,500),src:String(src||'').slice(0,200),line:line|0})}).catch(()=>{})}catch(_){}};
+window.addEventListener('error',e=>{ST_ERRS.push(String(e.message||'error').slice(0,120));jsErrToLog(e.message,e.filename,e.lineno)});window.addEventListener('unhandledrejection',e=>{const m='promise: '+String(e.reason&&e.reason.message||e.reason).slice(0,120);ST_ERRS.push(m);jsErrToLog(m,'',0)});
 const stSleep=ms=>new Promise(r=>setTimeout(r,ms));
 const stClip=(t,n)=>{t=String(t==null?'':t);n=n||6000;return t.length>n?t.slice(0,n)+'\n...[truncated '+(t.length-n)+' chars]':t};
 const stLast=t=>String(t||'').trim().split('\n').pop().trim();
@@ -8345,7 +8349,7 @@ setInterval(hostPing,15000);
  ['lclevel','lcsource','lcfunction','lcsearch','lcregex','lcfrom','lcuntil','lcgroup','lcbm'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>render(true),150)}));
  ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
  $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
- $('lccopy').onclick=async()=>{const text=$('lcout').innerText;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log')}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
+ $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const text=$('lcout').innerText;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log')}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
  $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
 
  /* ---- search across every saved session ---- */
@@ -8389,9 +8393,10 @@ setInterval(hostPing,15000);
  /* ---- history ---- */
  const cnum=n=>Number(n||0).toLocaleString();
  async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;
-  let html='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
+  const ss=(d.sessions||[]).slice().sort((a,b)=>(b.modified||0)-(a.modified||0));
+  let html='<option value="">Current session / recent</option>'+(ss.length?'<optgroup label="App sessions (newest first)">'+ss.map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('')+'</optgroup>':'');
   /* Boot capture files join the same list (needs root, so only asked for when the owner switched boot capture on). */
-  if(d.bootEnabled){try{const b=await api('/api/logs/boot/files');const fl=(b.files||[]).filter(f=>/^(logcat|dmesg)\.log(\.\d+)?$/.test(f.name));
+  if(d.bootEnabled){try{const b=await api('/api/logs/boot/files');const fl=(b.files||[]);
    if(fl.length)html+=bootOptions(fl,'boot:','Boot capture \u00b7 ')}catch(e){}}
   sel.innerHTML=html;if(old)sel.value=old;}catch(e){}}
  /* ---- per-source counters (in-app capture) and line counts (boot capture) ---- */
@@ -8427,7 +8432,7 @@ setInterval(hostPing,15000);
  const BOOT_MAXPAGE=500;
  const bootKind=n=>/^logcat\.log/.test(n)?0:/^dmesg\.log/.test(n)?1:2;
  const bootRot=n=>{const m=n.match(/\.(\d+)$/);return /^(logcat|dmesg)\.log\./.test(n)&&m?+m[1]:0};
- const bootInfo={'context.txt':'device info at boot','events.log':'script events','status':'live status','logcat.gaps':'capture gaps'};
+ const bootInfo={'context.txt':'device info at boot','events.log':'script events','status':'live status','logcat.gaps':'capture gaps','magisk.log':'Magisk log (copy)','modules.txt':'Magisk modules','app_shell_audit.log':'app shell audit (copy)','updater.log':'updater log (copy)','app_events.log':'app boot tasks log (copy)'};
  const bootShort=t=>(t||'').replace(/^\d{4}-/,'').slice(0,11);
  const bootSort=a=>a.slice().sort((x,y)=>bootKind(x.name)-bootKind(y.name)||(bootKind(x.name)===2?bootInfoOrder(x.name)-bootInfoOrder(y.name):bootRot(x.name)-bootRot(y.name)));
  const bootInfoOrder=n=>{const i=Object.keys(bootInfo).indexOf(n);return i<0?9:i};

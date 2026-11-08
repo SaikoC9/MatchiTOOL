@@ -63,7 +63,7 @@ object RootShell {
                     BufferedReader(InputStreamReader(p.inputStream, Charsets.UTF_8)).use { r ->
                         while (true) lines.put(r.readLine() ?: break)
                     }
-                } catch (e: Exception) { Quiet.note("RootShell.enqueue", e) }
+                } catch (e: Exception) { if (!dead) Quiet.note("RootShell.enqueue", e) }   // closing a shell on purpose interrupts this read: not a fault
                 enqueue(EOF)
             }, "MatchiRootSession").apply { isDaemon = true; start() }
         }

@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_LOGD_VERSION=2
+# MATCHI_LOGD_VERSION=4
 # MatchiTOOL boot log capture. Installed by the app to /data/adb/service.d/ (Magisk runs it as root at boot).
 # Runs Android's own logcat (all buffers) and dmesg -w straight into size-capped rotating files, independent of the
 # app: if the app is killed, updated or crashes, capture goes on. Never filters or drops lines at capture time.
@@ -162,14 +162,43 @@ dmesg_loop() {
   done
 }
 
+# ---- extra sources: Magisk log, module list, app files. Small copies (last 256 KB), refreshed only when they changed. ----
+# MATCHI_EXTRA_* can be overridden by tests; the defaults are the real device paths.
+MAGISK_LOGS=${MATCHI_MAGISK_LOGS:-"/data/adb/magisk.log /cache/magisk.log /data/cache/magisk.log"}
+MODULES_DIR=${MATCHI_MODULES_DIR:-/data/adb/modules}
+APP_AUDIT=${MATCHI_APP_AUDIT:-/data/data/com.matchi.tool/files/shell_audit.log}
+UPD_LOG=${MATCHI_UPD_LOG:-$D/tmp/matchi_update.log}
+copy_tail() {   # copy_tail <source> <name>: keep the last 256 KB of <source> as $L/<name>, only rewritten when different
+  [ -f "$1" ] || return 1
+  tail -c 262144 "$1" > "$L/.$2.tmp" 2>/dev/null || { rm -f "$L/.$2.tmp"; return 1; }
+  if [ -f "$L/$2" ] && cmp -s "$L/.$2.tmp" "$L/$2" 2>/dev/null; then rm -f "$L/.$2.tmp"; else mv "$L/.$2.tmp" "$L/$2"; fi
+  return 0
+}
+collect_extras() {
+  for f in $MAGISK_LOGS; do copy_tail "$f" magisk.log && break; done
+  copy_tail "$APP_AUDIT" app_shell_audit.log
+  copy_tail "$UPD_LOG" updater.log
+  copy_tail "${MATCHI_APP_EVENTS:-$D/events.log}" app_events.log   # the app's boot-task log (IMEI/boot scripts), separate from this script's own events.log
+  if [ -d "$MODULES_DIR" ]; then
+    {
+      for m in "$MODULES_DIR"/*; do
+        [ -d "$m" ] || continue
+        st=on; [ -f "$m/disable" ] && st=disabled; [ -f "$m/remove" ] && st=pending-remove
+        echo "$(basename "$m") version=$(sed -n 's/^version=//p' "$m/module.prop" 2>/dev/null | head -n 1) state=$st"
+      done
+    } > "$L/.modules.tmp" 2>/dev/null && mv "$L/.modules.tmp" "$L/modules.txt"
+  fi
+}
+( sleep "${EXTRAS_DELAY:-45}" & wait $!; collect_extras ) & kids="$kids $!"
+
 logcat_loop & kids="$kids $!"
 dmesg_loop & kids="$kids $!"
 
 # ---- janitor: hard size cap, low-space pause, heartbeat status, events.log trim ----
-SE=$(getenforce 2>/dev/null); WTICK=0; SIG=""; STALE=0
+SE=$(getenforce 2>/dev/null); WTICK=0; XT=0; SIG=""; STALE=0
 while :; do
   used=$(du -sk "$L" 2>/dev/null | awk '{ print $1 }'); used=${used:-0}
-  cap=$(( (FILE_KB*FILES*2) + 1024 ))      # two rotated sources + small files; anything beyond is a bug, so enforce it
+  cap=$(( (FILE_KB*FILES*2) + 2048 ))      # two rotated sources + small files; anything beyond is a bug, so enforce it
   if [ "$used" -gt "$cap" ]; then
     # delete the oldest rotated parts first
     for f in $(ls -t "$L"/logcat.log.* "$L"/dmesg.log.* 2>/dev/null | tail -n 4); do rm -f "$f"; done
@@ -190,6 +219,7 @@ while :; do
   se_now=$(getenforce 2>/dev/null)
   [ "$se_now" != "$SE" ] && { note "SELinux changed: ${SE:-?} -> ${se_now:-?}"; SE=$se_now; }
   WTICK=$((WTICK+1))
+  XT=$((XT+1)); [ $XT -ge "${EXTRAS_EVERY:-10}" ] && { XT=0; collect_extras; }   # magisk.log / app files / modules refresh (every 10 ticks = 5 min)
   if [ $WTICK -ge 10 ] && [ ! -f "$L/.paused" ]; then
     WTICK=0
     log -p i -t MatchiLogd "alive $(date '+%F %T')" 2>/dev/null

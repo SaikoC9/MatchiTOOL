@@ -691,6 +691,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             LogCatcher.start(ctx)
             json(Response.Status.OK, JSONObject().put("ok", LogCatcher.isRunning()).put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL))
         }
+        // JavaScript errors from the web page go into the app log (the page sends at most 20 per load, text is clipped here too).
+        uri == "/api/logs/clienterror" && s.method == Method.POST -> {
+            val req = body(s, 8 * 1024)
+            LogCatcher.log("ERROR", "WebPage", "JS error: " + req.optString("msg").take(500) +
+                (req.optString("src").takeIf { it.isNotBlank() }?.let { " @ " + it.take(200) } ?: "") +
+                (if (req.has("line")) ":" + req.optInt("line") else ""))
+            json(Response.Status.OK, JSONObject().put("ok", true))
+        }
         uri == "/api/logs/stop" && s.method == Method.POST -> {
             LogCatcher.stop()
             json(Response.Status.OK, JSONObject().put("ok", true).put("running", false))

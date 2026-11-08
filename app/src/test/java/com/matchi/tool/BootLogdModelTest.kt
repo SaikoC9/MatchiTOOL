@@ -11,7 +11,7 @@ class BootLogdModelTest {
         val c = BootLogdModel.Config(fileKb = 1, files = 999, minFreeMb = 0).clamped()
         assertEquals(64, c.fileKb); assertEquals(40, c.files); assertEquals(50, c.minFreeMb)
         assertEquals("FILE_KB=2048\nFILES=10\nMIN_FREE_MB=200\n", BootLogdModel.Config().render())
-        assertEquals(2048 * 10 * 2 + 1024, BootLogdModel.Config().maxTotalKb())
+        assertEquals(2048 * 10 * 2 + 2048, BootLogdModel.Config().maxTotalKb())
     }
 
     @Test fun scriptVersionIsReadFromTheHeaderAndDecidesReinstall() {
@@ -24,7 +24,7 @@ class BootLogdModelTest {
     }
 
     @Test fun onlyCaptureFilesCanBeOpened() {
-        for (ok in listOf("logcat.log", "logcat.log.3", "dmesg.log.12", "events.log", "context.txt", "status", "logcat.gaps"))
+        for (ok in listOf("logcat.log", "logcat.log.3", "dmesg.log.12", "events.log", "context.txt", "status", "logcat.gaps", "magisk.log", "modules.txt", "app_shell_audit.log", "updater.log", "app_events.log"))
             assertTrue(ok, BootLogdModel.isSafeFileName(ok))
         for (bad in listOf("../etc/passwd", "logcat.log/../x", "logcat.log.123", "logd.pid", "a b", "", "logcat.log;id", "/data/x"))
             assertFalse(bad, BootLogdModel.isSafeFileName(bad))

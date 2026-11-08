@@ -36,6 +36,10 @@ printf 'FILE_KB=64\nFILES=3\nMIN_FREE_MB=200\n' > "$work/mt/logd.conf"
 touch "$work/crash_once"
 L="$work/mt/bootlogs"
 
+mkdir -p "$work/fm/modules/modA" "$work/mt/tmp"
+echo "magisk line 1" > "$work/fm/magisk.log"; printf 'version=1.2\n' > "$work/fm/modules/modA/module.prop"; touch "$work/fm/modules/modA/disable"
+echo "audit line" > "$work/fm/audit.log"; echo "updater line" > "$work/mt/tmp/matchi_update.log"; echo "app event line" > "$work/mt/events.log"
+export MATCHI_MAGISK_LOGS="$work/fm/none.log $work/fm/magisk.log" MATCHI_MODULES_DIR="$work/fm/modules" MATCHI_APP_AUDIT="$work/fm/audit.log" EXTRAS_DELAY=1 EXTRAS_EVERY=2
 sh "$work/matchi_logd.sh"       # parent must return at once and leave a detached child
 sleep 5
 [ -s "$L/logcat.log" ] && ok "logcat.log is being written" || bad "logcat.log missing"
@@ -45,6 +49,11 @@ grep -q '^state=running' "$L/status" 2>/dev/null && ok "status file says running
 grep -q 'logcat exited rc=7' "$L/events.log" && ok "crashed logcat restart noted in events.log" || bad "no restart note"
 grep -q 'GAP' "$L/logcat.gaps" && ok "gap marker written" || bad "gap marker missing"
 grep -q '^logcat_restarts=1' "$L/status" && ok "restart counter in status" || bad "restart counter wrong"
+grep -q 'magisk line 1' "$L/magisk.log" 2>/dev/null && ok "magisk.log copied (first existing path)" || bad "magisk.log not copied"
+grep -q 'modA version=1.2 state=disabled' "$L/modules.txt" 2>/dev/null && ok "modules.txt lists module state" || bad "modules.txt wrong"
+grep -q 'audit line' "$L/app_shell_audit.log" 2>/dev/null && grep -q 'updater line' "$L/updater.log" 2>/dev/null && grep -q 'app event line' "$L/app_events.log" 2>/dev/null && ok "app audit, updater and app events logs copied" || bad "app files not copied"
+echo "magisk line 2" >> "$work/fm/magisk.log"; sleep 4
+grep -q 'magisk line 2' "$L/magisk.log" 2>/dev/null && ok "magisk.log refreshed after it changed" || bad "magisk.log not refreshed"
 pid=$(cat "$L/logd.pid"); sh "$work/matchi_logd.sh"; sleep 1
 [ "$(cat "$L/logd.pid")" = "$pid" ] && ok "second start does not create a second instance" || bad "second instance replaced the first"
 
@@ -56,7 +65,7 @@ echo 900000 > "$work/free_kb"; sleep 5
 [ ! -f "$L/.paused" ] && grep -q 'capture resumed' "$L/events.log" && ok "capture resumes when space returns" || bad "capture did not resume"
 
 used=$(du -sk "$L" | awk '{print $1}')
-[ "$used" -lt $((64*3*2+1024)) ] && ok "total size ${used} KB stays under the cap" || bad "size ${used} KB over cap"
+[ "$used" -lt $((64*3*2+2048)) ] && ok "total size ${used} KB stays under the cap" || bad "size ${used} KB over cap"
 
 kill "$pid"; i=0; while kill -0 "$pid" 2>/dev/null && [ $i -lt 8 ]; do sleep 0.5; i=$((i+1)); done
 kill -0 "$pid" 2>/dev/null && bad "script still running after TERM" || ok "script stopped on TERM"
