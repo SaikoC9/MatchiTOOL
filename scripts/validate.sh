@@ -96,7 +96,8 @@ for route_marker in ('"/api/logs/stream"', '"/api/logs/search"', '"/api/logs/exp
 assert 'uri == "/api/logs/device" && s.method == Method.POST -> rootGate(s)' in server, 'changing device capture must be root-gated'
 for marker in ('openStream', 'syncStream', 'lcsearchall', 'lcexportall', 'lcreport', 'lcdevapply', 'lcregex', 'lcgroup', 'jumpErr', 'matchi_lc_bookmarks', 'checkAlerts'):
     assert marker in html, f'web Log Catcher feature missing: {marker}'
-assert 'LogCatcherActivity' not in main and not (root / 'app/src/main/java/com/matchi/tool/LogCatcherActivity.kt').exists(), 'Log Catcher is web-only: no native screen'
+assert not (root / 'app/src/main/java/com/matchi/tool/LogCatcherActivity.kt').exists(), 'Log Catcher is web-only: delete app/src/main/java/com/matchi/tool/LogCatcherActivity.kt (a file removed in a new version is not removed by copying over an old checkout)'
+assert 'LogCatcherActivity' not in main, 'Log Catcher is web-only: MainActivity.kt still refers to LogCatcherActivity (use the MainActivity.kt from this version)'
 gradle_src = (root / 'app/build.gradle.kts').read_text()
 assert 'else if (name == "release") {' in gradle_src and 'signingConfig = signingConfigs.getByName("debug")' in gradle_src, 'release builds must never be unsigned'
 assert 'id="appupdate"' in html and "'/api/update/stage'" in html and "'/api/update/install'" in html, 'web update UI missing'
