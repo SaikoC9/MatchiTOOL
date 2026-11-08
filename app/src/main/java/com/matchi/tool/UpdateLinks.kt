@@ -19,6 +19,7 @@ internal object UpdateLinks {
      * OLDER than the same number without it. Null when either side does not start with a number.
      */
     fun compareNames(a: String, b: String): Int? {
+        if (isBuildCounter(a) || isBuildCounter(b)) return null   // "build-115" is a CI counter, not a version: 115 must not beat 1.3.7
         val ma = CORE.find(a.trim()) ?: return null
         val mb = CORE.find(b.trim()) ?: return null
         val pa = ma.groupValues[1].split('.').map { it.toLongOrNull() ?: 0L }
@@ -30,6 +31,31 @@ internal object UpdateLinks {
         val prA = isPre(ma.groupValues[2])
         val prB = isPre(mb.groupValues[2])
         return if (prA == prB) 0 else if (prA) -1 else 1
+    }
+
+    private val BUILD_TAG = Regex("^build[-_ ]?\\d+$", RegexOption.IGNORE_CASE)
+    /** True for release tags that only count builds ("build-115"); their number says nothing about the app version. */
+    fun isBuildCounter(name: String): Boolean = BUILD_TAG.matches(name.trim())
+
+    /**
+     * Which release file to use: the wanted name when present; otherwise the only .apk in the release; otherwise the only
+     * .apk whose name contains "matchitool". Null when it cannot be decided (the person must give the exact file name).
+     */
+    fun pickApk(names: List<String>, wanted: String): String? {
+        if (wanted in names) return wanted
+        val apks = names.filter { it.endsWith(".apk", ignoreCase = true) }
+        if (apks.size == 1) return apks[0]
+        return apks.filter { it.contains("matchitool", ignoreCase = true) }.singleOrNull()
+    }
+
+    private val TAG_PAGE = Regex("^(https://github\\.com/[^/]+/[^/]+)/releases/tag/([^/?#]+)/?(?:[?#].*)?$", RegexOption.IGNORE_CASE)
+    /**
+     * A pasted release PAGE ("https://github.com/OWNER/REPO/releases/tag/build-115") becomes the matching download link for
+     * [asset]; the real file name is then chosen from the release by [pickApk]. Any other link is returned unchanged.
+     */
+    fun normalizeReleaseLink(link: String, asset: String = "MatchiTOOL.apk"): String {
+        val m = TAG_PAGE.find(link.trim()) ?: return link.trim()
+        return m.groupValues[1] + "/releases/download/" + m.groupValues[2] + "/" + asset
     }
 
     /** Message for a failed GitHub release lookup; explains the unauthenticated rate limit (60 requests/hour). */

@@ -62,6 +62,6 @@ kill "$pid"; i=0; while kill -0 "$pid" 2>/dev/null && [ $i -lt 8 ]; do sleep 0.5
 kill -0 "$pid" 2>/dev/null && bad "script still running after TERM" || ok "script stopped on TERM"
 [ ! -f "$L/logd.pid" ] && ok "pid file removed" || bad "pid file left behind"
 if ps 2>/dev/null | grep -q "[f]ake_marker_none"; then :; fi
-sleep 1; n=$(pgrep -f "$work/bin" 2>/dev/null | wc -l)
+i=0; n=1; while [ "$n" -gt 0 ] && [ $i -lt 10 ]; do sleep 0.5; n=$(pgrep -f "$work/bin" 2>/dev/null | wc -l); i=$((i+1)); done
 [ "$n" -eq 0 ] && ok "no capture processes left" || bad "$n capture processes left"
 [ $fail -eq 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }

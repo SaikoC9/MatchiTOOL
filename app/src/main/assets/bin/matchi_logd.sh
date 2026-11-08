@@ -67,7 +67,7 @@ free_mb() { df -k /data 2>/dev/null | tail -n 1 | awk '{ print int($4/1024) }' 2
 logcat_loop() {
   back=2; try=0
   while :; do
-    if [ -f "$L/.paused" ]; then sleep 10; continue; fi
+    if [ -f "$L/.paused" ]; then sleep 10 & wait $!; continue; fi
     case $try in
       0) set -- -b all -v threadtime -v year;;
       1) set -- -b all -v threadtime;;
@@ -111,24 +111,33 @@ dmesg_follow() {
   exec 3>&-
 }
 # Kernel source variants, richest first: dmesg -w, then the kernel logcat buffer, then /proc/kmsg.
+# exec: the background process IS the reader, so its pid can be killed on stop (no orphan left behind).
 kernel_src() {
   case $1 in
-    0) dmesg -w 2>&1;;
-    1) logcat -b kernel -v threadtime 2>&1;;
-    *) cat /proc/kmsg 2>&1;;
+    0) exec dmesg -w 2>&1;;
+    1) exec logcat -b kernel -v threadtime 2>&1;;
+    *) exec cat /proc/kmsg 2>&1;;
   esac
-  echo "kernel source $1 exited rc=$?"
 }
 dmesg_loop() {
   back=2; try=0
   while :; do
-    if [ -f "$L/.paused" ]; then sleep 10; continue; fi
+    if [ -f "$L/.paused" ]; then sleep 10 & wait $!; continue; fi
     t0=$(date +%s)
     echo "$(date '+%F %T') --- capture (re)started: kernel source $try ---" >> "$L/dmesg.log"
-    kernel_src $try | dmesg_follow &
-    echo $! > "$L/.cap.dmesg"
-    wait $!
-    rm -f "$L/.cap.dmesg"
+    rm -f "$L/.kfifo"
+    if mkfifo "$L/.kfifo" 2>/dev/null; then
+      dmesg_follow < "$L/.kfifo" & fp=$!
+      kernel_src $try > "$L/.kfifo" & kp=$!
+      echo $kp > "$L/.cap.dmesg"; echo $fp > "$L/.cap.dmesg.f"
+      wait $fp
+      kill $kp 2>/dev/null
+    else   # no mkfifo: plain pipeline (a stopped capture then ends at the producer's next write)
+      kernel_src $try | dmesg_follow &
+      echo $! > "$L/.cap.dmesg"
+      wait $!
+    fi
+    rm -f "$L/.cap.dmesg" "$L/.cap.dmesg.f" "$L/.kfifo"
     up=$(( $(date +%s) - t0 ))
     [ -f "$L/.paused" ] && continue
     note "kernel source $try ended after ${up}s; restarting in ${back}s"

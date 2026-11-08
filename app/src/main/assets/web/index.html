@@ -8043,7 +8043,7 @@ document.getElementById('updcheck').onclick=async()=>{
     updShow(r);
   }catch(e){out.textContent='Update rejected: '+e.message}
 };
-document.getElementById('updurl').value=(()=>{const D='';try{const v=localStorage.getItem('matchi_ota_url')||'';return v&&!/\/releases\/tag\//.test(v)?v:D}catch(_){return D}})();
+document.getElementById('updurl').value=(()=>{const D='https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk';try{const v=localStorage.getItem('matchi_ota_url')||'';return v&&!/\/releases\/tag\//.test(v)?v:D}catch(_){return D}})();
 document.getElementById('updurl').placeholder='https://github.com/OWNER/REPO/releases/latest/download/MatchiTOOL.apk';
 const otaLink=()=>document.getElementById('updurl').value.trim();
 const otaOk=(u,out)=>{if(/^https:\/\//i.test(u))return true;out.style.display='block';out.textContent='Enter an https:// link to the APK';return false};

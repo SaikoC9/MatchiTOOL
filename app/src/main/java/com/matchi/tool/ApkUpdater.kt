@@ -126,7 +126,7 @@ object ApkUpdater {
 
     @Suppress("DEPRECATION")
     private fun checkInner(ctx: Context, link: String): Remote {
-        val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
+        val url = try { java.net.URL(UpdateLinks.normalizeReleaseLink(link)) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
         if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
         requireAllowedHost(url)
         val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
@@ -146,14 +146,19 @@ object ApkUpdater {
                 val name = rel.optString("tag_name", "").ifEmpty { rel.optString("name", "") }
                 val assets = rel.optJSONArray("assets")
                 var size = -1L; var digest = ""
-                if (assets != null) for (i in 0 until assets.length()) {
-                    val a = assets.getJSONObject(i)
-                    if (a.optString("name") == asset) {
-                        size = a.optLong("size", -1L)
-                        digest = a.optString("digest", "").removePrefix("sha256:").lowercase().takeIf { it.length == 64 } ?: ""
+                if (assets != null) {
+                    // The link names a file, but a release may call it something else (e.g. a build number): use the single APK then.
+                    val names = (0 until assets.length()).map { assets.getJSONObject(it).optString("name") }
+                    val use = UpdateLinks.pickApk(names, asset)
+                    for (i in 0 until assets.length()) {
+                        val a = assets.getJSONObject(i)
+                        if (a.optString("name") == use) {
+                            size = a.optLong("size", -1L)
+                            digest = a.optString("digest", "").removePrefix("sha256:").lowercase().takeIf { it.length == 64 } ?: ""
+                        }
                     }
                 }
-                if (assets != null && size < 0) throw UpdateException("The latest release ($name) has no file called $asset.")
+                if (assets != null && size < 0) throw UpdateException("The latest release ($name) has no file called $asset, and it does not have exactly one APK to use instead.")
                 var rel2 = compareNames(name, haveName)?.let { if (it > 0) "newer" else if (it == 0) "same" else "older" } ?: "unknown"
                 // The version text alone cannot tell two builds of the same version apart: when GitHub publishes the SHA-256, compare it
                 // with the installed APK. Identical hash = really the same file; different hash on the same version = a different build.
@@ -176,8 +181,10 @@ object ApkUpdater {
      * The link is only a transport: nothing is installed without those checks and the person's confirmation.
      */
     fun stageFromUrl(ctx: Context, link: String): Staged {
-        val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
-        if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        val first = try { java.net.URL(UpdateLinks.normalizeReleaseLink(link)) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
+        if (first.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        requireAllowedHost(first)
+        val url = resolveGithubAsset(first) ?: first
         requireAllowedHost(url)
         val tmp = File(ctx.cacheDir, "NanoHTTPD-ota-${System.currentTimeMillis()}.tmp")
         var cur = url   // the hop being fetched: a relative Location is resolved against THIS, not the first link
@@ -222,6 +229,30 @@ object ApkUpdater {
             try { conn.disconnect() } catch (_: Exception) {}
             try { tmp.delete() } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * For a GitHub release link whose file name is not in the release, the real download link of the one APK that is
+     * (see [UpdateLinks.pickApk]). Null when the link is not a GitHub release link, the named file exists, or nothing
+     * can be decided: the original link is then used unchanged.
+     */
+    private fun resolveGithubAsset(url: java.net.URL): java.net.URL? {
+        val m = Regex("^/([^/]+)/([^/]+)/releases/(?:latest/download|download/([^/]+))/([^/]+)$").find(url.path) ?: return null
+        if (!url.host.equals("github.com", true)) return null
+        val (owner, repo, tag, asset) = m.destructured
+        val api = if (tag.isEmpty()) "latest" else "tags/" + java.net.URLEncoder.encode(tag, "UTF-8")
+        val c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
+        try {
+            if (c.responseCode != 200) return null
+            val assets = org.json.JSONObject(c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }).optJSONArray("assets") ?: return null
+            val names = (0 until assets.length()).map { assets.getJSONObject(it).optString("name") }
+            val use = UpdateLinks.pickApk(names, asset) ?: return null
+            if (use == asset) return null
+            val dl = (0 until assets.length()).map { assets.getJSONObject(it) }.first { it.optString("name") == use }.optString("browser_download_url")
+            return java.net.URL(dl).takeIf { it.protocol == "https" && UpdateLinks.hostAllowed(it.host) }
+        } catch (e: UpdateException) { throw e
+        } catch (e: Exception) { LogCatcher.log("WARNING", "ApkUpdater", "Could not resolve the release file name: ${e.message}"); return null
+        } finally { c.disconnect() }
     }
 
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }

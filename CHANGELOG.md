@@ -7,6 +7,7 @@
 - App: install/remove with one root call, settings, self-test (a test line must appear in logcat.log), re-install when the shipped script version is newer or the script is not running (checked at boot).
 - Web page: Boot capture panel with state, install/remove, file list, paged reading (300 lines per page, no 3,000-line limit) and jump-to-time. API: `/api/logs/boot/{status,files,read,install,uninstall}`, all behind the root gate; file names are whitelisted.
 - Guards: `scripts/test_logd.sh` (runs the real script against fake logcat/dmesg/df), `BootLogdModelTest`, validate.sh checks (script header, root gate on routes, silent-catch baseline of 48).
+- Check for update now defaults to `https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk`; a pasted `/releases/tag/build-115` page link is converted; a different APK file name in the release is resolved (single .apk); `build-N` tags are no longer compared as versions.
 - Not done yet: phases 3 and 4 (more sources, compression, redaction, export bundle), original PID/thread/buffer columns in the viewer, per-source counters.
 
 # MatchiTOOL 1.3.7 — Log Catcher fixes
