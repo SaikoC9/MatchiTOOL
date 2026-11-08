@@ -50,4 +50,21 @@ class NoiseGateTest {
         assertEquals("ERROR", NoiseGate.levelFor("ERROR", "sipa_eth: fail to send, ret -12"))
         assertEquals("ERROR", NoiseGate.levelFor("ERROR", "charge_set_basp: convert basp = -1 failed"))
     }
+
+    @Test fun wifiDriverBookkeepingAndZtePollingAreDropped() {
+        val gate = NoiseGate { _, _, _ -> }
+        assertFalse(gate.allow("INFO", "kernel", "[ 8578.233443] [c1] sprd-wlan: sc2355_pcie_fc_test_send_num,1966 free_num=0, data_num=1"))
+        assertFalse(gate.allow("INFO", "kernel", "[ 8578.233546] [c1] sc2355_pcie_handle_tx_return,1825,debug: 1"))
+        assertFalse(gate.allow("INFO", "kernel", "[ 8578.238182] [c1] sprd-wlan: sc2355_rx_mh_addr_process: out of time 1232"))
+        assertFalse(gate.allow("INFO", "kernel", "[ 8579.808049] [c7] sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20"))
+        assertFalse(gate.allow("INFO", "kernel", "[ 8579.884345] [c2] sipa_eth: dev sipa_eth0 SIPA LEAVE FLOWCTRL"))
+        assertTrue(gate.allow("INFO", "kernel", "[ 5283.0] [c4] sprd-wlan: sc2355_pcie_hif_fill_msdu_dscr, 1170, sta disconn, no data tx!"))
+        assertFalse(gate.allow("INFO", "device/PinModule", "processCmd:  cmd = pin_status"))
+        assertTrue(gate.allow("ERROR", "device/PinModule", "real failure"))
+    }
+
+    @Test fun trustyKeymasterSuccessIsNotAnError() {
+        assertEquals("INFO", NoiseGate.levelFor("ERROR", "succeeded to send cmd (8) to com.android.trusty.keymaster with rc(61). errno: Success"))
+        assertEquals("INFO", NoiseGate.levelFor("ERROR", "Getting response size (45)"))
+    }
 }

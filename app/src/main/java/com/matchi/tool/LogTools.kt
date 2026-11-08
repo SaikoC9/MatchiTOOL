@@ -48,13 +48,21 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
 
         /** Unisoc/ZTE kernel driver heartbeat and per-packet tracing (seen at ~18 lines/s on the F50); never actionable. Kernel lines arrive with their "[ 5284.5] [c0] " prefix, which is skipped before matching. */
         private val KERNEL_CHATTER = Regex(
-            """^(?:\[\s*\d+\.\d+\]\s*)?(?:\[c\d+\]\s*)?(sprd-wlan: (tx_cmd_pop|ctx_id \d+ (send|recv)|cmd->refcnt|\[\d+\]ctx_id|tx_mc_pkt|sc2355_pcie_find_lut_index|incoming|sprd_tx_filter_pack)""" +
-            """|\[SPRD_PDBG\]|sprd-mpm:|sprd-cpufreq|WCN (BASE|PCIE)|sipa_rm:|sipa_dele:|sipa \d+\.sipa:|sc27xx-fgu|charger-manager|healthd:)""")
+            """^(?:\[\s*\d+\.\d+\]\s*)?(?:\[c\d+\]\s*)?(?:""" +
+            // Wi-Fi driver (tx/rx bookkeeping, flow control, DNS/packet filter tracing): everything except lines that report a problem.
+            """(?:sprd-wlan: |sc2355_\w+[:,])(?!.*(?i:disconn|fail|error|\berr\b|timeout))""" +
+            """|\[SPRD_PDBG\]|sprd-mpm:|sprd-cpufreq|sprd_cpufreq_cooling:|sprd_wdt_fiq:|WCN (BASE|PCIE)|sipa_rm:|sipa_dele:|sipa \d+\.sipa:|sipa resume|sipa_eth: (dev |stop queue|wakeup queue)""" +
+            """|sc27xx-fgu|charger-manager|healthd:|wlan0: sprd_cfg80211_get_station|bq2560x: set watchdog|systemserver cmd\d)""")
+
+        /** ZTE service modules that poll the modem every second; their INFO/DEBUG lines are dropped (WARNING and ERROR are kept). */
+        private val POLLING_TAGS = setOf("PinModule", "PinApi", "EmptyModule", "PollingCommandProcessor", "DispatchModule",
+            "MobilePhoneStateCache", "ThermalManager", "BatteryService", "ZteBatteryService", "ThermalHalWrapper", "UnisocWatchdog",
+            "DeviceCommandProcesser", "DataUsageStats", "DataUsageManager", "keystore2")
 
         /** Lines the platform prints as ERROR/WARNING although they are expected on this hardware. Shown as INFO. */
         private val BENIGN = Regex(
             """sprd_wdt_fiq: sprd wdt load value|UnisocWatchdog|WDT_Monitor|UNISOCWATCHDOG_MESSAGE|can't find this type sensor|Failed to getCurrentTemperaturesWithType""" +
-            """|No SAE PMK found|sipa_eth: fail to send, ret -115|Unable to start service Intent \{ act=EVENT_WIFI_STATION_CONNECTED|Calling a method in the system process without a qualified user""")
+            """|No SAE PMK found|sipa_eth: fail to send, ret -115|succeeded to send cmd|Getting response size|Bluetooth service is null|Unable to start service Intent \{ act=EVENT_WIFI_STATION_CONNECTED|Calling a method in the system process without a qualified user""")
 
         /** Level to record: known-benign platform ERROR/WARNING lines are demoted to INFO so real faults stand out. */
         fun levelFor(level: String, msg: String): String =
@@ -77,6 +85,7 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
         // Pure platform chatter that never needs action: dropped outright instead of 3-per-window.
         val bare = tag.removePrefix("device/")   // device-wide capture prefixes the tag; the same noise must be dropped there too
         if (bare in SILENT_TAGS && level != "ERROR") return false
+        if (bare in POLLING_TAGS && (level == "INFO" || level == "DEBUG")) return false   // ZTE polling chatter, see POLLING_TAGS
         if (bare == "kernel" && level == "INFO" && KERNEL_CHATTER.containsMatchIn(msg)) return false   // driver heartbeat spam
         if (bare == "tool" && msg.startsWith("type=1400 audit(") && "permissive=1" in msg) return false   // permissive SELinux audit lines
         val now = System.currentTimeMillis()

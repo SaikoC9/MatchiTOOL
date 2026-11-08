@@ -98,6 +98,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         override fun getDescription() = "429 Too Many Requests"
     }
 
+    /**
+     * NanoHTTPD 2.3.1 decides gzip per response AFTER serve() returns (text/* and JSON when the browser accepts it), which
+     * overrides setGzipEncoding(false) set in [harden]; its GZIPOutputStream is never closed, so every answer leaked a native
+     * Deflater ("A resource failed to call end." in the log). Switching it off here is the hook NanoHTTPD provides.
+     */
+    override fun useGzipWhenAccepted(r: Response): Boolean = false
+
     private fun harden(response: Response): Response = response.also {
         // NanoHTTPD 2.3.1 gzips text/* and JSON itself but only calls finish() on its GZIPOutputStream, never close(),
         // so every compressed answer leaks a native Deflater until the GC finalizer logs "A resource failed to call end".
