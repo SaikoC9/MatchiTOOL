@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_LOGD_VERSION=4
+# MATCHI_LOGD_VERSION=5
 # MatchiTOOL boot log capture. Installed by the app to /data/adb/service.d/ (Magisk runs it as root at boot).
 # Runs Android's own logcat (all buffers) and dmesg -w straight into size-capped rotating files, independent of the
 # app: if the app is killed, updated or crashes, capture goes on. Never filters or drops lines at capture time.
@@ -8,11 +8,13 @@
 D=${MATCHI_DIR:-/data/local/matchitool}
 L=$D/bootlogs
 TICK=${LOGD_TICK:-30}            # janitor / heartbeat interval in seconds (tests lower it)
-FILE_KB=2048; FILES=10; MIN_FREE_MB=200
+FILE_KB=2048; FILES=10; MIN_FREE_MB=200; RETAIN_DAYS=0
 [ -f "$D/logd.conf" ] && . "$D/logd.conf"
 case $FILE_KB in ''|*[!0-9]*) FILE_KB=2048;; esac
 case $FILES in ''|*[!0-9]*) FILES=10;; esac
 case $MIN_FREE_MB in ''|*[!0-9]*) MIN_FREE_MB=200;; esac
+case $RETAIN_DAYS in ''|*[!0-9]*) RETAIN_DAYS=0;; esac
+[ "$RETAIN_DAYS" -gt 365 ] && RETAIN_DAYS=365
 [ "$FILE_KB" -lt 64 ] && FILE_KB=64
 [ "$FILE_KB" -gt 16384 ] && FILE_KB=16384
 [ "$FILES" -lt 2 ] && FILES=2
@@ -204,6 +206,12 @@ while :; do
     for f in $(ls -t "$L"/logcat.log.* "$L"/dmesg.log.* 2>/dev/null | tail -n 4); do rm -f "$f"; done
     note "size cap exceeded (${used} KB > ${cap} KB): removed oldest parts"
   fi
+  # Retention by age (0 = off): rotated parts older than RETAIN_DAYS days go; the files being written now (logcat.log, dmesg.log) never do.
+  if [ "$RETAIN_DAYS" -gt 0 ]; then
+    for f in $(find "$L" -maxdepth 1 \( -name 'logcat.log.*' -o -name 'dmesg.log.*' \) -mtime +"$RETAIN_DAYS" 2>/dev/null); do
+      rm -f "$f" && note "retention: removed $(basename "$f") (older than ${RETAIN_DAYS} days)"
+    done
+  fi
   fm=$(free_mb); fm=${fm:-0}
   if [ "$fm" -lt "$MIN_FREE_MB" ] && [ "$fm" -gt 0 ]; then
     if [ "$LOW_SPACE" = 0 ]; then
@@ -237,7 +245,7 @@ while :; do
     echo "selinux=${se_now:-?}"; echo "state=$([ "$LOW_SPACE" = 1 ] && echo paused-low-space || echo running)"
     echo "logcat_restarts=$(cat "$L/.lcr" 2>/dev/null || echo 0)"; echo "dmesg_restarts=$(cat "$L/.dmr" 2>/dev/null || echo 0)"
     echo "last_restart=$(cat "$L/.lastrestart" 2>/dev/null || echo -)"
-    echo "used_kb=$used"; echo "free_mb=$fm"; echo "file_kb=$FILE_KB"; echo "files=$FILES"
+    echo "used_kb=$used"; echo "free_mb=$fm"; echo "file_kb=$FILE_KB"; echo "files=$FILES"; echo "retain_days=$RETAIN_DAYS"
   } > "$L/status.tmp" 2>/dev/null && mv "$L/status.tmp" "$L/status"
   sleep "$TICK" & wait $!     # wait is interrupted by TERM at once; a plain sleep would delay the trap by up to $TICK
 done

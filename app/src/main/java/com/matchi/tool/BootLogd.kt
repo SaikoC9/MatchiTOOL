@@ -17,6 +17,7 @@ object BootLogd {
     private const val KEY_FILE_KB = "bootlogd_file_kb"
     private const val KEY_FILES = "bootlogd_files"
     private const val KEY_MIN_FREE = "bootlogd_min_free_mb"
+    private const val KEY_RETAIN = "bootlogd_retain_days"
     private const val EOF_MARK = "MATCHI_LOGD_EOF"
 
     fun bundledScript(ctx: Context): String = ctx.assets.open("bin/matchi_logd.sh").bufferedReader().use { it.readText() }
@@ -25,7 +26,7 @@ object BootLogd {
 
     fun config(ctx: Context): BootLogdModel.Config {
         val p = prefs(ctx)
-        return BootLogdModel.Config(p.getInt(KEY_FILE_KB, 2048), p.getInt(KEY_FILES, 10), p.getInt(KEY_MIN_FREE, 200)).clamped()
+        return BootLogdModel.Config(p.getInt(KEY_FILE_KB, 2048), p.getInt(KEY_FILES, 10), p.getInt(KEY_MIN_FREE, 200), p.getInt(KEY_RETAIN, 0)).clamped()
     }
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -55,7 +56,7 @@ object BootLogd {
         val r = RootShell.run(ctx, cmd, 40_000)
         val out = r.content
         val ok = r.success && out.contains("INSTALLED=1")
-        if (ok) prefs(ctx).edit().putBoolean(KEY_ENABLED, true).putInt(KEY_FILE_KB, c.fileKb).putInt(KEY_FILES, c.files).putInt(KEY_MIN_FREE, c.minFreeMb).apply()
+        if (ok) prefs(ctx).edit().putBoolean(KEY_ENABLED, true).putInt(KEY_FILE_KB, c.fileKb).putInt(KEY_FILES, c.files).putInt(KEY_MIN_FREE, c.minFreeMb).putInt(KEY_RETAIN, c.retainDays).apply()
         val res = JSONObject().put("ok", ok).put("selftest", out.contains("SELFTEST=ok")).put("output", out.take(600))
         LogCatcher.log(if (ok) "INFO" else "WARNING", TAG, "Boot capture install: ${if (ok) "done" else "failed"}; selftest ${if (res.getBoolean("selftest")) "ok" else "not confirmed"}")
         if (!ok) res.put("error", out.lineSequence().firstOrNull { it.startsWith("ERROR=") }?.removePrefix("ERROR=") ?: "Install failed: ${out.take(200)}")
@@ -94,7 +95,7 @@ object BootLogd {
             .put("logcatRestarts", m["logcat_restarts"]?.toIntOrNull() ?: 0).put("dmesgRestarts", m["dmesg_restarts"]?.toIntOrNull() ?: 0)
             .put("lastRestart", m["last_restart"] ?: JSONObject.NULL)
             .put("usedKb", m["used_kb"]?.toLongOrNull() ?: 0L).put("freeMb", m["free_mb"]?.toLongOrNull() ?: JSONObject.NULL)
-            .put("fileKb", cfg.fileKb).put("files", cfg.files).put("minFreeMb", cfg.minFreeMb).put("maxTotalKb", cfg.maxTotalKb())
+            .put("fileKb", cfg.fileKb).put("files", cfg.files).put("minFreeMb", cfg.minFreeMb).put("retainDays", cfg.retainDays).put("maxTotalKb", cfg.maxTotalKb())
         if (!r.success) j.put("error", r.content.take(200))
         return j
     }

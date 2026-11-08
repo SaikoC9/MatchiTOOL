@@ -731,12 +731,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             json(if (found.busy) tooMany else Response.Status.OK, found.toJson())
         }
         uri == "/api/logs/export" && s.method == Method.GET -> {
-            val report = s.parameters["kind"]?.firstOrNull() == "report"
-            val rootOk = report && rootGate(s) == null
-            val zip = LogExport.build(ctx, report, rootOk)
-            if (zip == null) json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "Could not build the archive (another export is running, or storage is full)"))
-            else harden(newFixedLengthResponse(Response.Status.OK, "application/zip", LogExport.DeleteOnClose(zip), zip.length())).also {
-                it.addHeader("Content-Disposition", "attachment; filename=\"${zip.name}\"")
+            val kind = s.parameters["kind"]?.firstOrNull()
+            val bundle = kind == "bundle"
+            val report = kind == "report" || bundle
+            val redact = s.parameters["redact"]?.firstOrNull() != "0"
+            val gate = if (report) rootGate(s) else null
+            if (bundle && gate != null) gate   // the bundle reads root-only files: no silent downgrade to a plain export
+            else {
+                val zip = LogExport.build(ctx, report, report && gate == null, bundle, redact)
+                if (zip == null) json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "Could not build the archive (another export is running, or storage is full)"))
+                else harden(newFixedLengthResponse(Response.Status.OK, "application/zip", LogExport.DeleteOnClose(zip), zip.length())).also {
+                    it.addHeader("Content-Disposition", "attachment; filename=\"${zip.name}\"")
+                }
             }
         }
         uri == "/api/logs/device" && s.method == Method.GET -> {
@@ -763,7 +769,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val req = body(s)
             auditShell(s.remoteIpAddress ?: "?", req.toString(), "logs-boot-install")
             val cur = BootLogd.config(ctx)
-            val cfg = BootLogdModel.Config(req.optInt("fileKb", cur.fileKb), req.optInt("files", cur.files), req.optInt("minFreeMb", cur.minFreeMb))
+            val cfg = BootLogdModel.Config(req.optInt("fileKb", cur.fileKb), req.optInt("files", cur.files), req.optInt("minFreeMb", cur.minFreeMb), req.optInt("retainDays", cur.retainDays))
             val res = BootLogd.install(ctx, cfg)
             json(if (res.optBoolean("ok")) Response.Status.OK else Response.Status.INTERNAL_ERROR, res)
         }

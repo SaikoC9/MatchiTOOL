@@ -69,4 +69,17 @@ class BootLogdModelTest {
         assertTrue(cmd.contains("logcat.log.[0-9]*") && cmd.contains("dmesg.log.[0-9]*") && cmd.contains("logcat.gaps"))
         assertTrue(!cmd.contains("rm ") && !cmd.contains("mv "))         // read-only
     }
+
+    @Test fun bundleOrderPutsInfoFirst() {
+        val names = listOf("dmesg.log", "logcat.log.1", "context.txt", "logcat.log", "magisk.log")
+        val sorted = names.sortedWith(compareBy({ BootLogdModel.bundleOrder(it) }, { BootLogdModel.rotationIndex(it) }))
+        assertEquals(listOf("context.txt", "magisk.log", "logcat.log", "logcat.log.1", "dmesg.log"), sorted)
+    }
+
+    @Test fun retentionDaysAreClampedAndRendered() {
+        assertEquals(0, BootLogdModel.Config().retainDays)
+        assertEquals(365, BootLogdModel.Config(retainDays = 9999).clamped().retainDays)
+        assertEquals(0, BootLogdModel.Config(retainDays = -5).clamped().retainDays)
+        assertTrue(BootLogdModel.Config(retainDays = 7).render().contains("RETAIN_DAYS=7"))
+    }
 }

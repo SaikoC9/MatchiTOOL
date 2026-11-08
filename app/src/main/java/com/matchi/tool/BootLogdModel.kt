@@ -11,12 +11,12 @@ object BootLogdModel {
     const val CONF_PATH = "$BASE_DIR/logd.conf"
     const val MAX_PAGE_LINES = 500
 
-    data class Config(val fileKb: Int = 2048, val files: Int = 10, val minFreeMb: Int = 200) {
+    data class Config(val fileKb: Int = 2048, val files: Int = 10, val minFreeMb: Int = 200, val retainDays: Int = 0) {
         /** Same limits the script applies, so what the page shows is what runs. */
-        fun clamped() = Config(fileKb.coerceIn(64, 16384), files.coerceIn(2, 40), minFreeMb.coerceIn(50, 5000))
+        fun clamped() = Config(fileKb.coerceIn(64, 16384), files.coerceIn(2, 40), minFreeMb.coerceIn(50, 5000), retainDays.coerceIn(0, 365))
         /** Upper bound of disk use: two rotated sources plus small files. */
         fun maxTotalKb(): Int { val c = clamped(); return c.fileKb * c.files * 2 + 2048 }
-        fun render(): String { val c = clamped(); return "FILE_KB=${c.fileKb}\nFILES=${c.files}\nMIN_FREE_MB=${c.minFreeMb}\n" }
+        fun render(): String { val c = clamped(); return "FILE_KB=${c.fileKb}\nFILES=${c.files}\nMIN_FREE_MB=${c.minFreeMb}\nRETAIN_DAYS=${c.retainDays}\n" }
     }
 
     private val versionRx = Regex("^# MATCHI_LOGD_VERSION=(\\d+)\\s*$", RegexOption.MULTILINE)
@@ -30,6 +30,9 @@ object BootLogdModel {
     private val fixedFiles = setOf("events.log", "context.txt", "logcat.gaps", "status", "magisk.log", "modules.txt", "app_shell_audit.log", "updater.log", "app_events.log")
     /** Only these names can be opened through the web API (no path separators, nothing outside the capture folder). */
     fun isSafeFileName(name: String): Boolean = name.length <= 24 && (fixedFiles.contains(name) || fileRx.matches(name))
+
+    /** Order in the export bundle (small info files first, so a size cut never drops them): info 0, logcat 1, dmesg 2. */
+    fun bundleOrder(name: String): Int = if (name.startsWith("logcat.log")) 1 else if (name.startsWith("dmesg.log")) 2 else 0
 
     /** Rotation number: logcat.log = 0 (newest), logcat.log.3 = 3 (older). Used to list newest first. */
     fun rotationIndex(name: String): Int = name.substringAfterLast('.', "").toIntOrNull() ?: 0

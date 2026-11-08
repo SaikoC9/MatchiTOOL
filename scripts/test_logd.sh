@@ -32,7 +32,7 @@ printf '#!/bin/sh\nexit 0\n' > "$work/bin/log"
 printf '#!/bin/sh\ncase "$1" in ro.build.fingerprint) echo fake/fp;; *) echo;; esac\n' > "$work/bin/getprop"
 chmod +x "$work/bin/"*
 export FAKE_DIR="$work" MATCHI_DIR="$work/mt" LOGD_TICK=${LOGD_TICK_TEST:-1} LOGD_SELF="$work/matchi_logd.sh" PATH="$work/bin:$PATH"
-printf 'FILE_KB=64\nFILES=3\nMIN_FREE_MB=200\n' > "$work/mt/logd.conf"
+printf 'FILE_KB=64\nFILES=3\nMIN_FREE_MB=200\nRETAIN_DAYS=1\n' > "$work/mt/logd.conf"
 touch "$work/crash_once"
 L="$work/mt/bootlogs"
 
@@ -40,6 +40,7 @@ mkdir -p "$work/fm/modules/modA" "$work/mt/tmp"
 echo "magisk line 1" > "$work/fm/magisk.log"; printf 'version=1.2\n' > "$work/fm/modules/modA/module.prop"; touch "$work/fm/modules/modA/disable"
 echo "audit line" > "$work/fm/audit.log"; echo "updater line" > "$work/mt/tmp/matchi_update.log"; echo "app event line" > "$work/mt/events.log"
 export MATCHI_MAGISK_LOGS="$work/fm/none.log $work/fm/magisk.log" MATCHI_MODULES_DIR="$work/fm/modules" MATCHI_APP_AUDIT="$work/fm/audit.log" EXTRAS_DELAY=1 EXTRAS_EVERY=2
+mkdir -p "$L"; echo old > "$L/dmesg.log.2"; echo older > "$L/logcat.log.2"; touch -d "3 days ago" "$L/dmesg.log.2" "$L/logcat.log.2"
 sh "$work/matchi_logd.sh"       # parent must return at once and leave a detached child
 sleep 5
 [ -s "$L/logcat.log" ] && ok "logcat.log is being written" || bad "logcat.log missing"
@@ -49,6 +50,8 @@ grep -q '^state=running' "$L/status" 2>/dev/null && ok "status file says running
 grep -q 'logcat exited rc=7' "$L/events.log" && ok "crashed logcat restart noted in events.log" || bad "no restart note"
 grep -q 'GAP' "$L/logcat.gaps" && ok "gap marker written" || bad "gap marker missing"
 grep -q '^logcat_restarts=1' "$L/status" && ok "restart counter in status" || bad "restart counter wrong"
+[ ! -e "$L/dmesg.log.2" ] && [ ! -e "$L/logcat.log.2" ] && grep -q 'retention: removed' "$L/events.log" && ok "retention removes rotated parts older than RETAIN_DAYS" || bad "retention did not remove old parts"
+[ -f "$L/logcat.log" ] && [ -f "$L/dmesg.log" ] && ok "current files are never removed by retention" || bad "retention removed a current file"
 grep -q 'magisk line 1' "$L/magisk.log" 2>/dev/null && ok "magisk.log copied (first existing path)" || bad "magisk.log not copied"
 grep -q 'modA version=1.2 state=disabled' "$L/modules.txt" 2>/dev/null && ok "modules.txt lists module state" || bad "modules.txt wrong"
 grep -q 'audit line' "$L/app_shell_audit.log" 2>/dev/null && grep -q 'updater line' "$L/updater.log" 2>/dev/null && grep -q 'app event line' "$L/app_events.log" 2>/dev/null && ok "app audit, updater and app events logs copied" || bad "app files not copied"

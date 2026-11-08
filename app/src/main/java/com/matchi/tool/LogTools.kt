@@ -431,36 +431,77 @@ object LogExport {
         override fun close() { try { super.close() } finally { file.delete() } }
     }
 
-    fun build(ctx: Context, report: Boolean, rootOk: Boolean): File? {
+    /**
+     * Builds the export archive. [report] adds device info and dmesg; [bundle] (needs root) also adds everything the boot capture
+     * holds (logcat, kernel log, context, Magisk log, modules, app files). With [redact] every text entry goes through [Redactor]
+     * line by line (SMS text, phone numbers, IMEI/ICCID, passwords, tokens) and REDACTION.txt says what was hidden.
+     * The files on the device are never changed. Entries are deflate-compressed by the zip.
+     */
+    fun build(ctx: Context, report: Boolean, rootOk: Boolean, bundle: Boolean = false, redact: Boolean = true): File? {
         if (!busy.tryAcquire()) return null
         var out: File? = null
+        var tmp: File? = null
         try {
             val dir = File(ctx.cacheDir, "log_exports").apply { mkdirs() }
             dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000L }?.forEach { it.delete() }
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val zipFile = File(dir, (if (report) "matchitool_report_" else "matchitool_sessions_") + stamp + ".zip")
+            val prefix = if (bundle) "matchitool_bundle_" else if (report) "matchitool_report_" else "matchitool_sessions_"
+            val zipFile = File(dir, prefix + stamp + ".zip")
             out = zipFile
+            val red = if (redact) Redactor() else null
             ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { z ->
                 fun put(name: String, text: String) {
-                    z.putNextEntry(ZipEntry(name)); z.write(text.toByteArray(Charsets.UTF_8)); z.closeEntry()
+                    z.putNextEntry(ZipEntry(name)); z.write((red?.text(text) ?: text).toByteArray(Charsets.UTF_8)); z.closeEntry()
                 }
-                if (report) put("device.txt", deviceInfo(ctx, rootOk))
+                /** One file into the archive: copied as it is, or line by line through the redactor. Returns the bytes read. */
+                fun putFile(name: String, file: File): Long {
+                    z.putNextEntry(ZipEntry(name))
+                    if (red == null) file.inputStream().use { it.copyTo(z) }
+                    else file.bufferedReader(Charsets.UTF_8).use { r ->
+                        val w = z.bufferedWriter(Charsets.UTF_8)
+                        while (true) { val l = r.readLine() ?: break; w.write(red.line(l)); w.write("\n") }
+                        w.flush()   // not closed: that would close the zip
+                    }
+                    z.closeEntry()
+                    return file.length()
+                }
+                if (report || bundle) put("device.txt", deviceInfo(ctx, rootOk))
                 put("recent_buffer.txt", LogCatcher.snapshot().joinToString("\n") { it.line() })
-                if (report && rootOk) {
+                if ((report || bundle) && rootOk) {
                     val r = RootShell.run(ctx, "dmesg 2>&1 | tail -n 500", 15_000)
                     put("dmesg.txt", r.content)
                 }
                 var total = 0L
+                if (bundle && rootOk) {
+                    // The capture folder is root-only: a root call copies it into the app's cache (owned by the app), then it is read normally.
+                    val t = File(ctx.cacheDir, "boot_export").also { tmp = it }
+                    val uid = android.os.Process.myUid()
+                    val cp = RootShell.run(ctx, "T='${t.absolutePath}'; rm -rf \"\$T\"; mkdir -p \"\$T\" && cp ${BootLogdModel.LOG_DIR}/* \"\$T\"/ 2>/dev/null; " +
+                        "chown -R $uid:$uid \"\$T\" 2>/dev/null; chmod -R u+rwX,go-rwx \"\$T\" 2>/dev/null; restorecon -R \"\$T\" 2>/dev/null; echo COPIED", 60_000)
+                    val files = t.listFiles()?.filter { it.isFile && BootLogdModel.isSafeFileName(it.name) }.orEmpty()
+                        .sortedWith(compareBy({ BootLogdModel.bundleOrder(it.name) }, { BootLogdModel.rotationIndex(it.name) }))
+                    if (!cp.content.contains("COPIED") || files.isEmpty())
+                        put("BOOT_CAPTURE_MISSING.txt", "No boot capture files could be read (is boot capture turned on, and did root allow the copy?). ${cp.content.take(200)}")
+                    var cut = false
+                    for (f in files) {
+                        if (total + f.length() > MAX_BYTES) { cut = true; break }
+                        total += putFile("bootcapture/" + f.name, f)
+                    }
+                    if (cut) put("TRUNCATED_BOOTCAPTURE.txt", "Older boot capture parts were left out: the archive is limited to ${MAX_BYTES / (1024 * 1024)} MB.")
+                }
                 for (file in LogCatcher.sessions(ctx)) {
                     if (total + file.length() > MAX_BYTES) {
                         put("TRUNCATED.txt", "Older sessions were left out: the archive is limited to ${MAX_BYTES / (1024 * 1024)} MB.")
                         break
                     }
-                    z.putNextEntry(ZipEntry("sessions/" + file.name))
-                    file.inputStream().use { it.copyTo(z) }
-                    z.closeEntry()
-                    total += file.length()
+                    total += putFile("sessions/" + file.name, file)
                 }
+                // Written last so the counts are complete (the note itself is never redacted).
+                z.putNextEntry(ZipEntry("REDACTION.txt"))
+                z.write((if (red != null) "Private data was hidden in this archive (SMS text, phone numbers, IMEI/ICCID, passwords, tokens).\n" +
+                    "The files on the device are unchanged. Rules lean towards hiding too much.\n\n" + red.summary() + "\n"
+                else "NOT redacted: this archive holds the original text and can contain private data. Do not share it publicly.\n").toByteArray(Charsets.UTF_8))
+                z.closeEntry()
             }
             return zipFile
         } catch (e: Exception) {
@@ -468,6 +509,7 @@ object LogExport {
             try { out?.delete() } catch (e: Exception) { Quiet.note("LogTools.put", e) }
             return null
         } finally {
+            try { tmp?.deleteRecursively() } catch (e: Exception) { Quiet.note("LogExport.tmp", e) }
             busy.release()
         }
     }
