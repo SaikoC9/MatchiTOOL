@@ -23,8 +23,22 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
 
     // Brute-force protection for /api/login (per-IP + global back-off, router-forward budget): see LoginGuard.
     private val guard = LoginGuard()
-    // /api/shell is full root, so it needs a login that is recent, not just a live 12 h session.
-    private val SHELL_MAX_SESSION_MS = 4L * 60 * 60 * 1000
+    // Every root-capable call needs a login that is recent, not just a live 12 h session: see rootGate().
+    private val SHELL_MAX_SESSION_MS = RootGate.MAX_SESSION_MS
+
+    /**
+     * One rule for everything that runs as root or makes root run something (shell, AT writes, IMEI, USB mode, screen input,
+     * APK install, plugin upload/erase): plain HTTP needs the page's confirmation, and the sign-in must be younger than 4 h.
+     * Returns the 403 answer to send, or null when the call may go on. The codes ("insecure", "reauth") are the ones the page handles.
+     */
+    private fun rootGate(s: IHTTPSession): Response? {
+        val ip = s.remoteIpAddress ?: "?"
+        if (RootGate.insecureNeedsConfirm(Tls.active, isLoopbackIp(ip), s.headers["x-insecure-ok"]))
+            return json(Response.Status.FORBIDDEN, JSONObject().put("code", "insecure").put("error", "This connection is not encrypted (HTTP). Confirm in the page to run root commands anyway."))
+        if (!RootGate.freshEnough(Sessions.ageMs(ctx, s.headers["x-token"]), SHELL_MAX_SESSION_MS))
+            return json(Response.Status.FORBIDDEN, JSONObject().put("code", "reauth").put("error", "Session too old for root commands - sign in again"))
+        return null
+    }
 
     init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
@@ -548,7 +562,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true) }
             dest.setReadable(true, false)
             return json(Response.Status.OK, JSONObject().put("ok", true).put("name", name)
-                .put("url", "/uploads/$name").put("path", dest.absolutePath).put("size", dest.length()))
+                .put("url", "/api/uploads/$name").put("path", dest.absolutePath).put("size", dest.length()))
         } finally {
             try { if (tmp.exists()) tmp.delete() } catch (_: Exception) {}
         }
@@ -646,9 +660,9 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 .put("detail", status.detail))
         }
         uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
-        uri == "/api/screen/input" && s.method == Method.POST -> { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
+        uri == "/api/screen/input" && s.method == Method.POST -> rootGate(s) ?: run { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
-        uri == "/api/usb/control" && s.method == Method.POST -> {
+        uri == "/api/usb/control" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             auditShell(s.remoteIpAddress ?: "?", req.toString(), "usb-control")
             controlUsb(req)
@@ -657,21 +671,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
         uri == "/api/update/check" && s.method == Method.POST -> updateCheck(body(s))
         uri == "/api/update/fetch" && s.method == Method.POST -> updateFetch(body(s))
-        uri == "/api/update/install" && s.method == Method.POST -> {
+        uri == "/api/update/install" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             auditShell(s.remoteIpAddress ?: "?", req.toString(), "update-install")
             updateInstall(req)
         }
         uri == "/api/update/status" && s.method == Method.GET -> updateStatus(s)
-        uri == "/api/shell" && s.method == Method.POST -> {
-            // Older sessions still work for everything else but must sign in again before running root commands.
-            val age = Sessions.ageMs(ctx, s.headers["x-token"])
-            if (!Tls.active && !isLoopbackIp(s.remoteIpAddress ?: "?") && s.headers["x-insecure-ok"] != "1") {
-                // Plain HTTP (HTTPS could not start): the command would cross the network unencrypted. The page asks the person once and then sends this header.
-                json(Response.Status.FORBIDDEN, JSONObject().put("code", "insecure").put("error", "This connection is not encrypted (HTTP). Confirm in the page to run root commands anyway."))
-            } else if (age == null || age > SHELL_MAX_SESSION_MS) {
-                json(Response.Status.FORBIDDEN, JSONObject().put("code", "reauth").put("error", "Session too old for root commands - sign in again"))
-            } else {
+        uri == "/api/shell" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             val command = req.optString("cmd")
             if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
@@ -680,28 +686,29 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             auditShell(s.remoteIpAddress ?: "?", command)
             val r = RootShell.run(ctx, command, t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
-            }
         }
         // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
-        uri == "/api/imei/apply" && s.method == Method.POST -> {
+        uri == "/api/imei/apply" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             auditShell(s.remoteIpAddress ?: "?", "imei-apply force=" + req.optBoolean("force", true), "imei-apply")
             json(Response.Status.OK, JSONObject().put("result", ImeiGuard.apply(ctx, 0, req.optBoolean("force", true))))
         }
         // Run an AT command on the modem as root: {"command":"AT+CSQ","slot":0}
-        uri == "/api/at" && s.method == Method.POST -> {
+        uri == "/api/at" && s.method == Method.POST -> run {
             val req = body(s)
             val cmd = req.optString("command").trim()
             val slot = req.optInt("slot", 0).coerceIn(0, 1)
             if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
                 throw IllegalArgumentException("AT command must start with AT")
+            // Read-only queries (polled by Live Status / AT Radio) skip the gate; every other AT command can change the modem.
+            if (!RootGate.isReadOnlyAt(cmd)) rootGate(s)?.let { return@run it }
             auditBusy(s.remoteIpAddress ?: "?", "at")
             val q = "'" + cmd.replace("'", "'\\''") + "'"
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
         }
         // Several AT commands in ONE root call: {"commands":["AT+CSQ","AT+COPS?"],"slot":0} -> {"results":["...","..."]}
-        uri == "/api/at/batch" && s.method == Method.POST -> {
+        uri == "/api/at/batch" && s.method == Method.POST -> run {
             val req = body(s)
             val slot = req.optInt("slot", 0).coerceIn(0, 1)
             val arr = req.optJSONArray("commands") ?: throw IllegalArgumentException("commands must be an array")
@@ -714,6 +721,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                     throw IllegalArgumentException("AT command must start with AT")
                 cmds.add(cmd)
             }
+            // Same rule as /api/at: only a batch of pure read commands may skip the fresh-sign-in / HTTP-confirm gate.
+            if (!cmds.all { RootGate.isReadOnlyAt(it) }) rootGate(s)?.let { return@run it }
             // A random marker per request: a modem reply containing "##" or a look-alike marker cannot cut or forge results.
             auditBusy(s.remoteIpAddress ?: "?", "at-batch")
             val marker = AtBatch.newMarker()
@@ -785,7 +794,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             json(Response.Status.OK, arr)
         }
         // Upload or replace a plugin: {"name":"My_Plugin.js","code":"..."}
-        uri == "/api/plugins" && s.method == Method.POST -> {
+        uri == "/api/plugins" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             val name = req.optString("name"); val code = req.optString("code")
             if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
@@ -823,8 +832,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success))
         }
         // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
-        uri == "/api/plugins/delete" && s.method == Method.POST -> {
+        uri == "/api/plugins/delete" && s.method == Method.POST -> run {
             val req = body(s)
+            // Erasing plugin data runs a root script; a plain delete of the plugin file does not.
+            if (req.optBoolean("erase", false)) rootGate(s)?.let { return@run it }
             val name = req.optString("name")
             if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
             val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted

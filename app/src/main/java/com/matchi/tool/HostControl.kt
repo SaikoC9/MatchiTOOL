@@ -110,6 +110,13 @@ object HostControl {
      * the rule is added once (checked with -C), and the server still refuses non-private source addresses.
      * Best effort: silently does nothing without root or iptables.
      */
+    /** Names of the hotspot / tether interfaces that are up right now (sorted, comma separated; "" when none). Needs no root. */
+    fun lanInterfaceNames(): String = try {
+        java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return "")
+            .filter { it.isUp && !it.isLoopback && hotspotIf.matches(it.name.lowercase()) }
+            .map { it.name.lowercase() }.sorted().joinToString(",")
+    } catch (_: Exception) { "" }
+
     fun openLanFirewall(ctx: Context) {
         RootShell.run(ctx, lanFirewallScript(Prefs.PORT), 15_000)
     }

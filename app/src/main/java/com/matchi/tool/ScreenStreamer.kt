@@ -200,7 +200,7 @@ object ScreenStreamer {
             if (rawMode == RAW_UNKNOWN) return calibrate()
             // Do not latch: raw capture that worked once (hdrSize known) is retried after a pause, so one screen-off period
             // does not leave the stream on the slow PNG path until the app restarts. Only a failed first calibration stays off.
-            if (rawMode == RAW_OFF && hdrSize > 0 && System.currentTimeMillis() >= rawRetryAt) { rawMode = RAW_OK; rawFailures = 2 }
+            if (rawMode == RAW_OFF && hdrSize > 0 && System.currentTimeMillis() >= rawRetryAt && !RootShell.isDenied()) { rawMode = RAW_OK; rawFailures = 2 }
             if (rawMode == RAW_OK) {
                 try { val g = rawGrab(); rawFailures = 0; return g } catch (e: Exception) {
                     closeProc()
@@ -241,7 +241,10 @@ object ScreenStreamer {
         }
 
         private fun rawGrab(): Grabbed {
-            val pr = proc ?: Proc(ProcessBuilder("su", "-c", "sh").redirectErrorStream(false).start()).also { proc = it }
+            // Same guard rail as RootShell.run(): no new su while root is in its refused cool-down (it would show the root manager prompt again).
+            if (proc == null && RootShell.isDenied()) throw IllegalStateException("root was denied; not asking again yet")
+            val pr = proc ?: Proc(try { ProcessBuilder("su", "-c", "sh").redirectErrorStream(false).start() }
+                catch (e: java.io.IOException) { RootShell.noteDenied(); throw e }).also { proc = it }
             val hs = hdrSize
             val call = Callable<IntArray> {
                 pr.out.write("screencap\n".toByteArray())

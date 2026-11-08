@@ -91,6 +91,15 @@ class LoginGuardTest {
         assertTrue(g.mayAskRouter("10.0.0.3"))          // the owner on another address still gets through
     }
 
+    @Test fun perAddressRouterBudgetSurvivesMoreThanMaxTrackedAddresses() {
+        val g = guard()
+        // 300 different addresses, each seen once; the window passes between them so the app-wide budget never blocks.
+        for (i in 1..300) { assertTrue(g.mayAskRouter("10.1.${i / 250}.${i % 250}")); now += LoginGuard.ROUTER_WINDOW_MS + 1 }
+        // a new address must still be held to its own budget
+        repeat(LoginGuard.ROUTER_BUDGET) { assertTrue(g.mayAskRouter("10.9.9.9")); now += 1 }
+        assertFalse(g.mayAskRouter("10.9.9.9"))
+    }
+
     @Test fun routerBudgetIsAlsoCappedForTheWholeApp() {
         val g = guard()
         var allowed = 0

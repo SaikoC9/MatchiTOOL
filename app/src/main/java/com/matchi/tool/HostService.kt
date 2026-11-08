@@ -16,6 +16,7 @@ class HostService : Service() {
     private val initialized = AtomicBoolean(false)
     private val bootTasksRunning = AtomicBoolean(false)
     @Volatile private var destroyed = false
+    private val seenLanIfs = HashSet<String>()   // only touched by the single fixed-delay watcher task
     private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(4) }   // boot scripts + IMEI keeper hold two threads for up to ~3 min; the firewall check, router detection and retries must not queue behind them
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
@@ -43,6 +44,21 @@ class HostService : Service() {
                     catch (e: Exception) { Log.w("MatchiTOOL", "LAN firewall check failed: ${e.message}") }
                 }, delay, TimeUnit.SECONDS)
             }
+            // A hotspot or USB tether switched on AFTER the checks above never got its rule. Look at the interface list every
+            // 45 s (no root needed) and open the firewall again only when a new interface name shows up; the script checks with
+            // "iptables -C" first, so a repeat is harmless. workers.shutdownNow() in onDestroy() stops this timer.
+            workers.scheduleWithFixedDelay({
+                try {
+                    val now = HostControl.lanInterfaceNames()
+                    val fresh = now.split(',').filter { it.isNotEmpty() && it !in seenLanIfs }
+                    if (fresh.isNotEmpty()) {
+                        seenLanIfs.addAll(fresh)
+                        HostControl.openLanFirewall(applicationContext)
+                    }
+                    // an interface that went away is forgotten, so it is opened again when it comes back (the firmware may flush rules)
+                    seenLanIfs.retainAll(now.split(',').filter { it.isNotEmpty() }.toSet())
+                } catch (e: Exception) { Log.w("MatchiTOOL", "LAN interface watch failed: ${e.message}") }
+            }, 45, 45, TimeUnit.SECONDS)
             // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).
             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
         }

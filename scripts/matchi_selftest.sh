@@ -1,5 +1,5 @@
 #!/bin/sh
-# MatchiTOOL 1.2.27 patched19 - automatic on-device test.
+# MatchiTOOL 1.2.28 - automatic on-device test.
 #
 #   adb push matchi_selftest.sh /data/local/tmp/
 #   adb shell su -c "sh /data/local/tmp/matchi_selftest.sh"

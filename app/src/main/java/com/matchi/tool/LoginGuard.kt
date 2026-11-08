@@ -104,9 +104,13 @@ class LoginGuard(private val clock: () -> Long = { System.currentTimeMillis() })
     fun mayAskRouter(ip: String = ""): Boolean = synchronized(this) {
         val now = clock()
         while (routerAsks.isNotEmpty() && now - routerAsks.first() > ROUTER_WINDOW_MS) routerAsks.removeFirst()
+        // Clean up BEFORE the lookup, so the entry of the address being checked is never the one that gets dropped.
+        if (routerAsksByIp.size > MAX_TRACKED) {
+            routerAsksByIp.values.forEach { q -> while (q.isNotEmpty() && now - q.first() > ROUTER_WINDOW_MS) q.removeFirst() }
+            routerAsksByIp.entries.removeAll { it.value.isEmpty() }
+        }
         val mine = routerAsksByIp.getOrPut(ip) { ArrayDeque() }
         while (mine.isNotEmpty() && now - mine.first() > ROUTER_WINDOW_MS) mine.removeFirst()
-        if (routerAsksByIp.size > MAX_TRACKED) routerAsksByIp.entries.removeAll { it.value.isEmpty() }
         if (mine.size >= ROUTER_BUDGET || routerAsks.size >= ROUTER_GLOBAL_BUDGET) false
         else { mine.addLast(now); routerAsks.addLast(now); true }
     }

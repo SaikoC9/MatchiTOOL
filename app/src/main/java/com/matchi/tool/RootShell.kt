@@ -97,6 +97,12 @@ object RootShell {
         suBlockedUntil = System.currentTimeMillis() + DENIAL_COOLDOWN_MS
     }
 
+    /** True while su is in its "was refused" cool-down: callers that start su themselves must not do it then. */
+    fun isDenied(): Boolean = suBlockedUntil > System.currentTimeMillis()
+
+    /** For callers that start su themselves: su could not be started or died at once, so everyone shares one cool-down. */
+    fun noteDenied() = blockSu()
+
     /** Forget a stored denial (for a manual retry after the user granted root). */
     fun resetDenial() { suBlockedUntil = 0L }
 
