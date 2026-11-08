@@ -11,7 +11,9 @@ val ksProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.isFile) f.inputStream().use { load(it) }
 }
-fun ksValue(key: String, env: String): String? = ksProps.getProperty(key) ?: System.getenv(env)
+fun ksValue(key: String, env: String): String? = (ksProps.getProperty(key) ?: System.getenv(env))?.takeIf { it.isNotBlank() }   // an empty secret counts as missing
+val ksIncomplete = ksValue("storeFile", "MATCHI_KEYSTORE_FILE") != null &&
+    (ksValue("storePassword", "MATCHI_KEYSTORE_PASSWORD") == null || ksValue("keyAlias", "MATCHI_KEY_ALIAS") == null || ksValue("keyPassword", "MATCHI_KEY_PASSWORD") == null)
 android {
     namespace = "com.matchi.tool"
     compileSdk = 34
@@ -29,13 +31,15 @@ android {
                 val sp = ksValue("storePassword", "MATCHI_KEYSTORE_PASSWORD")
                 val ka = ksValue("keyAlias", "MATCHI_KEY_ALIAS")
                 val kp = ksValue("keyPassword", "MATCHI_KEY_PASSWORD")
-                if (sp == null || ka == null || kp == null)
-                    throw GradleException("Keystore file is set but MATCHI_KEYSTORE_PASSWORD, MATCHI_KEY_ALIAS or MATCHI_KEY_PASSWORD (or storePassword/keyAlias/keyPassword in keystore.properties) is missing.")
+                // Incomplete settings are reported only when a task really signs (see the taskGraph check below), so unit tests
+                // and other tasks that never sign still run when only the keystore file is set.
+                if (sp != null && ka != null && kp != null) {
                 // Paths in keystore.properties may start with "../" (relative to app/); they are resolved from the project root.
-                storeFile = rootProject.file(file.removePrefix("../"))
-                storePassword = sp
-                keyAlias = ka
-                keyPassword = kp
+                    storeFile = rootProject.file(file.removePrefix("../"))
+                    storePassword = sp
+                    keyAlias = ka
+                    keyPassword = kp
+                }
             }
         }
     }
@@ -61,4 +65,10 @@ android {
 dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     testImplementation("junit:junit:4.13.2")
+}
+
+// Clear message instead of an obscure signing error: only when a signing task is part of this build.
+gradle.taskGraph.whenReady {
+    if (ksIncomplete && allTasks.any { it.name.startsWith("validateSigning") || it.name.startsWith("sign") })
+        throw GradleException("Keystore file is set but MATCHI_KEYSTORE_PASSWORD, MATCHI_KEY_ALIAS or MATCHI_KEY_PASSWORD (or storePassword/keyAlias/keyPassword in keystore.properties) is missing or empty.")
 }

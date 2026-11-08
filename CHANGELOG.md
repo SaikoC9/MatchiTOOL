@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased - review fixes (items from MatchiTOOL_v1_2_27_bug_report.txt)
+- **Fix, patched18**: the clear keystore error added in patched15 broke the CI unit-test step (keystore file set, passwords not yet). The check now runs only when a signing task is part of the build, and an empty secret counts as missing.
 - **Review fixes, patched17 (not compiled)**: A4 over plain HTTP, answering "no" to the root-command warning is remembered until the page is reloaded (before, every poller call opened the dialog again).
 - **Review fixes, patched16 (not compiled)**: A3b the loopback daily cap no longer refuses logins (any app on the phone could lock the owner out for 24 h). After 300 wrong passwords a day a wrong answer waits 30 s instead; a correct password is never delayed and a good login clears the count.
 - **Review fixes, patched15**: A8 the router password is never stored unencrypted any more (if the key store fails it is not saved and the console says so); B4 a character cut at the 1 MB output limit is dropped; B13 when a boot run does not finish, events.log names the script that was running; C3 release builds without a keystore print a clear Gradle warning; C4 new `RootShellLauncherTest`.
