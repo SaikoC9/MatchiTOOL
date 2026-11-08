@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_LOGD_VERSION=1
+# MATCHI_LOGD_VERSION=2
 # MatchiTOOL boot log capture. Installed by the app to /data/adb/service.d/ (Magisk runs it as root at boot).
 # Runs Android's own logcat (all buffers) and dmesg -w straight into size-capped rotating files, independent of the
 # app: if the app is killed, updated or crashes, capture goes on. Never filters or drops lines at capture time.
@@ -51,13 +51,27 @@ note "capture started (script v${VER:-?}, pid $$, ${FILES} x ${FILE_KB} KB per s
   echo "kernel=$(uname -a 2>/dev/null)"
   echo "magisk=$(magisk -v 2>/dev/null) ($(magisk -V 2>/dev/null))"
   echo "selinux=$(getenforce 2>/dev/null)"
-  echo "app=$(dumpsys package com.matchi.tool 2>/dev/null | sed -n 's/^ *versionName=//p' | head -n 1)"
+  echo "app=pending"
   head -n 3 /proc/meminfo 2>/dev/null
   echo "--- network ---"
   ip -o addr 2>/dev/null | head -n 20
 } > "$L/context.txt" 2>/dev/null
 
 kids=""
+# The package service is not up yet this early in boot, so the app version is filled in later (up to ~5 min of retries).
+fill_app_version() {
+  n=0
+  while [ $n -lt 60 ]; do
+    v=$(dumpsys package com.matchi.tool 2>/dev/null | sed -n 's/^ *versionName=//p' | head -n 1)
+    if [ -n "$v" ]; then
+      if sed -i "s/^app=.*/app=$v/" "$L/context.txt" 2>/dev/null && grep -q "^app=$v" "$L/context.txt" 2>/dev/null; then :; else echo "app=$v" >> "$L/context.txt"; fi
+      return 0
+    fi
+    n=$((n+1)); sleep 5
+  done
+  sed -i "s/^app=pending/app=unknown (package service not ready after 5 min)/" "$L/context.txt" 2>/dev/null
+}
+fill_app_version & kids="$kids $!"
 cleanup() { for p in $kids; do kill "$p" 2>/dev/null; done; for f in "$L"/.cap.*; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; done; rm -f "$L"/.cap.* "$L/logd.pid"; note "capture stopped"; exit 0; }
 trap cleanup TERM INT HUP
 
@@ -152,6 +166,7 @@ logcat_loop & kids="$kids $!"
 dmesg_loop & kids="$kids $!"
 
 # ---- janitor: hard size cap, low-space pause, heartbeat status, events.log trim ----
+SE=$(getenforce 2>/dev/null); WTICK=0; SIG=""; STALE=0
 while :; do
   used=$(du -sk "$L" 2>/dev/null | awk '{ print $1 }'); used=${used:-0}
   cap=$(( (FILE_KB*FILES*2) + 1024 ))      # two rotated sources + small files; anything beyond is a bug, so enforce it
@@ -170,10 +185,26 @@ while :; do
   elif [ "$LOW_SPACE" = 1 ] && [ "$fm" -ge $((MIN_FREE_MB+50)) ]; then
     LOW_SPACE=0; rm -f "$L/.paused"; note "capture resumed: ${fm} MB free"
   fi
+  # SELinux watch: log mode changes, and (every 10 ticks) prove the files still grow: the script writes its own marker line
+  # to logcat, then compares the size/time of the logcat files. Two checks in a row without change = a write problem.
+  se_now=$(getenforce 2>/dev/null)
+  [ "$se_now" != "$SE" ] && { note "SELinux changed: ${SE:-?} -> ${se_now:-?}"; SE=$se_now; }
+  WTICK=$((WTICK+1))
+  if [ $WTICK -ge 10 ] && [ ! -f "$L/.paused" ]; then
+    WTICK=0
+    log -p i -t MatchiLogd "alive $(date '+%F %T')" 2>/dev/null
+    sleep 2
+    sig=$(ls -l "$L"/logcat.log* 2>/dev/null | awk '{ print $5 $6 $7 }' | tr -d '\n')
+    if [ -n "$SIG" ] && [ "$sig" = "$SIG" ]; then
+      STALE=$((STALE+1))
+      [ $STALE -eq 2 ] && note "WARNING logcat files are not growing (selinux=${se_now:-?}); check 'dmesg | grep avc' and logcat state"
+    else STALE=0; fi
+    SIG=$sig
+  fi
   [ "$(wc -c < "$L/events.log" 2>/dev/null || echo 0)" -gt 262144 ] && { tail -n 500 "$L/events.log" > "$L/events.tmp" && mv "$L/events.tmp" "$L/events.log"; }
   {
     echo "version=${VER:-?}"; echo "pid=$$"; echo "started=$STARTED"; echo "heartbeat=$(date '+%F %T')"
-    echo "state=$([ "$LOW_SPACE" = 1 ] && echo paused-low-space || echo running)"
+    echo "selinux=${se_now:-?}"; echo "state=$([ "$LOW_SPACE" = 1 ] && echo paused-low-space || echo running)"
     echo "logcat_restarts=$(cat "$L/.lcr" 2>/dev/null || echo 0)"; echo "dmesg_restarts=$(cat "$L/.dmr" 2>/dev/null || echo 0)"
     echo "last_restart=$(cat "$L/.lastrestart" 2>/dev/null || echo -)"
     echo "used_kb=$used"; echo "free_mb=$fm"; echo "file_kb=$FILE_KB"; echo "files=$FILES"

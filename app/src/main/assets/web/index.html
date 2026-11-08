@@ -540,6 +540,14 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 #login{max-width:440px;padding:24px!important}
 .lg-title{font-size:19px;letter-spacing:-.02em}
 </style>
+<style>
+/* Dropdown lists: the native list used the light system colours on the dark page (white/grey, unreadable). */
+select{color-scheme:dark}
+select option,select optgroup{background:#0d1524;color:#eaf2ff}
+select optgroup{color:#55b6ff;font-weight:700;font-style:normal}
+select option{font-weight:400;color:#eaf2ff}
+select option:checked,select option:hover{background:#168cff;color:#fff}
+</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -572,12 +580,13 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
       <div class="btnrow" style="margin-top:8px"><label class="mut">File size KB <input type="number" id="lcbootkb" min="64" max="16384" step="64" style="width:6em"></label><label class="mut">Files <input type="number" id="lcbootn" min="2" max="40" style="width:4em"></label><label class="mut">Pause below MB free <input type="number" id="lcbootfree" min="50" max="5000" style="width:5em"></label></div>
       <div class="btnrow" style="margin-top:8px"><button id="lcbootinstall">Install / update</button><button id="lcbootremove" class="danger">Remove</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbootpurge"> also delete captured files</label></div>
       <div class="btnrow" style="margin-top:8px"><select id="lcbootfile" title="Capture file"></select><button id="lcbootprev">&laquo; Prev</button><button id="lcbootnext">Next &raquo;</button><button id="lcbootlast">Latest</button><input id="lcbootjump" placeholder="Jump to time, e.g. 11-08 16:00" style="min-width:12em"><button id="lcbootgo">Go</button></div>
+      <div class="btnrow" style="margin-top:8px"><button id="lcbootcopy">Copy</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbootcopyall"> copy whole file (not just this page)</label></div>
       <div class="mut" id="lcbootpos" style="margin-top:6px"></div>
       <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Nothing loaded.</pre>
     </details>
     <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
     <div class="mut" id="lccounters" style="font-size:11px;margin-top:4px;white-space:pre-line" title="Lines seen, shown, collapsed (repeats), dropped (noise filters) and gaps per source"></div>
-    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><span class="mut" id="lcvpos"></span></div>
+    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><button id="lcvcopyall" title="Copy the whole file, not just this page">Copy file</button><span class="mut" id="lcvpos"></span></div>
     <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
     <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -8380,7 +8389,7 @@ setInterval(hostPing,15000);
   let html='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
   /* Boot capture files join the same list (needs root, so only asked for when the owner switched boot capture on). */
   if(d.bootEnabled){try{const b=await api('/api/logs/boot/files');const fl=(b.files||[]).filter(f=>/^(logcat|dmesg)\.log(\.\d+)?$/.test(f.name));
-   if(fl.length)html+='<optgroup label="Boot capture (Magisk, never filtered)">'+fl.map(f=>`<option value="boot:${esc(f.name)}">${esc(f.name)} (${cnum(Math.round(f.size/1024))} KB)</option>`).join('')+'</optgroup>'}catch(e){}}
+   if(fl.length)html+=bootOptions(fl,'boot:','Boot capture \u00b7 ')}catch(e){}}
   sel.innerHTML=html;if(old)sel.value=old;}catch(e){}}
  /* ---- per-source counters (in-app capture) and line counts (boot capture) ---- */
  async function loadCounters(){try{const d=await api('/api/logs/status');const c=d.counters||{};
@@ -8410,6 +8419,21 @@ setInterval(hostPing,15000);
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
  $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
 
+
+ /* ---- boot files: grouped and sorted the same way in every dropdown ---- */
+ const BOOT_MAXPAGE=500;
+ const bootKind=n=>/^logcat\.log/.test(n)?0:/^dmesg\.log/.test(n)?1:2;
+ const bootRot=n=>{const m=n.match(/\.(\d+)$/);return /^(logcat|dmesg)\.log\./.test(n)&&m?+m[1]:0};
+ const bootInfo={'context.txt':'device info at boot','events.log':'script events','status':'live status','logcat.gaps':'capture gaps'};
+ const bootShort=t=>(t||'').replace(/^\d{4}-/,'').slice(0,11);
+ const bootSort=a=>a.slice().sort((x,y)=>bootKind(x.name)-bootKind(y.name)||(bootKind(x.name)===2?bootInfoOrder(x.name)-bootInfoOrder(y.name):bootRot(x.name)-bootRot(y.name)));
+ const bootInfoOrder=n=>{const i=Object.keys(bootInfo).indexOf(n);return i<0?9:i};
+ const bootSize=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';
+ const bootLabel=f=>{const k=bootKind(f.name),r=bootRot(f.name);const tag=k===2?(bootInfo[f.name]||''):(r===0?'current':'older #'+r);return f.name+(tag?' \u2014 '+tag:'')+' \u00b7 '+bootSize(f.size)+(f.modified?' \u00b7 '+bootShort(f.modified):'')};
+ const bootGroups=['Logcat (all buffers, newest first)','Kernel (dmesg, newest first)','Info and events'];
+ function bootOptions(files,prefix,pre){pre=pre||'';const out=[];[0,1,2].forEach(k=>{const g=bootSort(files.filter(f=>bootKind(f.name)===k));if(g.length)out.push('<optgroup label="'+pre+bootGroups[k]+'">'+g.map(f=>'<option value="'+prefix+esc(f.name)+'">'+esc(bootLabel(f))+'</option>').join('')+'</optgroup>')});return out.join('')}
+ async function copyText(text,what){try{await navigator.clipboard.writeText(text);createToast('Copied '+what)}catch(e){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();if(ok)createToast('Copied '+what);else alert('Automatic copy is not available here. Select the text and use your browser Copy command.')}}
+ async function bootWholeFile(file,progress){let start=1,total=1,parts=[];while(start<=total){const d=await api('/api/logs/boot/read?file='+encodeURIComponent(file)+'&start='+start+'&limit='+BOOT_MAXPAGE);total=d.total;parts.push((d.lines||[]).join('\n'));start=d.end+1;if(!(d.lines||[]).length)break;if(progress)progress(Math.min(start-1,total),total)}return parts.join('\n')}
  /* ---- boot capture (Magisk script) ---- */
  const BOOT_PAGE=300; let bootStart=1,bootTotal=0,bootFiles=[];
  const bootNum=(n)=>Number(n||0).toLocaleString();
@@ -8418,7 +8442,7 @@ setInterval(hostPing,15000);
   let t;if(!d.installed)t='Not installed. Install it to capture logcat (all buffers) and the kernel log from boot, even when this app is stopped.';
   else{t=(d.running?'Running':'Installed but NOT running')+(d.state&&d.state!=='running'?' ('+d.state+')':'')+'. Script v'+d.installedVersion+(d.outdated?' (outdated: install to update to v'+d.bundledVersion+')':'')+'. Disk use '+bootNum(d.usedKb)+' KB of at most '+bootNum(d.maxTotalKb)+' KB; '+(d.freeMb==null?'':bootNum(d.freeMb)+' MB free; ')+'restarts: logcat '+d.logcatRestarts+', kernel '+d.dmesgRestarts+(d.lastRestart&&d.lastRestart!=='-'?' (last '+d.lastRestart+')':'')+'. Heartbeat '+(d.heartbeat||'none')+'.'}
   $('lcbootstate').textContent=t;await loadBootFiles()}catch(e){$('lcbootstate').textContent='Could not read boot capture: '+e.message}}
- async function loadBootFiles(){const d=await api('/api/logs/boot/files');bootFiles=d.files||[];const sel=$('lcbootfile');const old=sel.value;sel.innerHTML=bootFiles.map(f=>`<option value="${esc(f.name)}">${esc(f.name)} (${bootNum(Math.round(f.size/1024))} KB, ${esc(f.modified)})</option>`).join('');if(old&&bootFiles.some(f=>f.name===old))sel.value=old}
+ async function loadBootFiles(){const d=await api('/api/logs/boot/files');bootFiles=d.files||[];const sel=$('lcbootfile');const old=sel.value;sel.innerHTML=bootOptions(bootFiles,'');if(old&&bootFiles.some(f=>f.name===old))sel.value=old}
  async function bootRead(start,from){const f=$('lcbootfile').value;if(!f){$('lcbootout').textContent='No capture files yet.';return}
   try{const q='/api/logs/boot/read?file='+encodeURIComponent(f)+'&start='+Math.max(1,start|0)+'&limit='+BOOT_PAGE+(from?'&from='+encodeURIComponent(from):'');const d=await api(q);
    bootStart=d.start;bootTotal=d.total;$('lcbootout').textContent=(d.lines||[]).join('\n')||'(empty)';
@@ -8429,6 +8453,10 @@ setInterval(hostPing,15000);
  $('lcbootnext').onclick=()=>{if(bootStart+BOOT_PAGE<=bootTotal)bootRead(bootStart+BOOT_PAGE)};
  $('lcbootlast').onclick=()=>bootRead(Math.max(1,bootTotal-BOOT_PAGE+1));
  $('lcbootgo').onclick=()=>{const v=$('lcbootjump').value.trim();if(v)bootRead(1,v)};
+ $('lcbootcopy').onclick=async()=>{const f=$('lcbootfile').value;if(!f){createToast('No file selected');return}
+  if(!$('lcbootcopyall').checked){await copyText($('lcbootout').textContent,'this page');return}
+  const pos=$('lcbootpos'),keep=pos.textContent;try{const t=await bootWholeFile(f,(a,b)=>{pos.textContent='Reading '+bootNum(a)+' of '+bootNum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,f+' ('+bootNum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;alert('Copy failed: '+e.message)}};
+ $('lcvcopyall').onclick=async()=>{if(!vFile)return;const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;alert('Copy failed: '+e.message)}};
  $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Installing (about 10 s, includes a self-test)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200})});createToast(d.selftest?'Boot capture installed; self-test passed':'Boot capture installed; self-test not confirmed yet');await loadBoot()}catch(e){alert('Install failed: '+e.message);loadBoot()}};
  $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!confirm(purge?'Remove boot capture AND delete all captured files?':'Remove boot capture (captured files are kept)?'))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture removed');await loadBoot()}catch(e){alert('Remove failed: '+e.message)}};
 

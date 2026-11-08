@@ -202,7 +202,7 @@ assert (pj / 'Quiet.kt').exists() and 'Quiet.sink' in logger, 'Quiet helper must
 assert (pj / 'LogLineParser.kt').exists() and 'LogLineParser.parse' in bl, 'boot pages must carry parsed time/PID/thread/tag rows'
 assert (pj / 'SourceCounters.kt').exists() and 'SourceStats' in logger and 'countersJson()' in server, 'per-source counters missing'
 assert 'it.stats = SourceStats' in (pj / 'LogTools.kt').read_text(), 'noise gates must feed the counters'
-assert 'id="lcbootnav"' in html and 'viewBoot(' in html and 'loadCounters' in html and 'optgroup label="Boot capture' in html, 'web page: boot files in the session list / columns / counters missing'
+assert 'id="lcbootnav"' in html and 'viewBoot(' in html and 'loadCounters' in html and "bootOptions(fl,'boot:','Boot capture" in html and 'function bootOptions(' in html, 'web page: boot files in the session list / columns / counters missing'
 assert "x.pid>0" in html, 'viewer must show PID/thread when a line has them'
 for t in ('QuietTest', 'LogLineParserTest', 'SourceCountersTest'):
     assert (root / f'app/src/test/java/com/matchi/tool/{t}.kt').exists(), t + ' missing'
