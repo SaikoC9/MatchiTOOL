@@ -1,3 +1,17 @@
+# MatchiTOOL 1.3.7 — Log Catcher fixes
+
+- HTTPS: once the Android key store is seen to break the TLS handshake (as on the ZTE F50), that is remembered for the installed version and the next starts use the software key directly (no failed handshakes, no warnings, about 1 s faster). It is tried again after an update.
+- Changing the console password now counts wrong "current password" guesses toward the same lockout as /api/login.
+- Version metadata bumped to 1.3.7 / versionCode 307 (app, web page, validation) so the updater accepts the build; session pruning now never removes the session being written.
+
+- Fixed the repeating "A resource failed to call end." warnings: NanoHTTPD 2.3.1 gzips responses but never closes its GZIPOutputStream, leaking a native Deflater per request. Its gzip is now disabled for every response; the web page is gzipped once at first use (stream closed) and served with Content-Encoding when the browser accepts it.
+- Web Log Catcher: the "Delete session" button is now always visible (greyed out until a saved session is picked in the dropdown) instead of staying hidden.
+- Silent-tag filter also applies to device-wide capture (`device/` prefix); added NoiseGateTest.
+- Fixed the web live view freezing after the host restarted: the stream now sends a `reset` event when the page's last id is ahead of the server's, and the page clears its rows and reloads.
+- Fixed Delete session sometimes leaving the session in the list: the delete call now waits (max 3 s) for the writer to remove the files before answering.
+- Removed the native Log Catcher screen and its Home button: Log Catcher is now web-only. The collector, session files and web page are unchanged and still run from the service.
+- Log Catcher no longer records TrafficStats / mali_gralloc platform chatter or permissive-SELinux audit lines about this app.
+
 # MatchiTOOL 1.3.6 — Log Catcher Complete Edition
 
 - Persist active log-session state and recover interrupted sessions after process/device restart.

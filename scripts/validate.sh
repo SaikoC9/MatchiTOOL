@@ -46,7 +46,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.3.6'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.3.7'" in html, 'page version must match app version'
 assert 'refreshBusy' in html and 'setInterval(()=>{if(!historyMode && !document.hidden' in html, 'Log Catcher polling must be visibility-aware and overlap-safe'
 assert 'setTimeout(()=>URL.revokeObjectURL(url),3000)' in html, 'export download URL must remain available briefly for mobile browsers'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
@@ -59,7 +59,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 306' in gradle and 'versionName = "1.3.6"' in gradle
+assert 'versionCode = 307' in gradle and 'versionName = "1.3.7"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -78,16 +78,12 @@ for marker in ('newSingleThreadExecutor', 'MAX_RECENT = 3000', 'MAX_PENDING_WRIT
                'fun droppedWriteCount()', 'writer.execute'):
     assert marker in logger, f'Log Catcher stability marker missing: {marker}'
 assert 'FileWriter(target, true)' in logger and 'recent.removeFirst()' in logger, 'Log Catcher async persistence / bounded history missing'
-activity = (root / 'app/src/main/java/com/matchi/tool/LogCatcherActivity.kt').read_text()
-assert 'handler.postDelayed(flushRunnable, 200L)' in activity and 'pendingEntries.size >= 1000' in activity, 'Log Catcher UI updates must be batched and bounded'
-assert 'historyLines = LogCatcher.readSession' in activity and 'storedFunction(line)' in activity, 'session history must be cached and function-filterable'
 assert 'pruneSessions(target.parentFile ?: return@enqueueWrite, target)' in logger and 'count > MAX_PENDING_WRITES' in logger, 'session queue / rotation handling missing'
 start_body = logger[logger.index('fun start(context: Context)'):logger.index('fun stop()')]
 assert start_body.index('BufferedWriter(FileWriter(file, false))') < start_body.index('active = true'), 'session must be initialized before reporting active'
 assert 'UUID.randomUUID()' in logger and 'enqueueWrite(critical = true)' in logger, 'session collision resistance / critical writer operations missing'
 assert 'fun exportText(context: Context, onComplete: (File?) -> Unit)' in logger, 'log export must be asynchronous'
 assert 'startLogcatCapture()' in logger and start_body.index('pruneSessions(dir, file)') < start_body.index('startLogcatCapture()'), 'logcat capture must wait for session initialization'
-assert 'screenStarted' in activity and 'lastSeenId' in activity and 'override fun onDestroy()' in activity, 'Log Catcher Activity lifecycle/de-duplication guards missing'
 tools_kt = (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text()
 for marker in ('object DeviceLogs', 'while read x; do dmesg', 'gen.get() != g', 'class LogStream', 'MAX_STREAMS = 3', 'MAX_LIFETIME_MS',
                'object LogSearch', 'Guarded(line, d)', 'BUDGET_NS', 'object LogExport', 'MAX_BYTES = 64L', 'class DeleteOnClose', 'class NoiseGate', 'gate.allow('):
@@ -100,8 +96,7 @@ for route_marker in ('"/api/logs/stream"', '"/api/logs/search"', '"/api/logs/exp
 assert 'uri == "/api/logs/device" && s.method == Method.POST -> rootGate(s)' in server, 'changing device capture must be root-gated'
 for marker in ('openStream', 'syncStream', 'lcsearchall', 'lcexportall', 'lcreport', 'lcdevapply', 'lcregex', 'lcgroup', 'jumpErr', 'matchi_lc_bookmarks', 'checkAlerts'):
     assert marker in html, f'web Log Catcher feature missing: {marker}'
-for marker in ('togglePause', 'shareCurrent', 'confirmDelete'):
-    assert marker in activity, f'native Log Catcher feature missing: {marker}'
+assert 'LogCatcherActivity' not in main and not (root / 'app/src/main/java/com/matchi/tool/LogCatcherActivity.kt').exists(), 'Log Catcher is web-only: no native screen'
 gradle_src = (root / 'app/build.gradle.kts').read_text()
 assert 'else if (name == "release") {' in gradle_src and 'signingConfig = signingConfigs.getByName("debug")' in gradle_src, 'release builds must never be unsigned'
 assert 'id="appupdate"' in html and "'/api/update/stage'" in html and "'/api/update/install'" in html, 'web update UI missing'
@@ -165,7 +160,7 @@ assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both help
 for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
     assert needle in html, 'legacy cleanup piece missing: ' + needle
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
-assert "PAGE_VERSION='1.3.6'" in html and 'versionCode = 306' in gradle and 'versionName = "1.3.6"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.3.7'" in html and 'versionCode = 307' in gradle and 'versionName = "1.3.7"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
@@ -178,7 +173,7 @@ SENDAT_SHA256 = 'f0da6be08ed2cdb46f517baa8d964327d2550b68017468d2dbbe4aa8224e41a
 got = hashlib.sha256((root / 'app/src/main/assets/bin/sendat').read_bytes()).hexdigest()
 assert got == SENDAT_SHA256, f'sendat changed (sha256 {got}); update SENDAT_SHA256 here and in NOTICE.md after reviewing the new binary'
 assert SENDAT_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the sendat SHA-256'
-print('MatchiTOOL 1.3.6 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
+print('MatchiTOOL 1.3.7 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
 # Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).

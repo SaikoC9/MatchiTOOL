@@ -42,7 +42,7 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
-Current source version: **1.3.3** (versionCode **302**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.3.7** (versionCode **307**). The Android package and embedded web UI version are kept in sync.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
@@ -65,7 +65,7 @@ The web console uses a self-signed HTTPS certificate when it can (your browser w
 
 ## Log Catcher (1.2.30)
 
-Open **Home → Log Catcher** and press **Start logging** to begin a session without restarting the host. The collector records MatchiTOOL diagnostic events and, where Android permits access to the app's own process log buffer, tails this process with `logcat --pid`. Press **Stop logging** to close the session. Each session is stored privately under `files/logs/sessions/`; text snapshots are saved under `files/logs/exports/`.
+Log Catcher is available **only in the web console** (there is no Log Catcher screen in the Android app). Open the console in a browser, open Log Catcher and press **Start logging** to begin a session without restarting the host. The collector records MatchiTOOL diagnostic events and, where Android permits access to the app's own process log buffer, tails this process with `logcat --pid`. Press **Stop logging** to close the session. Each session is stored privately under `files/logs/sessions/`; text snapshots are saved under `files/logs/exports/`.
 
 The collector uses a low-priority single-thread writer so filesystem work does not block the UI, shell, or network request threads. Recent memory history is capped at 3,000 entries, queued writes at 4,096, each session file at approximately 8 MiB before rollover, and retained session files at 30. If the device denies process-log access, explicit MatchiTOOL diagnostic events continue to be recorded. Logs may contain device or network diagnostic data; keep exported files private.
 
@@ -132,7 +132,7 @@ See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression,
 - **Root temp files:** the root shell keeps its pid/output files in the root-only folder `/data/local/matchitool/tmp`.
 
 
-Current source release: **1.3.5**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
+Current source release: **1.3.7**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
 
 
 ### Log Catcher 1.3.5

@@ -43,11 +43,17 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
                 private val emit: (String, String, String) -> Unit) {
     private class Slot(val level: String, val tag: String, val sample: String, var n: Int)
 
+    private companion object { val SILENT_TAGS = setOf("TrafficStats", "mali_gralloc") }
+
     private val slots = HashMap<String, Slot>()
     private val digits = Regex("\\d+")
     private var windowStart = 0L
 
     fun allow(level: String, tag: String, msg: String): Boolean {
+        // Pure platform chatter that never needs action: dropped outright instead of 3-per-window.
+        val bare = tag.removePrefix("device/")   // device-wide capture prefixes the tag; the same noise must be dropped there too
+        if (bare in SILENT_TAGS && level != "ERROR") return false
+        if (bare == "tool" && msg.startsWith("type=1400 audit(") && "permissive=1" in msg) return false   // permissive SELinux audit lines
         val now = System.currentTimeMillis()
         if (now - windowStart >= windowMs || slots.size > 500) { flush(); windowStart = now }
         val key = tag + "|" + digits.replace(msg, "#").take(160)
@@ -237,7 +243,13 @@ class LogStream private constructor() : InputStream() {
     private fun begin(since: Long) {
         queue.offer(": connected\n\n".toByteArray(Charsets.UTF_8))
         LogCatcher.subscribe(listener)
-        LogCatcher.snapshot().filter { it.id > since }.forEach { if (!queue.offer(frame(it))) overflow = true }
+        val snap = LogCatcher.snapshot()
+        // The page's id is ahead of ours: the host restarted and ids began again. Tell the page to drop its old rows and
+        // resend everything, otherwise it would ignore every new entry until the ids caught up with the old number.
+        val from = if (since > (snap.lastOrNull()?.id ?: 0L)) {
+            queue.offer("event: reset\ndata: 1\n\n".toByteArray(Charsets.UTF_8)); 0L
+        } else since
+        snap.filter { it.id > from }.forEach { if (!queue.offer(frame(it))) overflow = true }
     }
 
     override fun read(): Int {

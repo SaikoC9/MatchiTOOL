@@ -25,6 +25,9 @@ object Prefs {
     fun oldTmpCleaned(c: Context): Boolean = sp(c).getBoolean("old_tmp_cleaned", false)
     fun setOldTmpCleaned(c: Context) { sp(c).edit().putBoolean("old_tmp_cleaned", true).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
+    /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
+    fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)
+    fun setTlsKeystoreBrokenVersion(c: Context, v: Int) { sp(c).edit().putInt("tls_ks_broken", v).apply() }
     fun setSeededVersion(c: Context, v: Int) { sp(c).edit().putInt("seeded", v).apply() }
     // ZTE web-admin access (used by the SMS / signal plugins through /api/zte)
     // Only local-network IPv4 addresses (see RouterHost): the router admin password is sent there. A stored value that

@@ -254,16 +254,24 @@ object LogCatcher {
 
     /**
      * Delete one finished session (.log plus its .txt companion). The active session is refused.
-     * The delete runs on the log writer so it is ordered after any footer still queued for that file.
+     * The delete runs on the log writer so it is ordered after any footer still queued for that file, and the call
+     * waits (up to 3 s) until it has finished so a list refreshed straight afterwards no longer shows the session.
      */
     fun deleteSession(context: Context, name: String): Boolean {
         val file = sessions(context).firstOrNull { it.name == name } ?: return false
         synchronized(lock) { if (sessionFile?.name == file.name) return false }
-        return enqueueWrite(critical = true) {
-            val companion = File(file.parentFile, file.nameWithoutExtension + ".txt")
-            if (!file.delete()) Log.w(TAG, "Could not delete ${file.name}")
-            if (companion.exists() && !companion.delete()) Log.w(TAG, "Could not delete ${companion.name}")
+        val done = java.util.concurrent.CountDownLatch(1)
+        val queued = enqueueWrite(critical = true) {
+            try {
+                val companion = File(file.parentFile, file.nameWithoutExtension + ".txt")
+                if (!file.delete()) Log.w(TAG, "Could not delete ${file.name}")
+                if (companion.exists() && !companion.delete()) Log.w(TAG, "Could not delete ${companion.name}")
+            } finally { done.countDown() }
         }
+        if (!queued) return false
+        // Callers refresh their session list right after this returns, so wait (bounded) for the files to be gone.
+        val finished = try { done.await(3, java.util.concurrent.TimeUnit.SECONDS) } catch (_: InterruptedException) { false }
+        return if (finished) !file.exists() else true
     }
 
     fun readSession(file: File): List<String> = try {
@@ -363,7 +371,8 @@ object LogCatcher {
     private fun pruneSessions(dir: File, current: File) {
         val files = dir.listFiles()?.filter { it.isFile && it.extension == "log" }
             ?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(MAX_SESSIONS).forEach { old ->
+        // The session being written is never pruned, whatever its file time says; the rest are kept newest-first.
+        files.filter { it.name != current.name }.drop(MAX_SESSIONS - 1).forEach { old ->
             if (!old.delete()) Log.w(TAG, "Could not prune ${old.name}")
             val companion = File(dir, old.nameWithoutExtension + ".txt")
             if (companion.exists() && !companion.delete()) Log.w(TAG, "Could not prune ${companion.name}")

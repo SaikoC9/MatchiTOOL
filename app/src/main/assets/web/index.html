@@ -558,7 +558,7 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
   <div class="card pop" id="logcatcher">
     <div class="mut" style="margin-bottom:8px">Log Catcher · Web dashboard</div>
     <div class="row" style="align-items:center;justify-content:space-between"><strong id="lcstate">Logging stopped</strong><span class="mut" id="lcsession">No active session</span></div>
-    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button><button id="lcdelete" class="danger" style="display:none">Delete session</button></div>
+    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button><button id="lcdelete" class="danger" disabled title="Pick a saved session in the dropdown first">Delete session</button></div>
     <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword or regex"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcregex"> Regex</label></div>
     <div class="btnrow" style="margin-bottom:8px"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
     <div class="btnrow" style="margin-bottom:8px"><button id="lcsearchall">Search all sessions</button><button id="lcsearchclose" style="display:none">Close results</button><button id="lcerrprev">◀ Error</button><button id="lcerrnext">Error ▶</button><span class="mut" id="lcerrpos"></span></div>
@@ -7411,7 +7411,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.3.6';
+const PAGE_VERSION='1.3.7';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
@@ -8275,6 +8275,7 @@ setInterval(hostPing,15000);
  function handleFrame(f){
   streamOk=true; if(f.startsWith(':'))return;
   let ev='message',data=''; f.split('\n').forEach(l=>{if(l.startsWith('event:'))ev=l.slice(6).trim();else if(l.startsWith('data:'))data+=l.slice(5).trim()});
+  if(ev==='reset'){rows=[];lastId=0;lastKey='';renderSoon();return}
   if(ev==='lagged'){refresh(true);return}
   try{addRows([JSON.parse(data)],true)}catch(e){}
  }
@@ -8303,7 +8304,7 @@ setInterval(hostPing,15000);
  }
 
  /* ---- buttons ---- */
- $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').style.display='none';await loadHistory();await refresh();loadDevice();}catch(e){alert('Could not start logging: '+e.message)}};
+ $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){alert('Could not start logging: '+e.message)}};
  $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){alert('Could not stop logging: '+e.message)}};
  function saveBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
  function exportLogs(ext){const text=rows.filter(makeFilter()).map(lineOf).join('\n');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
@@ -8323,7 +8324,7 @@ setInterval(hostPing,15000);
  ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
  $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
  $('lccopy').onclick=async()=>{const text=$('lcout').innerText;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log')}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
- $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').style.display='none';await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
+ $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
 
  /* ---- search across every saved session ---- */
  $('lcsearchall').onclick=async()=>{
@@ -8365,7 +8366,7 @@ setInterval(hostPing,15000);
 
  /* ---- history ---- */
  async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;sel.innerHTML='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');if(old)sel.value=old;}catch(e){}}
- $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';$('lcdelete').style.display=historyMode?'':'none';syncStream();if(!historyMode){rows=[];lastId=0;await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+ $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';$('lcdelete').disabled=!historyMode;syncStream();if(!historyMode){rows=[];lastId=0;await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}

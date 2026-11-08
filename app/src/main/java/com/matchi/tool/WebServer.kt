@@ -99,6 +99,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     private fun harden(response: Response): Response = response.also {
+        // NanoHTTPD 2.3.1 gzips text/* and JSON itself but only calls finish() on its GZIPOutputStream, never close(),
+        // so every compressed answer leaks a native Deflater until the GC finalizer logs "A resource failed to call end".
+        // Compression is therefore switched off here; the one large body (the page) is gzipped once below.
+        it.setGzipEncoding(false)
         it.addHeader("Cache-Control", "no-store")
         it.addHeader("X-Content-Type-Options", "nosniff")
         it.addHeader("X-Frame-Options", "DENY")
@@ -147,17 +151,32 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return JSONObject(if (text.isEmpty()) "{}" else text)
     }
 
-    // The page is read once and answered from memory. NanoHTTPD gzips text/* itself when the browser accepts it,
-    // so it is NOT compressed here (that would be compressed twice). ETag makes a reload a 304.
+    // The page is read once and answered from memory. NanoHTTPD's own gzip is disabled in harden() (it leaks a Deflater
+    // per response), so the page is compressed ONCE here, with the stream closed, and sent as-is to browsers that accept it.
+    // ETag makes a reload a 304.
     private val pageBytes: ByteArray by lazy { ctx.assets.open("web/index.html").use { it.readBytes() } }
+    private val pageGzip: ByteArray? by lazy {
+        try {
+            val out = java.io.ByteArrayOutputStream(pageBytes.size / 4 + 1024)
+            java.util.zip.GZIPOutputStream(out).use { it.write(pageBytes) }   // close() ends the Deflater
+            out.toByteArray().takeIf { it.size < pageBytes.size }
+        } catch (_: Exception) { null }
+    }
     private val pageTag by lazy { "\"" + MessageDigest.getInstance("SHA-256").digest(pageBytes).take(8).joinToString("") { "%02x".format(it) } + "\"" }
 
     private fun servePage(s: IHTTPSession): Response {
         if (s.headers["if-none-match"] == pageTag)
-            return harden(newFixedLengthResponse(Response.Status.NOT_MODIFIED, "text/html", "")).also { it.addHeader("ETag", pageTag) }
-        return harden(newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", ByteArrayInputStream(pageBytes), pageBytes.size.toLong())).also {
+            return harden(newFixedLengthResponse(Response.Status.NOT_MODIFIED, "text/html", "")).also {
+                it.addHeader("ETag", pageTag); it.addHeader("Vary", "Accept-Encoding")
+            }
+        val gz = pageGzip
+        val useGz = gz != null && (s.headers["accept-encoding"] ?: "").contains("gzip", ignoreCase = true)
+        val body = if (useGz) gz!! else pageBytes
+        return harden(newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", ByteArrayInputStream(body), body.size.toLong())).also {
             it.addHeader("ETag", pageTag)
+            it.addHeader("Vary", "Accept-Encoding")
             it.addHeader("Cache-Control", "no-cache")
+            if (useGz) it.addHeader("Content-Encoding", "gzip")
         }
     }
 
@@ -846,11 +865,22 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
         uri == "/api/console/password" && s.method == Method.GET ->
             json(Response.Status.OK, JSONObject().put("separate", Prefs.hasConsolePassword(ctx)).put("minLength", Prefs.MIN_CONSOLE_PW))
-        uri == "/api/console/password" && s.method == Method.POST -> {
+        uri == "/api/console/password" && s.method == Method.POST -> run {
             val req = body(s, MAX_LOGIN_BODY)
-            // The current sign-in password is required again, so a stolen session cannot take the console over.
-            if (!Prefs.checkAdminPassword(ctx, req.optString("current").take(200)))
+            // The current sign-in password is required again, so a stolen session cannot take the console over. Guesses count
+            // toward the same lockout as /api/login, otherwise a stolen session could try passwords here without any limit.
+            val pwIp = s.remoteIpAddress ?: "?"
+            val pwLoop = isLoopbackIp(pwIp)
+            val pwWait = guard.retryAfterMs(pwIp, pwLoop)
+            if (pwWait > 0) {
+                val secs = (pwWait + 999) / 1000
+                return@run json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
+                    .also { it.addHeader("Retry-After", secs.toString()) }
+            }
+            if (!Prefs.checkAdminPassword(ctx, req.optString("current").take(200))) {
+                guard.failed(pwIp, pwLoop)
                 throw IllegalArgumentException("Current password is wrong")
+            }
             Prefs.setConsolePassword(ctx, req.optString("password").take(200))   // empty = go back to the router password
             Sessions.revokeAllExcept(ctx, s.headers["x-token"])
             auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")

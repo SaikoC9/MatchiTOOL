@@ -114,7 +114,15 @@ class HostService : Service() {
                 if (prepare(source)) return true
             }
         }
-        if (!prepare(0)) { source = 0; advance() }
+        // The key store was already seen to break the handshake on this device (and app version): go straight to the software
+        // key instead of repeating two failed handshakes, their warnings and about a second of delay at every start.
+        @Suppress("DEPRECATION")
+        val appVer = try { packageManager.getPackageInfo(packageName, 0).versionCode } catch (_: Exception) { 0 }
+        val skipKeyStore = appVer != 0 && Prefs.tlsKeystoreBrokenVersion(applicationContext) == appVer
+        if (skipKeyStore) {
+            source = 1
+            if (!prepare(1)) advance()
+        } else if (!prepare(0)) { source = 0; advance() }
         var secure = factory != null
         // Building the server must not be able to end this task silently: an exception here used to leave the console down for good.
         var srv = try { newServer(factory, protocolSets.getOrNull(protoIdx)) } catch (e: Exception) {
@@ -151,6 +159,7 @@ class HostService : Service() {
             if (server === srv) server = null
             return
         }
+        if (ok && secure && source == 1 && !skipKeyStore && appVer != 0) Prefs.setTlsKeystoreBrokenVersion(applicationContext, appVer)
         if (ok) {
             Tls.ready = true   // the scheme is final now: the home screen may show the address and open the console
             LogCatcher.log("INFO", "HostService", "Web host listening on port ${Prefs.PORT} (${if (secure) "https, ${Tls.keySource} key" else "http"})")
