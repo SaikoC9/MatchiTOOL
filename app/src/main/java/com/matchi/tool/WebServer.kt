@@ -747,14 +747,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
         uri == "/api/logs/device" && s.method == Method.GET -> {
             val st = DeviceLogs.settings(ctx)
-            json(Response.Status.OK, JSONObject().put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("active", DeviceLogs.isActive()))
+            json(Response.Status.OK, JSONObject().put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("keepAll", st.keepAll).put("active", DeviceLogs.isActive()))
         }
         uri == "/api/logs/device" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             auditShell(s.remoteIpAddress ?: "?", req.toString(), "logs-device")
-            DeviceLogs.configure(ctx, req.optBoolean("logcat"), req.optBoolean("dmesg"), req.optString("level", "W"))
+            DeviceLogs.configure(ctx, req.optBoolean("logcat"), req.optBoolean("dmesg"), req.optString("level", "W"), if (req.has("keepAll")) req.optBoolean("keepAll") else null)
             val st = DeviceLogs.settings(ctx)
-            json(Response.Status.OK, JSONObject().put("ok", true).put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("active", DeviceLogs.isActive()))
+            json(Response.Status.OK, JSONObject().put("ok", true).put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("keepAll", st.keepAll).put("active", DeviceLogs.isActive()))
         }
         // Boot-time capture (Magisk script): every call reads or changes root-owned files, so all need the root gate.
         uri == "/api/logs/boot/status" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.status(ctx))

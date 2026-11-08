@@ -67,4 +67,20 @@ class NoiseGateTest {
         assertEquals("INFO", NoiseGate.levelFor("ERROR", "succeeded to send cmd (8) to com.android.trusty.keymaster with rc(61). errno: Success"))
         assertEquals("INFO", NoiseGate.levelFor("ERROR", "Getting response size (45)"))
     }
+
+    @Test fun keepEverythingLetsEveryLineThroughAndCountsThem() {
+        val c = SourceCounters()
+        val gate = NoiseGate(perWindow = 1, windowMs = 60_000L) { _, _, _ -> }
+        gate.stats = c
+        NoiseGate.keepEverything = true
+        try {
+            repeat(5) { assertTrue(gate.allow("WARNING", "T", "same line")) }
+            assertTrue(gate.allow("DEBUG", "TrafficStats", "chatter"))
+            assertTrue(gate.allow("INFO", "kernel", "[ 5284.569816] [c0] sprd-wlan: cmd->refcnt=1"))
+        } finally { NoiseGate.keepEverything = false }
+        val s = c.snapshot()
+        assertEquals(7L, s.passed); assertEquals(0L, s.collapsed); assertEquals(0L, s.dropped)
+        assertFalse(gate.allow("DEBUG", "TrafficStats", "chatter"))      // switch off again: the filter is back
+        assertEquals("INFO", NoiseGate.levelFor("WARNING", "UnisocWatchdog tick"))   // label rule is independent of the switch
+    }
 }

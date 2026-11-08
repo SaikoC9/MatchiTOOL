@@ -114,6 +114,7 @@ object LogCatcher {
                 } catch (e: Exception) { Log.e(TAG, "Unable to append session recovery marker", e) }
             }
         }
+        DeviceLogs.settings(context)   // loads the "keep every line" switch before capture starts
         startLogcatCapture()
         DeviceLogs.start(context)
     }
@@ -164,6 +165,7 @@ object LogCatcher {
                 .putString("session_id", id).putBoolean("session_active", true).commit()
         }
         // Start capture only after the session file is ready.
+        DeviceLogs.settings(app!!)   // loads the "keep every line" switch before capture starts
         startLogcatCapture()
         DeviceLogs.start(app!!)
         log("INFO", "LogCatcher", "Logging session started")

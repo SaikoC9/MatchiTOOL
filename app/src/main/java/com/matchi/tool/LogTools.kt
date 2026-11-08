@@ -44,6 +44,13 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
     private class Slot(val level: String, val tag: String, val sample: String, var n: Int)
 
     companion object {
+        /**
+         * Global switch ("Keep every line" on the Log Catcher page). When true, [allow] lets every line through: nothing is
+         * dropped or collapsed at capture time and the noise rules only apply when the page filters for display.
+         * [levelFor] (benign ERROR shown as INFO) is not affected: it changes the label, never removes a line.
+         */
+        @Volatile var keepEverything = false
+
         private val SILENT_TAGS = setOf("TrafficStats", "mali_gralloc")
 
         /** Unisoc/ZTE kernel driver heartbeat and per-packet tracing (seen at ~18 lines/s on the F50); never actionable. Kernel lines arrive with their "[ 5284.5] [c0] " prefix, which is skipped before matching. */
@@ -85,6 +92,7 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
     var stats: SourceCounters? = null
 
     fun allow(level: String, tag: String, msg: String): Boolean {
+        if (keepEverything) { stats?.passed(); return true }
         // Pure platform chatter that never needs action: dropped outright instead of 3-per-window.
         val bare = tag.removePrefix("device/")   // device-wide capture prefixes the tag; the same noise must be dropped there too
         if (bare in SILENT_TAGS && level != "ERROR") { stats?.dropped(); return false }
@@ -121,7 +129,7 @@ object DeviceLogs {
     private const val TAG = "MatchiDeviceLogs"
     private const val PREFS = "matchi_log_catcher"
 
-    data class Settings(val logcat: Boolean, val dmesg: Boolean, val level: String)
+    data class Settings(val logcat: Boolean, val dmesg: Boolean, val level: String, val keepAll: Boolean = false)
 
     private val gen = AtomicInteger()
     private val procs = CopyOnWriteArrayList<Process>()
@@ -134,16 +142,22 @@ object DeviceLogs {
     fun settings(ctx: Context): Settings {
         val p = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val level = (p.getString("device_level", "W") ?: "W").take(1).uppercase(Locale.US)
+        val keep = p.getBoolean("keep_all", false)
+        NoiseGate.keepEverything = keep      // the in-app capture loops read this switch line by line
         return Settings(p.getBoolean("device_logcat", false), p.getBoolean("device_dmesg", false),
-            if (level in listOf("V", "D", "I", "W", "E")) level else "W")
+            if (level in listOf("V", "D", "I", "W", "E")) level else "W", keep)
     }
 
     fun isActive(): Boolean = running
 
-    fun configure(ctx: Context, logcat: Boolean, dmesg: Boolean, level: String) {
+    /** [keepAll] null leaves the "keep every line" switch as it is (an older page that does not send it). */
+    fun configure(ctx: Context, logcat: Boolean, dmesg: Boolean, level: String, keepAll: Boolean? = null) {
         val lvl = level.take(1).uppercase(Locale.US).let { if (it in listOf("V", "D", "I", "W", "E")) it else "W" }
-        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("device_logcat", logcat).putBoolean("device_dmesg", dmesg).putString("device_level", lvl).apply()
+        val ed = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("device_logcat", logcat).putBoolean("device_dmesg", dmesg).putString("device_level", lvl)
+        if (keepAll != null) ed.putBoolean("keep_all", keepAll)
+        ed.apply()
+        NoiseGate.keepEverything = keepAll ?: NoiseGate.keepEverything
         if (LogCatcher.isRunning()) start(ctx) else stop()
     }
 
