@@ -570,9 +570,9 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword or regex"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcregex"> Regex</label></div>
     <div class="btnrow" style="margin-bottom:8px"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
     <div class="btnrow" style="margin-bottom:8px"><button id="lcsearchall">Search all sessions</button><button id="lcsearchclose" style="display:none">Close results</button><button id="lcerrprev">◀ Error</button><button id="lcerrnext">Error ▶</button><span class="mut" id="lcerrpos"></span></div>
-    <div class="btnrow" style="margin-bottom:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcalerterr"> Alert on ERROR</label><input id="lcalert" placeholder="Alert on keyword"><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button><button id="lcexportall">All sessions (.zip)</button><button id="lcreport">Problem report (.zip)</button><button id="lcbundle">Full bundle (.zip, root)</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcredact" checked> Hide private data in zips</label></div>
+    <div class="btnrow" style="margin-bottom:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcalerterr"> Alert on ERROR</label><input id="lcalert" placeholder="Alert on keyword"><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button><button id="lcexportall">All sessions (.zip)</button><button id="lcreport">Problem report (.zip)</button><button id="lcbundle">Full bundle (.zip, root)</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcredact" checked> Hide private data in exports and copies</label></div>
     <details style="margin-bottom:8px"><summary class="mut">Device-wide capture (root)</summary>
-      <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><button id="lcdevapply">Apply</button></div>
+      <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><label class="mut" style="white-space:nowrap" title="Turns the noise filter off while capturing: nothing is dropped or collapsed. Lines are still limited by the priority above."><input type="checkbox" id="lcdevkeepall"> Keep every line (no noise filter)</label><button id="lcdevapply">Apply</button></div>
       <div class="mut" id="lcdevstate" style="margin-top:6px">Off. Captures every process on the device while a session is logging; needs root.</div>
     </details>
     <details id="lcboot" style="margin-bottom:8px"><summary class="mut">Boot capture (Magisk, runs without the app)</summary>
@@ -7433,7 +7433,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.3.7';
+const PAGE_VERSION='1.3.8';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
@@ -8329,11 +8329,42 @@ setInterval(hostPing,15000);
   else if(!stream&&wantStream()&&streamFails<3)openStream();
  }
 
+/* REDACT-BEGIN (mirror of Redactor.kt; scripts/test_page_redact.js checks both give the same results) */
+const RD_SMS_AT=/\+(CMGR|CMGL|CMT|CDS|CMGS|CMGW)\s*[:=]|\bAT\+(CMGS|CMGW|CMGR|CMGL)\b\s*=?/i;
+const RD_SMS_BODY=/\b(sms_?body|sms_?text|message_?body|body)\s*[=:]\s*\S/i;
+const RD_BEARER=/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/gi;
+const RD_SECRET=/\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
+const RD_ID_KV=/\b(imei(?:sv)?|imsi|iccid|meid|msisdn|serial(?:no)?)(\s*[:=]\s*)([0-9A-Za-z]{6,})/gi;
+const RD_IMEI=/(^|[^0-9A-Za-z])(\d{15})(?![0-9A-Za-z])/g;
+const RD_ICCID=/(^|[^0-9A-Za-z])(89\d{17,18})(?![0-9A-Za-z])/g;
+const RD_PHONE=/(^|[^\w.+])\+\d{8,15}(?!\d)/g;
+const RD_HEX=/(^|[^0-9A-Fa-f])([0-9A-Fa-f]{40,})(?![0-9A-Fa-f])/g;
+const RD_PDU_CTX=/pdu|sms|cmg|cmt|cds/i;
+function rdLuhn(d){if(!d||/[^0-9]/.test(d))return false;let sum=0,alt=false;for(let i=d.length-1;i>=0;i--){let n=d.charCodeAt(i)-48;if(alt){n*=2;if(n>9)n-=9}sum+=n;alt=!alt}return sum%10===0}
+function redactLine(line,counts){
+ if(!line)return line;
+ const hit=k=>{counts[k]=(counts[k]||0)+1};
+ let s=line,m;
+ if((m=RD_SMS_AT.exec(s))){hit('sms');return s.slice(0,m.index+m[0].length)+' [SMS redacted]'}
+ if((m=RD_SMS_BODY.exec(s))){hit('sms');return s.slice(0,m.index+m[1].length)+'=[SMS redacted]'}
+ s=s.replace(RD_BEARER,(a,g1)=>{hit('token');return g1+' [REDACTED]'});
+ s=s.replace(RD_SECRET,(a,g1,g2)=>{hit('secret');return g1+g2+'[REDACTED]'});
+ s=s.replace(RD_ID_KV,(a,g1,g2)=>{hit('identifier');return g1+g2+'[ID]'});
+ s=s.replace(RD_IMEI,(a,pre,num)=>{if(rdLuhn(num)){hit('imei');return pre+'[IMEI]'}return a});
+ s=s.replace(RD_ICCID,(a,pre)=>{hit('iccid');return pre+'[ICCID]'});
+ s=s.replace(RD_PHONE,(a,pre)=>{hit('phone');return pre+'[PHONE]'});
+ if(RD_PDU_CTX.test(s))s=s.replace(RD_HEX,(a,pre)=>{hit('hex');return pre+'[HEX redacted]'});
+ return s;
+}
+function redactText(text){const counts={};const out=String(text).split('\n').map(l=>redactLine(l,counts)).join('\n');return{text:out,counts:counts,total:Object.values(counts).reduce((a,b)=>a+b,0)}}
+/* REDACT-END */
+/* Hide private data in single-file exports and copies when the box is ticked (same box as for the zips). */
+function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{text:String(text),total:0};return redactText(text)}
  /* ---- buttons ---- */
  $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){alert('Could not start logging: '+e.message)}};
  $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){alert('Could not stop logging: '+e.message)}};
  function saveBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
- function exportLogs(ext){const text=rows.filter(makeFilter()).map(lineOf).join('\n');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
+ function exportLogs(ext){const r=maybeRedact(rows.filter(makeFilter()).map(lineOf).join('\n'));const text=r.text;if(r.total)createToast('Private data hidden in '+r.total+' line(s)');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
  async function downloadZip(path,btn){
   const old=btn.textContent; btn.disabled=true; btn.textContent='Preparing…';
   try{
@@ -8352,7 +8383,7 @@ setInterval(hostPing,15000);
  ['lclevel','lcsource','lcfunction','lcsearch','lcregex','lcfrom','lcuntil','lcgroup','lcbm'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>render(true),150)}));
  ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
  $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
- $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const text=$('lcout').innerText;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log')}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
+ $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const rv=maybeRedact($('lcout').innerText);const text=rv.text;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log'+(rv.total?' (private data hidden in '+rv.total+' line(s))':''))}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
  $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
 
  /* ---- search across every saved session ---- */
@@ -8427,8 +8458,8 @@ setInterval(hostPing,15000);
  $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
- async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
- $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
+ async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
+ $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value,keepAll:$('lcdevkeepall').checked})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
 
 
  /* ---- boot files: grouped and sorted the same way in every dropdown ---- */
@@ -8443,7 +8474,7 @@ setInterval(hostPing,15000);
  const bootLabel=f=>{const k=bootKind(f.name),r=bootRot(f.name);const tag=k===2?(bootInfo[f.name]||''):(r===0?'current':'older #'+r);return f.name+(tag?' \u2014 '+tag:'')+' \u00b7 '+bootSize(f.size)+(f.modified?' \u00b7 '+bootShort(f.modified):'')};
  const bootGroups=['Logcat (all buffers, newest first)','Kernel (dmesg, newest first)','Info and events'];
  function bootOptions(files,prefix,pre){pre=pre||'';const out=[];[0,1,2].forEach(k=>{const g=bootSort(files.filter(f=>bootKind(f.name)===k));if(g.length)out.push('<optgroup label="'+pre+bootGroups[k]+'">'+g.map(f=>'<option value="'+prefix+esc(f.name)+'">'+esc(bootLabel(f))+'</option>').join('')+'</optgroup>')});return out.join('')}
- async function copyText(text,what){try{await navigator.clipboard.writeText(text);createToast('Copied '+what)}catch(e){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();if(ok)createToast('Copied '+what);else alert('Automatic copy is not available here. Select the text and use your browser Copy command.')}}
+ async function copyText(text,what){const r=maybeRedact(text);text=r.text;if(r.total)what+=' (private data hidden in '+r.total+' line(s))';try{await navigator.clipboard.writeText(text);createToast('Copied '+what)}catch(e){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();if(ok)createToast('Copied '+what);else alert('Automatic copy is not available here. Select the text and use your browser Copy command.')}}
  async function bootWholeFile(file,progress){let start=1,total=1,parts=[];while(start<=total){const d=await api('/api/logs/boot/read?file='+encodeURIComponent(file)+'&start='+start+'&limit='+BOOT_MAXPAGE);total=d.total;parts.push((d.lines||[]).join('\n'));start=d.end+1;if(!(d.lines||[]).length)break;if(progress)progress(Math.min(start-1,total),total)}return parts.join('\n')}
  /* ---- boot capture (Magisk script) ---- */
  const BOOT_PAGE=300; let bootStart=1,bootTotal=0,bootFiles=[];
