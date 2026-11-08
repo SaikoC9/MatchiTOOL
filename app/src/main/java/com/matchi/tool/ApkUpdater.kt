@@ -137,7 +137,24 @@ object ApkUpdater {
         if (url.host.equals("github.com", true) && m != null) {
             val (owner, repo, tag, asset) = m.destructured
             val api = if (tag.isEmpty()) "latest" else "tags/" + java.net.URLEncoder.encode(tag, "UTF-8")
-            val c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
+            // GitHub's API answers 502/503/504 now and then: try a few times, then fall back to a plain HEAD on the download link.
+            var c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
+            var tries = 1
+            while (c.responseCode in RETRY_CODES && c.responseCode != 429 && tries < 3) {
+                c.disconnect()
+                try { Thread.sleep(1_500L * tries) } catch (_: InterruptedException) { break }
+                c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
+                tries++
+            }
+            if (c.responseCode in setOf(500, 502, 503, 504)) {
+                c.disconnect()
+                LogCatcher.log("WARNING", "ApkUpdater", "GitHub API answered ${c.responseCode}; checking the download link directly")
+                val h = openHttps(url, method = "HEAD")
+                try {
+                    if (h.responseCode != 200) throw UpdateException("GitHub is not answering right now (HTTP ${h.responseCode}). Wait a minute and try again.")
+                    return Remote(haveName, haveCode, tag, "unknown", h.contentLengthLong, "", "link", iSha)
+                } finally { h.disconnect() }
+            }
             try {
                 if (c.responseCode == 404) throw UpdateException("No release found at that GitHub link (HTTP 404). Check the owner, repository and that the release repository is public.")
                 if (c.responseCode != 200) throw UpdateException(UpdateLinks.releaseFailure(c.responseCode, c.getHeaderField("X-RateLimit-Remaining")))
