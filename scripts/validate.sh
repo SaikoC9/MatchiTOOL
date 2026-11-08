@@ -46,7 +46,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.3.7'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.3.8'" in html, 'page version must match app version'
 assert 'refreshBusy' in html and 'setInterval(()=>{if(!historyMode && !document.hidden' in html, 'Log Catcher polling must be visibility-aware and overlap-safe'
 assert 'setTimeout(()=>URL.revokeObjectURL(url),3000)' in html, 'export download URL must remain available briefly for mobile browsers'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
@@ -59,7 +59,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 307' in gradle and 'versionName = "1.3.7"' in gradle
+assert 'versionCode = 308' in gradle and 'versionName = "1.3.8"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -161,7 +161,7 @@ assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both help
 for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
     assert needle in html, 'legacy cleanup piece missing: ' + needle
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
-assert "PAGE_VERSION='1.3.7'" in html and 'versionCode = 307' in gradle and 'versionName = "1.3.7"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.3.8'" in html and 'versionCode = 308' in gradle and 'versionName = "1.3.8"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
@@ -206,7 +206,9 @@ assert 'id="lcbootnav"' in html and 'viewBoot(' in html and 'loadCounters' in ht
 assert "x.pid>0" in html, 'viewer must show PID/thread when a line has them'
 for t in ('QuietTest', 'LogLineParserTest', 'SourceCountersTest'):
     assert (root / f'app/src/test/java/com/matchi/tool/{t}.kt').exists(), t + ' missing'
-print('MatchiTOOL 1.3.7 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
+assert 'function maybeRedact(' in html and 'maybeRedact(rows.filter' in html and "id=\"lcdevkeepall\"" in html, 'web page: redaction of exports/copies or the keep-every-line switch missing'
+assert 'keepEverything' in (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text(), 'NoiseGate keep-everything switch missing'
+print('MatchiTOOL 1.3.8 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
 # Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).
@@ -216,6 +218,11 @@ if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && comm
   bash "$(dirname "$0")/test_logd.sh" </dev/null || exit 1
 else
   echo "skipped: legacy cleanup upgrade test (setsid, pgrep or node missing)"
+fi
+
+# The page's redaction rules must give the same results as Redactor.kt (same cases as RedactorTest).
+if command -v node >/dev/null 2>&1; then
+  node "$(dirname "$0")/test_page_redact.js" || exit 1
 fi
 
 # IMEI keeper: pure sh, runs against a fake sendat.
