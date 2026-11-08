@@ -54,7 +54,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val sendat = File(ctx.filesDir, "sendat")
         var copied = true
         if (refresh || !sendat.exists()) copied = installSendat(sendat)
-        try { sendat.setExecutable(true, false) } catch (_: Exception) { }
+        try { sendat.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
         if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
     }
@@ -74,7 +74,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             true
         } catch (e: Exception) {
             LogCatcher.log("WARNING", "WebServer", "sendat copy failed, keeping the existing binary: ${e.message}")
-            try { tmp.delete() } catch (_: Exception) { }
+            try { tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.installSendat", e) }
             false
         }
     }
@@ -99,7 +99,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     /**
-     * NanoHTTPD 2.3.1 decides gzip per response AFTER serve() returns (text and JSON types when the browser accepts it), which
+     * NanoHTTPD 2.3.1 decides gzip per response AFTER serve() returns (text/* and JSON when the browser accepts it), which
      * overrides setGzipEncoding(false) set in [harden]; its GZIPOutputStream is never closed, so every answer leaked a native
      * Deflater ("A resource failed to call end." in the log). Switching it off here is the hook NanoHTTPD provides.
      */
@@ -281,7 +281,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 }
                 f.appendText("$stamp $kind ip=$ip sha256=$h len=${command.length}\n")
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Quiet.note("WebServer.auditShell", e) }
     }
 
     private val busyAudit = HashMap<String, Long>()
@@ -336,6 +336,16 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     /** Read-only diagnostics: no modem settings or partitions are modified. */
+    /** Per-source counters of the in-app capture for /api/logs/status (see SourceCounters). */
+    private fun countersJson(): JSONObject {
+        val o = JSONObject()
+        SourceStats.all().forEach { (name, c) ->
+            o.put(name, JSONObject().put("seen", c.seen).put("passed", c.passed).put("collapsed", c.collapsed)
+                .put("dropped", c.dropped).put("gaps", c.gaps))
+        }
+        return o.put("queueDropped", SourceStats.queueDropped.get()).put("swallowedErrors", Quiet.total())
+    }
+
     private fun diagnostics(): Response {
         val script = """
             echo '--- identity ---'; id
@@ -590,7 +600,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             return json(Response.Status.OK, JSONObject().put("ok", true).put("name", name)
                 .put("url", "/api/uploads/$name").put("path", dest.absolutePath).put("size", dest.length()))
         } finally {
-            try { if (tmp.exists()) tmp.delete() } catch (_: Exception) {}
+            try { if (tmp.exists()) tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.uploadFileLocked", e) }
         }
     }
 
@@ -624,7 +634,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val files = HashMap<String, String>()
         s.parseBody(files)
         val tmp = files["apk"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"apk\")")
-        val staged = try { ApkUpdater.stageFile(ctx, tmp) } finally { try { tmp.delete() } catch (_: Exception) {} }
+        val staged = try { ApkUpdater.stageFile(ctx, tmp) } finally { try { tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.updateStageLocked", e) } }
         return json(Response.Status.OK, JSONObject().put("ok", true)
             .put("oldName", staged.oldName).put("oldCode", staged.oldCode)
             .put("newName", staged.newName).put("newCode", staged.newCode)
@@ -676,7 +686,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/logs/status" && s.method == Method.GET -> json(Response.Status.OK, JSONObject()
             .put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL)
-            .put("droppedWrites", LogCatcher.droppedWriteCount()))
+            .put("droppedWrites", LogCatcher.droppedWriteCount()).put("counters", countersJson()))
         uri == "/api/logs/start" && s.method == Method.POST -> {
             LogCatcher.start(ctx)
             json(Response.Status.OK, JSONObject().put("ok", LogCatcher.isRunning()).put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL))
@@ -735,6 +745,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // Boot-time capture (Magisk script): every call reads or changes root-owned files, so all need the root gate.
         uri == "/api/logs/boot/status" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.status(ctx))
         uri == "/api/logs/boot/files" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.files(ctx))
+        uri == "/api/logs/boot/counters" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.counters(ctx))
         uri == "/api/logs/boot/read" && s.method == Method.GET -> rootGate(s) ?: run {
             fun p(n: String) = s.parameters[n]?.firstOrNull() ?: ""
             val res = BootLogd.page(ctx, p("file"), p("start").toIntOrNull() ?: 1, p("limit").toIntOrNull() ?: 300, p("from").ifBlank { null })
@@ -762,7 +773,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/logs/sessions" && s.method == Method.GET -> {
             val rows = JSONArray()
             LogCatcher.sessions(ctx).forEach { f -> rows.put(JSONObject().put("name", f.name).put("size", f.length()).put("modified", f.lastModified())) }
-            json(Response.Status.OK, JSONObject().put("sessions", rows))
+            json(Response.Status.OK, JSONObject().put("sessions", rows).put("bootEnabled", BootLogd.enabled(ctx)))
         }
         uri.startsWith("/api/logs/session/") && s.method == Method.GET -> {
             val name = uri.removePrefix("/api/logs/session/")

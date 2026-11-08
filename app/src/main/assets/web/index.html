@@ -576,6 +576,8 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
       <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Nothing loaded.</pre>
     </details>
     <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
+    <div class="mut" id="lccounters" style="font-size:11px;margin-top:4px;white-space:pre-line" title="Lines seen, shown, collapsed (repeats), dropped (noise filters) and gaps per source"></div>
+    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><span class="mut" id="lcvpos"></span></div>
     <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
     <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -8200,7 +8202,7 @@ setInterval(hostPing,15000);
  const panelOpen=()=>!!$('logcatcher')?.classList.contains('open');
  const stamp=v=>v?v.replace('T',' '):'';
  const colorOf=l=>l==='ERROR'?'#ff6b81':l==='WARNING'?'#ffc857':l==='DEBUG'?'#8aa4c8':'#b9c9dc';
- const lineOf=x=>`${x.timestamp} [${x.level}] [${x.function}] ${x.message}`;
+ const lineOf=x=>`${x.timestamp} ${x.pid>0?x.pid+'/'+x.tid+' ':''}[${x.level}] [${x.function}] ${x.message}`;
 
  /* ---- filtering: level, source, function, keyword or regex, time range, bookmarks ---- */
  function makeFilter(){
@@ -8236,7 +8238,7 @@ setInterval(hostPing,15000);
   if(!force&&key===lastKey)return;
   const out=$('lcout'), firstPaint=lastKey==='', stick=force||firstPaint||out.scrollHeight-out.scrollTop-out.clientHeight<48;
   lastKey=key; shown=tail; errIdx=-1; $('lcerrpos').textContent='';
-  out.innerHTML=tail.map((x,i)=>`<span class="lcl${x.level==='ERROR'?' lcerr':''}" data-i="${i}" style="color:${colorOf(x.level)}">${bookmarks.has(keyOf(x))?'★ ':''}${esc(x.timestamp)} [${esc(x.level)}] [${esc(x.function)}] ${esc(x.message)}${x.count>1?' ×'+x.count+' (last '+esc(x.last)+')':''}</span>`).join('\n')||'No matching log entries';
+  out.innerHTML=tail.map((x,i)=>`<span class="lcl${x.level==='ERROR'?' lcerr':''}" data-i="${i}" style="color:${colorOf(x.level)}">${bookmarks.has(keyOf(x))?'★ ':''}${esc(x.timestamp)} ${x.pid>0?esc(x.pid)+'/'+esc(x.tid)+' ':''}[${esc(x.level)}] [${esc(x.function)}] ${esc(x.message)}${x.count>1?' ×'+x.count+' (last '+esc(x.last)+')':''}</span>`).join('\n')||'No matching log entries';
   if(stick)out.scrollTop=out.scrollHeight;
  }
  function renderSoon(){if(renderTimer)return;renderTimer=setTimeout(()=>{renderTimer=null;render()},250)}
@@ -8373,8 +8375,36 @@ setInterval(hostPing,15000);
  });
 
  /* ---- history ---- */
- async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;sel.innerHTML='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');if(old)sel.value=old;}catch(e){}}
- $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';$('lcdelete').disabled=!historyMode;syncStream();if(!historyMode){rows=[];lastId=0;await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+ const cnum=n=>Number(n||0).toLocaleString();
+ async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;
+  let html='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');
+  /* Boot capture files join the same list (needs root, so only asked for when the owner switched boot capture on). */
+  if(d.bootEnabled){try{const b=await api('/api/logs/boot/files');const fl=(b.files||[]).filter(f=>/^(logcat|dmesg)\.log(\.\d+)?$/.test(f.name));
+   if(fl.length)html+='<optgroup label="Boot capture (Magisk, never filtered)">'+fl.map(f=>`<option value="boot:${esc(f.name)}">${esc(f.name)} (${cnum(Math.round(f.size/1024))} KB)</option>`).join('')+'</optgroup>'}catch(e){}}
+  sel.innerHTML=html;if(old)sel.value=old;}catch(e){}}
+ /* ---- per-source counters (in-app capture) and line counts (boot capture) ---- */
+ async function loadCounters(){try{const d=await api('/api/logs/status');const c=d.counters||{};
+  const line=(k)=>k+': seen '+cnum(c[k].seen)+' · shown '+cnum(c[k].passed)+' · collapsed '+cnum(c[k].collapsed)+' · dropped '+cnum(c[k].dropped)+' · gaps '+cnum(c[k].gaps);
+  const parts=['app','device','kernel'].filter(k=>c[k]&&(c[k].seen>0||c[k].gaps>0)).map(line);
+  if(!parts.length)parts.push('No lines counted yet in this session.');
+  const extra=[];if(c.queueDropped>0)extra.push(cnum(c.queueDropped)+' lines refused by a full write queue');if(c.swallowedErrors>0)extra.push(cnum(c.swallowedErrors)+' internal errors (see quiet_* entries)');
+  $('lccounters').textContent=parts.join('\n')+(extra.length?'\n'+extra.join(' · '):'')}catch(e){}}
+ async function loadBootCounters(){$('lccounters').textContent='Counting boot capture lines\u2026';try{const d=await api('/api/logs/boot/counters');
+  $('lccounters').textContent='boot capture (nothing filtered or collapsed): logcat '+cnum(d.logcatLines)+' lines ('+cnum(d.logcatErrors)+' errors, '+cnum(d.logcatWarnings)+' warnings) · kernel '+cnum(d.dmesgLines)+' lines · gaps '+cnum(d.gaps)}catch(e){$('lccounters').textContent=''}}
+ /* ---- boot capture files in the main viewer: paged, with the original time, PID, thread, level and tag ---- */
+ const VIEW_PAGE=300; let vFile='',vStart=1,vTotal=0;
+ const bootEntries=(d,file)=>(d.rows||[]).map((r,i)=>({id:d.start+i,timestamp:r.t||'',level:r.lv||'INFO',function:r.tag||'boot',message:r.msg||'',pid:r.pid,tid:r.tid,source:/^dmesg/.test(file)?'kernel':'device'}));
+ async function viewBoot(file,start,from){vFile=file;
+  const q='/api/logs/boot/read?file='+encodeURIComponent(file)+'&start='+Math.max(1,start|0)+'&limit='+VIEW_PAGE+(from?'&from='+encodeURIComponent(from):'');
+  const d=await api(q);vStart=d.start;vTotal=d.total;rows=bootEntries(d,file);lastKey='';render(true);
+  $('lcvpos').textContent='Lines '+cnum(d.start)+'-'+cnum(d.end)+' of '+cnum(d.total);$('lcout').scrollTop=0;return d}
+ async function viewBootLatest(file){try{const d=await viewBoot(file,1);if(d.total>VIEW_PAGE)await viewBoot(file,d.total-VIEW_PAGE+1);$('lcout').scrollTop=$('lcout').scrollHeight;loadBootCounters()}catch(e){$('lcout').textContent='Unable to read '+file+': '+e.message}}
+ const viewGuard=fn=>async()=>{if(!vFile)return;try{await fn()}catch(e){$('lcout').textContent='Unable to read: '+e.message}};
+ $('lcvprev').onclick=viewGuard(()=>viewBoot(vFile,Math.max(1,vStart-VIEW_PAGE)));
+ $('lcvnext').onclick=viewGuard(()=>{if(vStart+VIEW_PAGE<=vTotal)return viewBoot(vFile,vStart+VIEW_PAGE)});
+ $('lcvlast').onclick=viewGuard(()=>viewBoot(vFile,Math.max(1,vTotal-VIEW_PAGE+1)));
+ $('lcvgo').onclick=viewGuard(()=>{const v=$('lcvjump').value.trim();if(v)return viewBoot(vFile,1,v)});
+ $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
@@ -8402,7 +8432,8 @@ setInterval(hostPing,15000);
  $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Installing (about 10 s, includes a self-test)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200})});createToast(d.selftest?'Boot capture installed; self-test passed':'Boot capture installed; self-test not confirmed yet');await loadBoot()}catch(e){alert('Install failed: '+e.message);loadBoot()}};
  $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!confirm(purge?'Remove boot capture AND delete all captured files?':'Remove boot capture (captured files are kept)?'))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture removed');await loadBoot()}catch(e){alert('Remove failed: '+e.message)}};
 
- const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();}};
+ setInterval(()=>{if(panelOpen()&&!document.hidden&&!historyMode)loadCounters()},5000);
+ const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();loadCounters();}};
  // Poll only while the panel is visible; never overlap requests or waste router CPU in the background.
  refreshTimer=setInterval(()=>{if(!historyMode && !document.hidden && $('logcatcher')?.classList.contains('open'))refresh()},3000);
  setInterval(syncStream,2000);

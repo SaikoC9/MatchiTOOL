@@ -62,6 +62,8 @@ object LogCatcher {
 
     @Synchronized fun initialize(context: Context) {
         app = context.applicationContext
+        // Failures that used to be swallowed silently now reach the log (rate limited inside Quiet).
+        Quiet.sink = { site, message -> log("WARNING", "quiet/" + site.replace('.', '_'), message) }
         if (!crashHandlerInstalled) {
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { thread, error ->
@@ -120,7 +122,7 @@ object LogCatcher {
     fun flush(timeoutMs: Long) {
         val latch = java.util.concurrent.CountDownLatch(1)
         if (!enqueueWrite(critical = true) { latch.countDown() }) return
-        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { }
+        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: InterruptedException) { Quiet.note("LogCatcher.flush", e) }
     }
 
     fun isRunning(): Boolean = active
@@ -151,12 +153,13 @@ object LogCatcher {
                 pruneSessions(dir, file)
             } catch (e: Exception) {
                 Log.e(TAG, "Unable to initialize log session ${file.name}", e)
-                try { file.delete() } catch (_: Exception) { }
+                try { file.delete() } catch (e: Exception) { Quiet.note("LogCatcher.start", e) }
                 return
             }
             sessionId = id
             sessionFile = file
             active = true
+            SourceStats.reset()
             app!!.getSharedPreferences("matchi_log_catcher", Context.MODE_PRIVATE).edit()
                 .putString("session_id", id).putBoolean("session_active", true).commit()
         }
@@ -308,7 +311,7 @@ object LogCatcher {
         val gen = captureGen.get()
         val thread = Thread({
             var process: Process? = null
-            val gate = NoiseGate { l, t, m -> log(l, t, m) }
+            val gate = NoiseGate { l, t, m -> log(l, t, m) }.also { it.stats = SourceStats.app }
             try {
                 process = ProcessBuilder("logcat", "--pid=${AndroidProcess.myPid()}", "-v", "threadtime", "-T", "1")
                     .redirectErrorStream(true).start()
@@ -317,11 +320,13 @@ object LogCatcher {
                 if (captureGen.get() == gen) process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
                         if (!active || captureGen.get() != gen) return@forEach
-                        val match = LOGCAT_LINE.matchEntire(line.trim()) ?: return@forEach
+                        SourceStats.app.seen()
+                        val match = LOGCAT_LINE.matchEntire(line.trim())
+                        if (match == null) { SourceStats.app.dropped(); return@forEach }
                         val priority = match.groupValues[1]
                         val tag = match.groupValues[2].substringBefore(':').trim().ifBlank { "Android" }
                         val message = match.groupValues[3]
-                        if (tag == TAG || tag == "System.out" || message.isBlank()) return@forEach
+                        if (tag == TAG || tag == "System.out" || message.isBlank()) { SourceStats.app.dropped(); return@forEach }
                         val level = when (priority) { "E", "A" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
                         if (gate.allow(level, tag, message)) log(level, tag, message)
                     }
@@ -329,7 +334,7 @@ object LogCatcher {
             } catch (e: Exception) {
                 if (active) Log.w(TAG, "Process logcat capture unavailable: ${e.message}")
             } finally {
-                try { process?.destroy() } catch (_: Exception) { }
+                try { process?.destroy() } catch (e: Exception) { Quiet.note("LogCatcher.startLogcatCapture", e) }
                 if (process != null && logcatProcess === process) logcatProcess = null
             }
         }, "MatchiTOOL-LogcatCapture").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
@@ -339,7 +344,7 @@ object LogCatcher {
 
     private fun stopLogcatCapture() {
         captureGen.incrementAndGet()
-        try { logcatProcess?.destroy() } catch (_: Exception) { }
+        try { logcatProcess?.destroy() } catch (e: Exception) { Quiet.note("LogCatcher.stopLogcatCapture", e) }
         logcatProcess = null
         logcatThread?.interrupt()
         logcatThread = null
@@ -351,6 +356,7 @@ object LogCatcher {
         val count = pendingWrites.incrementAndGet()
         if (!critical && count > MAX_PENDING_WRITES) {
             pendingWrites.decrementAndGet()
+            SourceStats.queueDropped.incrementAndGet()
             synchronized(lock) { droppedWrites++ }
             return false
         }

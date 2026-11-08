@@ -117,8 +117,24 @@ object BootLogd {
         val r = RootShell.run(ctx, BootLogdModel.pageCommand(name, start, limit, from), 20_000)
         if (r.content.trim() == "MISSING") return JSONObject().put("ok", false).put("error", "File not found")
         val p = BootLogdModel.parsePage(r.content) ?: return JSONObject().put("ok", false).put("error", "Could not read the file: ${r.content.take(150)}")
+        // Each line is also split into time / PID / thread / level / tag / message for the viewer's columns.
+        val rows = JSONArray()
+        p.lines.forEach { l ->
+            val x = LogLineParser.parse(l)
+            rows.put(JSONObject().put("k", x.kind).put("t", x.time).put("pid", x.pid).put("tid", x.tid)
+                .put("lv", x.level).put("tag", x.tag).put("msg", x.message))
+        }
         return JSONObject().put("ok", true).put("name", name).put("total", p.total).put("start", p.start)
-            .put("lines", JSONArray(p.lines)).put("end", p.start + p.lines.size - 1)
+            .put("lines", JSONArray(p.lines)).put("rows", rows).put("end", p.start + p.lines.size - 1)
+    }
+
+    /** Line counts of the boot capture, from one root call. Not part of status(): it reads every file. */
+    fun counters(ctx: Context): JSONObject {
+        val r = RootShell.run(ctx, BootLogdModel.countersCommand(), 30_000)
+        val c = BootLogdModel.parseCounters(r.content)
+        return JSONObject().put("ok", r.success).put("logcatLines", c.logcatLines).put("logcatErrors", c.logcatErrors)
+            .put("logcatWarnings", c.logcatWarnings).put("dmesgLines", c.dmesgLines).put("gaps", c.gaps).put("events", c.events)
+            .put("filtered", false)
     }
 
     /**

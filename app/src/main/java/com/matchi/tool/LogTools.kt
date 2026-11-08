@@ -81,19 +81,24 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
     private val digits = Regex("\\d+")
     private var windowStart = 0L
 
+    /** Optional counters: lines removed outright, lines let through, and lines collapsed into a repeat summary. */
+    var stats: SourceCounters? = null
+
     fun allow(level: String, tag: String, msg: String): Boolean {
         // Pure platform chatter that never needs action: dropped outright instead of 3-per-window.
         val bare = tag.removePrefix("device/")   // device-wide capture prefixes the tag; the same noise must be dropped there too
-        if (bare in SILENT_TAGS && level != "ERROR") return false
-        if (bare in POLLING_TAGS && (level == "INFO" || level == "DEBUG")) return false   // ZTE polling chatter, see POLLING_TAGS
-        if (bare == "kernel" && level == "INFO" && KERNEL_CHATTER.containsMatchIn(msg)) return false   // driver heartbeat spam
-        if (bare == "tool" && msg.startsWith("type=1400 audit(") && "permissive=1" in msg) return false   // permissive SELinux audit lines
+        if (bare in SILENT_TAGS && level != "ERROR") { stats?.dropped(); return false }
+        if (bare in POLLING_TAGS && (level == "INFO" || level == "DEBUG")) { stats?.dropped(); return false }   // ZTE polling chatter, see POLLING_TAGS
+        if (bare == "kernel" && level == "INFO" && KERNEL_CHATTER.containsMatchIn(msg)) { stats?.dropped(); return false }   // driver heartbeat spam
+        if (bare == "tool" && msg.startsWith("type=1400 audit(") && "permissive=1" in msg) { stats?.dropped(); return false }   // permissive SELinux audit lines
         val now = System.currentTimeMillis()
         if (now - windowStart >= windowMs || slots.size > 500) { flush(); windowStart = now }
         val key = tag + "|" + digits.replace(msg, "#").take(160)
         val slot = slots.getOrPut(key) { Slot(level, tag, msg.take(160), 0) }
         slot.n++
-        return slot.n <= perWindow
+        val allowed = slot.n <= perWindow
+        if (allowed) stats?.passed() else stats?.collapsed()
+        return allowed
     }
 
     /** Report what was hidden in the window that just ended, then start a fresh one. */
@@ -161,7 +166,7 @@ object DeviceLogs {
     @Synchronized fun stop() {
         gen.incrementAndGet()
         running = false
-        procs.forEach { try { it.destroy() } catch (_: Exception) { } }
+        procs.forEach { try { it.destroy() } catch (e: Exception) { Quiet.note("LogTools.stop", e) } }
         procs.clear()
     }
 
@@ -175,15 +180,17 @@ object DeviceLogs {
             procs.add(proc)
             if (gen.get() == g) {
                 val myPid = AndroidProcess.myPid().toString()
-                val gate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }
+                val gate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }.also { it.stats = SourceStats.device }
                 proc.inputStream.bufferedReader().useLines { seq ->
                     for (line in seq) {
                         if (gen.get() != g || !LogCatcher.isRunning()) break
                         lines++
-                        val m = LINE.matchEntire(line.trim()) ?: continue
-                        if (m.groupValues[1] == myPid) continue          // this app is already captured separately
+                        SourceStats.device.seen()
+                        val m = LINE.matchEntire(line.trim())
+                        if (m == null) { SourceStats.device.dropped(); continue }
+                        if (m.groupValues[1] == myPid) { SourceStats.device.dropped(); continue }          // this app is already captured separately
                         val msg = m.groupValues[4]
-                        if (msg.isBlank()) continue
+                        if (msg.isBlank()) { SourceStats.device.dropped(); continue }
                         val tag = m.groupValues[3].substringBefore(':').trim().ifBlank { "android" }.replace('.', '_').take(60)
                         val lvl = when (m.groupValues[2]) { "E", "A", "F" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
                         val shown = NoiseGate.levelFor(lvl, msg)
@@ -194,8 +201,9 @@ object DeviceLogs {
         } catch (e: Exception) {
             if (gen.get() == g) Log.w(TAG, "Device logcat stopped: ${e.message}")
         } finally {
-            try { p?.destroy() } catch (_: Exception) { }
+            try { p?.destroy() } catch (e: Exception) { Quiet.note("LogTools.runLogcat", e) }
             if (p != null) procs.remove(p)
+            if (gen.get() == g) SourceStats.device.gap()   // ended without stop(): lines may be missing from here
             if (gen.get() == g && System.currentTimeMillis() - started < 3000 && lines <= 1)
                 LogCatcher.log("WARNING", "DeviceLogs", "Device logcat ended immediately: root access refused or logcat unavailable")
         }
@@ -215,9 +223,9 @@ object DeviceLogs {
             procs.add(proc)
             val stdin = proc.outputStream
             val ticker = Thread({
-                try { while (gen.get() == g) { stdin.write(10); stdin.flush(); Thread.sleep(4000) } } catch (_: Exception) { }
+                try { while (gen.get() == g) { stdin.write(10); stdin.flush(); Thread.sleep(4000) } } catch (e: Exception) { Quiet.note("LogTools.runDmesg", e) }
             }, "MatchiTOOL-DevDmesgTick").apply { isDaemon = true; start() }
-            val kgate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }
+            val kgate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }.also { it.stats = SourceStats.kernel }
             val seen = LinkedHashSet<String>()
             val batch = ArrayList<String>()
             var baseline = true
@@ -225,7 +233,7 @@ object DeviceLogs {
                 for (line in seq) {
                     if (gen.get() != g || !LogCatcher.isRunning()) break
                     if (line == "__MATCHI_TICK__") {
-                        for (l in batch) if (seen.add(l) && !baseline) emitKernel(l, kgate)
+                        for (l in batch) if (seen.add(l) && !baseline) { SourceStats.kernel.seen(); emitKernel(l, kgate) }
                         kgate.flush()
                         while (seen.size > 1000) { val iter = seen.iterator(); iter.next(); iter.remove() }
                         batch.clear()
@@ -237,8 +245,9 @@ object DeviceLogs {
         } catch (e: Exception) {
             if (gen.get() == g) Log.w(TAG, "Kernel log capture stopped: ${e.message}")
         } finally {
-            try { p?.destroy() } catch (_: Exception) { }
+            try { p?.destroy() } catch (e: Exception) { Quiet.note("LogTools.runDmesg", e) }
             if (p != null) procs.remove(p)
+            if (gen.get() == g) SourceStats.kernel.gap()
         }
     }
 
@@ -403,7 +412,7 @@ object LogSearch {
                 } catch (_: IOException) {
                     // unreadable file: skip it
                 } finally {
-                    try { reader.close() } catch (_: IOException) { }
+                    try { reader.close() } catch (e: IOException) { Quiet.note("LogTools.run", e) }
                 }
             }
             return Result(hits, scanned, truncated, null)
@@ -461,7 +470,7 @@ object LogExport {
             return zipFile
         } catch (e: Exception) {
             Log.e("MatchiLogExport", "Archive failed", e)
-            try { out?.delete() } catch (_: Exception) { }
+            try { out?.delete() } catch (e: Exception) { Quiet.note("LogTools.put", e) }
             return null
         } finally {
             busy.release()
@@ -483,7 +492,7 @@ object LogExport {
             val mi = ActivityManager.MemoryInfo()
             (ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(mi)
             line("memory", "${mi.availMem / (1024 * 1024)} MB free of ${mi.totalMem / (1024 * 1024)} MB, low=${mi.lowMemory}")
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Quiet.note("LogTools.line", e) }
         line("app storage free", "${ctx.filesDir.usableSpace / (1024 * 1024)} MB")
         line("log session running", LogCatcher.isRunning())
         line("log disk writes dropped", LogCatcher.droppedWriteCount())

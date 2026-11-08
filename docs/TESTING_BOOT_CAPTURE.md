@@ -8,3 +8,6 @@
 6. Fill /data close to the minimum free space: state changes to paused-low-space and resumes when space returns.
 7. Each su call may show a Magisk toast; install and status use one call each.
 8. SELinux: do not rely on permissive; check `getenforce` in `context.txt` and that files are written while enforcing.
+9. Build first: `./gradlew testDebugUnitTest` (QuietTest, LogLineParserTest, SourceCountersTest, BootLogdModelTest, NoiseGateTest must pass).
+10. Viewer: with boot capture on, open the Log Catcher session list: logcat.log / dmesg.log files appear under "Boot capture". Open one: lines show time, PID/thread, level, tag; Prev/Next/Latest and "Go to time" work; the counters line shows boot line counts.
+11. Counters: start a session with device capture on; the line under the selector shows seen/shown/collapsed/dropped/gaps per source and they grow. `quiet_*` WARNING entries, if any, are failures that used to be swallowed silently: report them.

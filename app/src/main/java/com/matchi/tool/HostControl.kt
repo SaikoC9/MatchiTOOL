@@ -45,7 +45,7 @@ object HostControl {
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) { Quiet.note("HostControl.hotspotNets", e) }
         cachedNets = out
         cachedV6Nets = out6
         cachedAt = now

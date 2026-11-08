@@ -179,7 +179,7 @@ object ZteClient {
             try {
                 val dec = String(Base64.decode(line, Base64.DEFAULT), Charsets.UTF_8)
                 if (dec.isNotEmpty() && dec.all { it.code in 32..126 }) cands.add(dec)
-            } catch (_: Exception) { }
+            } catch (e: Exception) { Quiet.note("ZteClient.autoDetect", e) }
         }
         for (c in cands) {
             if (rejectedGuesses >= 3) break

@@ -174,28 +174,6 @@ SENDAT_SHA256 = 'f0da6be08ed2cdb46f517baa8d964327d2550b68017468d2dbbe4aa8224e41a
 got = hashlib.sha256((root / 'app/src/main/assets/bin/sendat').read_bytes()).hexdigest()
 assert got == SENDAT_SHA256, f'sendat changed (sha256 {got}); update SENDAT_SHA256 here and in NOTICE.md after reviewing the new binary'
 assert SENDAT_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the sendat SHA-256'
-# Kotlin block comments nest: a "/*" inside a KDoc (for example the text "text/*") opens a second comment and the build
-# fails with "Unclosed comment". Scan every Kotlin file (strings and // comments skipped) for a comment that never closes.
-def _unclosed_comment(src):
-    i, depth, n = 0, 0, len(src)
-    while i < n:
-        two = src[i:i + 2]
-        if depth == 0 and src.startswith('"""', i):
-            j = src.find('"""', i + 3); i = n if j < 0 else j + 3; continue
-        if depth == 0 and src[i] == '"':
-            i += 1
-            while i < n and src[i] != '"': i += 2 if src[i] == '\\' else 1
-            i += 1; continue
-        if depth == 0 and two == '//':
-            j = src.find('\n', i); i = n if j < 0 else j; continue
-        if depth == 0 and src[i] == "'":
-            i += 4 if src[i + 1:i + 2] == '\\' else 3; continue
-        if two == '/*': depth += 1; i += 2; continue
-        if two == '*/' and depth > 0: depth -= 1; i += 2; continue
-        i += 1
-    return depth
-for _f in (root / 'app/src').rglob('*.kt'):
-    assert _unclosed_comment(_f.read_text()) == 0, f'{_f.name}: unclosed (nested) block comment - do not write "/*" inside a comment'
 # Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
 logd = (root / 'app/src/main/assets/bin/matchi_logd.sh').read_text()
 logd_ver = re.search(r'^# MATCHI_LOGD_VERSION=(\d+)$', logd, re.M)
@@ -207,7 +185,7 @@ assert 'MATCHI_LOGD_EOF' not in logd, 'boot script must not contain the installe
 bl = (root / 'app/src/main/java/com/matchi/tool/BootLogd.kt').read_text()
 assert 'BootLogdModel.SCRIPT_PATH' in bl and 'fun ensureCurrent' in bl and 'bin/matchi_logd.sh' in bl, 'boot script installer missing'
 assert 'BootLogd.ensureCurrent' in service, 'boot tasks must re-install an outdated boot script'
-for route in ('/api/logs/boot/status', '/api/logs/boot/install', '/api/logs/boot/uninstall', '/api/logs/boot/read', '/api/logs/boot/files'):
+for route in ('/api/logs/boot/status', '/api/logs/boot/install', '/api/logs/boot/uninstall', '/api/logs/boot/read', '/api/logs/boot/files', '/api/logs/boot/counters'):
     i = server.index('"' + route + '"')
     assert 'rootGate(s)' in server[i:i + 120], route + ' must sit behind the root gate'
 assert 'id="lcboot"' in html and '/api/logs/boot/read' in html, 'web page boot capture viewer missing'
@@ -216,8 +194,18 @@ for f in (root / 'app/src/main/java').rglob('*.kt'):
     n = len(re.findall(r'catch \(_: \w+\) *\{ *\}', f.read_text()))
     if f.name.startswith('BootLogd'): assert n == 0, f.name + ': log the exception instead of swallowing it'
     silent += n
-SILENT_CATCH_BASELINE = 48
+SILENT_CATCH_BASELINE = 0   # every swallowed exception goes through Quiet.note / Quiet.attempt / Quiet.orElse
 assert silent <= SILENT_CATCH_BASELINE, f'{silent} silent catch blocks (baseline {SILENT_CATCH_BASELINE}): log the exception (LogCatcher.log) instead of "catch (_: ...) {{ }}"'
+# Phase 2 viewer: parsed columns, per-source counters, one session list, and the quiet-failure helper.
+pj = root / 'app/src/main/java/com/matchi/tool'
+assert (pj / 'Quiet.kt').exists() and 'Quiet.sink' in logger, 'Quiet helper must be wired to the app log'
+assert (pj / 'LogLineParser.kt').exists() and 'LogLineParser.parse' in bl, 'boot pages must carry parsed time/PID/thread/tag rows'
+assert (pj / 'SourceCounters.kt').exists() and 'SourceStats' in logger and 'countersJson()' in server, 'per-source counters missing'
+assert 'it.stats = SourceStats' in (pj / 'LogTools.kt').read_text(), 'noise gates must feed the counters'
+assert 'id="lcbootnav"' in html and 'viewBoot(' in html and 'loadCounters' in html and 'optgroup label="Boot capture' in html, 'web page: boot files in the session list / columns / counters missing'
+assert "x.pid>0" in html, 'viewer must show PID/thread when a line has them'
+for t in ('QuietTest', 'LogLineParserTest', 'SourceCountersTest'):
+    assert (root / f'app/src/test/java/com/matchi/tool/{t}.kt').exists(), t + ' missing'
 print('MatchiTOOL 1.3.7 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 

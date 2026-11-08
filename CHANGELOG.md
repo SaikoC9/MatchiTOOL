@@ -10,7 +10,14 @@
 - Check for update now defaults to `https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk`; a pasted `/releases/tag/build-115` page link is converted; a different APK file name in the release is resolved (single .apk); `build-N` tags are no longer compared as versions.
 - Fixed the remaining "A resource failed to call end." warnings: NanoHTTPD decides gzip per response after serve() and overrode setGzipEncoding(false); WebServer now overrides useGzipWhenAccepted() to return false.
 - Noise filter, second round (from a second F50 log): all sprd-wlan / sc2355_* bookkeeping except lines that report a problem (disconn, fail, error, timeout), sipa_eth flow-control lines, sprd_wdt_fiq, cpufreq, wlan0 get_station; ZTE polling modules (PinModule, PinApi, EmptyModule, PollingCommandProcessor, DispatchModule, MobilePhoneStateCache, ThermalManager, ...) are dropped at INFO/DEBUG (WARNING/ERROR kept); TrustyKeymaster "succeeded"/"Getting response size" and "Bluetooth service is null" are shown as INFO instead of ERROR. On that log: 500 lines -> 24 (the remaining 12 or so are the old build's own "repeated N more times" summaries). Boot capture stays unfiltered.
-- Not done yet: phases 3 and 4 (more sources, compression, redaction, export bundle), original PID/thread/buffer columns in the viewer, per-source counters.
+- Phase 2 finished (except the log buffer per line and capture-time filtering, see below):
+  - Viewer shows the original Android time, PID/thread, level and tag of boot-capture lines (new `LogLineParser`, unit tested). Android's threadtime format does not say which buffer (main/system/radio/events/crash) a line came from, so no per-line buffer column exists; only the `--------- beginning of <buffer>` markers are shown.
+  - Boot capture files (logcat.log*, dmesg.log*) are now in the same dropdown as the app sessions, with Prev/Next/Latest and go-to-time, and the existing level/source/tag/search filters (display only).
+  - Per-source counters (seen / shown / collapsed / dropped / gaps) for the app, device logcat and kernel sources in `/api/logs/status` and under the session selector; `/api/logs/boot/counters` counts the boot files (never filtered). `SourceCounters`, unit tested.
+  - Still open: the in-app session still applies the noise gate when it records; moving that to display time needs a storage change.
+- Phase 5: all 48 silent `catch (_: ...) { }` blocks now report through `Quiet.note` (first 5 failures per call site, then every 100th) as `quiet_<Class>_<function>` WARNING entries; `Quiet` is Android-free and tested (`QuietTest`). validate.sh baseline is now 0.
+- Not done yet: phases 3 and 4 (more sources, compression, redaction, export bundle).
+- NOT compiled or run on a device: this change was written without a Kotlin compiler. Run `./gradlew testDebugUnitTest` and install on the device before relying on it.
 
 # MatchiTOOL 1.3.7 — Log Catcher fixes
 

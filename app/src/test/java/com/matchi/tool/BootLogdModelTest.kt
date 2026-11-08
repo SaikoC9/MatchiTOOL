@@ -59,4 +59,14 @@ class BootLogdModelTest {
     @Test fun rotationIndexOrdersNewestFirst() {
         assertEquals(0, BootLogdModel.rotationIndex("logcat.log")); assertEquals(4, BootLogdModel.rotationIndex("logcat.log.4"))
     }
+
+    @Test fun countersParseAndCommandCoverRotatedFiles() {
+        val c = BootLogdModel.parseCounters("LOGCAT_LINES=5\nLOGCAT_ERRORS=3\nLOGCAT_WARNINGS=1\nDMESG_LINES=2\nGAPS=1\nEVENTS=0\nnoise line\n")
+        assertEquals(5L, c.logcatLines); assertEquals(3L, c.logcatErrors); assertEquals(1L, c.logcatWarnings)
+        assertEquals(2L, c.dmesgLines); assertEquals(1L, c.gaps); assertEquals(0L, c.events)
+        assertEquals(0L, BootLogdModel.parseCounters("").logcatLines)      // unreadable output counts as zero, never throws
+        val cmd = BootLogdModel.countersCommand()
+        assertTrue(cmd.contains("logcat.log.[0-9]*") && cmd.contains("dmesg.log.[0-9]*") && cmd.contains("logcat.gaps"))
+        assertTrue(!cmd.contains("rm ") && !cmd.contains("mv "))         // read-only
+    }
 }

@@ -63,21 +63,21 @@ object RootShell {
                     BufferedReader(InputStreamReader(p.inputStream, Charsets.UTF_8)).use { r ->
                         while (true) lines.put(r.readLine() ?: break)
                     }
-                } catch (_: Exception) { }
+                } catch (e: Exception) { Quiet.note("RootShell.enqueue", e) }
                 enqueue(EOF)
             }, "MatchiRootSession").apply { isDaemon = true; start() }
         }
         fun alive() = !dead && p.isAlive
         fun kill() {
             dead = true // Never hand a closing shell to another command.
-            try { p.outputStream.close() } catch (_: Exception) {}
-            try { p.destroy() } catch (_: Exception) {}
+            try { p.outputStream.close() } catch (e: Exception) { Quiet.note("RootShell.kill", e) }
+            try { p.destroy() } catch (e: Exception) { Quiet.note("RootShell.kill", e) }
             try {
                 if (!p.waitFor(150, TimeUnit.MILLISECONDS) && p.isAlive) p.destroyForcibly()
             } catch (_: Exception) {
-                try { if (p.isAlive) p.destroyForcibly() } catch (_: Exception) {}
+                try { if (p.isAlive) p.destroyForcibly() } catch (e: Exception) { Quiet.note("RootShell.kill", e) }
             }
-            try { p.inputStream.close() } catch (_: Exception) {}
+            try { p.inputStream.close() } catch (e: Exception) { Quiet.note("RootShell.kill", e) }
         }
     }
 
@@ -150,7 +150,7 @@ object RootShell {
             "fi",
             "rm -f $rm"
         ).joinToString("\n")
-        try { runOnce(script, 5_000L, isolate = false) } catch (_: Exception) {}
+        try { runOnce(script, 5_000L, isolate = false) } catch (e: Exception) { Quiet.note("RootShell.killScriptTree", e) }
     }
 
     private val pool = ArrayList<Session>()
@@ -357,9 +357,9 @@ object RootShell {
         } catch (e: Exception) {
             return ShellResult(false, "Root command failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
-            try { process?.outputStream?.close() } catch (_: Exception) {}
-            try { process?.inputStream?.close() } catch (_: Exception) {}
-            try { process?.destroy() } catch (_: Exception) {}
+            try { process?.outputStream?.close() } catch (e: Exception) { Quiet.note("RootShell.runOnce", e) }
+            try { process?.inputStream?.close() } catch (e: Exception) { Quiet.note("RootShell.runOnce", e) }
+            try { process?.destroy() } catch (e: Exception) { Quiet.note("RootShell.runOnce", e) }
         }
     }
 

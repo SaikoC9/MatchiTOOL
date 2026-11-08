@@ -57,6 +57,28 @@ object BootLogdModel {
             "tail -n +\$S \"\$F\" | head -n $n | cut -c1-1000"
     }
 
+    /** What the boot script has captured, counted from the files themselves (it never filters or collapses anything). */
+    data class Counters(val logcatLines: Long, val logcatErrors: Long, val logcatWarnings: Long, val dmesgLines: Long, val gaps: Long, val events: Long)
+
+    /** One shell fragment that prints the counts as KEY=value lines. Rotated parts (logcat.log.1, ...) are included. */
+    fun countersCommand(): String {
+        val d = LOG_DIR
+        val lc = "cat \"$d\"/logcat.log \"$d\"/logcat.log.[0-9]* 2>/dev/null"
+        val head = "^[0-9-]+ [0-9:.]+ +[0-9]+ +[0-9]+ "     // date, time, pid, tid; the priority letter follows
+        return "echo LOGCAT_LINES=\$($lc | wc -l)\n" +
+            "echo LOGCAT_ERRORS=\$($lc | grep -c -E '$head[EFA] ')\n" +
+            "echo LOGCAT_WARNINGS=\$($lc | grep -c -E '${head}W ')\n" +
+            "echo DMESG_LINES=\$(cat \"$d\"/dmesg.log \"$d\"/dmesg.log.[0-9]* 2>/dev/null | wc -l)\n" +
+            "echo GAPS=\$(wc -l < \"$d/logcat.gaps\" 2>/dev/null || echo 0)\n" +
+            "echo EVENTS=\$(wc -l < \"$d/events.log\" 2>/dev/null || echo 0)\n"
+    }
+
+    fun parseCounters(out: String): Counters {
+        val m = parseStatus(out)
+        fun n(k: String) = m[k]?.trim()?.toLongOrNull() ?: 0L
+        return Counters(n("LOGCAT_LINES"), n("LOGCAT_ERRORS"), n("LOGCAT_WARNINGS"), n("DMESG_LINES"), n("GAPS"), n("EVENTS"))
+    }
+
     data class Page(val total: Int, val start: Int, val lines: List<String>)
     fun parsePage(out: String): Page? {
         val all = out.lines()

@@ -66,7 +66,7 @@ object ScreenStreamer {
      */
     fun kick() {
         burstUntil = System.currentTimeMillis() + BURST_MS
-        try { lock.withLock { wakeCond.signalAll() } } catch (_: Exception) { }
+        try { lock.withLock { wakeCond.signalAll() } } catch (e: Exception) { Quiet.note("ScreenStreamer.kick", e) }
     }
 
     /** Scale in percent that frames are currently encoded at (may differ from what a second viewer asked for). */
@@ -125,16 +125,16 @@ object ScreenStreamer {
         val out = p.outputStream
         val inp = DataInputStream(BufferedInputStream(p.inputStream, 1 shl 16))
         private val errThread = Thread({
-            try { val b = ByteArray(1024); val e = p.errorStream; while (e.read(b) >= 0) { /* drain */ } } catch (_: Exception) { }
+            try { val b = ByteArray(1024); val e = p.errorStream; while (e.read(b) >= 0) { /* drain */ } } catch (e: Exception) { Quiet.note("ScreenStreamer.ensureRunning", e) }
         }, "MatchiScreenErr").apply { isDaemon = true; start() }
         fun close() {
-            try { out.close() } catch (_: Exception) { }
-            try { p.destroy() } catch (_: Exception) { }
+            try { out.close() } catch (e: Exception) { Quiet.note("ScreenStreamer.close", e) }
+            try { p.destroy() } catch (e: Exception) { Quiet.note("ScreenStreamer.close", e) }
             try { if (!p.waitFor(250, TimeUnit.MILLISECONDS) && p.isAlive) p.destroyForcibly() } catch (_: Exception) {
-                try { if (p.isAlive) p.destroyForcibly() } catch (_: Exception) { }
+                try { if (p.isAlive) p.destroyForcibly() } catch (e: Exception) { Quiet.note("ScreenStreamer.close", e) }
             }
-            try { p.inputStream.close() } catch (_: Exception) { }
-            try { p.errorStream.close() } catch (_: Exception) { }
+            try { p.inputStream.close() } catch (e: Exception) { Quiet.note("ScreenStreamer.close", e) }
+            try { p.errorStream.close() } catch (e: Exception) { Quiet.note("ScreenStreamer.close", e) }
             try { errThread.join(150) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
         }
     }
@@ -184,7 +184,7 @@ object ScreenStreamer {
                     val spent = System.currentTimeMillis() - t0
                     if (spent < pause) {
                         // interruptible wait: kick() ends it early
-                        try { lock.withLock { wakeCond.awaitNanos(TimeUnit.MILLISECONDS.toNanos(pause - spent)) } } catch (_: InterruptedException) { }
+                        try { lock.withLock { wakeCond.awaitNanos(TimeUnit.MILLISECONDS.toNanos(pause - spent)) } } catch (e: InterruptedException) { Quiet.note("ScreenStreamer.loop", e) }
                     }
                 }
             } finally {
@@ -235,7 +235,7 @@ object ScreenStreamer {
                     val hdr = total - png.width.toLong() * png.height.toLong() * 4L
                     if (hdr == 12L || hdr == 16L || hdr == 20L) { hdrSize = hdr.toInt(); mode = RAW_OK }
                 }
-            } catch (_: Exception) { }
+            } catch (e: Exception) { Quiet.note("ScreenStreamer.calibrate", e) }
             rawMode = mode
             return Grabbed(png, false)
         }

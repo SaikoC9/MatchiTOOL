@@ -48,7 +48,7 @@ object Prefs {
             // An invalidated key can never work again. Remove it so a NEW key can be made and a re-entered password is encrypted
             // again (otherwise saving would fail the same way and fall back to plain text).
             if (e is java.security.UnrecoverableKeyException || e is android.security.keystore.KeyPermanentlyInvalidatedException) {
-                try { ks.deleteEntry(ZTE_KEY_ALIAS) } catch (_: Exception) {}
+                try { ks.deleteEntry(ZTE_KEY_ALIAS) } catch (e: Exception) { Quiet.note("Prefs.credentialKey", e) }
                 null
             } else throw e
         }

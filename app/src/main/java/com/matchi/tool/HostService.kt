@@ -185,7 +185,7 @@ class HostService : Service() {
         return false
     }
 
-    private fun stopQuietly(srv: WebServer) { try { srv.stop() } catch (_: Exception) { } }
+    private fun stopQuietly(srv: WebServer) { try { srv.stop() } catch (e: Exception) { Quiet.note("HostService.stopQuietly", e) } }
 
     private fun scheduleStartRetry() {
         if (!destroyed && !workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
@@ -241,14 +241,14 @@ class HostService : Service() {
         try {
             val r = RootShell.run(this, HUNG_RUN_NOTE.replace('\u00a7', '$'), 10_000)
             if (r.content.isNotBlank()) LogCatcher.log("WARNING", "HostService", "Boot tasks did not finish: ${r.content.take(300)}")
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Quiet.note("HostService.logHungBootScript", e) }
     }
 
     override fun onDestroy() {
         destroyed = true   // first: a host that is still starting sees this and stops itself again
         Tls.ready = false
-        try { workers.shutdownNow() } catch (_: Exception) {}
-        try { server?.stop() } catch (_: Exception) {}
+        try { workers.shutdownNow() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
+        try { server?.stop() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         server = null
         RootShell.closeAll()
         initialized.set(false)

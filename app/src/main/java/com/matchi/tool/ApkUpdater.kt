@@ -69,7 +69,7 @@ object ApkUpdater {
 
     fun cleanup(ctx: Context) {
         current = null
-        try { stagingDir(ctx).listFiles()?.forEach { it.delete() } } catch (_: Exception) {}
+        try { stagingDir(ctx).listFiles()?.forEach { it.delete() } } catch (e: Exception) { Quiet.note("ApkUpdater.cleanup", e) }
     }
 
     /**
@@ -78,7 +78,7 @@ object ApkUpdater {
      */
     fun cleanStale(ctx: Context) {
         cleanup(ctx)
-        try { ctx.cacheDir.listFiles { f -> f.name.startsWith("NanoHTTPD-") }?.forEach { it.delete() } } catch (_: Exception) {}
+        try { ctx.cacheDir.listFiles { f -> f.name.startsWith("NanoHTTPD-") }?.forEach { it.delete() } } catch (e: Exception) { Quiet.note("ApkUpdater.cleanStale", e) }
     }
 
 
@@ -226,8 +226,8 @@ object ApkUpdater {
         } catch (e: UpdateException) { throw e
         } catch (e: Exception) { throw UpdateException("Download failed: ${e.message ?: e.javaClass.simpleName}. Does the device have internet?")
         } finally {
-            try { conn.disconnect() } catch (_: Exception) {}
-            try { tmp.delete() } catch (_: Exception) {}
+            try { conn.disconnect() } catch (e: Exception) { Quiet.note("ApkUpdater.stageFromUrl", e) }
+            try { tmp.delete() } catch (e: Exception) { Quiet.note("ApkUpdater.stageFromUrl", e) }
         }
     }
 
@@ -265,7 +265,7 @@ object ApkUpdater {
     fun stageFile(ctx: Context, src: File): Staged {
         cleanup(ctx)
         // Lower priority so the hotspot / modem keep their CPU time while this runs.
-        try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) } catch (_: Exception) {}
+        try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) } catch (e: Exception) { Quiet.note("ApkUpdater.stageFile", e) }
         val dir = stagingDir(ctx).apply { mkdirs() }
         val out = File(dir, FILE)
         try {

@@ -49,7 +49,7 @@ object ScreenCapture {
                 throw IllegalStateException("screencap failed (is the display off? press Wake): " + r.content.take(200))
             }
             val png = readPng(ctx, file)
-            try { file.delete() } catch (_: Exception) {}
+            try { file.delete() } catch (e: Exception) { Quiet.note("ScreenCapture.frameIfChanged", e) }
             val crc = java.util.zip.CRC32().also { it.update(png, 0, png.size) }.value
             if (previousHash != null && previousHash == crc) null
             else encode(png, scale, qual, crc)
@@ -61,7 +61,7 @@ object ScreenCapture {
         try {
             val b = file.readBytes()
             if (b.isNotEmpty()) return b
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Quiet.note("ScreenCapture.readPng", e) }
         val path = file.absolutePath
         val size = RootShell.run(ctx, "stat -c %s ${q(path)}", 5_000).content.trim().toLongOrNull()
             ?: throw IllegalStateException("screenshot file missing")
