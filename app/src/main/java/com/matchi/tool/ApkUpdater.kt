@@ -29,7 +29,8 @@ object ApkUpdater {
     const val STAGE_TTL_MS = 10 * 60 * 1000L
     private const val DIR = "update"
     private const val FILE = "pending.apk"
-    private const val LOG = "/data/local/tmp/matchi_update.log"
+    private const val TMPD = "/data/local/matchitool/tmp"   // root-only (the adb shell user can write /data/local/tmp)
+    private const val LOG = "$TMPD/matchi_update.log"
 
     class UpdateException(message: String) : Exception(message)
 
@@ -83,11 +84,17 @@ object ApkUpdater {
 
     // ---- check (no APK download) -------------------------------------------------------------------------
 
+    private fun requireAllowedHost(url: java.net.URL) {
+        if (!UpdateLinks.hostAllowed(url.host))
+            throw UpdateException("Only GitHub release links are accepted (github.com). Download the APK yourself and upload it instead.")
+    }
+
     private fun openHttps(link: java.net.URL, method: String = "GET", accept: String? = null): java.net.HttpURLConnection {
         var url = link
         var hops = 0
         while (true) {
             if (url.protocol != "https") throw UpdateException("The link redirects to a non-https address; refused.")
+            requireAllowedHost(url)
             val c = url.openConnection() as java.net.HttpURLConnection
             c.connectTimeout = 15_000; c.readTimeout = 20_000; c.instanceFollowRedirects = false
             c.requestMethod = method
@@ -105,17 +112,7 @@ object ApkUpdater {
         }
     }
 
-    /** Dotted-number compare of version names ("v1.2.13" vs "1.2.9"); null when either side has no digits. */
-    private fun compareNames(a: String, b: String): Int? {
-        fun parts(x: String) = Regex("\\d+").findAll(x).map { it.value.toLongOrNull() ?: 0L }.toList()
-        val pa = parts(a); val pb = parts(b)
-        if (pa.isEmpty() || pb.isEmpty()) return null
-        for (i in 0 until maxOf(pa.size, pb.size)) {
-            val d = pa.getOrElse(i) { 0L }.compareTo(pb.getOrElse(i) { 0L })
-            if (d != 0) return d
-        }
-        return 0
-    }
+    private fun compareNames(a: String, b: String): Int? = UpdateLinks.compareNames(a, b)
 
     /**
      * Ask what [link] points to WITHOUT downloading the APK: for a GitHub release link the release metadata (tag, asset size, SHA-256
@@ -131,6 +128,7 @@ object ApkUpdater {
     private fun checkInner(ctx: Context, link: String): Remote {
         val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
         if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        requireAllowedHost(url)
         val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
         val haveName = installed.versionName ?: "?"
         val haveCode = if (Build.VERSION.SDK_INT >= 28) installed.longVersionCode else installed.versionCode.toLong()
@@ -142,7 +140,7 @@ object ApkUpdater {
             val c = openHttps(java.net.URL("https://api.github.com/repos/$owner/$repo/releases/$api"), accept = "application/vnd.github+json")
             try {
                 if (c.responseCode == 404) throw UpdateException("No release found at that GitHub link (HTTP 404). Check the owner, repository and that the release repository is public.")
-                if (c.responseCode != 200) throw UpdateException("Release check failed (HTTP ${c.responseCode}).")
+                if (c.responseCode != 200) throw UpdateException(UpdateLinks.releaseFailure(c.responseCode, c.getHeaderField("X-RateLimit-Remaining")))
                 val body = c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
                 val rel = org.json.JSONObject(body)
                 val name = rel.optString("tag_name", "").ifEmpty { rel.optString("name", "") }
@@ -180,9 +178,11 @@ object ApkUpdater {
     fun stageFromUrl(ctx: Context, link: String): Staged {
         val url = try { java.net.URL(link.trim()) } catch (_: Exception) { throw UpdateException("That is not a valid link.") }
         if (url.protocol != "https") throw UpdateException("Only https:// links are accepted.")
+        requireAllowedHost(url)
         val tmp = File(ctx.cacheDir, "NanoHTTPD-ota-${System.currentTimeMillis()}.tmp")
+        var cur = url   // the hop being fetched: a relative Location is resolved against THIS, not the first link
+        var conn = url.openConnection() as java.net.HttpURLConnection   // non-null so smart casts stay simple; closed in finally
         try {
-            var conn = url.openConnection() as java.net.HttpURLConnection
             var hops = 0
             while (true) {
                 conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.instanceFollowRedirects = false
@@ -190,10 +190,12 @@ object ApkUpdater {
                 val code = conn.responseCode
                 if (code in 301..308 && code != 304) {
                     val loc = conn.getHeaderField("Location") ?: throw UpdateException("Redirect without a target.")
-                    val next = java.net.URL(url, loc)
+                    val next = java.net.URL(cur, loc)
                     if (next.protocol != "https") throw UpdateException("The link redirects to a non-https address; refused.")
+                    requireAllowedHost(next)
                     conn.disconnect()
                     if (++hops > 5) throw UpdateException("Too many redirects.")
+                    cur = next
                     conn = next.openConnection() as java.net.HttpURLConnection
                     continue
                 }
@@ -216,7 +218,10 @@ object ApkUpdater {
             return stageFile(ctx, tmp)
         } catch (e: UpdateException) { throw e
         } catch (e: Exception) { throw UpdateException("Download failed: ${e.message ?: e.javaClass.simpleName}. Does the device have internet?")
-        } finally { try { tmp.delete() } catch (_: Exception) {} }
+        } finally {
+            try { conn.disconnect() } catch (_: Exception) {}
+            try { tmp.delete() } catch (_: Exception) {}
+        }
     }
 
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
@@ -399,7 +404,7 @@ object ApkUpdater {
         // then `pm uninstall -k` (keeps app data) and install the older build. If that install fails, put the copied build back and start it.
         // Paths are app-generated (no quotes or spaces); the whole thing runs inside sh -c '...', so no single quotes here.
         val base = ctx.applicationInfo.sourceDir
-        val prev = "/data/local/tmp/.matchi_out_prev.apk"
+        val prev = "$TMPD/.matchi_out_prev.apk"
         val prevSize = File(base).length()
         val pkg = ctx.packageName
         val d = "$"
@@ -410,10 +415,12 @@ object ApkUpdater {
             "if [ ${d}rc -ne 0 ]; then pm install -r -S $prevSize < \"$prev\" >> $LOG 2>&1; am start --user 0 -n $pkg/.MainActivity >/dev/null 2>&1; fi; " +
             "else echo \"Could not copy the installed APK aside; rollback cancelled\" >> $LOG; fi; fi; "
         val script = """
+            mkdir -p $TMPD; if [ -L $TMPD ] || [ "${'$'}(stat -c %u $TMPD 2>/dev/null)" != 0 ]; then echo "unsafe temp folder"; exit 1; fi
+            chmod 700 $TMPD
             rm -f $LOG
             if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi
             if command -v nice >/dev/null 2>&1; then N='nice -n 10'; else N=; fi
-            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; rm -f "$prev"; find /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
+            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; rm -f "$prev"; find $TMPD /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
             echo started
         """.trimIndent()
         val r = RootShell.run(ctx, script, 15_000)

@@ -19,7 +19,7 @@ class PluginDataTest {
     @Test fun allowsPluginOwnedFolders() {
         for (p in listOf("/data/local/matchitool/plugin_data/foo", "/data/local/myplug", "/data/local/tmp/myplug",
             "/sdcard/myplug", "/storage/emulated/0/myplug", "/sdcard/Download/myplug"))
-            assertNull(p, checkPluginDataPath(p))
+            assertNull(p, checkPluginDataPath(p, "foo.js"))
     }
 
     @Test fun refusesAnythingBroadOrOwnedByMatchiTool() {
@@ -30,6 +30,30 @@ class PluginDataTest {
             "/storage/emulated/0/Pictures", "/system/bin", "/data/data/com.matchi.tool", "relative/path",
             "/data/local/x/../../system", "/data/local/a b", "/data/local/a;rm", "/data/local/*", "/data/local/x'y",
             "/data/local//x", "/data/local/x/", "/data/local/\$HOME"))
-            assertNotNull(p, checkPluginDataPath(p))
+            assertNotNull(p, checkPluginDataPath(p, "foo.js"))
+    }
+
+    @Test fun aPluginCannotEraseAnotherPluginsData() {
+        assertNotNull(checkPluginDataPath("/data/local/matchitool/plugin_data/bar", "foo.js"))
+        assertNotNull(checkPluginDataPath("/data/local/matchitool/plugin_data/foobar", "foo.js"))
+        assertNotNull(checkPluginDataPath("/data/local/matchitool/plugins/bar.js", "foo.js"))
+        assertNull(checkPluginDataPath("/data/local/matchitool/plugin_data/foo/cache", "foo.js"))
+    }
+
+    @Test fun listsParentFoldersToCheckForSymlinks() {
+        assertEquals(listOf("/data/local/tmp"), symlinkAncestors("/data/local/tmp/myplug"))
+        assertEquals(emptyList<String>(), symlinkAncestors("/data/local/myplug"))
+        assertEquals(listOf("/sdcard/a"), symlinkAncestors("/sdcard/a/b"))
+        assertEquals(listOf("/storage/emulated/0/a"), symlinkAncestors("/storage/emulated/0/a/b"))
+    }
+}
+
+class UploadSpaceTest {
+    @Test fun needsBodyPlusReserve() {
+        val mb = 1024L * 1024L
+        org.junit.Assert.assertTrue(uploadSpaceOk(1000 * mb, 512 * mb))
+        org.junit.Assert.assertFalse(uploadSpaceOk(600 * mb, 512 * mb))
+        org.junit.Assert.assertFalse(uploadSpaceOk(100 * mb, 1 * mb))
+        org.junit.Assert.assertFalse(uploadSpaceOk(10_000 * mb, -1))
     }
 }

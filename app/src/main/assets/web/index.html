@@ -552,7 +552,7 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
     <div class="lg-row"><button id="tokbtn">Connect</button><span id="tokerr" class="lg-err"></span></div>
   </div>
   <div class="card" id="home" style="display:none">
-    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button><button onclick="openPop('conpw')">Password</button></div>
   </div>
   <div class="card pop" id="diagnostics">
     <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
@@ -603,6 +603,17 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
     <div class="mut" style="margin-bottom:8px">Root terminal</div>
     <input id="cmd" placeholder="Command, press Enter to run" autocomplete="off" autocapitalize="off" spellcheck="false">
     <pre id="out" style="display:none"></pre>
+    <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
+  </div>
+  <div class="card pop" id="conpw">
+    <div class="mut" style="margin-bottom:8px">Console password</div>
+    <p class="mut" id="conpwstate">Checking…</p>
+    <p class="mut">By default the console uses the router's admin password, which is often weak or the factory default. Set a separate console password (at least 10 characters) and only that one signs in here. Other sessions are signed out when it changes.</p>
+    <input id="conpwcur" type="password" placeholder="Current password" autocomplete="current-password">
+    <input id="conpwnew" type="password" placeholder="New console password (10+ characters)" autocomplete="new-password">
+    <input id="conpwnew2" type="password" placeholder="Repeat new password" autocomplete="new-password">
+    <div class="btnrow"><button id="conpwset">Set password</button><button id="conpwoff">Use router password again</button></div>
+    <p id="conpwmsg" class="mut"></p>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="pluginmgr">
@@ -1512,7 +1523,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const PROGRESS_TEXT_ID = 'matchi_memory_clean_progress_text';
   const PROGRESS_BAR_ID = 'matchi_memory_clean_progress_bar';
   const PROGRESS_PERCENT_ID = 'matchi_memory_clean_progress_percent';
-  const DEVICE_TMP_DIR = '/data/local/tmp/matchi_memory_clean';
+  const DEVICE_TMP_DIR = '/data/local/matchitool/tmp/memory_clean';   // root-only folder, not the shell-writable /data/local/tmp
   const DEVICE_PKG_FILE = `${DEVICE_TMP_DIR}/packages.txt`;
 
   const state = {
@@ -1721,6 +1732,11 @@ rm -f $P.g $P.4 $P.6 $P.d
 TMP_DIR="${DEVICE_TMP_DIR}"
 PKG_FILE="${DEVICE_PKG_FILE}"
 mkdir -p "$TMP_DIR"
+for d in /data/local/matchitool/tmp "$TMP_DIR"; do
+  [ -L "$d" ] && exit 1
+  [ "$(stat -c %u "$d" 2>/dev/null)" = 0 ] || exit 1
+done
+chmod 700 /data/local/matchitool/tmp "$TMP_DIR" 2>/dev/null
 : > "$PKG_FILE"
 
 read_mem_available() {
@@ -2087,15 +2103,20 @@ rm -rf "${DEVICE_TMP_DIR}"
     if (busy) return;
     busy = true;
     btn.disabled = true; btn.textContent = 'Changing IP\u2026';
+    let dataOff = false;
     try {
       const root = await sh('id -u', 8000);
       if (!root.ok || root.text.split('\n')[0].trim() !== '0') { createToast('Root access is needed to change the IP. Check that root is granted to MatchiTOOL.', 'red', 5000); return; }
       createToast('Changing IP\u2026 internet drops for a few seconds');
       const before = await publicIP(true);
+      dataOff = true;
       await sh('svc data disable');
       for (let i = 0; i < 6; i++) { if (!(await localIP(1))) break; await sleep(1000); }   // wait for the old link to go down
       await sleep(1000);
-      await sh('svc data enable');
+      let on = false;
+      for (let i = 0; i < 3 && !on; i++) { on = (await sh('svc data enable')).ok; if (!on) await sleep(1500); }
+      if (!on) { createToast('Could not turn mobile data back on - run: svc data enable', 'red', 10000); return; }
+      dataOff = false;
       await sleep(2000);
       const lip = await localIP(30);
       if (!lip) { createToast('Mobile data did not come back with an address. Check the SIM / signal, then try again.', 'red', 6000); return; }
@@ -2107,6 +2128,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       console.error(e);
       createToast('Failed to change IP', 'red');
     } finally {
+      if (dataOff) { try { await sh('svc data enable'); } catch (_) {} }   // best effort: never leave mobile data off
       busy = false; btn.disabled = false; btn.textContent = LABEL;
     }
   };
@@ -2412,16 +2434,11 @@ rm -rf "${DEVICE_TMP_DIR}"
       '[ -z "$SUB" ] || [ "$SUB" -lt 0 ] 2>/dev/null && SUB=1',
       'echo "sdk=$(getprop ro.build.version.sdk) sub=$SUB"',
       'before=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l)',
-      'mk() { printf "%s" "$1" > /data/local/tmp/mt_isms.sh; chmod 755 /data/local/tmp/mt_isms.sh; }',
       'try() { # uid pkg code withtag',
       '  U=$1; P=$2; C=$3; G=$4',
       '  if [ "$G" = 1 ]; then TAG=\'s16 "null"\'; else TAG=; fi',
-      '  cat > /data/local/tmp/mt_isms.sh <<EOS',
-      'T=\\$(echo ' + b64(text) + ' | base64 -d)',
-      'service call isms $C i32 $SUB s16 "$P" $TAG s16 "$N" s16 "null" s16 "\\$T" s16 "null" s16 "null" i32 1 i64 0',
-      'EOS',
-      '  chmod 755 /data/local/tmp/mt_isms.sh',
-      '  if [ "$U" = 0 ]; then R=$(sh /data/local/tmp/mt_isms.sh 2>&1); else R=$(su $U -c "sh /data/local/tmp/mt_isms.sh" 2>&1); fi',
+      '  CMD="T=\\$(echo ' + b64(text) + ' | base64 -d); service call isms $C i32 $SUB s16 \\"$P\\" $TAG s16 \\"$N\\" s16 \\"null\\" s16 \\"\\$T\\" s16 \\"null\\" s16 \\"null\\" i32 1 i64 0"',
+      '  if [ "$U" = 0 ]; then R=$(sh -c "$CMD" 2>&1); else R=$(su $U -c "$CMD" 2>&1); fi',
       '  echo "uid=$U pkg=$P code=$C tag=$G -> $(echo "$R" | head -n 1 | cut -c1-60)"',
       '  echo "$R" | grep -q "Parcel(00000000" && return 0',
       '  return 1',
@@ -2430,10 +2447,10 @@ rm -rf "${DEVICE_TMP_DIR}"
       'if [ "$SDK" -ge 33 ] 2>/dev/null; then CODES="6 7 5 8"; GS="1"; elif [ "$SDK" -ge 30 ] 2>/dev/null; then CODES="7 6 5 8"; GS="1 0"; else CODES="5 7 6 8"; GS="0 1"; fi',
       'for G in $GS; do for C in $CODES; do',
       '  for UP in "1001 com.android.phone" "2000 com.android.shell" "1001 com.android.mms.service"; do',
-      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; rm -f /data/local/tmp/mt_isms.sh; exit 0; }',
+      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; exit 0; }',
       '  done',
       'done; done',
-      'rm -f /data/local/tmp/mt_isms.sh; echo SENT_FAIL',
+      'echo SENT_FAIL',
     ].join('\n');
     const out = await sh(script, 60000);
     if (!/SENT_OK/.test(out)) throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
@@ -2497,19 +2514,12 @@ rm -rf "${DEVICE_TMP_DIR}"
 
   // Messages that no store would delete (see below) are hidden from this list only; kept in this browser.
   const HIDKEY = 'matchi_sms_hidden';
-  const hk = (m) => m.number + '|' + m.date + '|' + String(m.text).slice(0, 60);
+  // Hidden-list keys are a short hash, not the message text (cyrb53), so no SMS content stays in browser storage.
+  const hash53 = (str) => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36); };
+  const hk = (m) => 'h:' + hash53(m.number + '|' + m.date + '|' + String(m.text).slice(0, 60));
   const getHidden = () => { try { return JSON.parse(localStorage.getItem(HIDKEY) || '[]'); } catch (_) { return []; } };
   const setHidden = (a) => { try { localStorage.setItem(HIDKEY, JSON.stringify(a.slice(-200))); } catch (_) {} };
-  // Last resort, run in the background: find which files on the device hold the text, so the real place can be found.
-  // The result is appended to /data/local/matchitool/sms_delete_debug.txt on the router (file names only).
-  function whereIsIt(m) {
-    const t = String(m.text).replace(/[^A-Za-z0-9 ]/g, '').slice(0, 40).trim();
-    if (t.length < 4) return;
-    const sc = 'T="' + t + '"; H="' + textToHex(String(m.text).slice(0, 12)) + '"; mkdir -p /data/local/matchitool; ' +
-      '{ echo "== $(date) $T"; for D in /data/user_de/0 /data/data /data/user/0 /data/system /data/misc /data/local; do ' +
-      'timeout 8 grep -rlaF -e "$T" -e "$H" $D --include=*.db --include=*.db-wal --include=*.sqlite --include=*.json --include=*.xml 2>/dev/null | head -n 5; done; } >> /data/local/matchitool/sms_delete_debug.txt 2>&1';
-    sh(sc, 60000).catch(() => {});
-  }
+  // (A debug scan that searched /data as root for the message text and logged fragments of it to a file was removed: it kept SMS content in a long-lived file.)
 
   async function load(silent) {
     const box = el('matchi_sms_list'); if (!box) return [];
@@ -2549,7 +2559,6 @@ rm -rf "${DEVICE_TMP_DIR}"
               const why = (e.notes || []).join(' | ').slice(0, 420);
               try { console.warn('SMS delete failed:', why); localStorage.setItem('matchi_sms_last_fail', why); } catch (_) {}
               createToast('Could not delete it from the router storage, so it is hidden from this list only.' + (why ? ' Why: ' + why : ''), 'orange', 15000);
-              whereIsIt(m);
               load(true).catch(() => {});
             } else { createToast(e.message, 'red', 6000); restore(); }
           }
@@ -2992,7 +3001,7 @@ const __M = window.__matchiCompat || (window.__matchiCompat = (() => {
   P.boot = `${P.base}/boot.sh`;
   P.uploads = `${P.base}/uploads`;
   P.curl = `${P.base}/bin/curl`;
-  P.jobs = '/data/local/tmp/matchi_jobs';
+  P.jobs = '/data/local/matchitool/tmp/jobs';   // root-only: these .sh files are run as root
   const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const MB = 1048576;
@@ -3006,6 +3015,7 @@ const __M = window.__matchiCompat || (window.__matchiCompat = (() => {
   };
 
   const SETUP = String.raw`mkdir -p ${P.base}/bin ${P.uploads} ${P.jobs} 2>/dev/null
+chmod 700 /data/local/matchitool/tmp ${P.jobs} 2>/dev/null
 [ -f ${P.boot} ] || printf '#!/system/bin/sh\n' > ${P.boot}
 cat > ${P.curl} <<'MATCHI_CURL_EOF'
 #!/system/bin/sh
@@ -3027,6 +3037,11 @@ echo ready`;
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
     const f = `${P.jobs}/${id}`;
     const st = await hr(`mkdir -p ${P.jobs}
+for d in /data/local/matchitool/tmp ${P.jobs}; do
+  [ -L "$d" ] && exit 1
+  [ "$(stat -c %u "$d" 2>/dev/null)" = 0 ] || exit 1
+done
+chmod 700 /data/local/matchitool/tmp ${P.jobs} 2>/dev/null
 cat > ${f}.sh <<'MATCHI_JOB_EOF'
 ${cmd}
 MATCHI_JOB_EOF
@@ -3503,6 +3518,13 @@ lock_free() { [ "$(lock_owner)" = "$$" ] && rm -rf "$LOCK"; return 0; }`;
       resolveResult({ ok: false, text: `Root queue task failed safely: ${String(err?.message || err)}` });
     });
     return result;
+  };
+
+  // Status reads: an empty or failed answer (host busy, mobile link resetting after a rule change) is retried and is never treated as "rules are off".
+  const runStatus = async (cmd) => {
+    let r = await runRoot(cmd);
+    for (let i = 0; i < 2 && !r.text.includes('@@'); i++) { await sleep(900); r = await runRoot(cmd); }
+    return r;
   };
 
   const PRELUDE = [
@@ -4148,11 +4170,21 @@ clear_one() {
 }
 # Every keep-alive of ours, also one whose pid file was lost (a second keep-alive would re-apply the rule after Remove).
 kill_watchers() {
-  for kpd in /proc/[0-9]*; do
-    kpp=$(basename "$kpd")
-    [ "$kpp" = "$$" ] && continue
-    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/ttl.sh watch" && kill "$kpp" 2>/dev/null
-  done
+  # Fast path: one ps call instead of reading /proc/<pid>/cmdline of every process (4 forks each, seconds on this CPU).
+  # It is trusted only when our own row shows up in the output, so a ps with other columns falls back to the slow scan.
+  kwp=$(ps -A -o PID,ARGS 2>/dev/null)
+  if echo "$kwp" | grep -Eq "^ *$$ +[^ ]*sh( |$)"; then
+    echo "$kwp" | grep -F "$D/ttl.sh watch" | while read -r kpp kpr; do
+      [ "$kpp" = "$$" ] && continue
+      kill "$kpp" 2>/dev/null
+    done
+  else
+    for kpd in /proc/[0-9]*; do
+      kpp=$(basename "$kpd")
+      [ "$kpp" = "$$" ] && continue
+      cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/ttl.sh watch" && kill "$kpp" 2>/dev/null
+    done
+  fi
   kill_legacy
   return 0
 }
@@ -4309,10 +4341,19 @@ esac
     };
 
     let ttlSupported = null;
+    let ttlRefreshedAt = 0;
+    // Whether the kernel has the TTL target never changes while the app runs: probed once, then cached (each probe is 4 firewall calls).
+    const TTL_PROBE_SH = String.raw`T=0
+ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
+if ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null; then
+  ipt iptables -t mangle -A UFI_PROBE_$$ -j TTL --ttl-set 64 2>/dev/null && T=1
+  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
+fi
+echo "@@TTL_T=$T"`;
     let ttlState = { on: false, ebpf: false, value: '', boot: false, watching: false, text: '' };
     const refresh = async (syncForm = false) => {
       const sess = session;
-      const r = await runRoot(PRELUDE + String.raw`
+      const r = await runStatus(PRELUDE + String.raw`
 for B in iptables ip6tables; do
   echo "@@$B"
   if command -v $B >/dev/null 2>&1; then
@@ -4322,13 +4363,7 @@ for B in iptables ip6tables; do
     echo "@@MISSING"
   fi
 done
-T=0
-ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
-if ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null; then
-  ipt iptables -t mangle -A UFI_PROBE_$$ -j TTL --ttl-set 64 2>/dev/null && T=1
-  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
-fi
-echo "@@TTL_T=$T"
+${ttlSupported === null ? TTL_PROBE_SH : ''}
 ${LAN_SH}
 B=""
 for i in $LANIFS; do
@@ -4342,11 +4377,13 @@ echo "@@WATCH=$([ -f ${SCRIPT} ] && sh ${SCRIPT} status 2>/dev/null || echo stop
 echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
 `);
       if (sess !== session) return;
+      // Still no answer after the retries: keep what is shown instead of flipping everything to "off".
+      if (!r.text.includes('@@')) { ttlState = { ...ttlState, text: `no answer from the device (${String(r.text).slice(0, 80)})` }; return; }
       const st = parseStatus(r.text);
       const info4 = parseStatusInfo(st.sections.iptables);
       let [c4, t4] = describe(info4);
       let [c6, t6] = describe(parseStatusInfo(st.sections.ip6tables));
-      ttlSupported = st.kv.TTL_T === '1' ? true : st.kv.TTL_T === '0' ? false : null;
+      if (st.kv.TTL_T === '1') ttlSupported = true; else if (st.kv.TTL_T === '0') ttlSupported = false;
       if (ttlSupported === false) {
         if (c4 === 'bp-bad') { c4 = 'bp-warn'; t4 = 'Not active (eBPF)'; }
         if (c6 === 'bp-bad') { c6 = 'bp-warn'; t6 = 'Not active (eBPF)'; }
@@ -4380,6 +4417,7 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
       const input = q('#ttl_input');
       if (syncForm && input && validTtl(saved)) input.value = saved;
       syncChips();
+      ttlRefreshedAt = Date.now();
     };
 
     const readTtl = () => {
@@ -4413,7 +4451,7 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
       const v6 = m ? Number(m[2]) : 1;
       if (await isBootOn()) {
         try { await bootAdd(SCRIPT, BOOT_LINE); } catch (e) { toast(`Auto-apply at boot: ${e.message}`, 'orange', 9000); }
-        await runRoot(`sh ${SCRIPT} stop; sh ${SCRIPT} start`);
+        await runRoot(`sh ${SCRIPT} start`);
       }
       await refresh(true);
       if (v4 !== 0 && method === 'bpf') {
@@ -4444,8 +4482,8 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
       toast('TTL rule removed. Auto-apply at boot and the keep-alive are off too', 'green', 4500);
     };
 
-    const toggleBoot = async () => {
-      const enabled = await isBootOn();
+    const toggleBoot = async (known) => {
+      const enabled = typeof known === 'boolean' ? known : await isBootOn();
       if (enabled) {
         await bootDel(SCRIPT);
         await runRoot(`[ -f ${SCRIPT} ] && sh ${SCRIPT} stop`);
@@ -4454,7 +4492,6 @@ echo "@@SAVED=$(sed -n 's/^TTL=//p' ${CONF} 2>/dev/null | head -n 1)"
         if (!has.text.includes('YES')) throw new Error('Apply a TTL first so there is something to run at boot');
         await bootAdd(SCRIPT, BOOT_LINE);
         await runRoot(`sh ${SCRIPT} enable; sh ${SCRIPT} start`);
-        await sleep(600);
       }
       await refresh();
       toast(enabled ? 'Auto-apply at boot disabled' : 'Auto-apply at boot enabled', 'green', 3500);
@@ -4558,6 +4595,7 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
       init: initGuard(() => refresh(true)),
       ensureScript: () => ensureHelper(SCRIPT, TTL_SCRIPT),
       refresh: () => refresh(false),
+      age: () => Date.now() - ttlRefreshedAt,
       state: () => ttlState,
       reapply: async (ttl) => {
         if (!validTtl(Number(ttl))) throw new Error('No valid saved TTL to re-apply. Apply a TTL first');
@@ -4567,8 +4605,9 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
         await applyRule();
       },
       diagnose,
-      setBoot: async (want) => { if ((await isBootOn()) !== want) await toggleBoot(); },
+      setBoot: async (want) => { const cur = await isBootOn(); if (cur !== want) await toggleBoot(cur); },
       stopAll: async () => {
+        ttlRefreshedAt = 0;
         await installScript();
         await stopHelper(SCRIPT);
       },
@@ -4580,7 +4619,7 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
         await applyRule();
         for (let k = 0; k < 3 && !ttlState.on; k++) { await sleep(800); await refresh(true); }
         if (!ttlState.on) throw new Error(`The TTL rule did not apply (status: ${ttlState.text || 'unknown'}). The rest was skipped`);
-        if (!(await isBootOn())) await toggleBoot();
+        if (!(await isBootOn())) await toggleBoot(false);
       },
     };
   })();
@@ -4591,6 +4630,17 @@ echo "== tc ingress state"; for i in br0 usb0 wlan0 sipa_eth0 sipa_eth1 sipa_eth
     const CONF = `${DIR}/dpi.conf`;
     const BOOT_LINE = `sh ${SCRIPT} start >/dev/null 2>&1 &`;
 
+    let dpiProbe = null; // kernel support for NFQUEUE / MSS / connbytes: probed once, then cached (12 firewall calls per probe)
+    const DPI_PROBE_SH = String.raw`# Real support probe: try each rule in a throw-away chain that nothing links to, then delete it.
+probe() {
+  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
+  ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null || { echo 0; return; }
+  if ipt iptables -t mangle -A UFI_PROBE_$$ "$@" 2>/dev/null; then echo 1; else echo 0; fi
+  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
+}
+echo "@@NFQ_T=$(probe -p tcp --dport 443 -j NFQUEUE --queue-num 250 --queue-bypass)"
+echo "@@MSS_T=$(probe -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360)"
+echo "@@CONN_T=$(probe -p tcp --dport 443 -m connbytes --connbytes 1:6 --connbytes-mode packets --connbytes-dir original -j RETURN)"`;
     let lastState = { active: false, any: false, quic: false, mss: 0, boot: false, dns: '', nfq: false, working: false };
     const validIPv4 = (v) => {
       const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(v);
@@ -4669,11 +4719,21 @@ load() {
 # Pid files survive reboots, so never trust a pid blindly.
 # Every keep-alive of ours, also one whose pid file was lost.
 kill_watchers() {
-  for kpd in /proc/[0-9]*; do
-    kpp=$(basename "$kpd")
-    [ "$kpp" = "$$" ] && continue
-    cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/dpi.sh watch" && kill "$kpp" 2>/dev/null
-  done
+  # Fast path: one ps call instead of reading /proc/<pid>/cmdline of every process (4 forks each, seconds on this CPU).
+  # It is trusted only when our own row shows up in the output, so a ps with other columns falls back to the slow scan.
+  kwp=$(ps -A -o PID,ARGS 2>/dev/null)
+  if echo "$kwp" | grep -Eq "^ *$$ +[^ ]*sh( |$)"; then
+    echo "$kwp" | grep -F "$D/dpi.sh watch" | while read -r kpp kpr; do
+      [ "$kpp" = "$$" ] && continue
+      kill "$kpp" 2>/dev/null
+    done
+  else
+    for kpd in /proc/[0-9]*; do
+      kpp=$(basename "$kpd")
+      [ "$kpp" = "$$" ] && continue
+      cat "$kpd/cmdline" 2>/dev/null | tr '\0' ' ' | grep -qF "$D/dpi.sh watch" && kill "$kpp" 2>/dev/null
+    done
+  fi
   kill_legacy
   return 0
 }
@@ -5354,17 +5414,8 @@ esac
 
     const refresh = async (syncForm = false) => {
       const sess = session;
-      const r = await runRoot(PRELUDE + String.raw`
-# Real support probe: try each rule in a throw-away chain that nothing links to, then delete it.
-probe() {
-  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
-  ipt iptables -t mangle -N UFI_PROBE_$$ 2>/dev/null || { echo 0; return; }
-  if ipt iptables -t mangle -A UFI_PROBE_$$ "$@" 2>/dev/null; then echo 1; else echo 0; fi
-  ipt iptables -t mangle -F UFI_PROBE_$$ 2>/dev/null; ipt iptables -t mangle -X UFI_PROBE_$$ 2>/dev/null
-}
-echo "@@NFQ_T=$(probe -p tcp --dport 443 -j NFQUEUE --queue-num 250 --queue-bypass)"
-echo "@@MSS_T=$(probe -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360)"
-echo "@@CONN_T=$(probe -p tcp --dport 443 -m connbytes --connbytes 1:6 --connbytes-mode packets --connbytes-dir original -j RETURN)"
+      const r = await runStatus(PRELUDE + String.raw`
+${dpiProbe ? '' : DPI_PROBE_SH}
 echo "@@NFQ_BIN=$([ -x ${DIR}/nfqws ] && echo 1 || echo 0)"
 p=$(cat ${DIR}/nfqws.pid 2>/dev/null)
 if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -qF "${DIR}/nfqws "; then echo "@@NFQ_RUN=1"; else echo "@@NFQ_RUN=0"; fi
@@ -5377,20 +5428,23 @@ echo "@@CONF_BEGIN=1"
 cat ${CONF} 2>/dev/null
 `);
       if (sess !== session) return;
+      if (!r.text.includes('@@')) return; // no answer after retries: keep what is shown
       const confStart = r.text.indexOf('@@CONF_BEGIN=1');
       const head = confStart >= 0 ? r.text.slice(0, confStart) : r.text;
       const conf = confStart >= 0 ? r.text.slice(confStart + '@@CONF_BEGIN=1'.length) : '';
       const st = parseStatus(head);
       const cv = (k) => confGet(conf, k);
       const get = (k) => st.kv[k];
+      if (get('NFQ_T') !== undefined) dpiProbe = { NFQ_T: get('NFQ_T'), MSS_T: get('MSS_T'), CONN_T: get('CONN_T') };
+      const pv = (k) => (dpiProbe ? dpiProbe[k] : undefined);
       lastState = { active: get('CH') === '1', quic: cv('QUIC') === '1', mss: Number(cv('MSS') || 0), dns: get('NATCH') === '1' ? String(cv('DNSIP') || '') : '', nfq: get('NFQ_RUN') === '1' };
       lastState.working = (lastState.active && (lastState.mss > 0 || lastState.quic || lastState.nfq)) || get('NATCH') === '1';
       syncNfqBtn(true);
 
-      put('#dpi_sup_mss', get('MSS_T') === '1' ? 'bp-good' : 'bp-bad', get('MSS_T') === '1' ? 'Supported' : 'Not supported');
-      put('#dpi_sup_nfq', get('NFQ_T') === '1' ? 'bp-good' : 'bp-bad', get('NFQ_T') === '1' ? 'Supported' : 'Not supported');
+      put('#dpi_sup_mss', pv('MSS_T') === '1' ? 'bp-good' : 'bp-bad', pv('MSS_T') === '1' ? 'Supported' : 'Not supported');
+      put('#dpi_sup_nfq', pv('NFQ_T') === '1' ? 'bp-good' : 'bp-bad', pv('NFQ_T') === '1' ? 'Supported' : 'Not supported');
       const connNote = q('#dpi_conn_note');
-      if (connNote) connNote.style.display = get('NFQ_T') === '1' && get('CONN_T') === '0' ? '' : 'none';
+      if (connNote) connNote.style.display = pv('NFQ_T') === '1' && pv('CONN_T') === '0' ? '' : 'none';
       put('#dpi_bin', get('NFQ_BIN') === '1' ? 'bp-good' : 'bp-warn', get('NFQ_BIN') === '1' ? 'Found' : 'Not found');
       put('#dpi_run', get('NFQ_RUN') === '1' ? 'bp-good' : 'bp-warn', get('NFQ_RUN') === '1' ? 'Running' : 'Stopped');
       put('#dpi_active', get('CH') === '1' ? 'bp-good' : 'bp-bad', get('CH') === '1' ? 'Active' : 'Not active');
@@ -5945,8 +5999,8 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       await stopHelper(SCRIPT);
     };
 
-    const toggleBoot = async () => {
-      const enabled = await isBootOn();
+    const toggleBoot = async (known) => {
+      const enabled = typeof known === 'boolean' ? known : await isBootOn();
       if (enabled) {
         await bootDel(SCRIPT);
         await runRoot(`[ -f ${SCRIPT} ] && sh ${SCRIPT} stop`);
@@ -5955,7 +6009,6 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
         if (!has.text.includes('YES')) throw new Error('Apply settings first so there is something to run at boot');
         await bootAdd(SCRIPT, BOOT_LINE);
         await runRoot(`sh ${SCRIPT} enable; sh ${SCRIPT} start`);
-        await sleep(600);
       }
       await refresh();
       toast(enabled ? 'Auto-apply at boot disabled' : 'Auto-apply at boot enabled', 'green', 3500);
@@ -6094,7 +6147,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       refresh: () => refresh(false),
       state: () => lastState,
       diagnose,
-      setBoot: async (want) => { if ((await isBootOn()) !== want) await toggleBoot(); },
+      setBoot: async (want) => { const cur = await isBootOn(); if (cur !== want) await toggleBoot(cur); },
       setQuic: async (on) => {
         await refresh(false);
         const cf = await readConf();
@@ -6117,7 +6170,7 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
           throw new Error(`Strong did not apply the TCP MSS (saved MSS ${saved.mss}, MSS rule ${/^\s*[1-9]/.test(rule.text.trim()) ? 'present' : 'missing'}). Open the Anti-DPI tab and press Copy report`);
         }
         const m = q('#dpi_mss'); if (m) m.value = 1360;
-        if (!(await isBootOn())) await toggleBoot();
+        if (!(await isBootOn())) await toggleBoot(false);
       },
     };
   })();
@@ -6463,16 +6516,8 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   };
   let lastNet = null;
   let lastDns = null;
-  const runCheck = async (withPing = true, quick = false) => {
-    const sess = session;
-    const r = !withPing ? { text: '' } : await runRoot(quick ? PING_QUICK : PING_FULL, 25000);
-    if (quick && (sess !== session || busy > 0)) return;
-    await ttlModule.refresh();
-    if (quick && (sess !== session || busy > 0)) return;
-    await dpiModule.refresh();
-    if (sess !== session) return;
-    const kv = parseStatus(r.text).kv;
-    if (withPing) { lastNet = kv.NET === '1'; lastDns = kv.DNS === '1'; lastCheckAt = Date.now(); }
+  let netChecking = false;
+  const paintCheck = () => {
     const net = lastNet;
     const dns = lastDns;
     const ttl = ttlModule.state();
@@ -6485,8 +6530,8 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
     const realBox = q('#qs_report');
     if (realBox) {
       const box = realBox.cloneNode(false);
-      setPill(box, 'Internet', net === null ? 'bp-warn' : net ? 'bp-good' : 'bp-bad', net === null ? 'Not tested' : net ? 'Reachable' : 'No connection');
-      setPill(box, 'DNS', dns === null ? 'bp-warn' : dns ? 'bp-good' : (net ? 'bp-warn' : 'bp-bad'), dns === null ? 'Not tested' : dns ? 'Working' : 'Not working');
+      setPill(box, 'Internet', net === null ? 'bp-warn' : net ? 'bp-good' : 'bp-bad', net === null ? (netChecking ? 'Checking\u2026' : 'Not tested') : net ? 'Reachable' : 'No connection');
+      setPill(box, 'DNS', dns === null ? 'bp-warn' : dns ? 'bp-good' : (net ? 'bp-warn' : 'bp-bad'), dns === null ? (netChecking ? 'Checking\u2026' : 'Not tested') : dns ? 'Working' : 'Not working');
       setPill(box, 'TTL', ttlOn ? 'bp-good' : 'bp-bad', ttlOn ? `${ttlVal || 'On'}${ttlEbpf ? ' \u00b7 eBPF' : ''}` : 'Not active');
       const dpiParts = [];
       if (dpi.active && dpi.mss > 0) dpiParts.push(`MSS ${dpi.mss}`);
@@ -6528,8 +6573,62 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
       hero.textContent = ready ? `\u25cf Protected: ${what} active` : (net !== false ? '\u25cf Almost ready: see the tip below' : (ttlOn ? '\u25cf No internet from the router. Your rules stay applied' : '\u25cf No internet from the router'));
     }
   };
+  // One internet + DNS test. A reply that does not carry a result (host busy, link resetting) is "unknown", never "offline".
+  const pingOnce = async (quick) => {
+    const r = await runRoot(quick ? PING_QUICK : PING_FULL, 25000);
+    const kv = parseStatus(r.text).kv;
+    if (kv.NET !== '0' && kv.NET !== '1') return false;
+    lastNet = kv.NET === '1'; lastDns = kv.DNS === '1'; lastCheckAt = Date.now();
+    return true;
+  };
+  // The rules are read and painted first, so the switches show the real state at once; the slower internet test follows and repaints.
+  const runCheck = async (withPing = true, quick = false, opts = {}) => {
+    const sess = session;
+    const gone = () => sess !== session || (quick && busy > 0);
+    if (!(opts.reuse && ttlModule.age() < 5000)) await ttlModule.refresh();
+    if (gone()) return;
+    await dpiModule.refresh();
+    if (gone()) return;
+    paintCheck();
+    if (!withPing) return;
+    await pingOnce(quick);
+    if (gone()) return;
+    paintCheck();
+  };
+  // After Standard / Strong / Off the mobile link can drop for a few seconds while the rules take effect. The connection is therefore tested in
+  // the background afterwards and retried, so a short reset is not shown as "No connection" (and not left that way until the dialog is reopened).
+  let settleRun = 0;
+  const resetNet = () => { lastNet = null; lastDns = null; lastCheckAt = 0; };
+  const settleCheck = withHostRetry(async () => {
+    const sess = session, my = ++settleRun;
+    netChecking = true;
+    try {
+      paintCheck();
+      for (let i = 0; i < 4; i++) {
+        if (i > 0) await sleep(2500);
+        if (sess !== session || my !== settleRun || busy > 0) return;
+        let ok = false;
+        try { ok = await pingOnce(true); } catch (_) {  }
+        if (sess !== session || my !== settleRun) return;
+        if (ok && lastNet) break;
+      }
+    } finally {
+      if (my === settleRun) netChecking = false;
+    }
+    if (sess === session) paintCheck();
+  });
+  const scheduleSettle = () => setTimeout(() => { settleCheck().catch(() => {  }); }, 0);
+  const heroNote = (text) => {
+    const h = q('#qs_hero');
+    if (!h) return;
+    h.className = 'bp-hero warn';
+    h.textContent = `\u25cf ${text}`;
+  };
 
+  const STEP_NOTE = [[/^Helper/, 'Preparing\u2026'], [/^TTL/, 'Applying TTL\u2026'], [/^Anti-DPI step/, 'Applying Anti-DPI\u2026'], [/^Turning Anti-DPI/, 'Finishing\u2026']];
   const quickStep = async (label, fn) => {
+    const note = STEP_NOTE.find(([re]) => re.test(label));
+    if (note) heroNote(note[1]);
     try { return await fn(); } catch (e) { throw new Error(`${label}: ${e?.message || e}`); }
   };
   const ensureScripts = async () => {
@@ -6539,8 +6638,11 @@ ipt ip6tables -t mangle -L UFI_DPI6 -v -n -x 2>&1
   };
   const refreshAfter = (fn) => withHostRetry(async () => {
     let err = null;
+    heroNote('Applying\u2026');
     try { await fn(); } catch (e) { err = e; qsPicked = false; }
-    try { await runCheck(); } catch (e) { err = err || e; }
+    resetNet();
+    try { await runCheck(false, false, { reuse: !err }); } catch (e) { err = err || e; }
+    scheduleSettle();
     if (err) throw err;
   });
 
@@ -6853,9 +6955,10 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
     q('#st_c2').onclick = () => copyText('tracert -d 8.8.8.8', 'Command copied');
     q('#st_c3').onclick = () => copyText('chrome.exe --enable-quic --origin-to-force-quic-on=www.cloudflare.com:443', 'Command copied');
     q('#qs_std').onclick = guarded(refreshAfter(async () => { markQs('qs_std'); await quickStep('Helper scripts', ensureScripts); await quickStep('TTL step (Anti-DPI was not changed)', () => ttlModule.setup(QUICK_TTL)); await quickStep('Turning Anti-DPI off (TTL is already on)', () => dpiModule.stopAll()); }), 'Setting up\u2026');
-    q('#qs_quic').onclick = guarded(refreshAfter(async () => { await dpiModule.setQuic(q('#qs_quic').getAttribute('aria-checked') !== 'true'); }), '');
+    q('#qs_quic').onclick = guarded(refreshAfter(async () => { const want = q('#qs_quic').getAttribute('aria-checked') !== 'true'; setSwitch('#qs_quic', want); await dpiModule.setQuic(want); }), '');
     q('#qs_boot').onclick = guarded(refreshAfter(async () => {
       const want = q('#qs_boot').getAttribute('aria-checked') !== 'true';
+      setSwitch('#qs_boot', want);
       await ttlModule.setBoot(want);
       if (!want || dpiModule.state().active) await dpiModule.setBoot(want);
     }), '');
@@ -6895,7 +6998,9 @@ echo "@@QUICRULE=$(ipt iptables -t mangle -S UFI_DPI 2>/dev/null | grep -c -E 'u
       markQs('qs_stop');
       const errs = [];
       for (const m of [ttlModule, dpiModule]) { try { await m.stopAll(); } catch (e) { errs.push(e); } }
-      try { await runCheck(); } catch (e) { errs.push(e); }
+      resetNet();
+      try { await runCheck(false); } catch (e) { errs.push(e); }
+      scheduleSettle();
       if (errs.length) throw errs[0];
       const still = ttlModule.state().on || dpiModule.state().any;
       if (still) toast('Some rules are still active. Check the status above, or use Remove on the Advanced tab', 'orange', 7000);
@@ -7035,18 +7140,30 @@ document.addEventListener('click',async(e)=>{
   createToast('Rebooting…','orange');
   try{await api('/api/shell',{method:'POST',body:JSON.stringify({cmd:'reboot',timeout:5000})})}catch(_){}
 });
-let TOKEN=localStorage.getItem('matchi_token')||'';
+/* Session token: kept in sessionStorage (gone when the tab closes, not shared with other tabs). Every storage call is guarded, so a browser that blocks storage still loads the page; the token then lives in memory only. An old token left in localStorage by earlier versions is removed. */
+function tokGet(){try{return sessionStorage.getItem('matchi_token')||''}catch(_){return ''}}
+function tokSet(t){try{sessionStorage.setItem('matchi_token',t)}catch(_){}}
+function tokClear(){try{sessionStorage.removeItem('matchi_token')}catch(_){}}
+try{localStorage.removeItem('matchi_token')}catch(_){}
+let TOKEN=tokGet();
 /* The host ends a session when it is idle, after 12 h, on sign-out or when the password changes: go back to the sign-in card. */
 function sessionLost(msg){
-  TOKEN='';try{localStorage.removeItem('matchi_token')}catch(_){}
+  TOKEN='';tokClear();
   try{closePop()}catch(_){}
   const h=document.getElementById('home'),l=document.getElementById('login'),e=document.getElementById('tokerr');
   if(h)h.style.display='none';if(l)l.style.display='block';if(e)e.textContent=msg||'';
   setHostStatus(false,'Signed out');
 }
 function setHostStatus(online,label){const el=document.getElementById('hoststatus');if(!el)return;el.classList.toggle('online',!!online);el.classList.toggle('offline',!online);document.getElementById('hostlabel').textContent=label||(online?'Host connected':'Host disconnected')}
+function insecurePage(){try{const h=location.hostname;return location.protocol==='http:'&&h!=='localhost'&&h!=='[::1]'&&!/^127\./.test(h)}catch(_){return false}}
 async function api(path,opt={}){
   const headers={...(opt.headers||{}),'x-token':TOKEN};
+  /* Over plain HTTP (HTTPS could not start) root commands cross the network unencrypted: ask once per page load, shared by all callers; a "no" is remembered until the page is reloaded, so pollers do not bring the dialog back every few seconds. */
+  if(path==='/api/shell'&&insecurePage()){
+    if(!api._insP)api._insP=Promise.resolve().then(()=>confirm('This console is open over plain HTTP, NOT encrypted. The commands you run as root and your session token can be read by anyone on this network.\n\nRun root commands anyway?'));
+    if(!(await api._insP))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.')
+    headers['x-insecure-ok']='1';
+  }
   if(opt.body!==undefined)headers['content-type']='application/json; charset=utf-8';
   /* Health pings get a deadline: a hung one used to wait forever, pile up, and use up the browser's few connections to the host. */
   let pingTimer=null;
@@ -7059,8 +7176,9 @@ async function api(path,opt={}){
   let data={};
   try{data=raw?JSON.parse(raw):{}}catch(_){data={error:raw||'Invalid server response'}}
   if(!r.ok){
-    if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
-    const message=r.status===401?(data.error||'Invalid password'):r.status===429?'Too many attempts. Wait a minute and retry.':(data.error||data.message||`Request failed (${r.status})`);
+    if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
+    else if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
+    const message=r.status===401?(data.error||'Invalid password'):r.status===429?(data.error||'Too many attempts. Wait a minute and retry.'):(data.error||data.message||`Request failed (${r.status})`);
     throw new Error(message);
   }
   return data;
@@ -7231,8 +7349,15 @@ document.getElementById('plugin_backup_file').onchange=async(e)=>{
       if(typeof p.code!=='string'||!p.code.trim()||p.code.length>1024*1024)throw new Error('Invalid plugin source: '+p.name);
       new Function(p.code);
     }
+    /* Check the host's limits BEFORE the first upload, so a refused import cannot stop halfway. */
+    {const names=new Set(data.plugins.map(p=>p.name));const others=pluginCache.filter(p=>!names.has(p.name));
+     const count=others.length+names.size,bytes=others.reduce((n,p)=>n+new Blob([p.code||'']).size,0)+data.plugins.reduce((n,p)=>n+new Blob([p.code]).size,0);
+     if(count>50)throw new Error('Too many plugins: the host keeps at most 50 (this import would make '+count+')');
+     if(bytes>5*1024*1024)throw new Error('Too much plugin code: the host limit is 5 MB in total (this import would make '+(bytes/1048576).toFixed(1)+' MB)')}
     if(!(await askConfirm(`Import ${data.plugins.length} plugins? Matching filenames will be replaced. Plugins can run any command as root. Continue only if you trust this backup.`,'Import backup',true)))return;
-    for(const p of data.plugins){await api('/api/plugins',{method:'POST',body:JSON.stringify({name:p.name,code:p.code})});await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:p.enabled!==false})})}
+    const imported=[];
+    try{for(const p of data.plugins){await api('/api/plugins',{method:'POST',body:JSON.stringify({name:p.name,code:p.code})});await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:p.enabled!==false})});imported.push(p.name)}}
+    catch(err){await refreshPluginList().catch(()=>{});throw new Error(err.message+' - imported '+imported.length+' of '+data.plugins.length+(imported.length?' ('+imported.join(', ')+')':'')+'; not imported: '+data.plugins.map(p=>p.name).filter(n=>!imported.includes(n)).join(', '))}
     await refreshPluginList();createToast('Plugin backup imported');
   }catch(err){createToast('Import failed: '+err.message,'red')}finally{e.target.value=''}
 };
@@ -7259,7 +7384,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.2.26';
+const PAGE_VERSION='1.2.27';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
@@ -7955,9 +8080,25 @@ document.getElementById('updinstall').onclick=async()=>{
         if(Date.now()-t0>45000&&st.log)out.textContent='Still version '+st.version+'. Installer output:\n'+st.log;
       }catch(_){/* host is restarting */}
     }
-    out.textContent+='\n\nTimed out waiting for version '+want+'. Check the app on the device, or run in the Root terminal: cat /data/local/tmp/matchi_update.log';
+    out.textContent+='\n\nTimed out waiting for version '+want+'. Check the app on the device, or run in the Root terminal: cat /data/local/matchitool/tmp/matchi_update.log';
   }catch(e){out.textContent='Install failed: '+e.message}
 };
+/* Separate console password (host: /api/console/password). */
+(function(){
+  const $=id=>document.getElementById(id);
+  async function load(){try{const r=await api('/api/console/password');$('conpwstate').textContent=r.separate?'A separate console password is set.':'The console uses the router admin password.';
+      try{const c=await api('/api/zte/config');if(c.passwordStoredInClear)$('conpwstate').textContent+=' WARNING: the Android key store failed, so the router password is saved unencrypted on this device.';if(c.passwordStorageReset)$('conpwstate').textContent+=' The saved router password could not be decrypted and was reset: enter it again.'}catch(_){}}catch(e){$('conpwstate').textContent=e.message}}
+  async function send(pw){
+    const m=$('conpwmsg');m.textContent='Saving…';
+    try{await api('/api/console/password',{method:'POST',body:JSON.stringify({current:$('conpwcur').value,password:pw})});
+      m.textContent=pw?'Console password set.':'The console uses the router password again.';
+      ['conpwcur','conpwnew','conpwnew2'].forEach(i=>$(i).value='');load()}
+    catch(e){m.textContent=e.message}
+  }
+  $('conpwset').onclick=()=>{const a=$('conpwnew').value;if(a.length<10){$('conpwmsg').textContent='Use at least 10 characters.';return}if(a!==$('conpwnew2').value){$('conpwmsg').textContent='The two new passwords differ.';return}send(a)};
+  $('conpwoff').onclick=()=>send('');
+  const old=window.openPop;window.openPop=function(id){old.apply(this,arguments);if(id==='conpw')load()};
+})();
 document.getElementById('logoutbtn').onclick=async()=>{
   try{await api('/api/logout',{method:'POST',body:'{}'})}catch(_){}
   sessionLost('');
@@ -7965,7 +8106,7 @@ document.getElementById('logoutbtn').onclick=async()=>{
 document.getElementById('tokbtn').onclick=async()=>{
   const pw=document.getElementById('tok').value;
   document.getElementById('tokerr').textContent='Connecting…';
-  try{const lr=await api('/api/login',{method:'POST',body:JSON.stringify({password:pw})});TOKEN=lr.token;await api('/api/ping');setHostStatus(true,'Host connected');localStorage.setItem('matchi_token',TOKEN);await start()}
+  try{const lr=await api('/api/login',{method:'POST',body:JSON.stringify({password:pw})});TOKEN=lr.token;await api('/api/ping');setHostStatus(true,'Host connected');tokSet(TOKEN);await start()}
   catch(e){document.getElementById('tokerr').textContent=e.message}
 };
 start();

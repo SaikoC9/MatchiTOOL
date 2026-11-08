@@ -19,17 +19,23 @@ android {
         applicationId = "com.matchi.tool"
         minSdk = 26
         targetSdk = 28   // old target: keeps legacy /sdcard + exec behaviour working on router firmware
-        versionCode = 226
-        versionName = "1.2.26"
+        versionCode = 227
+        versionName = "1.2.27"
     }
     signingConfigs {
         create("matchi") {
             val file = ksValue("storeFile", "MATCHI_KEYSTORE_FILE")
             if (file != null) {
+                val sp = ksValue("storePassword", "MATCHI_KEYSTORE_PASSWORD")
+                val ka = ksValue("keyAlias", "MATCHI_KEY_ALIAS")
+                val kp = ksValue("keyPassword", "MATCHI_KEY_PASSWORD")
+                if (sp == null || ka == null || kp == null)
+                    throw GradleException("Keystore file is set but MATCHI_KEYSTORE_PASSWORD, MATCHI_KEY_ALIAS or MATCHI_KEY_PASSWORD (or storePassword/keyAlias/keyPassword in keystore.properties) is missing.")
+                // Paths in keystore.properties may start with "../" (relative to app/); they are resolved from the project root.
                 storeFile = rootProject.file(file.removePrefix("../"))
-                storePassword = ksValue("storePassword", "MATCHI_KEYSTORE_PASSWORD")
-                keyAlias = ksValue("keyAlias", "MATCHI_KEY_ALIAS")
-                keyPassword = ksValue("keyPassword", "MATCHI_KEY_PASSWORD")
+                storePassword = sp
+                keyAlias = ka
+                keyPassword = kp
             }
         }
     }
@@ -41,7 +47,10 @@ android {
         // reject ("The APK has no valid signature"). It now falls back to the debug key, like debug builds do.
         all {
             if (ksValue("storeFile", "MATCHI_KEYSTORE_FILE") != null) signingConfig = signingConfigs.getByName("matchi")
-            else if (name == "release") signingConfig = signingConfigs.getByName("debug")
+            else if (name == "release") {
+                logger.warn("WARNING: no keystore configured - this release APK is signed with the DEBUG key and cannot update a permanently signed install.")
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
     // targetSdk 28 is deliberate (router firmware); without this the release lint gate rejects it as "expired".

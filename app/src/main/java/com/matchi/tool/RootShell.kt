@@ -27,14 +27,14 @@ data class RootStatus(
 
 object RootShell {
     private const val MAX_OUTPUT_CHARS = 1_000_000
-    private const val MAX_SESSIONS = 3          // keep root concurrency modest on the F50
-    private const val MAX_LONG_JOBS = 2         // jobs longer than LONG_JOB_MS may use at most this many of the slots
+    private const val MAX_SESSIONS = 4          // keep root concurrency modest on the F50 (one slot always stays free for short commands)
+    private const val MAX_LONG_JOBS = 3         // boot script + IMEI keeper no longer block every other long job; jobs longer than LONG_JOB_MS may use at most this many of the slots
     private const val LONG_JOB_MS = 30_000L     // the remaining slot stays free for short commands (status polls)
     private const val MAX_QUEUED_LINES = 2048
     private const val IDLE_MS = 180_000L        // an idle shell is closed after 3 minutes
     private const val EOF = "\u0000EOF"
     private const val DENIAL_COOLDOWN_MS = 45_000L // after a refused su, do not ask the root manager again for this long
-    private const val TMP = "/data/local/tmp"
+    private const val TMP = "/data/local/matchitool/tmp"   // root-only: the adb shell user can write /data/local/tmp, so pid/out files must not live there
 
     /**
      * A long-lived `su -c sh`. Starting su for every command costs 150-400 ms (more on a hot, loaded device),
@@ -43,26 +43,13 @@ object RootShell {
      * and end of output are marked with a unique line.
      */
     private class Session(val p: Process) {
-        // Bounded queue prevents a noisy root command from growing app memory without limit.
+        // Bounded queue prevents a noisy root command from growing app memory without limit: the reader blocks (put) when it is
+        // full, which slows the shell instead of dropping output. Only the end marker uses enqueue (it must never block).
         val lines = ArrayBlockingQueue<String>(MAX_QUEUED_LINES)
-        @Volatile var droppedLines = 0
         private fun enqueue(line: String) {
             if (!lines.offer(line)) {
                 lines.poll()
-                droppedLines++
                 lines.offer(line)
-            }
-        }
-        private fun readBoundedLine(reader: BufferedReader, maxChars: Int = 8192): String? {
-            val out = StringBuilder()
-            var seen = false
-            while (true) {
-                val c = reader.read()
-                if (c < 0) return if (seen) out.toString() else null
-                seen = true
-                if (c == 10) return out.toString()
-                if (c != 13 && out.length < maxChars) out.append(c.toChar())
-                // Continue consuming an overlong line, but never retain more than maxChars.
             }
         }
         val writer = p.outputStream.bufferedWriter(Charsets.UTF_8)
@@ -113,7 +100,8 @@ object RootShell {
     /** Forget a stored denial (for a manual retry after the user granted root). */
     fun resetDenial() { suBlockedUntil = 0L }
 
-    private val SU_REFUSAL = Regex("denied|not allowed|permission|authori|not found|no such file|unable to start|cannot run|inaccessible")
+    // Only a line that is su's own message ("su: ...", "/system/bin/su: ...", "su not found"), not any failing command's text.
+    private val SU_REFUSAL = Regex("(?m)^\\s*(sh: )?(\\S*/)?su\\b.*(denied|not allowed|authori|not found|no such file|unable to start|cannot run|inaccessible)")
 
     /** True when a failed one-shot looks like su itself refused/vanished, not like the script failing. */
     private fun looksLikeSuRefusal(r: ShellResult): Boolean {
@@ -130,9 +118,12 @@ object RootShell {
      * command in the script that reads stdin (cat, read) gets end-of-file instead of swallowing the rest of the
      * script. [redirect] is appended to the command line.
      */
-    private fun launcher(pf: String, delim: String, redirect: String): String =
+    internal fun launcher(pf: String, delim: String, redirect: String): String =
         "if command -v setsid >/dev/null 2>&1; then MS=setsid; else MS=; fi\n" +
-        "\$MS sh -c 'echo \$\$ >$pf; exec sh /dev/fd/3' $redirect </dev/null 3<<'$delim'\n"
+        // The temp folder must be a real directory owned by root (never a link); otherwise nothing is started. The pid file is
+        // created with noclobber (set -C) so an existing file or link is never followed or overwritten.
+        "MT_OK=; mkdir -p $TMP 2>/dev/null; chmod 700 $TMP 2>/dev/null; if [ ! -L $TMP ] && [ \"\$(stat -c %u $TMP 2>/dev/null)\" = 0 ]; then MT_OK=1; else echo 'unsafe root temp folder'; fi\n" +
+        "[ -n \"\$MT_OK\" ] && \$MS sh -c 'set -C; echo \$\$ >$pf || exit 1; set +C; exec sh /dev/fd/3' $redirect </dev/null 3<<'$delim'\n"
 
     /**
      * Stops everything a timed-out script started. Kills the whole process group, and also walks the child
@@ -197,10 +188,10 @@ object RootShell {
         val pf = "$TMP/.matchi_pid_$id"
         val o = "$TMP/.matchi_out_$id"
         s.lines.clear()
-        s.droppedLines = 0
         try {
             // Output goes to a temp file, not the session pipe, so a daemon the script leaves running in the
             // background cannot write into a later command's output. The file is read back and removed at the end.
+            s.writer.write("set -C\n")   // noclobber: ">$o" must create a NEW file, never follow or truncate an existing one/link
             s.writer.write(launcher(pf, delim, ">$o 2>&1"))
             // ulimit -f applies to every file the command (and anything it starts) writes, so it must be generous:
             // a 1 MiB cap broke downloads, installs and backups run through plugins. This only stops a runaway
@@ -208,7 +199,7 @@ object RootShell {
             s.writer.write("ulimit -f 4194304 2>/dev/null || true\n") // 4194304 * 512 bytes = 2 GiB
             s.writer.write(script)
             if (!script.endsWith("\n")) s.writer.write("\n")
-            s.writer.write("$delim\nrc=\$?; head -c 1100000 $o 2>/dev/null; rm -f $o $pf; printf '\\n$end%d\\n' \"\$rc\"\n")
+            s.writer.write("$delim\nrc=\$?; set +C; head -c 1100000 $o 2>/dev/null; rm -f $o $pf; printf '\\n$end%d\\n' \"\$rc\"\n")
             s.writer.flush()
         } catch (_: IOException) { return null }
         val sb = StringBuilder()
@@ -231,9 +222,10 @@ object RootShell {
             if (line.startsWith(end)) {
                 val rc = line.removePrefix(end).trim().toIntOrNull() ?: 1
                 s.used = true
-                val text = sb.toString().trim()
+                var text = sb.toString().trim()
+                // head -c may have cut a multi-byte character at the capture limit; drop the broken character it leaves at the very end.
+                if (text.endsWith('\uFFFD') && text.toByteArray(Charsets.UTF_8).size >= 1_050_000) text = text.trimEnd('\uFFFD')
                 val notes = ArrayList<String>(2)
-                if (s.droppedLines > 0) notes.add("${s.droppedLines} output lines discarded to protect memory")
                 if (outputTruncated) notes.add("output exceeded the 1 MiB capture limit")
                 val note = if (notes.isEmpty()) "" else "\n[output truncated: ${notes.joinToString("; ")}]"
                 return ShellResult(rc == 0, text + note)
@@ -298,6 +290,7 @@ object RootShell {
         val delim = "MATCHI_EOF_$uid"
         val output = StringBuilder()
         var readError: String? = null
+        var oneShotCut = false
         try {
             // `su -c sh` is supported by common Android root managers. The script is sent over
             // stdin, avoiding shell interpolation of user-provided command text or temp paths.
@@ -311,7 +304,11 @@ object RootShell {
                         while (true) {
                             val line = r.readLine() ?: break
                             synchronized(output) {
-                                if (output.length < MAX_OUTPUT_CHARS) output.append(line).append('\n')
+                                if (output.length < MAX_OUTPUT_CHARS) {
+                                    output.append(line).append('\n')
+                                } else {
+                                    oneShotCut = true
+                                }
                             }
                         }
                     }
@@ -346,7 +343,8 @@ object RootShell {
             reader.join(1_000)
             val text = synchronized(output) { output.toString().trimEnd() }
             val code = p.exitValue()
-            val detail = if (!readError.isNullOrBlank()) "\n[output read: $readError]" else ""
+            val detail = (if (!readError.isNullOrBlank()) "\n[output read: $readError]" else "") +
+                (if (oneShotCut) "\n[output truncated: exceeded the 1 MiB capture limit]" else "")
             return ShellResult(code == 0, (text + detail).trim())
         } catch (e: SecurityException) {
             return ShellResult(false, "Unable to start su: ${e.message ?: "permission denied"}")
@@ -365,13 +363,13 @@ object RootShell {
      */
     fun status(ctx: Context): RootStatus {
         val script = """
-            UID=$(id -u 2>/dev/null)
+            MUID=$(id -u 2>/dev/null)
             SUPATH=$(command -v su 2>/dev/null)
             HINT="Generic su"
             [ -e /data/adb/magisk ] && HINT="Magisk"
             [ -e /data/adb/ksu ] && HINT="KernelSU"
             [ -e /data/adb/ap ] && HINT="APatch"
-            echo "MATCHI_UID=${'$'}{UID:-unknown}"
+            echo "MATCHI_UID=${'$'}{MUID:-unknown}"
             echo "MATCHI_SUPATH=${'$'}{SUPATH:-not found}"
             echo "MATCHI_MANAGER=${'$'}HINT"
         """.trimIndent()
@@ -392,8 +390,6 @@ object RootShell {
         }
         return RootStatus(granted, uid, path, hint, detail)
     }
-
-    fun isRoot(ctx: Context): Boolean = status(ctx).granted
 
     /** Close idle persistent shells when the owning foreground service is destroyed. */
     fun closeAll() {

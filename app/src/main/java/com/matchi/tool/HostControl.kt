@@ -7,7 +7,7 @@ import java.net.Socket
 /** Host-level actions shared by the native screens (addresses, LAN firewall, host health). */
 object HostControl {
 
-    private val hotspotIf = Regex("^(br|ap|swlan|usb|rndis|ecm)[0-9a-z_]*$")
+    private val hotspotIf = Regex("^(br|ap|swlan|usb|rndis|ecm)[0-9a-z_-]*$")   // one list for the client check AND the shown address
     private class Net(val addr: Int, val mask: Int)
     @Volatile private var cachedNets: List<Net> = emptyList()
     @Volatile private var cachedV6Nets: List<Pair<ByteArray, Int>> = emptyList()
@@ -21,7 +21,8 @@ object HostControl {
 
     /**
      * Subnets of the ZTE's own hotspot / USB-tether side (br*, ap*, swlan*, usb*, rndis*, ecm*) - NOT wlan* client Wi-Fi and not
-     * mobile data. If no such interface is found, the /24 of the configured router address is used instead.
+     * mobile data. If no such interface is found, NO network is trusted (only loopback passes): guessing the router's /24 let
+     * every host on a home LAN that happens to use the same range reach the login.
      * Refreshed every 5 s because the hotspot can come and go.
      */
     private fun hotspotNets(ctx: Context): List<Net> {
@@ -36,7 +37,7 @@ object HostControl {
                     val prefix = ia.networkPrefixLength.toInt()
                     val a = ia.address
                     if (a is java.net.Inet4Address) {
-                        if (!a.isSiteLocalAddress || prefix < 16 || prefix > 30) continue
+                        if (!a.isSiteLocalAddress || prefix < 8 || prefix > 30) continue
                         val mask = (-1) shl (32 - prefix)
                         out.add(Net(v4(a.hostAddress ?: continue) ?: continue, mask))
                     } else if (a is java.net.Inet6Address && !a.isLinkLocalAddress && !a.isMulticastAddress && prefix in 1..128) {
@@ -45,7 +46,6 @@ object HostControl {
                 }
             }
         } catch (_: Exception) {}
-        if (out.isEmpty()) v4(Prefs.zteHost(ctx).substringBefore(':'))?.let { out.add(Net(it, (-1) shl 8)) }
         cachedNets = out
         cachedV6Nets = out6
         cachedAt = now
@@ -92,12 +92,9 @@ object HostControl {
             for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return "${Prefs.zteHost(ctx)}:${Prefs.PORT}")) {
                 if (!nif.isUp || nif.isLoopback) continue
                 val n = nif.name.lowercase()
-                // Hotspot / bridge / USB-tether interfaces only; never another Wi-Fi or mobile data.
-                val rank = when {
-                    n.startsWith("br") || n.startsWith("ap") || n.startsWith("swlan") -> 0
-                    n.startsWith("usb") || n.startsWith("rndis") || n.startsWith("ecm") || n.startsWith("eth") -> 2
-                    else -> continue
-                }
+                // Same interfaces isHotspotClient() accepts (so the shown address always works); never another Wi-Fi or mobile data.
+                if (!hotspotIf.matches(n)) continue
+                val rank = if (n.startsWith("br") || n.startsWith("ap") || n.startsWith("swlan")) 0 else 2
                 for (a in java.util.Collections.list(nif.inetAddresses)) {
                     if (a is java.net.Inet4Address && a.isSiteLocalAddress) found.add(rank to (a.hostAddress ?: continue))
                 }
@@ -114,15 +111,31 @@ object HostControl {
      * Best effort: silently does nothing without root or iptables.
      */
     fun openLanFirewall(ctx: Context) {
-        val p = Prefs.PORT
-        val script = "UP=\" \$( { ip route show default 2>/dev/null; ip route show table all 2>/dev/null | grep '^default'; ip route get 8.8.8.8 2>/dev/null; } | sed -n 's/.* dev \\([^ ]*\\).*/\\1/p' | sort -u | tr '\\n' ' ')\"; " +
-            "for t in iptables ip6tables; do command -v \$t >/dev/null 2>&1 || continue; " +
-            "for path in /sys/class/net/*; do [ -e \"\$path\" ] || continue; i=\${path##*/}; " +
-            "case \"\$i\" in br*|ap*|swlan*|usb*|rndis*|ecm*) case \"\$UP\" in *\" \$i \"*) continue;; esac; " +
-            "\$t -C INPUT -i \"\$i\" -p tcp --dport $p -j ACCEPT 2>/dev/null || \$t -I INPUT 1 -i \"\$i\" -p tcp --dport $p -j ACCEPT 2>/dev/null;; esac; " +
-            "done; done; echo done"
-        RootShell.run(ctx, script, 15_000)
+        RootShell.run(ctx, lanFirewallScript(Prefs.PORT), 15_000)
     }
+
+    /**
+     * Root script for [openLanFirewall]. It is a raw string with one level of escaping only (the sed group `\(...\)` and the
+     * tr `\n` reach the shell exactly as written; doubling them made sed match nothing, so the upstream interfaces were never
+     * skipped). `§` stands for the shell's dollar sign so Kotlin does not treat shell variables as templates.
+     */
+    internal fun lanFirewallScript(port: Int): String = """
+        UP=" §( { ip route show default 2>/dev/null; ip route show table all 2>/dev/null | grep '^default'; ip route get 8.8.8.8 2>/dev/null; } | sed -n 's/.* dev \([^ ]*\).*/\1/p' | sort -u | tr '\n' ' ')"
+        for t in iptables ip6tables; do
+          command -v §t >/dev/null 2>&1 || continue
+          for path in /sys/class/net/*; do
+            [ -e "§path" ] || continue
+            i=§{path##*/}
+            case "§i" in
+              br*|ap*|swlan*|usb*|rndis*|ecm*)
+                case "§UP" in *" §i "*) continue;; esac
+                §t -C INPUT -i "§i" -p tcp --dport $port -j ACCEPT 2>/dev/null || §t -I INPUT 1 -i "§i" -p tcp --dport $port -j ACCEPT 2>/dev/null
+                ;;
+            esac
+          done
+        done
+        echo done
+    """.trimIndent().replace('§', '$')
 
     /** True when the web host is accepting connections on its port. */
     fun isHostUp(): Boolean = try {

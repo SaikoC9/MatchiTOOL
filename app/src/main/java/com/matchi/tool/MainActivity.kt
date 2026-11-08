@@ -27,9 +27,18 @@ class MainActivity : Activity() {
 
     private lateinit var hostPill: StatusPill
     private lateinit var webSub: TextView
+    private lateinit var lanSub: TextView
     private lateinit var routerSub: TextView
     private lateinit var rootSub: TextView
     private lateinit var rootBadge: TextView
+
+    // While the web host is still starting its scheme (https / http) is not final: keep the address line fresh until it is.
+    private val staticTick = object : Runnable {
+        override fun run() {
+            refreshStatic()
+            if (!Tls.ready && visible && !isFinishing) handler.postDelayed(this, 1000)
+        }
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -79,12 +88,15 @@ class MainActivity : Activity() {
         refreshStatic()
         handler.removeCallbacks(tick)
         handler.post(tick)
+        handler.removeCallbacks(staticTick)
+        handler.post(staticTick)
     }
 
     override fun onPause() {
         super.onPause()
         visible = false
         handler.removeCallbacks(tick)
+        handler.removeCallbacks(staticTick)
     }
 
     // ---- building blocks -------------------------------------------------------------------------------
@@ -119,7 +131,13 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             elevation = Ui.dpf(this@MainActivity, 6f)
-            setOnClickListener { openAddress("${Tls.scheme}://${HostControl.localAddress()}") }
+            setOnClickListener {
+                if (!Tls.ready) {
+                    // The scheme is not final until the host has started: opening now could use http against an https server.
+                    Toast.makeText(this@MainActivity, "The web console is still starting - try again in a moment", Toast.LENGTH_SHORT).show()
+                    handler.removeCallbacks(staticTick); handler.post(staticTick)
+                } else openAddress("${Tls.scheme}://${HostControl.localAddress()}")
+            }
         }
         btn.addView(Ui.icon(this, R.drawable.ic_globe, Color.WHITE, 26))
         val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -162,11 +180,11 @@ class MainActivity : Activity() {
         group.addView(row(R.drawable.ic_shield, Ui.ok, Color.parseColor("#0F3B2E"), "Root access", rootSub, rootBadge) {
             rootBadge.text = "Checking…"
             setBadge(rootBadge, Ui.muted)
-            refreshStatus()
+            refreshStatus(manual = true)
         })
         group.addView(divider())
 
-        val lanSub = Ui.label(this, "Trusted hotspot only · HTTP is unencrypted", 12.5f, Ui.muted)
+        lanSub = Ui.label(this, "Trusted hotspot only · HTTP is unencrypted", 12.5f, Ui.muted)   // text is corrected by refreshStatic() once TLS state is known
         val lanBadge = Ui.pill(this, "On", Ui.ok, Color.parseColor("#141E31"), Ui.innerStroke)
         setBadge(lanBadge, Ui.ok)
         group.addView(row(R.drawable.ic_network, Color.parseColor("#7DB4F2"), Color.parseColor("#14233D"), "LAN access", lanSub, lanBadge) {})
@@ -201,7 +219,9 @@ class MainActivity : Activity() {
 
     /** Values that come from preferences, not from the modem. */
     private fun refreshStatic() {
-        webSub.text = "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
+        webSub.text = if (!Tls.ready) "Starting the web console…"
+            else "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
+        lanSub.text = if (Tls.ready && Tls.active) "Trusted hotspot only · HTTPS (self-signed)" else "Trusted hotspot only · HTTP is unencrypted"
         routerSub.text = Prefs.zteHost(this)
     }
 
@@ -213,10 +233,13 @@ class MainActivity : Activity() {
     }
 
     /** Host state and root grant only (no modem / router polling). */
-    private fun refreshStatus() {
+    private fun refreshStatus(manual: Boolean = false) {
         if (busy) return
         busy = true
         Thread {
+            // A tap on "Root access" is an explicit retry (e.g. root was just granted in the root manager): forget the
+            // 45 s denial cool-down first. The 60 s background tick never does, so it cannot make the manager prompt again.
+            if (manual) RootShell.resetDenial()
             val up = HostControl.isHostUp()
             val root = try { RootShell.status(this) } catch (e: Exception) {
                 RootStatus(false, "unknown", "unknown", "Unknown su manager", e.message ?: "Root check failed")

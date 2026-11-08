@@ -48,14 +48,13 @@ class SessionStore(
         rng.nextBytes(raw)
         val token = raw.joinToString("") { "%02x".format(it) }
         val now = clock()
-        val snapshot = synchronized(map) {
+        synchronized(map) {
             map.values.removeAll { expired(it.created, it.lastSeen, now) }
             while (map.size >= maxSessions) map.remove(map.keys.first())
             map[hash(token)] = Entry(now, now)
             lastPersistAt = now
-            serialize()
+            persistLocked()
         }
-        persist(snapshot)
         return token
     }
 
@@ -64,55 +63,68 @@ class SessionStore(
         if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LEN) return false
         val key = hash(token)
         val now = clock()
-        var snapshot: String? = null
         val ok = synchronized(map) {
             val e = map[key]
             when {
                 e == null -> false
                 expired(e.created, e.lastSeen, now) -> {
                     map.remove(key)
-                    snapshot = serialize()
+                    persistLocked()
                     false
                 }
                 else -> {
                     e.lastSeen = now
                     if (now - lastPersistAt >= PERSIST_EVERY_MS) {
                         lastPersistAt = now
-                        snapshot = serialize()
+                        persistLocked()
                     }
                     true
                 }
             }
         }
-        snapshot?.let { persist(it) }
         return ok
+    }
+
+    /** Milliseconds since this session was created, or null when the token is not a live session. Does not touch the idle timer. */
+    fun ageMs(token: String?): Long? {
+        if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LEN) return null
+        val now = clock()
+        return synchronized(map) {
+            val e = map[hash(token)]
+            if (e == null || expired(e.created, e.lastSeen, now)) null else now - e.created
+        }
     }
 
     /** Sign one session out. */
     fun revoke(token: String?) {
         if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LEN) return
         val key = hash(token)
-        val snapshot = synchronized(map) { if (map.remove(key) != null) serialize() else null }
-        snapshot?.let { persist(it) }
+        synchronized(map) { if (map.remove(key) != null) persistLocked() }
     }
 
     /** Sign everybody out (password changed). */
     fun revokeAll() {
-        val snapshot = synchronized(map) { map.clear(); serialize() }
-        persist(snapshot)
+        synchronized(map) { map.clear(); persistLocked() }
     }
 
     /** Sign everybody out except the session that is making the change. */
     fun revokeAllExcept(keep: String?) {
         val keepKey = if (keep.isNullOrEmpty() || keep.length > MAX_TOKEN_LEN) null else hash(keep)
-        val snapshot = synchronized(map) { map.keys.removeAll { it != keepKey }; serialize() }
-        persist(snapshot)
+        synchronized(map) { map.keys.removeAll { it != keepKey }; persistLocked() }
     }
 
     fun count(): Int = synchronized(map) { map.size }
 
     private fun expired(created: Long, lastSeen: Long, now: Long): Boolean =
         now - lastSeen > idleMs || now - created > maxAgeMs
+
+    /**
+     * Saves the current sessions. Always called while holding the [map] lock: when the snapshot was built inside the lock
+     * but written outside it, two threads could write out of order and an older snapshot (still holding a signed-out
+     * session) could overwrite the newer one, so that session worked again after the next restart. [persist] only hands
+     * the string to SharedPreferences.apply(), so holding the lock for it is cheap.
+     */
+    private fun persistLocked() { persist(serialize()) }
 
     private fun serialize(): String =
         map.entries.joinToString("\n") { "${it.key},${it.value.created},${it.value.lastSeen}" }

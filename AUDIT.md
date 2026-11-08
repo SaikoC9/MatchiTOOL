@@ -1,5 +1,7 @@
 # MatchiTOOL source audit
 
+> **Historical:** this audit describes the 1.1.47 baseline. Plugins named below (Device Status, Signal Info, Bypass v65.13) no longer exist in that form. For the current review and fixes see `CHANGELOG.md` (Unreleased) and the 1.2.27 bug report.
+
 Audit date: 2026-11-07
 
 ## Scope inspected
@@ -39,7 +41,7 @@ Plugins are JavaScript and the shell bridge is privileged. Any installed or uplo
 ## Recommended next fixes
 
 1. Add a Gradle wrapper and dependency verification/locking for reproducible builds.
-2. Bind the privileged server to loopback by default and require an explicit setting to expose it to a trusted LAN.
+2. (Superseded: the app deliberately binds 0.0.0.0 for hotspot clients and filters by source address; see the latest review below.) Bind the privileged server to loopback by default and require an explicit setting to expose it to a trusted LAN.
 3. Move shell execution behind an allowlisted command interface for built-in features; reserve arbitrary shell for an explicitly enabled developer mode.
 4. Add unit tests for root timeout, output cap, command exit status, auth lockout, IPv4/IPv6 local-address checks, and plugin file path validation.
 5. Add a stock-F50 firmware compatibility database and non-destructive preflight checks; do not add ADB/Fastboot discovery.
@@ -62,7 +64,7 @@ Remaining release gates: run Android Gradle build, test on stock F50 and a roote
 
 Implemented against the 1.1.0 source:
 
-- **Network exposure:** `WebServer` now binds to `127.0.0.1` by default. LAN binding (`0.0.0.0`) is opt-in through the native host screen, with a warning explaining that the API uses HTTP and exposes privileged functionality. Existing plugin API routes are retained.
+- **Network exposure (superseded, see the latest review below: the shipped service binds 0.0.0.0 and filters by source address):** `WebServer` now binds to `127.0.0.1` by default. LAN binding (`0.0.0.0`) is opt-in through the native host screen, with a warning explaining that the API uses HTTP and exposes privileged functionality. Existing plugin API routes are retained.
 - **Host status:** the foreground notification and native screen identify local-only versus LAN-enabled mode. Changing the setting restarts the host service.
 - **Root request guard:** `/api/shell` rejects empty, oversized (>128 KB), and NUL-containing command bodies before invoking the existing root bridge.
 - **Firmware preflight:** XML is checked for well-formedness; model/project labels and boot-critical partition names are surfaced as hints/warnings. This does not establish firmware compatibility and never flashes.
@@ -110,3 +112,8 @@ Static source validation now discovers the embedded Bypass tool by prefix, so ve
 - No root exploit, bootloader unlock, partition flashing, or root-manager installation is included.
 - Remaining risk: `/api/shell` is an authenticated arbitrary-root-command interface over plain HTTP. Restrict port 2334 to a trusted hotspot/USB-tether network and do not expose it to the internet. Plugin code is privileged.
 - Validation is source-level. An Android Gradle build and device runtime test are still required.
+
+## Build notes (from the 1.2.26 code review)
+- `targetSdk` 28 with cleartext allowed is deliberate. The manifest declares no `android:foregroundServiceType` and no `FOREGROUND_SERVICE_*` permission: if `targetSdk` is ever raised to 34 or higher, `HostService` will crash on start until both are added.
+- Local builds and `build.yml` fall back to the debug key when no keystore is configured; such an APK cannot update a properly signed install. `release.yml` refuses to publish without the keystore.
+- There is no Gradle wrapper (CI uses Gradle 8.7), no dependency locking and minify is off (see `scripts/bootstrap-build.sh`).

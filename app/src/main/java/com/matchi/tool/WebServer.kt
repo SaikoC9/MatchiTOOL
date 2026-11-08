@@ -1,6 +1,7 @@
 package com.matchi.tool
 
 import android.content.Context
+import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,10 +21,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     private val MAX_UPLOAD_BYTES = 512L * 1024L * 1024L
     private val MAX_UPLOAD_TOTAL_BYTES = 1024L * 1024L * 1024L
 
-    // Brute-force protection: after MAX_FAILS bad tokens an IP is locked out for LOCK_MS.
-    private val fails = HashMap<String, Pair<Int, Long>>()
-    private val MAX_FAILS = 8
-    private val LOCK_MS = 60_000L
+    // Brute-force protection for /api/login (per-IP + global back-off, router-forward budget): see LoginGuard.
+    private val guard = LoginGuard()
+    // /api/shell is full root, so it needs a login that is recent, not just a live 12 h session.
+    private val SHELL_MAX_SESSION_MS = 4L * 60 * 60 * 1000
 
     init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
@@ -33,13 +34,35 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
      */
     private fun seedPlugins() {
         @Suppress("DEPRECATION")
-        val ver = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode
+        val ver = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (_: Exception) { 0 }
         val refresh = Prefs.seededVersion(ctx) != ver
         // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
         val sendat = File(ctx.filesDir, "sendat")
-        if (refresh || !sendat.exists()) ctx.assets.open("bin/sendat").use { i -> sendat.outputStream().use { i.copyTo(it) } }
-        sendat.setExecutable(true, false)
-        if (refresh) Prefs.setSeededVersion(ctx, ver)
+        var copied = true
+        if (refresh || !sendat.exists()) copied = installSendat(sendat)
+        try { sendat.setExecutable(true, false) } catch (_: Exception) { }
+        // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
+        if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
+    }
+
+    /**
+     * Copies the bundled sendat next to its final name and renames it into place. Writing straight over the file fails with
+     * "Text file busy" while an old sendat is still running (an update right after an AT command), and that exception used
+     * to escape the WebServer constructor and keep the whole console from starting. A rename replaces the directory entry
+     * and works while the old binary runs. Never throws: on failure the old binary (if any) stays and false is returned.
+     */
+    private fun installSendat(dest: File): Boolean {
+        val tmp = File(dest.parentFile, "sendat.new")
+        return try {
+            ctx.assets.open("bin/sendat").use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            tmp.setExecutable(true, false)
+            if (!tmp.renameTo(dest)) throw java.io.IOException("could not move sendat into place")
+            true
+        } catch (e: Exception) {
+            Log.w("MatchiTOOL", "sendat copy failed, keeping the existing binary: ${e.message}")
+            try { tmp.delete() } catch (_: Exception) { }
+            false
+        }
     }
 
     /** True when the request carries a live per-login session token (see [SessionStore]). */
@@ -56,23 +79,6 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return x == "::1" || x == "0:0:0:0:0:0:0:1" || x == "localhost" || x.startsWith("127.")
     }
 
-    private fun locked(ip: String): Boolean = synchronized(fails) {
-        if (isLoopbackIp(ip)) return false
-        val f = fails[ip] ?: return false
-        if (System.currentTimeMillis() - f.second > LOCK_MS) { fails.remove(ip); return false }
-        f.first >= MAX_FAILS
-    }
-    private fun fail(ip: String) = synchronized(fails) {
-        val now = System.currentTimeMillis()
-        if (ip !in fails && fails.size >= 256) {
-            fails.entries.minByOrNull { it.value.second }?.key?.let { fails.remove(it) }
-        }
-        val f = fails[ip]
-        fails[ip] = if (f == null || now - f.second > LOCK_MS) Pair(1, now) else Pair(f.first + 1, now)
-    }
-    private fun failCount(ip: String): Int = synchronized(fails) { fails[ip]?.first ?: 0 }
-    private fun ok(ip: String) = synchronized(fails) { fails.remove(ip) }
-
     private val tooMany = object : Response.IStatus {
         override fun getRequestStatus() = 429
         override fun getDescription() = "429 Too Many Requests"
@@ -84,6 +90,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         it.addHeader("X-Frame-Options", "DENY")
         it.addHeader("Referrer-Policy", "no-referrer")
         it.addHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        // Plugins are trusted code that runs through new Function and may call other hosts (IP / DNS checks), so script
+        // 'unsafe-eval' and open connect-src stay; everything else is closed: no framing, no <base>, no plugins, own forms only.
+        it.addHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+        // NanoHTTPD 2.3.1 does not skip a request body the handler never read. An error answer (401/403/429/...) may
+        // have been sent before the body was consumed, so close the connection instead of letting the leftover bytes
+        // be parsed as the start of the next keep-alive request.
+        if (it.status.requestStatus >= 400) it.addHeader("Connection", "close")
     }
 
     private fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json; charset=utf-8", o.toString()))
@@ -103,6 +116,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
      */
     private fun body(s: IHTTPSession, max: Int = MAX_JSON_BODY): JSONObject {
         val raw = s.headers["content-length"]?.trim()
+        if (raw == null && s.method == Method.POST && s.headers["transfer-encoding"] != null)
+            throw IllegalArgumentException("chunked request bodies are not supported - send a Content-Length (411)")
         val len = if (raw == null) 0 else raw.toIntOrNull() ?: throw IllegalArgumentException("bad Content-Length")
         if (len < 0 || len > max) throw IllegalArgumentException("request body too large")
         if (len == 0) return JSONObject()
@@ -139,12 +154,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // "localhost" are valid Host values for this console, whatever the path.
         if (!hostHeaderAllowed(s.headers["host"]))
             return json(Response.Status.FORBIDDEN, JSONObject().put("error", "open the console by its IP address, not a host name"))
+        val ip = s.remoteIpAddress ?: "?"
+        // Network check first for EVERY path (page and 404 included), so hosts outside the hotspot cannot even fingerprint the app.
+        if (!HostControl.isHotspotClient(ctx, ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "ZTE hotspot network access only"))
         if (uri == "/" || uri == "/index.html") {
             return servePage(s)
         }
-        if (!uri.startsWith("/api/")) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404")
+        if (!uri.startsWith("/api/")) return harden(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404"))
 
-        val ip = s.remoteIpAddress ?: "?"
         // Reject cross-origin browser requests. Same-origin page/plugin requests continue to work.
         val origin = s.headers["origin"]
         if (origin != null) {
@@ -156,14 +173,16 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             if (!sameOrigin)
                 return json(Response.Status.FORBIDDEN, JSONObject().put("error", "cross-origin request refused"))
         }
-        // Only this device and clients on the ZTE's own hotspot / USB-tether network may use the API; clients arriving from
-        // another Wi-Fi, mobile data or the internet are rejected even if the port is reachable.
-        if (!HostControl.isHotspotClient(ctx, ip)) return json(Response.Status.FORBIDDEN, JSONObject().put("error", "ZTE hotspot network access only"))
         // Only password/token guesses at /api/login count toward the lockout. A browser tab still holding an old
         // session token (after the password or token changed) used to rack up failures by polling, which then
         // locked the real login out ("Too many attempts"). Session tokens are 96-bit random, so they need no lockout.
         if (uri == "/api/login" && s.method == Method.POST) {
-            if (locked(ip)) return json(tooMany, JSONObject().put("error", "too many bad attempts, wait a minute"))
+            val wait = guard.retryAfterMs(ip, isLoopbackIp(ip))
+            if (wait > 0) {
+                val secs = (wait + 999) / 1000
+                return json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
+                    .also { it.addHeader("Retry-After", secs.toString()) }
+            }
             return login(ip, s)
         }
         if (!authed(s)) return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again"))
@@ -182,7 +201,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val bad = ArrayList<Pair<String, String>>()
         ok.add(pluginDataDir(name))
         for (d in pluginDataDeclarations(code)) {
-            val why = checkPluginDataPath(d)
+            val why = checkPluginDataPath(d, name)
             if (why == null) { if (d !in ok) ok.add(d) } else bad.add(d to why)
         }
         return ok to bad
@@ -195,10 +214,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
         "echo \"EXISTS \$(du -sk -- \"\$p\" 2>/dev/null | cut -f1) \$p\"; fi; done; true"
 
-    // rm -rf on a symlink removes the link itself, never what it points to.
-    private fun eraseScript(paths: List<String>) =
-        "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
-        "if rm -rf -- \"\$p\"; then echo \"REMOVED \$p\"; else echo \"FAILED \$p\"; fi; fi; done; true"
+    // rm -rf on a symlink removes the link itself, never what it points to, but it DOES follow a symlink in a parent folder.
+    // So every folder between the allowed root and the path is tested with [ -L ] first, and the path is skipped if one is a link.
+    private fun eraseScript(paths: List<String>) = paths.joinToString("\n") { p ->
+        val links = symlinkAncestors(p).joinToString(" || ") { "[ -L '$it' ]" }.ifEmpty { "false" }
+        "if [ -e '$p' ] || [ -L '$p' ]; then if $links; then echo \"SKIPPED $p\"; " +
+        "elif rm -rf -- '$p'; then echo \"REMOVED $p\"; else echo \"FAILED $p\"; fi; fi"
+    } + "\ntrue"
 
     private val auditLock = Any()
 
@@ -222,6 +244,23 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         } catch (_: Exception) { }
     }
 
+    private val busyAudit = HashMap<String, Long>()
+
+    /**
+     * For calls that tools make many times a second (screen taps, AT polling): at most one audit line per client and kind per
+     * 60 s, so they cannot push the rarer, more important entries (shell, USB, IMEI, update) out of the size-capped log.
+     */
+    private fun auditBusy(ip: String, kind: String) {
+        val now = System.currentTimeMillis()
+        val key = "$kind|$ip"
+        val log = synchronized(busyAudit) {
+            if (busyAudit.size > 200) busyAudit.clear()
+            val last = busyAudit[key] ?: 0L
+            if (now - last >= 60_000L) { busyAudit[key] = now; true } else false
+        }
+        if (log) auditShell(ip, "$kind (first call in 60 s)", kind)
+    }
+
     /** Password login: returns the session token. Bad attempts count toward the per-IP lockout. */
     private fun login(ip: String, s: IHTTPSession): Response {
         val pw = try { body(s, MAX_LOGIN_BODY).optString("password").take(200) } catch (e: Exception) {
@@ -232,17 +271,26 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // The web console accepts the router's own admin password: if it is not what is stored (nothing stored yet,
         // or the router password was changed), ask the router. When it accepts, remember it for the SMS / signal tools.
         // Skipped after 3 bad tries from this address so the router's own login lockout is not triggered.
-        if (!good && pw.isNotEmpty() && failCount(ip) < 3 && ZteClient.verify(ctx, pw) == true) {
+        // The router is asked at most 3 times per address AND 3 times per 10 minutes in total (see LoginGuard.mayAskRouter).
+        if (!good && pw.isNotEmpty() && !Prefs.hasConsolePassword(ctx) && guard.failCount(ip) < 3 && guard.mayAskRouter(ip) && ZteClient.verify(ctx, pw) == true) {
             Prefs.setZtePass(ctx, pw)
             Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
             good = true
         }
         if (!good) {
-            fail(ip)
-            if (isLoopbackIp(ip)) try { Thread.sleep(2_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            val loop = isLoopbackIp(ip)
+            guard.failed(ip, loop)
+            auditBusy(ip, "login-failed")   // one line per client per minute: visible to the owner, cannot flood the log
+            if (loop) {
+                // Apps on the phone share 127.0.0.1: answer late instead of locking, but with a bounded number of waiting threads.
+                if (!guard.enterLoopbackDelay())
+                    return json(tooMany, JSONObject().put("error", "too many bad attempts, wait a few seconds")).also { it.addHeader("Retry-After", "5") }
+                try { Thread.sleep(guard.loopbackDelayMs()) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                finally { guard.leaveLoopbackDelay() }
+            }
             return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Wrong password"))
         }
-        ok(ip)
+        guard.succeeded(ip, isLoopbackIp(ip))
         // A fresh random token for THIS login; it expires when idle, after 12 h, on sign-out or on a password change.
         return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Sessions.issue(ctx)))
     }
@@ -418,8 +466,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             "tether_disable" -> USB_UNBRIDGE + restoreDefault
             else -> throw IllegalArgumentException("unsupported USB action")
         }
-        // On failure, append the exit code and USB-related props so the UI can show why it failed.
-        val wrapped = "{ $script\n}\nrc=${'$'}?\nif [ ${'$'}rc -ne 0 ]; then echo \"[exit code ${'$'}rc]\"; command -v svc || echo 'svc: not found'; getprop | grep -i usb | head -20; fi\nexit ${'$'}rc"
+        // The script runs in a subshell so its own "exit N" cannot skip the diagnostics. On failure, append the exit code and USB-related props so the UI can show why it failed.
+        val wrapped = "( $script\n)\nrc=${'$'}?\nif [ ${'$'}rc -ne 0 ]; then echo \"[exit code ${'$'}rc]\"; command -v svc || echo 'svc: not found'; getprop | grep -i usb | head -20; fi\nexit ${'$'}rc"
         val r = RootShell.run(ctx, wrapped, 40_000)
         // Always HTTP 200: the web UI only shows `output` when the response is not an HTTP error.
         return json(Response.Status.OK,
@@ -433,17 +481,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val quality = s.parameters["q"]?.firstOrNull()?.toIntOrNull() ?: 60
         val since = s.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
         return try {
-            val shot = ScreenStreamer.next(ctx, since, scale, quality, 3_500L)
+            val shot = ScreenStreamer.next(ctx, since, scale, quality, 3_500L, s.remoteIpAddress ?: "?")
             if (shot == null) {
-                newFixedLengthResponse(Response.Status.NO_CONTENT, "text/plain", "").also { it.addHeader("Cache-Control", "no-store") }
+                harden(newFixedLengthResponse(Response.Status.NO_CONTENT, "text/plain", ""))
             } else {
                 val f = shot.frame
-                newFixedLengthResponse(Response.Status.OK, "image/jpeg", ByteArrayInputStream(f.jpeg), f.jpeg.size.toLong()).also {
+                harden(newFixedLengthResponse(Response.Status.OK, "image/jpeg", ByteArrayInputStream(f.jpeg), f.jpeg.size.toLong())).also {
                     it.addHeader("Cache-Control", "no-store")
                     it.addHeader("X-Screen-W", f.width.toString())
                     it.addHeader("X-Screen-H", f.height.toString())
                     it.addHeader("X-Frame-Seq", shot.seq.toString())
                     it.addHeader("X-Capture-Mode", ScreenStreamer.modeName())
+                    it.addHeader("X-Screen-Scale", ScreenStreamer.currentScale().toString())
                 }
             }
         } catch (e: Exception) {
@@ -457,6 +506,19 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return json(Response.Status.OK, JSONObject().put("success", r.success).put("output", r.content))
     }
 
+    // NanoHTTPD copies the whole body to a temp file BEFORE any of our checks run, so the limits are enforced up front:
+    // one upload at a time (both upload routes share the slot) and enough free space for the announced size plus a reserve.
+    private val uploadSlot = java.util.concurrent.Semaphore(1)
+
+    private fun <T> withUploadSlot(len: Long, block: () -> T): T {
+        if (!uploadSlot.tryAcquire()) throw IllegalArgumentException("Another upload is in progress; try again when it has finished")
+        try {
+            val free = try { android.os.StatFs(ctx.cacheDir.absolutePath).availableBytes } catch (_: Exception) { Long.MAX_VALUE }
+            if (!uploadSpaceOk(free, len)) throw IllegalArgumentException("Not enough free space on the device for this upload")
+            return block()
+        } finally { uploadSlot.release() }
+    }
+
     /**
      * Multipart upload (field "file") for plugins: {"ok":true,"name":"x.tar.gz","url":"/uploads/x.tar.gz","path":"..."}.
      * The name is sanitised to [A-Za-z0-9._-]; an existing file of the same name is replaced.
@@ -465,6 +527,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
         if (len < 0 || len > MAX_UPLOAD_BYTES + 1_000_000L)
             throw IllegalArgumentException("Upload must be at most ${MAX_UPLOAD_BYTES / 1024 / 1024} MB")
+        auditShell(s.remoteIpAddress ?: "?", "len=$len", "upload")
+        return withUploadSlot(len) { uploadFileLocked(s) }
+    }
+
+    private fun uploadFileLocked(s: IHTTPSession): Response {
         val files = HashMap<String, String>()
         s.parseBody(files)
         val tmp = files["file"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"file\")")
@@ -509,6 +576,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
         if (len < 0 || len > ApkUpdater.MAX_BYTES + 1_000_000L)
             throw IllegalArgumentException("Upload must be at most ${ApkUpdater.MAX_BYTES / 1024 / 1024} MB")
+        auditShell(s.remoteIpAddress ?: "?", "len=$len", "update-stage")
+        return withUploadSlot(len) { updateStageLocked(s) }
+    }
+
+    private fun updateStageLocked(s: IHTTPSession): Response {
         val files = HashMap<String, String>()
         s.parseBody(files)
         val tmp = files["apk"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"apk\")")
@@ -563,6 +635,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
         uri == "/api/root/status" && s.method == Method.GET -> {
+            // ?retry=1 = explicit re-check (root just granted): forget the cool-down after a refusal. Plain polls keep it.
+            if (s.parameters["retry"]?.firstOrNull() == "1") RootShell.resetDenial()
             val status = RootShell.status(ctx)
             json(Response.Status.OK, JSONObject()
                 .put("granted", status.granted)
@@ -572,16 +646,32 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 .put("detail", status.detail))
         }
         uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
-        uri == "/api/screen/input" && s.method == Method.POST -> screenInput(body(s))
+        uri == "/api/screen/input" && s.method == Method.POST -> { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
         uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
-        uri == "/api/usb/control" && s.method == Method.POST -> controlUsb(body(s))
+        uri == "/api/usb/control" && s.method == Method.POST -> {
+            val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", req.toString(), "usb-control")
+            controlUsb(req)
+        }
         uri == "/api/firmware/inspect" && s.method == Method.POST -> inspectFirmware(body(s))
         uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
         uri == "/api/update/check" && s.method == Method.POST -> updateCheck(body(s))
         uri == "/api/update/fetch" && s.method == Method.POST -> updateFetch(body(s))
-        uri == "/api/update/install" && s.method == Method.POST -> updateInstall(body(s))
+        uri == "/api/update/install" && s.method == Method.POST -> {
+            val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", req.toString(), "update-install")
+            updateInstall(req)
+        }
         uri == "/api/update/status" && s.method == Method.GET -> updateStatus(s)
         uri == "/api/shell" && s.method == Method.POST -> {
+            // Older sessions still work for everything else but must sign in again before running root commands.
+            val age = Sessions.ageMs(ctx, s.headers["x-token"])
+            if (!Tls.active && !isLoopbackIp(s.remoteIpAddress ?: "?") && s.headers["x-insecure-ok"] != "1") {
+                // Plain HTTP (HTTPS could not start): the command would cross the network unencrypted. The page asks the person once and then sends this header.
+                json(Response.Status.FORBIDDEN, JSONObject().put("code", "insecure").put("error", "This connection is not encrypted (HTTP). Confirm in the page to run root commands anyway."))
+            } else if (age == null || age > SHELL_MAX_SESSION_MS) {
+                json(Response.Status.FORBIDDEN, JSONObject().put("code", "reauth").put("error", "Session too old for root commands - sign in again"))
+            } else {
             val req = body(s)
             val command = req.optString("cmd")
             if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
@@ -590,10 +680,12 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             auditShell(s.remoteIpAddress ?: "?", command)
             val r = RootShell.run(ctx, command, t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
+            }
         }
         // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
         uri == "/api/imei/apply" && s.method == Method.POST -> {
             val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", "imei-apply force=" + req.optBoolean("force", true), "imei-apply")
             json(Response.Status.OK, JSONObject().put("result", ImeiGuard.apply(ctx, 0, req.optBoolean("force", true))))
         }
         // Run an AT command on the modem as root: {"command":"AT+CSQ","slot":0}
@@ -603,6 +695,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val slot = req.optInt("slot", 0).coerceIn(0, 1)
             if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
                 throw IllegalArgumentException("AT command must start with AT")
+            auditBusy(s.remoteIpAddress ?: "?", "at")
             val q = "'" + cmd.replace("'", "'\\''") + "'"
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
@@ -614,25 +707,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val arr = req.optJSONArray("commands") ?: throw IllegalArgumentException("commands must be an array")
             if (arr.length() < 1 || arr.length() > 12) throw IllegalArgumentException("1 to 12 commands")
             val sendat = File(ctx.filesDir, "sendat").absolutePath
-            val script = StringBuilder()
+            val cmds = ArrayList<String>(arr.length())
             for (i in 0 until arr.length()) {
                 val cmd = arr.optString(i).trim()
                 if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
                     throw IllegalArgumentException("AT command must start with AT")
-                val q = "'" + cmd.replace("'", "'\\''") + "'"
-                script.append("echo '##AT$i'; \"$sendat\" -n $slot -c $q 2>&1\n")
+                cmds.add(cmd)
             }
-            script.append("echo '##END'\n")
-            val r = RootShell.run(ctx, script.toString(), 20000)
-            val out = r.content
-            val results = JSONArray()
-            for (i in 0 until arr.length()) {
-                val st = out.indexOf("##AT$i")
-                if (st < 0) { results.put(""); continue }
-                val from = out.indexOf('\n', st).let { if (it < 0) out.length else it + 1 }
-                val next = out.indexOf("##", from).let { if (it < 0) out.length else it }
-                results.put(out.substring(from, next).trim())
-            }
+            // A random marker per request: a modem reply containing "##" or a look-alike marker cannot cut or forge results.
+            auditBusy(s.remoteIpAddress ?: "?", "at-batch")
+            val marker = AtBatch.newMarker()
+            val r = RootShell.run(ctx, AtBatch.script(sendat, slot, cmds, marker), 20000)
+            val results = JSONArray(AtBatch.parse(r.content, marker, cmds.size))
             json(Response.Status.OK, JSONObject().put("success", r.success).put("results", results))
         }
         // Proxy to the ZTE web API: {"op":"get"|"set","params":{"cmd":"signalbar",...}}
@@ -650,16 +736,42 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         uri == "/api/zte/page" && s.method == Method.POST ->
             json(Response.Status.OK, JSONObject().put("ok", true).put("text", ZteClient.fetchPage(ctx, body(s).optString("path"))))
         uri == "/api/zte/config" && s.method == Method.GET ->
-            json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty()))
+            json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty())
+                .put("passwordStorageReset", Prefs.passwordStorageReset(ctx)).put("passwordStoredInClear", Prefs.passwordStoredInClear(ctx)))
         uri == "/api/zte/config" && s.method == Method.POST -> {
             val req = body(s)
-            if (req.has("host")) Prefs.setZteHost(ctx, req.optString("host").trim())
+            var routerChanged = false
+            if (req.has("host")) {
+                val host = req.optString("host").trim()
+                val hostChanged = host != Prefs.zteHost(ctx)
+                Prefs.setZteHost(ctx, host)   // throws on an invalid host before anything is changed
+                if (hostChanged) routerChanged = true
+            }
             if (req.has("password")) {
                 val changed = req.optString("password") != Prefs.ztePass(ctx)
-                Prefs.setZtePass(ctx, req.optString("password"))
-                if (changed) Sessions.revokeAllExcept(ctx, s.headers["x-token"])   // other sessions end; this one stays
+                if (!Prefs.setZtePass(ctx, req.optString("password")))
+                    throw IllegalArgumentException("The Android key store could not encrypt the password, so it was NOT saved")
+                if (changed) {
+                    routerChanged = true
+                    Sessions.revokeAllExcept(ctx, s.headers["x-token"])   // other sessions end; this one stays
+                }
             }
+            // Drop the cached router session, the 60 s "login failed recently" cool-down and the detected port, so the new
+            // password / address is used on the very next router call instead of after the cool-down.
+            if (routerChanged) ZteClient.reset()
             json(Response.Status.OK, JSONObject().put("ok", true))
+        }
+        uri == "/api/console/password" && s.method == Method.GET ->
+            json(Response.Status.OK, JSONObject().put("separate", Prefs.hasConsolePassword(ctx)).put("minLength", Prefs.MIN_CONSOLE_PW))
+        uri == "/api/console/password" && s.method == Method.POST -> {
+            val req = body(s, MAX_LOGIN_BODY)
+            // The current sign-in password is required again, so a stolen session cannot take the console over.
+            if (!Prefs.checkAdminPassword(ctx, req.optString("current").take(200)))
+                throw IllegalArgumentException("Current password is wrong")
+            Prefs.setConsolePassword(ctx, req.optString("password").take(200))   // empty = go back to the router password
+            Sessions.revokeAllExcept(ctx, s.headers["x-token"])
+            auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")
+            json(Response.Status.OK, JSONObject().put("ok", true).put("separate", Prefs.hasConsolePassword(ctx)))
         }
         (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s)
         uri == "/api/uploads/delete" && s.method == Method.POST -> deleteUpload(body(s).optString("name"))
@@ -680,12 +792,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val codeBytes = code.toByteArray(Charsets.UTF_8).size
             if (code.isBlank() || codeBytes > 1_048_576) throw IllegalArgumentException("plugin must be 1 byte to 1 MB")
             val reserved = setOf("AT_Radio.js", "Network_Diagnostics.js",
-                "Live_Status.js", "Memory_Cleaner.js", "SMS.js", "Screen_Control.js", "Bypass.js")
+                "Live_Status.js", "Memory_Cleaner.js", "Change_IP.js", "SMS.js", "Screen_Control.js", "Bypass.js")
             if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
             val files = pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".js") }?.toList().orEmpty()
             if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
             val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes
             if (total > 5L * 1024L * 1024L) throw IllegalArgumentException("custom plugin storage limit is 5 MB")
+            auditShell(s.remoteIpAddress ?: "?", name + "\n" + code, "plugin-upload")
             File(pluginDir, name).writeText(code)
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
@@ -724,7 +837,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 val r = RootShell.run(ctx, script, 30_000)
                 val bad = JSONArray()
                 for ((p, why) in plan.second) bad.put(JSONObject().put("path", p).put("reason", why))
-                out.put("erase", JSONObject().put("success", r.success && !r.content.contains("FAILED ")).put("log", r.content.take(2000)).put("rejected", bad))
+                out.put("erase", JSONObject().put("success", r.success && !r.content.contains("FAILED ") && !r.content.contains("SKIPPED ")).put("log", r.content.take(2000)).put("rejected", bad))
             }
             json(Response.Status.OK, out)
         }
@@ -783,13 +896,17 @@ internal fun pluginDataDeclarations(code: String): List<String> =
     code.lineSequence().take(400).mapNotNull { DATA_DECL.find(it)?.groupValues?.get(1) }.distinct().take(20).toList()
 
 /** null when [path] may be erased on plugin delete, otherwise the reason it may not. Strict on purpose: it runs `rm -rf` as root. */
-internal fun checkPluginDataPath(path: String): String? {
+internal fun checkPluginDataPath(path: String, pluginName: String): String? {
     if (path.length > 200 || !DATA_PATH_CHARS.matches(path)) return "use only letters, digits . _ - and /"
     val parts = path.split('/').drop(1)
     if (parts.any { it.isEmpty() || it == "." || it == ".." }) return "no empty, . or .. parts and no trailing /"
     return when {
-        path.startsWith("$MATCHI_DIR/plugin_data/") || path.startsWith("$MATCHI_DIR/plugins/") ->
-            if (parts.size >= 5) null else "name a folder inside it"
+        // Only the plugin's own data folder (or something inside it): another plugin's data is never erased by this one.
+        path.startsWith("$MATCHI_DIR/plugin_data/") -> {
+            val own = pluginDataDir(pluginName)
+            if (path == own || path.startsWith("$own/")) null else "a plugin may only erase its own data folder"
+        }
+        path.startsWith("$MATCHI_DIR/plugins/") -> "other plugins' files are protected"
         path == MATCHI_DIR || path.startsWith("$MATCHI_DIR/") -> "MatchiTOOL's own folder is protected"
         path.startsWith("/data/local/tmp/") ->
             if (parts.size < 4) "name a folder inside /data/local/tmp"
@@ -807,3 +924,23 @@ internal fun checkPluginDataPath(path: String): String? {
         else -> "only /data/local, /data/local/tmp and /sdcard may be erased"
     }
 }
+
+/**
+ * Folders that must not be symlinks before [path] may be erased: every parent below the allowed root (/data/local, /sdcard or
+ * /storage/emulated/0; the roots themselves are symlinks on some devices and are trusted). The path itself is not listed:
+ * rm removes a final symlink without following it.
+ */
+internal fun symlinkAncestors(path: String): List<String> {
+    val parts = path.split('/').drop(1)
+    val rootDepth = when {
+        path.startsWith("/sdcard/") -> 1
+        path.startsWith("/storage/emulated/0/") -> 3
+        path.startsWith("/data/local/") -> 2
+        else -> return emptyList()
+    }
+    return (rootDepth + 1 until parts.size).map { "/" + parts.take(it).joinToString("/") }
+}
+
+/** Free space needed before accepting a body of [len] bytes: the body itself plus [UPLOAD_RESERVE_BYTES] left for the system. */
+internal const val UPLOAD_RESERVE_BYTES = 200L * 1024L * 1024L
+internal fun uploadSpaceOk(freeBytes: Long, len: Long): Boolean = len >= 0 && freeBytes - len >= UPLOAD_RESERVE_BYTES

@@ -25,6 +25,13 @@ import javax.security.auth.x500.X500Principal
 object Tls {
     private const val ALIAS = "matchitool_tls"
     @Volatile var active = false
+
+    /**
+     * True once the web host is listening and the scheme is final (https, or http after the fallback). The home screen waits
+     * for this before it shows an address or opens the console: before it, [scheme] can still change, and a link opened at
+     * that moment (http against an https server) gives a blank page.
+     */
+    @Volatile var ready = false
     val scheme: String get() = if (active) "https" else "http"
 
     /** Server socket factory backed by the key store, or null when TLS cannot be set up on this device. */

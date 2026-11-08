@@ -84,4 +84,37 @@ class SessionStoreTest {
         assertFalse(second.validate(t))
         assertEquals(0, second.count())
     }
+
+    @Test fun ageCountsFromLoginAndIgnoresActivity() {
+        val s = store(); val t = s.issue()
+        now += idle - 1; assertTrue(s.validate(t))
+        now += idle - 1
+        assertEquals(2 * (idle - 1), s.ageMs(t))
+        assertEquals(null, s.ageMs("nope")); assertEquals(null, s.ageMs(null))
+        now += idle + 1
+        assertEquals(null, s.ageMs(t))   // idle-expired sessions have no age
+    }
+
+    @Test fun everySavedSnapshotMatchesTheStateAtThatMoment() {
+        // persist runs under the store's lock, so the LAST saved snapshot is always the final state (a signed-out session
+        // can never come back after a restart because an older snapshot was written later).
+        val saved = mutableListOf<String>()
+        val s = store(saved = saved)
+        val a = s.issue(); val b = s.issue()
+        s.revoke(a)
+        val restored = store(); restored.load(saved.last())
+        assertFalse(restored.validate(a)); assertTrue(restored.validate(b))
+    }
+
+    @Test fun concurrentLoginsAndSignOutsLeaveAConsistentSnapshot() {
+        val saved = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val s = store(saved = saved)
+        val tokens = (1..8).map { s.issue() }
+        val revoked = tokens.take(4)
+        val threads = tokens.map { t -> Thread { if (t in revoked) s.revoke(t) else s.validate(t) } }
+        threads.forEach { it.start() }; threads.forEach { it.join() }
+        val restored = store(); restored.load(saved.last())
+        revoked.forEach { assertFalse(restored.validate(it)) }
+        tokens.drop(4).forEach { assertTrue(restored.validate(it)) }
+    }
 }

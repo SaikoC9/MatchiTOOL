@@ -15,13 +15,18 @@ import java.io.File
  * no extra binary is bundled; it uses the same root shell as every other tool.
  */
 object ScreenCapture {
-    class Frame(val jpeg: ByteArray, val width: Int, val height: Int)
+    /** [srcHash] is the CRC32 of the PNG the frame was made from (0 when not known); used to skip identical captures. */
+    class Frame(val jpeg: ByteArray, val width: Int, val height: Int, val srcHash: Long = 0L)
 
     private val lock = Any()
     private fun q(s: String) = "'" + s.replace("'", "'\\''") + "'"
 
     /** One frame: [scalePct] 15..100 of the real resolution, JPEG [quality] 20..90. */
-    fun frame(ctx: Context, scalePct: Int, quality: Int): Frame {
+    fun frame(ctx: Context, scalePct: Int, quality: Int): Frame =
+        frameIfChanged(ctx, scalePct, quality, null) ?: throw IllegalStateException("screenshot unchanged")
+
+    /** Like [frame], but returns null (without decoding or JPEG-encoding) when the screenshot's CRC32 equals [previousHash]. */
+    fun frameIfChanged(ctx: Context, scalePct: Int, quality: Int, previousHash: Long?): Frame? {
         val scale = scalePct.coerceIn(15, 100)
         val qual = quality.coerceIn(20, 90)
         // One capture at a time: they share one temp file and a second parallel screencap only slows both down.
@@ -35,7 +40,7 @@ object ScreenCapture {
                 rm -f "§F"
                 screencap -p "§F" 2>&1 || exit 1
                 chown $uid:$uid "§F" 2>/dev/null
-                chmod 666 "§F" 2>/dev/null
+                chmod 600 "§F" 2>/dev/null
                 chcon --reference="§D" "§F" 2>/dev/null
                 exit 0
             """.trimIndent().replace('§', '$')
@@ -45,7 +50,9 @@ object ScreenCapture {
             }
             val png = readPng(ctx, file)
             try { file.delete() } catch (_: Exception) {}
-            encode(png, scale, qual)
+            val crc = java.util.zip.CRC32().also { it.update(png, 0, png.size) }.value
+            if (previousHash != null && previousHash == crc) null
+            else encode(png, scale, qual, crc)
         }
     }
 
@@ -71,7 +78,7 @@ object ScreenCapture {
         return out.toByteArray()
     }
 
-    private fun encode(png: ByteArray, scalePct: Int, quality: Int): Frame {
+    private fun encode(png: ByteArray, scalePct: Int, quality: Int, srcHash: Long): Frame {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(png, 0, png.size, bounds)
         val w = bounds.outWidth
@@ -92,7 +99,7 @@ object ScreenCapture {
         val out = ByteArrayOutputStream(64 * 1024)
         bmp.compress(Bitmap.CompressFormat.JPEG, quality, out)
         bmp.recycle()
-        return Frame(out.toByteArray(), w, h)
+        return Frame(out.toByteArray(), w, h, srcHash)
     }
 
     // ---- input ------------------------------------------------------------------------------------------

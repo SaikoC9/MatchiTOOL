@@ -17,7 +17,7 @@ changed=0
 while read -r slot imei rest; do
   case "$slot" in 0|1) ;; *) continue ;; esac
   echo "$imei" | grep -qE '^[0-9]{15}$' || continue
-  cur=$("$S" -n "$slot" -c 'AT+CGSN' 2>&1 | grep -oE '[0-9]{15}' | head -n 1)
+  cur=$("$S" -n "$slot" -c 'AT+CGSN' </dev/null 2>&1 | grep -oE '[0-9]{15}' | head -n 1)
   if [ -z "$cur" ]; then echo "slot $slot: IMEI unreadable"; continue; fi
   if [ "$cur" = "$imei" ]; then
     echo "slot $slot: already $imei"
@@ -27,9 +27,13 @@ while read -r slot imei rest; do
   n=$(grep -c "^$slot " "$C" 2>/dev/null)
   if [ "${n:-0}" -ge 3 ] && [ "${FORCE:-0}" != 1 ]; then echo "slot $slot: gave up after 3 tries"; continue; fi
   echo "$slot $(date +%s)" >> "$C"
-  r=$("$S" -n "$slot" -c "AT+SPIMEI=$slot,\"$imei\"" 2>&1)
+  r=$("$S" -n "$slot" -c "AT+SPIMEI=$slot,\"$imei\"" </dev/null 2>&1)
   echo "slot $slot: $cur -> $imei : $r"
-  echo "$r" | grep -q 'OK' && changed=1
+  if echo "$r" | grep -q 'OK'; then
+    changed=1
+    # the write was accepted: only FAILED writes count toward the 3-try limit (the firmware may restore the old IMEI at every boot)
+    [ -f "$C" ] && { grep -v "^$slot " "$C" > "$C.n" 2>/dev/null; mv -f "$C.n" "$C"; }
+  fi
 done < "$T"
 if [ "$changed" = 1 ]; then
   echo "restarting modem"

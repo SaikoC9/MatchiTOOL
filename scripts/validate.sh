@@ -28,10 +28,10 @@ assert 'ufi_tools_boot' not in main and 'writeStartScript' not in main
 prefs = (root / 'app/src/main/java/com/matchi/tool/Prefs.kt').read_text()
 server = (root / 'app/src/main/java/com/matchi/tool/WebServer.kt').read_text()
 service = (root / 'app/src/main/java/com/matchi/tool/HostService.kt').read_text()
-assert 'fun lanAccess(c: Context): Boolean = true' in prefs and 'setLanAccess' not in prefs, 'LAN-only: no local-only mode'
+assert 'lanAccess' not in prefs and 'setLanAccess' not in prefs, 'LAN-only: no local-only mode'
 assert 'isHotspotClient(ctx, ip)' in server and 'ZTE hotspot network access only' in server, 'only hotspot clients may connect'
 assert 'hotspotIf' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text()
-assert 'ip route show table all' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text() and 'case \\"\\$UP\\"' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text(), 'LAN firewall must skip current uplinks'
+assert 'ip route show table all' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text() and 'case "\u00a7UP" in' in (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text(), 'LAN firewall must skip current uplinks'
 assert '"127.0.0.1"' in server, 'WebServer must default to loopback binding'
 assert '"0.0.0.0"' in service and 'else "127.0.0.1"' not in service, 'host must always bind to the LAN'
 assert 'PillSwitch' not in main and 'setLan' not in main, 'LAN switch must be gone'
@@ -46,7 +46,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.2.26'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.2.27'" in html, 'page version must match app version'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
 assert '/api/screen/frame' in server and '/api/screen/input' in server, 'screen control routes missing'
 stream = (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text()
@@ -57,7 +57,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 226' in gradle and 'versionName = "1.2.26"' in gradle
+assert 'versionCode = 227' in gradle and 'versionName = "1.2.27"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -69,7 +69,8 @@ for r in ('/api/update/stage', '/api/update/check', '/api/update/fetch', '/api/u
     assert r in server, f'update route missing: {r}'
 assert 'ApkUpdater.MAX_BYTES + 1_000_000L' in server, 'upload size guard missing'
 assert 'legacySigners' in upd and 'looksSigned' in upd and 'GET_SIGNATURES' in upd, 'updater signature fallback missing'
-assert 'else if (name == "release") signingConfig = signingConfigs.getByName("debug")' in (root / 'app/build.gradle.kts').read_text(), 'release builds must never be unsigned'
+gradle_src = (root / 'app/build.gradle.kts').read_text()
+assert 'else if (name == "release") {' in gradle_src and 'signingConfig = signingConfigs.getByName("debug")' in gradle_src, 'release builds must never be unsigned'
 assert 'id="appupdate"' in html and "'/api/update/stage'" in html and "'/api/update/install'" in html, 'web update UI missing'
 assert 'REQUEST_INSTALL_PACKAGES' not in manifest
 ctl = (root / 'app/src/main/java/com/matchi/tool/HostControl.kt').read_text()
@@ -94,7 +95,18 @@ if rel_path.is_file():   # the publish workflow is optional (not every checkout 
     assert 'assembleRelease' in rel and 'assembleDebug' not in rel and 'app-debug' not in rel, 'release workflow must publish a release build'
     assert 'application-debuggable' in rel and '/apksigner" verify' in rel, 'release workflow must refuse debuggable/unsigned APKs'
 assert 'isDebuggable = false' in (root / 'app/build.gradle.kts').read_text(), 'release build type must not be debuggable'
-assert 'fails.size >= 256' in server, 'login failure map must be bounded'
+guard_src = (root / 'app/src/main/java/com/matchi/tool/LoginGuard.kt').read_text()
+assert 'ips.size >= MAX_TRACKED' in guard_src and 'MAX_TRACKED = 256' in guard_src, 'login failure map must be bounded'
+assert 'guard.retryAfterMs' in server and 'guard.mayAskRouter(ip)' in server and 'enterLoopbackDelay' in server, 'login must use LoginGuard (global back-off, router budget, bounded loopback delay)'
+assert 'RouterHost.isValid' in (root / 'app/src/main/java/com/matchi/tool/Prefs.kt').read_text(), 'router address must be validated as a local IPv4 address'
+assert 'ImeiGuard.apply' in service, 'the IMEI keeper must run at boot'
+assert 'CRC32' in (root / 'app/src/main/java/com/matchi/tool/ScreenStreamer.kt').read_text(), 'screen change detection must hash the whole frame'
+assert 'persistLocked' in (root / 'app/src/main/java/com/matchi/tool/SessionStore.kt').read_text(), 'session snapshots must be saved under the lock'
+assert 'startWithRetry' in service and 'destroyed' in service and service.index('Tls.active = secure') < service.index('startWithRetry(srv)'), 'web host start must be retried per server, set the scheme before listening and honour onDestroy'
+assert 'AtBatch.newMarker()' in server and "##AT" not in server, '/api/at/batch must use a random per-request marker'
+assert 'runone' in service and 'timeout §T' in service, 'every boot script must run with its own time limit'
+assert 'Tls.ready' in service and 'Tls.ready' in (root / 'app/src/main/java/com/matchi/tool/MainActivity.kt').read_text(), 'the home screen must wait for the web host before showing or opening the console address'
+assert 'SHELL_MAX_SESSION_MS' in server, '/api/shell must require a recent session'
 assert 'cachedV6Nets' in ctl and 'Inet6Address' in ctl, 'hotspot IPv6 subnet filtering missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'initialized.compareAndSet(false, true)' in service and 'bootTasksRunning.compareAndSet(false, true)' in service
@@ -120,7 +132,7 @@ assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both help
 for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
     assert needle in html, 'legacy cleanup piece missing: ' + needle
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
-assert "PAGE_VERSION='1.2.26'" in html and 'versionCode = 226' in gradle and 'versionName = "1.2.26"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.2.27'" in html and 'versionCode = 227' in gradle and 'versionName = "1.2.27"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
@@ -128,12 +140,21 @@ assert '"/api/upload"' in server and '"/api/uploads/"' in server and 'uploadName
 for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval', 'fillUfiData'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
-print('MatchiTOOL 1.2.26 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
+import hashlib
+SENDAT_SHA256 = 'f0da6be08ed2cdb46f517baa8d964327d2550b68017468d2dbbe4aa8224e41a9'
+got = hashlib.sha256((root / 'app/src/main/assets/bin/sendat').read_bytes()).hexdigest()
+assert got == SENDAT_SHA256, f'sendat changed (sha256 {got}); update SENDAT_SHA256 here and in NOTICE.md after reviewing the new binary'
+assert SENDAT_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the sendat SHA-256'
+print('MatchiTOOL 1.2.27 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
 # Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   bash "$(dirname "$0")/test_legacy_cleanup.sh" </dev/null || exit 1
+  bash "$(dirname "$0")/test_boot_tasks.sh" </dev/null || exit 1
 else
   echo "skipped: legacy cleanup upgrade test (setsid, pgrep or node missing)"
 fi
+
+# IMEI keeper: pure sh, runs against a fake sendat.
+sh "$(dirname "$0")/test_imei_apply.sh" </dev/null || exit 1

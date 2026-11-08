@@ -114,9 +114,13 @@ object ZteClient {
         if (track && System.currentTimeMillis() - lastLoginFail < LOGIN_COOLDOWN_MS)
             return "Router login failed recently, waiting before trying again"
         cookie = ""
-        val ld = try {
-            JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "LD")).body).optString("LD")
-        } catch (_: Exception) { "" }
+        // A network error here (timeout, reset, refused) must NOT be mistaken for "old firmware without LD": it propagates as an
+        // IOException (callers report "router unreachable"), so the password is never posted in the weak base64 form on a
+        // transient failure, and a failed attempt is not counted as a wrong password. Only a router that ANSWERS without an
+        // LD value is treated as older firmware.
+        val ldResp = http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "LD"))
+        if (ldResp.code >= 500) throw java.io.IOException("router error HTTP ${ldResp.code} on the login challenge")   // busy / restarting: not "old firmware"
+        val ld = try { JSONObject(ldResp.body).optString("LD") } catch (_: Exception) { "" }
         // Newer firmware: SHA256(SHA256(password) + LD). Older firmware: base64(password).
         val secret = if (ld.isNotEmpty()) sha256Upper(sha256Upper(pw) + ld)
                      else Base64.encodeToString(pw.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
@@ -144,22 +148,28 @@ object ZteClient {
         }
     }
 
-    @Volatile private var autoTried = false
+    @Volatile private var autoTried = false   // true once the search ended with a definite answer (found, or nothing worked)
+    private var rejectedGuesses = 0           // guesses the router actually REFUSED; capped so its own login lock is never triggered
     /** Short facts about the last "set" call (AD token, session, HTTP code, start of the reply) for error messages. */
     @Volatile var lastInfo = ""
 
     /**
      * Learns the router admin password without the user typing it: reads the router's own setting as root and keeps
-     * a value only if the router accepts it (wrong guesses are never saved). At most 3 attempts, once per app start.
+     * a value only if the router accepts it (wrong guesses are never saved). At most 3 guesses the router refuses.
      * Does nothing when a password is already saved. Signing in to the web console with the password also saves it.
+     *
+     * Returns true when there is nothing more to do (password saved or already known, or the search ended with a definite
+     * answer) and false when it could not finish yet (root not ready, or the router web API unreachable, which is normal
+     * right after boot); the caller should call it again later. An unreachable router or an empty root answer is not a
+     * guess and is not counted.
      */
     @Synchronized
-    fun autoDetect(ctx: Context) {
-        if (Prefs.ztePass(ctx).isNotEmpty() || autoTried) return
-        autoTried = true
+    fun autoDetect(ctx: Context): Boolean {
+        if (Prefs.ztePass(ctx).isNotEmpty() || autoTried) return true
         val script = "for k in admin_Password Admin_Password admin_password; do for b in nv /system/bin/nv /system/xbin/nv /vendor/bin/nv; do " +
             "command -v ${'$'}b >/dev/null 2>&1 || continue; v=${'$'}(${'$'}b get ${'$'}k 2>/dev/null); [ -n \"${'$'}v\" ] && echo \"${'$'}v\"; done; done"
-        val out = try { RootShell.run(ctx, script, 15_000).content } catch (_: Exception) { return }
+        val out = try { RootShell.run(ctx, script, 15_000).content } catch (_: Exception) { return false }
+        if (out.isBlank()) return false   // root not granted/ready yet, or no such setting: try again later (bounded by the caller)
         val cands = LinkedHashSet<String>()
         for (raw in out.lines()) {
             val line = raw.trim().removeSurrounding("\"")
@@ -171,15 +181,16 @@ object ZteClient {
                 if (dec.isNotEmpty() && dec.all { it.code in 32..126 }) cands.add(dec)
             } catch (_: Exception) { }
         }
-        var tries = 0
         for (c in cands) {
-            if (tries++ >= 3) break
+            if (rejectedGuesses >= 3) break
             when (verify(ctx, c)) {
-                true -> { Prefs.setZtePass(ctx, c); return }
-                null -> return
-                else -> { }
+                true -> { val saved = Prefs.setZtePass(ctx, c); autoTried = true; return saved }   // false: key store could not encrypt it, nothing was saved
+                null -> return false   // router API unreachable: not a guess, retry later
+                else -> rejectedGuesses++
             }
         }
+        autoTried = true
+        return true
     }
 
     private fun md5Hex(s: String) =

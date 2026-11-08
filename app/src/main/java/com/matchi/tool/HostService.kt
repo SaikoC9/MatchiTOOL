@@ -15,11 +15,12 @@ class HostService : Service() {
     @Volatile private var server: WebServer? = null
     private val initialized = AtomicBoolean(false)
     private val bootTasksRunning = AtomicBoolean(false)
-    private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(2) }
+    @Volatile private var destroyed = false
+    private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(4) }   // boot scripts + IMEI keeper hold two threads for up to ~3 min; the firewall check, router detection and retries must not queue behind them
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel("matchi", "MatchiTOOL", NotificationManager.IMPORTANCE_MIN))
+        if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel("matchi") == null) nm.createNotificationChannel(NotificationChannel("matchi", "MatchiTOOL", NotificationManager.IMPORTANCE_MIN))
         val n = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "matchi") else Notification.Builder(this))
             .setContentTitle("MatchiTOOL running").setContentText("LAN · port ${Prefs.PORT}")
             .setSmallIcon(R.drawable.ic_stat_matchi).build()
@@ -27,10 +28,14 @@ class HostService : Service() {
 
         if (initialized.compareAndSet(false, true)) {
             workers.execute { startWebHost() }
-            workers.schedule({
-                try { ZteClient.autoDetect(applicationContext) }
-                catch (e: Exception) { Log.w("MatchiTOOL", "Router auto-detect failed: ${e.message}") }
-            }, 4, TimeUnit.SECONDS)
+            // The router web API (and root) are often not ready 4 s after boot, so the password search is retried a few times;
+            // each call returns at once when the password is already known or the search has ended.
+            for (delay in longArrayOf(4, 30, 90, 180)) {
+                workers.schedule({
+                    try { ZteClient.autoDetect(applicationContext) }
+                    catch (e: Exception) { Log.w("MatchiTOOL", "Router auto-detect failed: ${e.message}") }
+                }, delay, TimeUnit.SECONDS)
+            }
             // Recheck the firewall after boot/network bring-up without spawning duplicate thread sets.
             for (delay in longArrayOf(3, 30, 90)) {
                 workers.schedule({
@@ -38,51 +43,101 @@ class HostService : Service() {
                     catch (e: Exception) { Log.w("MatchiTOOL", "LAN firewall check failed: ${e.message}") }
                 }, delay, TimeUnit.SECONDS)
             }
+            // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).
+            if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
         }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
         return START_STICKY
     }
 
+    /**
+     * Starts the console. Three things this guards against:
+     * - Every start() has its own retry (the port may not be released yet), so a failing start can no longer land in a
+     *   catch that restarts the whole loop with a half-stopped server object.
+     * - [Tls.active] is set BEFORE a server starts listening (and again when it is replaced), so the scheme the page and
+     *   the Origin check use always matches the server that is answering; it used to flip only after the self-test, so the
+     *   first page loads over https were refused as "cross-origin".
+     * - [destroyed] is checked between steps, so a host that was still starting when onDestroy() ran stops again instead of
+     *   keeping the port bound with no service.
+     */
     private fun startWebHost() {
-        if (server != null) return
+        if (destroyed || server != null) return
+        Tls.ready = false
         // HTTPS first (self-signed, key kept in Android's key store); plain HTTP only if TLS cannot work on this device.
         val factory = Tls.serverFactory()
         // Some devices (seen on the ZTE F50) fail the TLS 1.3 handshake with a key-store key ("connection closed").
-        // Try the default protocols first, then TLS 1.2 only, before giving up on HTTPS.
-        val protocolSets: List<Array<String>?> = if (factory != null) listOf(null, arrayOf("TLSv1.2")) else emptyList()
+        // Try TLS 1.3 + 1.2 first (never older versions), then TLS 1.2 only, before giving up on HTTPS.
+        // Never TLS 1.0/1.1, even on Android 8/9: only versions this device really supports are requested (TLS 1.3 needs Android 10+).
+        val supported: Set<String> = try { (factory?.createServerSocket() as? javax.net.ssl.SSLServerSocket)?.use { it.supportedProtocols.toSet() } ?: emptySet() } catch (_: Exception) { emptySet() }
+        val firstSet = arrayOf("TLSv1.3", "TLSv1.2").filter { it in supported }.toTypedArray()
+        val protocolSets: List<Array<String>?> = if (factory != null) listOf(firstSet.ifEmpty { arrayOf("TLSv1.2") }, arrayOf("TLSv1.2")).distinctBy { it.joinToString() } else emptyList()
         var protoIdx = 0
         var secure = factory != null
-        var srv = newServer(factory, protocolSets.firstOrNull())
+        // Building the server must not be able to end this task silently: an exception here used to leave the console down for good.
+        var srv = try { newServer(factory, protocolSets.firstOrNull()) } catch (e: Exception) {
+            Log.e("MatchiTOOL", "Web host could not be created: ${e.message}")
+            scheduleStartRetry()
+            return
+        }
         server = srv
-        for (attempt in 1..8) {
-            try {
-                srv.start()
-                while (secure && !Tls.selfTest(Prefs.PORT)) {
-                    try { srv.stop() } catch (_: Exception) {}
-                    Thread.sleep(500)
-                    protoIdx++
-                    if (protoIdx < protocolSets.size) {
-                        Log.w("MatchiTOOL", "HTTPS handshake failed; retrying with TLS 1.2 only")
-                        srv = newServer(factory, protocolSets[protoIdx]); server = srv
-                    } else {
-                        Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
-                        secure = false
-                        srv = newServer(null, null); server = srv
-                    }
-                    srv.start()
+        var ok = false
+        try {
+            Tls.active = secure
+            ok = startWithRetry(srv)
+            while (ok && secure && !destroyed && !Tls.selfTest(Prefs.PORT)) {
+                stopQuietly(srv)
+                try { Thread.sleep(500) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); ok = false; break }
+                protoIdx++
+                if (protoIdx < protocolSets.size) {
+                    Log.w("MatchiTOOL", "HTTPS handshake failed; retrying with TLS 1.2 only")
+                    srv = newServer(factory, protocolSets[protoIdx])
+                } else {
+                    Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
+                    secure = false
+                    srv = newServer(null, null)
                 }
+                server = srv
                 Tls.active = secure
-                Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https" else "http"})")
-                return
-            } catch (e: java.io.IOException) {
+                ok = startWithRetry(srv)
+            }
+        } catch (e: Exception) {
+            Log.e("MatchiTOOL", "Web host start failed: ${e.message}")
+            ok = false
+        }
+        if (destroyed) {
+            stopQuietly(srv)
+            if (server === srv) server = null
+            return
+        }
+        if (ok) {
+            Tls.ready = true   // the scheme is final now: the home screen may show the address and open the console
+            Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https" else "http"})")
+            return
+        }
+        stopQuietly(srv)
+        if (server === srv) server = null
+        Tls.active = false
+        Tls.ready = false
+        Log.e("MatchiTOOL", "Web host did not start after retries")
+        scheduleStartRetry()
+    }
+
+    /** One server's start(), retried a few times on IOException (port not yet released). False = gave up or shutting down. */
+    private fun startWithRetry(srv: WebServer): Boolean {
+        for (attempt in 1..8) {
+            if (destroyed) return false
+            try { srv.start(); return true } catch (e: java.io.IOException) {
                 Log.w("MatchiTOOL", "Web host start failed (attempt $attempt): ${e.message}")
-                try { Thread.sleep(700) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+                try { Thread.sleep(700) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
             }
         }
-        try { srv.stop() } catch (_: Exception) {}
-        if (server === srv) server = null
-        Log.e("MatchiTOOL", "Web host did not start after retries")
-        if (!workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
+        return false
+    }
+
+    private fun stopQuietly(srv: WebServer) { try { srv.stop() } catch (_: Exception) { } }
+
+    private fun scheduleStartRetry() {
+        if (!destroyed && !workers.isShutdown) workers.schedule({ if (server == null) startWebHost() }, 15, TimeUnit.SECONDS)
     }
 
     private fun newServer(factory: javax.net.ssl.SSLServerSocketFactory?, protocols: Array<String>?): WebServer {
@@ -91,18 +146,51 @@ class HostService : Service() {
         return srv
     }
 
+    /** Exact names only. rm does not follow symlinks, so a planted link is removed, never its target. Retried at the next start if root was not available. */
+    private fun cleanOldTmpFiles() {
+        try {
+            val r = RootShell.run(this, OLD_TMP_CLEANUP, 20_000)
+            if (r.success) Prefs.setOldTmpCleaned(applicationContext)
+            Log.i("MatchiTOOL", "Old temp files: ${if (r.success) "removed" else "not removed (root not available?)"}")
+        } catch (e: Exception) { Log.w("MatchiTOOL", "Old temp cleanup failed: ${e.message}") }
+    }
+
     private fun runBootTasks() {
         if (!bootTasksRunning.compareAndSet(false, true)) return
+        // The boot scripts (up to 170 s) and the IMEI keeper run in separate workers, so the modem is not left on the
+        // factory IMEI for minutes while a slow boot script runs. The flag is released when both have finished.
+        val pending = java.util.concurrent.atomic.AtomicInteger(2)
+        fun finished() { if (pending.decrementAndGet() == 0) bootTasksRunning.set(false) }
         workers.execute {
             try {
-                val result = RootShell.run(this, BOOT_SCRIPT.replace('\u00a7', '$'), 60_000)
+                val result = RootShell.run(this, BOOT_SCRIPT.replace('\u00a7', '$'), 170_000)
                 Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
+                if (!result.success) logHungBootScript()
             } catch (e: Exception) { Log.e("MatchiTOOL", "Boot tasks failed: ${e.message}") }
-            finally { bootTasksRunning.set(false) }
+            finally { finished() }
+        }
+        workers.execute {
+            // The console promises "Saved for every boot" for a chosen IMEI: write it again if the firmware put the old one
+            // back. Waits up to 60 s for the modem; does nothing when no IMEI was saved; at most 3 failed tries per slot.
+            try {
+                val imei = ImeiGuard.apply(this, 20, false)
+                Log.i("MatchiTOOL", "IMEI keeper: ${imei.take(600)}")
+            } catch (e: Exception) { Log.e("MatchiTOOL", "IMEI keeper failed: ${e.message}") }
+            finally { finished() }
         }
     }
 
+    /** After a boot run that did not finish: name the script that was running (boot.current) in events.log, then remove the marker. */
+    private fun logHungBootScript() {
+        try {
+            val r = RootShell.run(this, HUNG_RUN_NOTE.replace('\u00a7', '$'), 10_000)
+            if (r.content.isNotBlank()) Log.w("MatchiTOOL", "Boot tasks did not finish: ${r.content.take(300)}")
+        } catch (_: Exception) { }
+    }
+
     override fun onDestroy() {
+        destroyed = true   // first: a host that is still starting sees this and stops itself again
+        Tls.ready = false
         try { workers.shutdownNow() } catch (_: Exception) {}
         try { server?.stop() } catch (_: Exception) {}
         server = null
@@ -116,12 +204,31 @@ class HostService : Service() {
     companion object {
         const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS"
 
+        /** Files that versions before the root-only temp folder left behind (names are fixed, nothing is matched by pattern). */
+        private const val OLD_TMP_CLEANUP = "rm -rf /data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean\n" +
+            "rm -f /data/local/tmp/mt_isms.sh /data/local/tmp/matchi_update.log /data/local/tmp/.matchi_out_prev.apk\n" +
+            "exit 0"
+
         /**
          * Boot tasks run as root, so they only run from files nobody else can change: the folder, boot.sh and every
          * boot.d script must be a real file/folder (no symlink) owned by root. If group/other can write to a root-owned
-         * entry, that permission is removed first. Anything else is skipped and written to events.log.
+         * entry, that permission is removed first. Anything else is skipped and written to events.log. Each script runs
+         * with its own 25 s limit (`timeout`); a timeout or a non-zero exit is written to events.log and the next script
+         * still runs. The whole call may take up to 170 s (it used to be one 60 s limit for ALL scripts together, so one
+         * slow script silently cancelled the rest).
          * (\u00a7 stands for the dollar sign so this block stays readable; it is replaced before the script runs.)
          */
+        private const val HUNG_RUN_NOTE = """
+D=/data/local/matchitool
+[ ! -L §D ] && [ "§(stat -c %u §D 2>/dev/null)" = 0 ] || exit 0
+S=§(cat §D/boot.current 2>/dev/null | head -c 200)
+if [ -n "§S" ]; then
+  echo "§(date '+%F %T') boot: run did not finish; last script running: §S" >> §D/events.log 2>/dev/null
+  echo "last script running: §S"
+fi
+rm -f §D/boot.current 2>/dev/null
+true
+"""
         private const val BOOT_SCRIPT = """
 D=/data/local/matchitool
 LOG=§D/events.log
@@ -134,19 +241,39 @@ trusted() {
   case "§3" in ?????-??-?) ;; *) chmod go-w "§1" 2>/dev/null ;; esac
   return 0
 }
+T=25
+# One script, its own time limit: a slow or failing script is logged to events.log and the next one still runs.
+runone() {
+  echo "§1" > §D/boot.current 2>/dev/null   # if the whole run is killed by the outer limit, the app reads this to log which script hung
+  if command -v timeout >/dev/null 2>&1; then timeout §T /system/bin/sh "§1"; rc=§?
+  else
+    # No timeout command on this ROM: a small watchdog stops the script after §T s, so one hanging script cannot block the rest.
+    /system/bin/sh "§1" & P=§!
+    ( sleep §T; kill -9 §P 2>/dev/null ) >/dev/null 2>&1 & W=§!
+    wait §P; rc=§?
+    kill §W 2>/dev/null
+  fi
+  case §rc in
+    0) ;;
+    124|137|143) note "§1 stopped: no answer within §{T}s (timeout), later scripts continue" ;;
+    *) note "§1 exited with code §rc" ;;
+  esac
+}
 [ -d §D ] || { echo 'No MatchiTOOL boot tasks registered'; exit 0; }
 trusted §D || { note "skipped: §D is a symlink or not owned by root"; exit 0; }
+rm -f §D/boot.current 2>/dev/null
 if [ -f §D/boot.sh ]; then
-  if trusted §D/boot.sh; then /system/bin/sh §D/boot.sh; else note "skipped boot.sh: symlink or not owned by root"; fi
+  if trusted §D/boot.sh; then runone §D/boot.sh; else note "skipped boot.sh: symlink or not owned by root"; fi
 else echo 'No MatchiTOOL boot tasks registered'; fi
 if [ -d §D/boot.d ]; then
   if trusted §D/boot.d; then
     for f in §D/boot.d/*.sh; do
       [ -f "§f" ] || continue
-      if trusted "§f"; then /system/bin/sh "§f"; else note "skipped §f: symlink or not owned by root"; fi
+      if trusted "§f"; then runone "§f"; else note "skipped §f: symlink or not owned by root"; fi
     done
   else note "skipped boot.d: symlink or not owned by root"; fi
 fi
+rm -f §D/boot.current 2>/dev/null
 true
 """
     }

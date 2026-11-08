@@ -22,6 +22,7 @@ object Sessions {
 
     fun issue(c: Context): String = store(c).issue()
     fun validate(c: Context, token: String?): Boolean = store(c).validate(token)
+    fun ageMs(c: Context, token: String?): Long? = store(c).ageMs(token)
     fun revoke(c: Context, token: String?) = store(c).revoke(token)
     fun revokeAll(c: Context) = store(c).revokeAll()
     fun revokeAllExcept(c: Context, token: String?) = store(c).revokeAllExcept(token)

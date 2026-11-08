@@ -16,6 +16,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.locks.ReentrantLock
+import java.util.zip.CRC32
 import kotlin.concurrent.withLock
 
 /**
@@ -32,6 +33,8 @@ object ScreenStreamer {
     private const val VIEWER_TTL_MS = 6_000L
     private const val MIN_FRAME_MS = 50L      // at most ~20 captures per second
     private const val IDLE_FRAME_MS = 250L    // screen unchanged: look 4 times a second, send nothing
+    private const val PNG_MIN_FRAME_MS = 300L // PNG fallback: every capture goes through root + PNG decode, so at most ~3 per second
+    private const val PNG_IDLE_FRAME_MS = 500L
     private const val ERROR_RETRY_MS = 700L
     private const val BURST_MS = 1_800L       // after a tap / swipe / key: keep capturing at full speed so the result shows at once
     private const val RAW_TIMEOUT_S = 8L
@@ -50,6 +53,7 @@ object ScreenStreamer {
 
     @Volatile private var lastViewer = 0L
     @Volatile private var burstUntil = 0L
+    private val viewers = ViewerLock()
     @Volatile private var scale = 50
     @Volatile private var quality = 60
     @Volatile private var dirty = true
@@ -65,16 +69,20 @@ object ScreenStreamer {
         try { lock.withLock { wakeCond.signalAll() } } catch (_: Exception) { }
     }
 
+    /** Scale in percent that frames are currently encoded at (may differ from what a second viewer asked for). */
+    fun currentScale(): Int = scale
+
     fun modeName(): String = if (rawMode == RAW_OK) "raw" else "png"
 
     /**
      * The next frame newer than [since], waiting up to [waitMs] for it. null = nothing new (screen unchanged).
      * Throws with a readable message when the capture is failing (display off, root missing, ...).
      */
-    fun next(ctx: Context, since: Long, scalePct: Int, q: Int, waitMs: Long): Shot? {
+    fun next(ctx: Context, since: Long, scalePct: Int, q: Int, waitMs: Long, viewer: String = "?"): Shot? {
         val s = scalePct.coerceIn(15, 100)
         val qq = q.coerceIn(20, 90)
-        if (s != scale || qq != quality) { scale = s; quality = qq; dirty = true }
+        // Only the viewer that owns the settings may change them (see ViewerLock); others receive what the owner chose.
+        if (viewers.mayChange(viewer, System.currentTimeMillis()) && (s != scale || qq != quality)) { scale = s; quality = qq; dirty = true }
         lastViewer = System.currentTimeMillis()
         ensureRunning(ctx.applicationContext)
         var remainNs = TimeUnit.MILLISECONDS.toNanos(waitMs)
@@ -140,10 +148,12 @@ object ScreenStreamer {
         private val scaler = Canvas()
         private val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG)
         private val jpegOut = ByteArrayOutputStream(48 * 1024)
-        private var lastHash = 0
+        private var lastHash = 0L
+        private var lastPngHash: Long? = null
         private var lastW = 0
         private var lastH = 0
         private var rawFailures = 0
+        private var rawRetryAt = 0L   // after 3 raw failures (e.g. display off) raw capture is tried again from this time on
         private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "MatchiScreenRead").apply { isDaemon = true } }
 
         fun loop() {
@@ -157,8 +167,12 @@ object ScreenStreamer {
                     var pause = MIN_FRAME_MS
                     try {
                         val g = grab()
+                        // The PNG fallback is much heavier than the raw path (root + PNG decode per capture): slower pace.
+                        val raw = rawMode == RAW_OK
+                        val busyMs = if (raw) MIN_FRAME_MS else PNG_MIN_FRAME_MS
+                        pause = busyMs
                         if (g.unchanged) {
-                            pause = if (System.currentTimeMillis() < burstUntil) MIN_FRAME_MS else IDLE_FRAME_MS
+                            pause = if (System.currentTimeMillis() < burstUntil) busyMs else if (raw) IDLE_FRAME_MS else PNG_IDLE_FRAME_MS
                         } else {
                             lock.withLock { latest = g.frame; error = null; seq++; cond.signalAll() }
                         }
@@ -184,20 +198,35 @@ object ScreenStreamer {
 
         private fun grab(): Grabbed {
             if (rawMode == RAW_UNKNOWN) return calibrate()
+            // Do not latch: raw capture that worked once (hdrSize known) is retried after a pause, so one screen-off period
+            // does not leave the stream on the slow PNG path until the app restarts. Only a failed first calibration stays off.
+            if (rawMode == RAW_OFF && hdrSize > 0 && System.currentTimeMillis() >= rawRetryAt) { rawMode = RAW_OK; rawFailures = 2 }
             if (rawMode == RAW_OK) {
                 try { val g = rawGrab(); rawFailures = 0; return g } catch (e: Exception) {
                     closeProc()
                     rawFailures++
-                    if (rawFailures >= 3) rawMode = RAW_OFF
+                    if (rawFailures >= 3) { rawMode = RAW_OFF; rawRetryAt = System.currentTimeMillis() + 30_000L }
                     // this frame comes from the slower PNG path; if that fails too its error is what the page shows
                 }
             }
-            return Grabbed(ScreenCapture.frame(ctx, scale, quality), false)
+            return pngGrab()
+        }
+
+        /** PNG capture with change detection: an identical screenshot is not decoded, re-encoded or sent again. */
+        private fun pngGrab(): Grabbed {
+            val wasDirty = dirty
+            dirty = false
+            val f = ScreenCapture.frameIfChanged(ctx, scale, quality, if (wasDirty) null else lastPngHash)
+                ?: return Grabbed(null, true)
+            lastPngHash = f.srcHash
+            return Grabbed(f, false)
         }
 
         /** First frame: take it the slow, certain way (gives the screen size) and measure the raw header size. */
         private fun calibrate(): Grabbed {
             val png = ScreenCapture.frame(ctx, scale, quality)
+            lastPngHash = png.srcHash
+            dirty = false
             var mode = RAW_OFF
             try {
                 val r = RootShell.run(ctx, "screencap | wc -c", 15_000)
@@ -245,9 +274,11 @@ object ScreenStreamer {
             val h = wh[1]
             val b = buf ?: throw IllegalStateException("capture buffer missing")
 
-            var hash = 17 + w * 7 + h
-            var i = 0
-            while (i < b.size) { hash = hash * 31 + b[i]; i += 61 }
+            // Every byte is hashed (CRC32 runs at memory speed, a few ms for 1-3 MB): sampling every 61st byte missed
+            // a blinking cursor, a clock digit or a small icon.
+            val crc = CRC32()
+            crc.update(b, 0, w * h * 4)
+            val hash = crc.value
             val wasDirty = dirty
             dirty = false
             if (hash == lastHash && !wasDirty && w == lastW && h == lastH) return Grabbed(null, true)
