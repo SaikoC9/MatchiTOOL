@@ -10,6 +10,8 @@
 - Fixed the web live view freezing after the host restarted: the stream now sends a `reset` event when the page's last id is ahead of the server's, and the page clears its rows and reloads.
 - Fixed Delete session sometimes leaving the session in the list: the delete call now waits (max 3 s) for the writer to remove the files before answering.
 - Removed the native Log Catcher screen and its Home button: Log Catcher is now web-only. The collector, session files and web page are unchanged and still run from the service.
+- Kernel/dmesg capture now goes through the noise gate and drops Unisoc driver chatter (sprd-wlan per-packet tracing, SPRD_PDBG sleep dumps, sipa_rm/sipa_dele, WCN loopcheck, cpufreq, fuel-gauge, healthd) that made up ~90% of an F50 log; real faults (sta disconn, TX Err, charge_set_basp failed, sipa_eth errors other than -115) are kept.
+- Known-benign platform ERROR/WARNING lines (sprd_wdt_fiq timeout=40 heartbeat, UnisocWatchdog, ThermalHal "can't find this type sensor", hostapd "No SAE PMK found", sipa_eth ret -115, zte.analytics service-not-found) are now recorded as INFO.
 - Log Catcher no longer records TrafficStats / mali_gralloc platform chatter or permissive-SELinux audit lines about this app.
 
 # MatchiTOOL 1.3.6 — Log Catcher Complete Edition

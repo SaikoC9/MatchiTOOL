@@ -34,4 +34,20 @@ class NoiseGateTest {
         assertTrue(gate.allow("ERROR", "TrafficStats", "real failure"))
         assertTrue(gate.allow("WARNING", "Tls", "TLS self-test failed"))
     }
+
+    @Test fun kernelDriverChatterIsDroppedButFaultsStay() {
+        val gate = NoiseGate { _, _, _ -> }
+        assertFalse(gate.allow("INFO", "kernel", "[ 5284.569816] [c0] sprd-wlan: cmd->refcnt=1"))
+        assertFalse(gate.allow("INFO", "kernel", "[ 5284.828545] [c2] [SPRD_PDBG] [EB_INFO  ] ap1: 0x1"))
+        assertFalse(gate.allow("INFO", "device/kernel", "[ 5285.3] [c3] healthd: battery l=50 v=3800"))
+        assertTrue(gate.allow("INFO", "kernel", "[ 5283.004493] [c4] sprd-wlan: sc2355_pcie_hif_fill_msdu_dscr, 1170, sta disconn, no data tx!"))
+        assertTrue(gate.allow("ERROR", "kernel", "[ 5294.2] [c2] charged: charge_set_basp: convert basp = -1 failed"))
+    }
+
+    @Test fun knownBenignErrorsAreShownAsInfo() {
+        assertEquals("INFO", NoiseGate.levelFor("WARNING", "sprd_wdt_fiq: sprd wdt load value timeout =40, pretimeout =20"))
+        assertEquals("INFO", NoiseGate.levelFor("ERROR", "Couldn't get temperatures because of HAL error: can't find this type sensor"))
+        assertEquals("ERROR", NoiseGate.levelFor("ERROR", "sipa_eth: fail to send, ret -12"))
+        assertEquals("ERROR", NoiseGate.levelFor("ERROR", "charge_set_basp: convert basp = -1 failed"))
+    }
 }

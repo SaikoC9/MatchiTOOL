@@ -43,7 +43,31 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
                 private val emit: (String, String, String) -> Unit) {
     private class Slot(val level: String, val tag: String, val sample: String, var n: Int)
 
-    private companion object { val SILENT_TAGS = setOf("TrafficStats", "mali_gralloc") }
+    companion object {
+        private val SILENT_TAGS = setOf("TrafficStats", "mali_gralloc")
+
+        /** Unisoc/ZTE kernel driver heartbeat and per-packet tracing (seen at ~18 lines/s on the F50); never actionable. */
+        private val KERNEL_CHATTER = Regex(
+            """^(sprd-wlan: (tx_cmd_pop|ctx_id \d+ (send|recv)|cmd->refcnt|\[\d+\]ctx_id|tx_mc_pkt|sc2355_pcie_find_lut_index|incoming|sprd_tx_filter_pack)""" +
+            """|\[SPRD_PDBG\]|sprd-mpm:|sprd-cpufreq|WCN (BASE|PCIE)|sipa_rm:|sipa_dele:|sipa \d+\.sipa:|sc27xx-fgu|charger-manager|healthd:)""")
+
+        /** Lines the platform prints as ERROR/WARNING although they are expected on this hardware. Shown as INFO. */
+        private val BENIGN = Regex(
+            """sprd_wdt_fiq: sprd wdt load value|UnisocWatchdog|WDT_Monitor|UNISOCWATCHDOG_MESSAGE|can't find this type sensor|Failed to getCurrentTemperaturesWithType""" +
+            """|No SAE PMK found|sipa_eth: fail to send, ret -115|Unable to start service Intent \{ act=EVENT_WIFI_STATION_CONNECTED|Calling a method in the system process without a qualified user""")
+
+        /** Level to record: known-benign platform ERROR/WARNING lines are demoted to INFO so real faults stand out. */
+        fun levelFor(level: String, msg: String): String =
+            if ((level == "ERROR" || level == "WARNING") && BENIGN.containsMatchIn(msg)) "INFO" else level
+
+        /** Kernel level from the text; watchdog "timeout =40" heartbeats and similar are not warnings. */
+        fun kernelLevel(line: String, err: Regex, warn: Regex): String = when {
+            BENIGN.containsMatchIn(line) -> "INFO"
+            err.containsMatchIn(line) -> "ERROR"
+            warn.containsMatchIn(line) -> "WARNING"
+            else -> "INFO"
+        }
+    }
 
     private val slots = HashMap<String, Slot>()
     private val digits = Regex("\\d+")
@@ -53,6 +77,7 @@ class NoiseGate(private val perWindow: Int = 3, private val windowMs: Long = 200
         // Pure platform chatter that never needs action: dropped outright instead of 3-per-window.
         val bare = tag.removePrefix("device/")   // device-wide capture prefixes the tag; the same noise must be dropped there too
         if (bare in SILENT_TAGS && level != "ERROR") return false
+        if (bare == "kernel" && level == "INFO" && KERNEL_CHATTER.containsMatchIn(msg)) return false   // driver heartbeat spam
         if (bare == "tool" && msg.startsWith("type=1400 audit(") && "permissive=1" in msg) return false   // permissive SELinux audit lines
         val now = System.currentTimeMillis()
         if (now - windowStart >= windowMs || slots.size > 500) { flush(); windowStart = now }
@@ -152,7 +177,8 @@ object DeviceLogs {
                         if (msg.isBlank()) continue
                         val tag = m.groupValues[3].substringBefore(':').trim().ifBlank { "android" }.replace('.', '_').take(60)
                         val lvl = when (m.groupValues[2]) { "E", "A", "F" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
-                        if (gate.allow(lvl, "device/$tag", msg)) LogCatcher.log(lvl, "device/$tag", msg)
+                        val shown = NoiseGate.levelFor(lvl, msg)
+                        if (gate.allow(shown, "device/$tag", msg)) LogCatcher.log(shown, "device/$tag", msg)
                     }
                 }
             }
@@ -182,6 +208,7 @@ object DeviceLogs {
             val ticker = Thread({
                 try { while (gen.get() == g) { stdin.write(10); stdin.flush(); Thread.sleep(4000) } } catch (_: Exception) { }
             }, "MatchiTOOL-DevDmesgTick").apply { isDaemon = true; start() }
+            val kgate = NoiseGate { l, t, m -> LogCatcher.log(l, t, m) }
             val seen = LinkedHashSet<String>()
             val batch = ArrayList<String>()
             var baseline = true
@@ -189,7 +216,8 @@ object DeviceLogs {
                 for (line in seq) {
                     if (gen.get() != g || !LogCatcher.isRunning()) break
                     if (line == "__MATCHI_TICK__") {
-                        for (l in batch) if (seen.add(l) && !baseline) emitKernel(l)
+                        for (l in batch) if (seen.add(l) && !baseline) emitKernel(l, kgate)
+                        kgate.flush()
                         while (seen.size > 1000) { val iter = seen.iterator(); iter.next(); iter.remove() }
                         batch.clear()
                         baseline = false
@@ -205,10 +233,10 @@ object DeviceLogs {
         }
     }
 
-    private fun emitKernel(line: String) {
+    private fun emitKernel(line: String, gate: NoiseGate) {
         val l = line.trim()
-        val level = when { KERN_ERR.containsMatchIn(l) -> "ERROR"; KERN_WARN.containsMatchIn(l) -> "WARNING"; else -> "INFO" }
-        LogCatcher.log(level, "kernel", l)
+        val level = NoiseGate.kernelLevel(l, KERN_ERR, KERN_WARN)
+        if (gate.allow(level, "kernel", l)) LogCatcher.log(level, "kernel", l)
     }
 }
 
