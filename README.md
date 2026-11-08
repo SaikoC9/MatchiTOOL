@@ -20,7 +20,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 
 ## Features
 
-- **Log Catcher (1.2.33):** live process diagnostics with timestamps and severity levels, function/keyword/session filters, bounded recent history, batched UI refresh, asynchronous session files, size-based rotation, and automatic session retention. Logging can be started/stopped without restarting the app.
+- **Log Catcher (1.3.0):** live process diagnostics with timestamps and severity levels, function/keyword/session filters, bounded recent history, batched UI refresh, asynchronous session files, size-based rotation, and automatic session retention. Logging can be started/stopped without restarting the app.
 - **Advanced Network Diagnostics (1.2.0)**: on-demand IPv4/IPv6 address and route inspection, gateway/public-IP ping checks, and DNS lookup. Read-only; ICMP filtering is reported as a limitation rather than proof of an outage.
 - **Read-only device diagnostics**: Android build, root identity, kernel, network interfaces/routes, storage, and optional tool availability.
 - **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
@@ -42,7 +42,7 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
-Current source version: **1.2.33** (versionCode **233**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.3.0** (versionCode **233**). The Android package and embedded web UI version are kept in sync.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 

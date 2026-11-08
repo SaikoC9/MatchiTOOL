@@ -1,3 +1,17 @@
+# MatchiTOOL v1.3.0 — Ultimate Performance, Stability & Diagnostics
+
+- Hardened Log Catcher session creation with collision-resistant session IDs.
+- Start logcat capture only after the session file has been created successfully.
+- Reserve writer-queue capacity for session initialization/finalization and user-requested exports.
+- Move `.txt` export off the UI thread; report export success/failure asynchronously.
+- Prevent Log Catcher screen callbacks from continuing after the Activity stops or is destroyed.
+- Refresh recent logs when returning to the screen and de-duplicate queued events by monotonic ID.
+- Version metadata aligned to 1.3.0 / versionCode 300.
+- Existing root command limits, service retry handling, bounded screen/log queues, TLS fallback, updater validation, and diagnostics retained.
+- Validation: `bash scripts/validate.sh` passed. Full Gradle/APK and physical-device stress tests still required.
+
+---
+
 # Changelog
 
 ## 1.2.33 — Review fixes

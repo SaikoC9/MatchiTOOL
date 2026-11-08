@@ -25,10 +25,12 @@ class LogCatcherActivity : Activity() {
     private val flushRunnable = Runnable { flushPendingEntries() }
     private var selectedSession: File? = null
     private var showingHistory = false
+    @Volatile private var screenStarted = false
     private var historyLines: List<String> = emptyList()
     private val listener: (CatchLog) -> Unit = { entry -> queueEntry(entry) }
     private val entries = ArrayList<CatchLog>()
     private var total = 0
+    private var lastSeenId = 0L
     private var functionOptions: List<String> = listOf("All functions")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,8 +63,11 @@ class LogCatcherActivity : Activity() {
         startStop = actionButton("■ Stop logging", Ui.bad) { toggleLogging() }
         actions.addView(startStop, LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f))
         val export = actionButton("Save .txt", Ui.blueLight) {
-            val f = LogCatcher.exportText(this)
-            Toast.makeText(this, "Export saved: ${f.name}", Toast.LENGTH_LONG).show()
+            val accepted = LogCatcher.exportText(this) { file ->
+                if (file != null) Toast.makeText(this, "Export saved: ${file.name}", Toast.LENGTH_LONG).show()
+                else Toast.makeText(this, "Export failed. Check available storage.", Toast.LENGTH_LONG).show()
+            }
+            if (!accepted) Toast.makeText(this, "Export queue is busy. Try again shortly.", Toast.LENGTH_SHORT).show()
         }
         actions.addView(export, LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f).apply { leftMargin = Ui.dp(this@LogCatcherActivity, 8) })
         controls.addView(actions, Ui.lp(-1, -2, 10, this))
@@ -122,11 +127,21 @@ class LogCatcherActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        screenStarted = true
         LogCatcher.subscribe(listener)
+        // Refresh from the process-wide ring buffer after returning from the background.
+        // Listener events already queued are de-duplicated by their monotonic IDs.
+        val latest = LogCatcher.snapshot()
+        entries.clear()
+        entries.addAll(latest)
+        lastSeenId = latest.maxOfOrNull { it.id } ?: 0L
+        render()
+        updateCount()
         schedulePendingFlush()
     }
 
     override fun onStop() {
+        screenStarted = false
         LogCatcher.unsubscribe(listener)
         handler.removeCallbacks(flushRunnable)
         synchronized(pendingLock) { flushPosted = false }
@@ -134,7 +149,16 @@ class LogCatcherActivity : Activity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        screenStarted = false
+        LogCatcher.unsubscribe(listener)
+        handler.removeCallbacks(flushRunnable)
+        synchronized(pendingLock) { pendingEntries.clear(); flushPosted = false }
+        super.onDestroy()
+    }
+
     private fun queueEntry(entry: CatchLog) {
+        if (!screenStarted) return
         synchronized(pendingLock) {
             if (pendingEntries.size >= 1000) pendingEntries.removeFirst()
             pendingEntries.addLast(entry)
@@ -146,8 +170,9 @@ class LogCatcherActivity : Activity() {
     }
 
     private fun schedulePendingFlush() {
+        if (!screenStarted) return
         synchronized(pendingLock) {
-            if (pendingEntries.isNotEmpty() && !flushPosted) {
+            if (screenStarted && pendingEntries.isNotEmpty() && !flushPosted) {
                 flushPosted = true
                 handler.postDelayed(flushRunnable, 200L)
             }
@@ -159,13 +184,17 @@ class LogCatcherActivity : Activity() {
             flushPosted = false
             buildList { while (pendingEntries.isNotEmpty()) add(pendingEntries.removeFirst()) }
         }
-        if (batch.isNotEmpty() && !isFinishing && !isDestroyed && !showingHistory) {
-            entries.addAll(batch)
-            if (entries.size > 3000) entries.subList(0, entries.size - 3000).clear()
-            render()
-            updateCount()
+        if (batch.isNotEmpty() && screenStarted && !isFinishing && !isDestroyed && !showingHistory) {
+            val fresh = batch.filter { it.id > lastSeenId }.sortedBy { it.id }
+            if (fresh.isNotEmpty()) {
+                entries.addAll(fresh)
+                lastSeenId = fresh.last().id
+                if (entries.size > 3000) entries.subList(0, entries.size - 3000).clear()
+                render()
+                updateCount()
+            }
         }
-        schedulePendingFlush()
+        if (screenStarted) schedulePendingFlush()
     }
 
     private fun toggleLogging() {

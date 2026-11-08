@@ -13,6 +13,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
+import android.os.Handler
+import android.os.Looper
 
  data class CatchLog(
     val id: Long, val timestamp: String, val level: String,
@@ -79,17 +82,18 @@ object LogCatcher {
                 return
             }
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
-            val id = "session_$stamp"
+            val id = "session_${stamp}_${UUID.randomUUID().toString().take(8)}"
             val file = File(dir, "$id.log")
             sessionId = id
             sessionFile = file
             active = true
-            val accepted = enqueueWrite {
+            val accepted = enqueueWrite(critical = true) {
                 try {
                     BufferedWriter(FileWriter(file, false)).use { out ->
                         out.append("# MatchiTOOL Log Catcher\n# Session: $id\n# Started: ${now()}\n")
                     }
                     pruneSessions(dir, file)
+                    if (active && sessionId == id) startLogcatCapture()
                 } catch (e: Exception) {
                     Log.e(TAG, "Unable to initialize log session ${file.name}", e)
                     synchronized(lock) {
@@ -106,7 +110,6 @@ object LogCatcher {
             }
         }
         log("INFO", "LogCatcher", "Logging session started")
-        startLogcatCapture()
     }
 
     fun stop() {
@@ -121,7 +124,7 @@ object LogCatcher {
             sessionFile = null
         }
         stopLogcatCapture()
-        enqueueWrite {
+        enqueueWrite(critical = true) {
             try { BufferedWriter(FileWriter(file, true)).use { out ->
                 out.append("${now()} [INFO] [LogCatcher] Logging session stopped ($id)\n")
                 out.append("# Stopped: ${now()}\n")
@@ -177,11 +180,23 @@ object LogCatcher {
         if (!file.isFile || file.length() > MAX_SESSION_BYTES * 2) emptyList() else file.readLines().takeLast(MAX_RECENT)
     } catch (_: Exception) { emptyList() }
 
-    fun exportText(context: Context): File {
-        val dir = File(context.applicationContext.filesDir, "logs/exports").apply { mkdirs() }
-        val file = File(dir, "matchitool_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.txt")
-        file.writeText(snapshot().joinToString("\n") { it.line() })
-        return file
+    /** Export on the log writer, never on the UI thread. Completion is delivered on main. */
+    fun exportText(context: Context, onComplete: (File?) -> Unit): Boolean {
+        val appContext = context.applicationContext
+        val lines = snapshot().joinToString("\n") { it.line() }
+        return enqueueWrite(critical = true) {
+            val result = try {
+                val dir = File(appContext.filesDir, "logs/exports").apply { if (!exists()) mkdirs() }
+                if (!dir.isDirectory) throw java.io.IOException("Cannot create export directory")
+                val file = File(dir, "matchitool_${SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())}_${UUID.randomUUID().toString().take(6)}.txt")
+                file.writeText(lines)
+                file
+            } catch (e: Exception) {
+                Log.e(TAG, "Log export failed", e)
+                null
+            }
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
     }
 
     /** Captures Android logcat entries emitted by this process while a session is active. */
@@ -225,9 +240,9 @@ object LogCatcher {
 
     private val LOGCAT_LINE = Regex("\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3} +\\d+ +\\d+ ([VDIWEAF]) +([^:]+): ?(.*)")
 
-    private fun enqueueWrite(task: () -> Unit): Boolean {
+    private fun enqueueWrite(critical: Boolean = false, task: () -> Unit): Boolean {
         val count = pendingWrites.incrementAndGet()
-        if (count > MAX_PENDING_WRITES) {
+        if (!critical && count > MAX_PENDING_WRITES) {
             pendingWrites.decrementAndGet()
             synchronized(lock) { droppedWrites++ }
             return false
