@@ -80,7 +80,7 @@ object Prefs {
         cipher.init(Cipher.DECRYPT_MODE, credentialKey(), GCMParameterSpec(128, iv))
         String(cipher.doFinal(encrypted), Charsets.UTF_8)
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "Router password could not be decrypted: ${e.javaClass.simpleName}")
+        LogCatcher.log("WARNING", "Prefs", "Router password could not be decrypted: ${e.javaClass.simpleName}")
         // Only errors that mean "this blob can never work again" may lead to deleting it. Any other error (Keystore not ready
         // early after boot, provider hiccup) must keep the blob so the next call can succeed.
         val permanent = e is javax.crypto.AEADBadTagException || e is java.security.UnrecoverableKeyException ||
@@ -97,7 +97,7 @@ object Prefs {
             if (d != null && d != GONE) return d
             // The Keystore key was invalidated (restore, lock-screen change on some ROMs): the blob can never be read, so drop it
             // and remember that, instead of silently keeping an unusable value and an empty password forever.
-            Log.w("MatchiTOOL", "Router password storage was reset: the saved password cannot be decrypted. Enter it again.")
+            LogCatcher.log("WARNING", "Prefs", "Router password storage was reset: the saved password cannot be decrypted. Enter it again.")
             prefs.edit().remove(ZTE_PASS_ENC).putBoolean(STORAGE_RESET, true).apply()
             return ""
         }
@@ -124,7 +124,7 @@ object Prefs {
         }
         val encrypted = encryptCredential(p)
         if (encrypted == null) {
-            Log.w("MatchiTOOL", "Keystore encryption failed: the router password was NOT saved (it is never stored unencrypted)")
+            LogCatcher.log("WARNING", "Prefs", "Keystore encryption failed: the router password was NOT saved (it is never stored unencrypted)")
             return false
         }
         prefs.edit().remove(STORAGE_RESET).putString(ZTE_PASS_ENC, encrypted).remove(ZTE_PASS_LEGACY).apply()

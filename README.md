@@ -20,6 +20,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 
 ## Features
 
+- **Log Catcher (1.2.33):** live process diagnostics with timestamps and severity levels, function/keyword/session filters, bounded recent history, batched UI refresh, asynchronous session files, size-based rotation, and automatic session retention. Logging can be started/stopped without restarting the app.
 - **Advanced Network Diagnostics (1.2.0)**: on-demand IPv4/IPv6 address and route inspection, gateway/public-IP ping checks, and DNS lookup. Read-only; ICMP filtering is reported as a limitation rather than proof of an outage.
 - **Read-only device diagnostics**: Android build, root identity, kernel, network interfaces/routes, storage, and optional tool availability.
 - **USB controls**: root-backed USB debugging enable/disable plus selectable USB Ethernet modes (RNDIS and CDC-ECM), live gadget-state/support checks, and restoration of the firmware-saved USB configuration. Availability and behavior depend on Android ROM/kernel support.
@@ -41,6 +42,8 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
+Current source version: **1.2.33** (versionCode **233**). The Android package and embedded web UI version are kept in sync.
+
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
 ```sh
@@ -59,6 +62,12 @@ The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on
 Router credentials are stored using Android Keystore AES-GCM encryption where the platform keystore is available. Older installations migrate their saved router password when it is first read; existing preferences, plugin files, and boot task paths are retained. The web API adds defensive response headers and rejects cross-origin requests.
 
 The web console uses a self-signed HTTPS certificate when it can (your browser will warn once) and falls back to plain HTTP otherwise, to preserve compatibility with the existing LAN browser workflow. Plain HTTP does not encrypt passwords, session tokens, or root-command traffic. Keep port 2334 restricted to a trusted ZTE hotspot / USB-tether network; never port-forward it to the public internet. For remote access, use a trusted VPN or encrypted tunnel.
+
+## Log Catcher (1.2.30)
+
+Open **Home → Log Catcher** and press **Start logging** to begin a session without restarting the host. The collector records MatchiTOOL diagnostic events and, where Android permits access to the app's own process log buffer, tails this process with `logcat --pid`. Press **Stop logging** to close the session. Each session is stored privately under `files/logs/sessions/`; text snapshots are saved under `files/logs/exports/`.
+
+The collector uses a low-priority single-thread writer so filesystem work does not block the UI, shell, or network request threads. Recent memory history is capped at 3,000 entries, queued writes at 4,096, each session file at approximately 8 MiB before rollover, and retained session files at 30. If the device denies process-log access, explicit MatchiTOOL diagnostic events continue to be recorded. Logs may contain device or network diagnostic data; keep exported files private.
 
 ## Install and use
 

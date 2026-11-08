@@ -73,7 +73,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             if (!tmp.renameTo(dest)) throw java.io.IOException("could not move sendat into place")
             true
         } catch (e: Exception) {
-            Log.w("MatchiTOOL", "sendat copy failed, keeping the existing binary: ${e.message}")
+            LogCatcher.log("WARNING", "WebServer", "sendat copy failed, keeping the existing binary: ${e.message}")
             try { tmp.delete() } catch (_: Exception) { }
             false
         }

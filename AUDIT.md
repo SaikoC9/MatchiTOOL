@@ -117,3 +117,11 @@ Static source validation now discovers the embedded Bypass tool by prefix, so ve
 - `targetSdk` 28 with cleartext allowed is deliberate. The manifest declares no `android:foregroundServiceType` and no `FOREGROUND_SERVICE_*` permission: if `targetSdk` is ever raised to 34 or higher, `HostService` will crash on start until both are added.
 - Local builds and `build.yml` fall back to the debug key when no keystore is configured; such an APK cannot update a properly signed install. `release.yml` refuses to publish without the keystore.
 - There is no Gradle wrapper (CI uses Gradle 8.7), no dependency locking and minify is off (see `scripts/bootstrap-build.sh`).
+
+
+## 1.2.30 stability pass
+
+- Log Catcher persistence moved off caller threads to a bounded, low-priority serial writer.
+- Added app-process logcat tailing during an active session (`logcat --pid`); explicit diagnostic events remain available if Android denies log-buffer access.
+- Added bounded recent history, bounded queued writes, per-file rollover, and oldest-first session retention.
+- Static validation and shell regression tests pass. Android compilation and a device soak test remain unverified because this environment has no Android SDK or Gradle installation.

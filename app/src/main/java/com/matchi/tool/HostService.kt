@@ -35,14 +35,14 @@ class HostService : Service() {
             for (delay in longArrayOf(4, 30, 90, 180)) {
                 workers.schedule({
                     try { ZteClient.autoDetect(applicationContext) }
-                    catch (e: Exception) { Log.w("MatchiTOOL", "Router auto-detect failed: ${e.message}") }
+                    catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Router auto-detect failed: ${e.message}") }
                 }, delay, TimeUnit.SECONDS)
             }
             // Recheck the firewall after boot/network bring-up without spawning duplicate thread sets.
             for (delay in longArrayOf(3, 30, 90)) {
                 workers.schedule({
                     try { HostControl.openLanFirewall(applicationContext) }
-                    catch (e: Exception) { Log.w("MatchiTOOL", "LAN firewall check failed: ${e.message}") }
+                    catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "LAN firewall check failed: ${e.message}") }
                 }, delay, TimeUnit.SECONDS)
             }
             // A hotspot or USB tether switched on AFTER the checks above never got its rule. Every 45 s the interface list is read
@@ -58,10 +58,10 @@ class HostService : Service() {
                     val periodic = lanTicks % 7 == 0
                     if (fresh.isNotEmpty() || periodic) {
                         seenLanIfs.addAll(names)
-                        Log.i("MatchiTOOL", "LAN firewall opened (new interfaces: ${fresh.joinToString(",").ifEmpty { "none" }}, periodic=$periodic)")
+                        LogCatcher.log("INFO", "HostService", "LAN firewall opened (new interfaces: ${fresh.joinToString(",").ifEmpty { "none" }}, periodic=$periodic)")
                         HostControl.openLanFirewall(applicationContext)
                     }
-                } catch (e: Exception) { Log.w("MatchiTOOL", "LAN interface watch failed: ${e.message}") }
+                } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "LAN interface watch failed: ${e.message}") }
             }, 45, 45, TimeUnit.SECONDS)
             // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).
             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
@@ -109,7 +109,7 @@ class HostService : Service() {
                 if (factory != null && protoIdx < protocolSets.size) return true
                 source++
                 if (source > 1) { factory = null; protocolSets = emptyList(); return false }
-                Log.w("MatchiTOOL", "HTTPS failed with the ${if (source == 1) "Android key store" else "previous"} key; trying the ${if (source == 1) "software key" else "next option"}")
+                LogCatcher.log("WARNING", "HostService", "HTTPS failed with the ${if (source == 1) "Android key store" else "previous"} key; trying the ${if (source == 1) "software key" else "next option"}")
                 if (prepare(source)) return true
             }
         }
@@ -117,7 +117,7 @@ class HostService : Service() {
         var secure = factory != null
         // Building the server must not be able to end this task silently: an exception here used to leave the console down for good.
         var srv = try { newServer(factory, protocolSets.getOrNull(protoIdx)) } catch (e: Exception) {
-            Log.e("MatchiTOOL", "Web host could not be created: ${e.message}")
+            LogCatcher.log("ERROR", "HostService", "Web host could not be created: ${e.message}")
             scheduleStartRetry()
             return
         }
@@ -130,10 +130,10 @@ class HostService : Service() {
                 stopQuietly(srv)
                 try { Thread.sleep(500) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); ok = false; break }
                 if (advance()) {
-                    Log.w("MatchiTOOL", "HTTPS handshake failed; retrying (${if (source == 0) "key store" else "software key"}, ${protocolSets[protoIdx].joinToString("+")})")
+                    LogCatcher.log("WARNING", "HostService", "HTTPS handshake failed; retrying (${if (source == 0) "key store" else "software key"}, ${protocolSets[protoIdx].joinToString("+")})")
                     srv = newServer(factory, protocolSets[protoIdx])
                 } else {
-                    Log.w("MatchiTOOL", "HTTPS handshake failed with every key; restarting as plain HTTP")
+                    LogCatcher.log("WARNING", "HostService", "HTTPS handshake failed with every key; restarting as plain HTTP")
                     secure = false
                     srv = newServer(null, null)
                 }
@@ -142,7 +142,7 @@ class HostService : Service() {
                 ok = startWithRetry(srv)
             }
         } catch (e: Exception) {
-            Log.e("MatchiTOOL", "Web host start failed: ${e.message}")
+            LogCatcher.log("ERROR", "HostService", "Web host start failed: ${e.message}")
             ok = false
         }
         if (destroyed) {
@@ -152,14 +152,14 @@ class HostService : Service() {
         }
         if (ok) {
             Tls.ready = true   // the scheme is final now: the home screen may show the address and open the console
-            Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https, ${Tls.keySource} key" else "http"})")
+            LogCatcher.log("INFO", "HostService", "Web host listening on port ${Prefs.PORT} (${if (secure) "https, ${Tls.keySource} key" else "http"})")
             return
         }
         stopQuietly(srv)
         if (server === srv) server = null
         Tls.active = false
         Tls.ready = false
-        Log.e("MatchiTOOL", "Web host did not start after retries")
+        LogCatcher.log("ERROR", "HostService", "Web host did not start after retries")
         scheduleStartRetry()
     }
 
@@ -168,7 +168,7 @@ class HostService : Service() {
         for (attempt in 1..8) {
             if (destroyed) return false
             try { srv.start(); return true } catch (e: java.io.IOException) {
-                Log.w("MatchiTOOL", "Web host start failed (attempt $attempt): ${e.message}")
+                LogCatcher.log("WARNING", "HostService", "Web host start failed (attempt $attempt): ${e.message}")
                 try { Thread.sleep(700) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
             }
         }
@@ -192,8 +192,8 @@ class HostService : Service() {
         try {
             val r = RootShell.run(this, OLD_TMP_CLEANUP, 20_000)
             if (r.success) Prefs.setOldTmpCleaned(applicationContext)
-            Log.i("MatchiTOOL", "Old temp files: ${if (r.success) "removed" else "not removed (root not available?)"}")
-        } catch (e: Exception) { Log.w("MatchiTOOL", "Old temp cleanup failed: ${e.message}") }
+            LogCatcher.log("INFO", "HostService", "Old temp files: ${if (r.success) "removed" else "not removed (root not available?)"}")
+        } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Old temp cleanup failed: ${e.message}") }
     }
 
     private fun runBootTasks() {
@@ -205,9 +205,9 @@ class HostService : Service() {
         workers.execute {
             try {
                 val result = RootShell.run(this, BOOT_SCRIPT.replace('\u00a7', '$'), 170_000)
-                Log.i("MatchiTOOL", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
+                LogCatcher.log("INFO", "HostService", "Boot tasks: ${if (result.success) "completed" else "not completed"}: ${result.content.take(1200)}")
                 if (!result.success) logHungBootScript()
-            } catch (e: Exception) { Log.e("MatchiTOOL", "Boot tasks failed: ${e.message}") }
+            } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot tasks failed: ${e.message}") }
             finally { finished() }
         }
         workers.execute {
@@ -215,8 +215,8 @@ class HostService : Service() {
             // back. Waits up to 60 s for the modem; does nothing when no IMEI was saved; at most 3 failed tries per slot.
             try {
                 val imei = ImeiGuard.apply(this, 20, false)
-                Log.i("MatchiTOOL", "IMEI keeper: ${imei.take(600)}")
-            } catch (e: Exception) { Log.e("MatchiTOOL", "IMEI keeper failed: ${e.message}") }
+                LogCatcher.log("INFO", "HostService", "IMEI keeper: ${imei.take(600)}")
+            } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "IMEI keeper failed: ${e.message}") }
             finally { finished() }
         }
     }
@@ -225,7 +225,7 @@ class HostService : Service() {
     private fun logHungBootScript() {
         try {
             val r = RootShell.run(this, HUNG_RUN_NOTE.replace('\u00a7', '$'), 10_000)
-            if (r.content.isNotBlank()) Log.w("MatchiTOOL", "Boot tasks did not finish: ${r.content.take(300)}")
+            if (r.content.isNotBlank()) LogCatcher.log("WARNING", "HostService", "Boot tasks did not finish: ${r.content.take(300)}")
         } catch (_: Exception) { }
     }
 

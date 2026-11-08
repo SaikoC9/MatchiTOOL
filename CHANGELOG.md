@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.2.33 — Review fixes
+- Corrected Android package and embedded web-page version metadata to 1.2.33 (versionCode 233).
+- Batched Log Catcher UI updates at 200 ms intervals to avoid rebuilding the log list for every event.
+- Bounded pending UI events and recent UI history.
+- Cached session-history lines while filtering and enabled function filtering for stored sessions.
+- Reported log-session startup failure when the bounded writer queue cannot accept its header.
+- Pruned rotated session files as well as previous session files.
+
+- Log Catcher disk writes now run on a dedicated low-priority serial worker; UI, shell and network threads no longer perform per-event file I/O.
+- Bounded the in-memory event history (3,000 entries), queued disk writes (4,096), per-session log size (8 MiB with rollover), and retained session count (30).
+- Added safe handling for invalid log characters, listener failures, writer failures, and session-directory creation failures.
+- Log session files are pruned oldest-first; the active session is retained.
+- Aligned the embedded web page version and source validation with app version 1.2.30 (versionCode 230).
+- Validation remains source-level; a full Android build and device soak test are still required.
+
+## 1.2.29 (Log Catcher)
+- Added an in-app Log Catcher screen with live entries, timestamps, severity levels, function/keyword filters, and session history.
+- Added Start/Stop controls without restarting MatchiTOOL.
+- Each logging session is automatically written to the app's private `files/logs/sessions/` directory as a separate `.log` file; manual `.txt` snapshots are saved under `files/logs/exports/`.
+- Routed existing MatchiTOOL diagnostic log sites and uncaught exceptions into the collector.
+
+# Changelog
+
 ## 1.2.28 - review fixes (items from MatchiTOOL_v1_2_27_bug_report.txt and the patched20 bug report)
 - **Fix, 1.2.28 (was patched21)** (from `MatchiTOOL_v1_2_27_patched20_bug_report.txt`, not compiled, not tested on a device):
   - Bug 1: one `rootGate()` in `WebServer` (rules in the pure `RootGate` object) now guards every root-capable call: `/api/shell`, `/api/imei/apply`, `/api/usb/control`, `/api/screen/input`, `/api/update/install`, `POST /api/plugins`, plugin delete with erase, and `/api/at` + `/api/at/batch` for anything that is not a read-only query. Needs a sign-in younger than 4 h (`403 reauth`) and, over plain HTTP, the page's confirmation (`403 insecure`). Read-only AT queries (Live Status / AT Radio polling) are not gated. The page's `api()` now answers `insecure` for every path with the same once-per-load dialog and one retry.

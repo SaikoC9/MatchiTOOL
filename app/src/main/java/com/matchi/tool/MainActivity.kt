@@ -51,6 +51,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        LogCatcher.initialize(this)
+        LogCatcher.log("INFO", "MainActivity", "Application home opened")
 
         val svc = Intent(this, HostService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
@@ -62,6 +64,7 @@ class MainActivity : Activity() {
         page.addView(buildHeader())
         page.addView(buildWebButton(), Ui.lp(-1, -2, 18, this))
         page.addView(buildRouterRow(), Ui.lp(-1, -2, 12, this))
+        page.addView(buildLogCatcherButton(), Ui.lp(-1, -2, 12, this))
         page.addView(Ui.label(this, "ACCESS & SECURITY", 11f, Ui.muted, true).apply { letterSpacing = 0.12f },
             Ui.lp(-2, -2, 24, this).apply { leftMargin = dp(4) })
         page.addView(buildAccessGroup(), Ui.lp(-1, -2, 10, this))
@@ -164,6 +167,28 @@ class MainActivity : Activity() {
         t.addView(Ui.label(this, "Router page", 15f, Ui.text, true))
         routerSub = Ui.label(this, "", 13f, Ui.muted)
         t.addView(routerSub, Ui.lp(-2, -2, 3, this))
+        r.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14) })
+        r.addView(Ui.icon(this, R.drawable.ic_chevron_right, Ui.muted, 22))
+        return r
+    }
+
+    private fun buildLogCatcherButton(): View {
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = Ui.withRipple(this@MainActivity, Ui.rounded(this@MainActivity, Ui.card, Ui.cardStroke, 18f), 18f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                LogCatcher.log("INFO", "MainActivity", "Log Catcher opened")
+                startActivity(Intent(this@MainActivity, LogCatcherActivity::class.java))
+            }
+        }
+        r.addView(Ui.iconTile(this, R.drawable.ic_shield, Ui.blueLight, Color.parseColor("#14233D"), 40))
+        val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        t.addView(Ui.label(this, "Log Catcher", 15f, Ui.text, true))
+        t.addView(Ui.label(this, "Live logs · filters · session history", 12.5f, Ui.muted), Ui.lp(-2, -2, 3, this))
         r.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14) })
         r.addView(Ui.icon(this, R.drawable.ic_chevron_right, Ui.muted, 22))
         return r

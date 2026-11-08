@@ -63,7 +63,7 @@ object Tls {
         keySource = "keystore"
         ctx.serverSocketFactory
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "TLS setup (key store) failed: ${e.javaClass.simpleName}: ${e.message}")
+        LogCatcher.log("WARNING", "Tls", "TLS setup (key store) failed: ${e.javaClass.simpleName}: ${e.message}")
         null
     }
 
@@ -100,7 +100,7 @@ object Tls {
         keySource = "software"
         ctx.serverSocketFactory
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "TLS setup (software key) failed: ${e.javaClass.simpleName}: ${e.message}")
+        LogCatcher.log("WARNING", "Tls", "TLS setup (software key) failed: ${e.javaClass.simpleName}: ${e.message}")
         null
     }
 
@@ -176,11 +176,11 @@ object Tls {
             s.soTimeout = 5000
             s.connect(InetSocketAddress("127.0.0.1", port), 3000)
             s.startHandshake()
-            Log.i("MatchiTOOL", "TLS self-test ok (${keySource}, ${s.session.protocol}, ${s.session.cipherSuite})")
+            LogCatcher.log("INFO", "Tls", "TLS self-test ok (${keySource}, ${s.session.protocol}, ${s.session.cipherSuite})")
             true
         }
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "TLS self-test failed: ${e.javaClass.simpleName}: ${e.message}" + (e.cause?.let { " (cause: ${it.javaClass.simpleName}: ${it.message})" } ?: ""))
+        LogCatcher.log("WARNING", "Tls", "TLS self-test failed: ${e.javaClass.simpleName}: ${e.message}" + (e.cause?.let { " (cause: ${it.javaClass.simpleName}: ${it.message})" } ?: ""))
         false
     }
 }
