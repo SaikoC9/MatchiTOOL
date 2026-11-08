@@ -174,6 +174,28 @@ SENDAT_SHA256 = 'f0da6be08ed2cdb46f517baa8d964327d2550b68017468d2dbbe4aa8224e41a
 got = hashlib.sha256((root / 'app/src/main/assets/bin/sendat').read_bytes()).hexdigest()
 assert got == SENDAT_SHA256, f'sendat changed (sha256 {got}); update SENDAT_SHA256 here and in NOTICE.md after reviewing the new binary'
 assert SENDAT_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the sendat SHA-256'
+# Kotlin block comments nest: a "/*" inside a KDoc (for example the text "text/*") opens a second comment and the build
+# fails with "Unclosed comment". Scan every Kotlin file (strings and // comments skipped) for a comment that never closes.
+def _unclosed_comment(src):
+    i, depth, n = 0, 0, len(src)
+    while i < n:
+        two = src[i:i + 2]
+        if depth == 0 and src.startswith('"""', i):
+            j = src.find('"""', i + 3); i = n if j < 0 else j + 3; continue
+        if depth == 0 and src[i] == '"':
+            i += 1
+            while i < n and src[i] != '"': i += 2 if src[i] == '\\' else 1
+            i += 1; continue
+        if depth == 0 and two == '//':
+            j = src.find('\n', i); i = n if j < 0 else j; continue
+        if depth == 0 and src[i] == "'":
+            i += 4 if src[i + 1:i + 2] == '\\' else 3; continue
+        if two == '/*': depth += 1; i += 2; continue
+        if two == '*/' and depth > 0: depth -= 1; i += 2; continue
+        i += 1
+    return depth
+for _f in (root / 'app/src').rglob('*.kt'):
+    assert _unclosed_comment(_f.read_text()) == 0, f'{_f.name}: unclosed (nested) block comment - do not write "/*" inside a comment'
 # Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
 logd = (root / 'app/src/main/assets/bin/matchi_logd.sh').read_text()
 logd_ver = re.search(r'^# MATCHI_LOGD_VERSION=(\d+)$', logd, re.M)
