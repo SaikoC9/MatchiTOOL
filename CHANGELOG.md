@@ -835,3 +835,11 @@
 - Web: incremental polling (`/api/logs/entries?since=`) instead of resending the whole buffer every 3 s; server tells the client to reset if the app restarted.
 - Web: Pause/Resume, Copy, and Delete session (finished sessions only); filters debounced; auto-scroll only when already at the bottom; dropped-write count shown.
 - API: `POST /api/logs/delete` removes a finished session (.log and .txt); the active session is refused.
+
+## 1.3.6 - Log Catcher: device-wide capture, live stream, search, export
+- Device-wide capture (root, opt-in): system logcat for every process and the kernel log (dmesg), filtered by priority, only while a session logs. Lines are tagged `device/<tag>` and `kernel`; new Source filter. Changing it is root-gated and audited.
+- Live stream: `GET /api/logs/stream` (server-sent events, max 3 at once, 20 min each) pushes entries as they happen; the page falls back to polling if the stream cannot start.
+- Search across every saved session (`GET /api/logs/search`): keyword or regex (time-boxed), level, and from/to time range.
+- Regex and time-range filters in the live/history view; Group repeats (counts, last time); Prev/Next error; bookmarks (tap a line, kept in the browser); alerts on ERROR or a keyword (toast + tab title count).
+- Export: all sessions as one .zip, and a Problem report .zip (device info, recent buffer, sessions, kernel log when root allows). Current-view export now respects the active filters.
+- Native Log Catcher screen: Pause/Resume, Share (text), Delete session.

@@ -22,6 +22,12 @@ import android.os.Looper
     val function: String, val message: String, val session: String
 ) {
     fun line(): String = "$timestamp [$level] [$function] $message"
+    /** app = this process, device = system-wide logcat (root), kernel = dmesg (root). */
+    val source: String get() = when {
+        function.startsWith("device/") -> "device"
+        function == "kernel" -> "kernel"
+        else -> "app"
+    }
 }
 
 /**
@@ -107,6 +113,7 @@ object LogCatcher {
             }
         }
         startLogcatCapture()
+        DeviceLogs.start(context)
     }
 
     /** Wait (bounded) until every write queued so far has reached disk. Never call with a long timeout on the UI thread. */
@@ -155,6 +162,7 @@ object LogCatcher {
         }
         // Start capture only after the session file is ready.
         startLogcatCapture()
+        DeviceLogs.start(app!!)
         log("INFO", "LogCatcher", "Logging session started")
     }
 
@@ -174,6 +182,7 @@ object LogCatcher {
                 ?.putBoolean("session_active", false)?.apply()
         }
         stopLogcatCapture()
+        DeviceLogs.stop()
         enqueueWrite(critical = true) {
             try {
                 val ending = "${now()} [INFO] [LogCatcher] Logging session stopped ($id)\n# Stopped: ${now()}\n"

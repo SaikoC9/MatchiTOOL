@@ -254,6 +254,7 @@ footer{padding:0 14px 20px;font-size:10.5px}
 html,body{max-width:100%}
 .modal-bg{position:fixed;inset:auto;left:0;top:0;width:100vw;height:100vh;height:100dvh;max-width:none;box-sizing:border-box;margin:0}
 .card.pop.open{left:50%;top:50%;margin:0}
+.lcl{cursor:pointer}.lccur{outline:1px solid #ffc857;background:rgba(255,200,87,.14)}.lchit b{color:#7fb2ff}
 </style><style id="pm-style">
 #pluginmgr.pop.open{width:min(440px,calc(100vw - 24px));padding:12px 12px 0}
 #pluginmgr .popfoot{margin:10px -12px 0;padding:7px 12px;bottom:0}
@@ -557,9 +558,17 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
   <div class="card pop" id="logcatcher">
     <div class="mut" style="margin-bottom:8px">Log Catcher · Web dashboard</div>
     <div class="row" style="align-items:center;justify-content:space-between"><strong id="lcstate">Logging stopped</strong><span class="mut" id="lcsession">No active session</span></div>
-    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button><button id="lcdelete" class="danger" style="display:none">Delete session</button></div>
-    <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword"></div>
+    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button><button id="lcdelete" class="danger" style="display:none">Delete session</button></div>
+    <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword or regex"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcregex"> Regex</label></div>
+    <div class="btnrow" style="margin-bottom:8px"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
+    <div class="btnrow" style="margin-bottom:8px"><button id="lcsearchall">Search all sessions</button><button id="lcsearchclose" style="display:none">Close results</button><button id="lcerrprev">◀ Error</button><button id="lcerrnext">Error ▶</button><span class="mut" id="lcerrpos"></span></div>
+    <div class="btnrow" style="margin-bottom:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcalerterr"> Alert on ERROR</label><input id="lcalert" placeholder="Alert on keyword"><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button><button id="lcexportall">All sessions (.zip)</button><button id="lcreport">Problem report (.zip)</button></div>
+    <details style="margin-bottom:8px"><summary class="mut">Device-wide capture (root)</summary>
+      <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><button id="lcdevapply">Apply</button></div>
+      <div class="mut" id="lcdevstate" style="margin-top:6px">Off. Captures every process on the device while a session is logging; needs root.</div>
+    </details>
     <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
+    <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
     <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -8170,39 +8179,203 @@ setInterval(hostPing,15000);
 
 <script>
 (function(){
- const $=id=>document.getElementById(id); let lastKey='', rows=[], historyMode='', refreshBusy=false, refreshTimer=null, lastId=0, dropped=0, paused=false, filterTimer=null;
+ const $=id=>document.getElementById(id);
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- async function refresh(){
-  if(refreshBusy || document.hidden || !$('logcatcher')?.classList.contains('open')) return;
+ let lastKey='', rows=[], historyMode='', refreshBusy=false, refreshTimer=null, lastId=0, dropped=0, paused=false, filterTimer=null, renderTimer=null;
+ let stream=null, streamOk=false, streamFails=0, searchMode=false, errIdx=-1, shown=[], alertCount=0, alertAt=0;
+ const baseTitle=document.title;
+ const BM_KEY='matchi_lc_bookmarks';
+ let bookmarks=new Set(); try{bookmarks=new Set(JSON.parse(localStorage.getItem(BM_KEY)||'[]'))}catch(e){}
+ const saveBM=()=>{try{localStorage.setItem(BM_KEY,JSON.stringify([...bookmarks].slice(-300)))}catch(e){}};
+ const keyOf=x=>x.timestamp+'|'+x.function+'|'+x.message;
+ const srcOf=x=>x.source||(String(x.function).startsWith('device/')?'device':x.function==='kernel'?'kernel':'app');
+ const panelOpen=()=>!!$('logcatcher')?.classList.contains('open');
+ const stamp=v=>v?v.replace('T',' '):'';
+ const colorOf=l=>l==='ERROR'?'#ff6b81':l==='WARNING'?'#ffc857':l==='DEBUG'?'#8aa4c8':'#b9c9dc';
+ const lineOf=x=>`${x.timestamp} [${x.level}] [${x.function}] ${x.message}`;
+
+ /* ---- filtering: level, source, function, keyword or regex, time range, bookmarks ---- */
+ function makeFilter(){
+  const q=$('lcsearch').value, lq=q.toLowerCase(), useRx=$('lcregex').checked;
+  let rx=null,bad=false; if(q&&useRx){try{rx=new RegExp(q,'i')}catch(e){bad=true}}
+  $('lcsearch').style.outline=bad?'2px solid #ff6b81':'';
+  const level=$('lclevel').value, fn=$('lcfunction').value.toLowerCase(), src=$('lcsource').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value), bm=$('lcbm').checked;
+  return x=>{
+   if(level!=='ALL'&&x.level!==level)return false;
+   if(fn&&!String(x.function).toLowerCase().includes(fn))return false;
+   if(src!=='ALL'&&srcOf(x)!==src)return false;
+   if(from||until){const t=x.timestamp||''; if(!t)return false; if(from&&t.slice(0,from.length)<from)return false; if(until&&t.slice(0,until.length)>until)return false}
+   if(bm&&!bookmarks.has(keyOf(x)))return false;
+   if(q){const hay=x.message+' '+x.function; if(bad)return false; if(rx){if(!rx.test(hay))return false}else if(!hay.toLowerCase().includes(lq))return false}
+   return true;
+  };
+ }
+ /* Collapse repeats: same level, function and message once digits are ignored (counters, ids, addresses). */
+ function group(list){
+  const out=[], idx=new Map();
+  for(const x of list){
+   const k=x.level+'|'+x.function+'|'+String(x.message).replace(/\d+/g,'#'), g=idx.get(k);
+   if(g){g.count++;g.last=x.timestamp}else{const c={...x,count:1,last:x.timestamp};idx.set(k,c);out.push(c)}
+  }
+  return out;
+ }
+ function render(force){
+  if(searchMode)return;
+  const filtered0=rows.filter(makeFilter()), grouped=$('lcgroup').checked, filtered=grouped?group(filtered0):filtered0;
+  $('lccount').textContent=filtered0.length+' / '+rows.length+' entries'+(grouped?' · '+filtered.length+' groups':'')+(paused?' · paused':'')+(streamOk?' · live':'')+(dropped>0?' · '+dropped+' disk writes dropped':'');
+  const tail=filtered.slice(-500);
+  const key=(grouped?'g':'f')+bookmarks.size+'~'+tail.map(x=>(x.id??x.timestamp+x.message)+(x.count>1?'x'+x.count:'')).join('|');
+  if(!force&&key===lastKey)return;
+  const out=$('lcout'), firstPaint=lastKey==='', stick=force||firstPaint||out.scrollHeight-out.scrollTop-out.clientHeight<48;
+  lastKey=key; shown=tail; errIdx=-1; $('lcerrpos').textContent='';
+  out.innerHTML=tail.map((x,i)=>`<span class="lcl${x.level==='ERROR'?' lcerr':''}" data-i="${i}" style="color:${colorOf(x.level)}">${bookmarks.has(keyOf(x))?'★ ':''}${esc(x.timestamp)} [${esc(x.level)}] [${esc(x.function)}] ${esc(x.message)}${x.count>1?' ×'+x.count+' (last '+esc(x.last)+')':''}</span>`).join('\n')||'No matching log entries';
+  if(stick)out.scrollTop=out.scrollHeight;
+ }
+ function renderSoon(){if(renderTimer)return;renderTimer=setTimeout(()=>{renderTimer=null;render()},250)}
+
+ /* ---- alerts: a toast and a count in the tab title when a new line matches ---- */
+ const alertsOn=()=>$('lcalerterr').checked||$('lcalert').value.trim()!=='';
+ function checkAlerts(list){
+  const onErr=$('lcalerterr').checked, kw=$('lcalert').value.trim().toLowerCase(); if(!onErr&&!kw)return;
+  const hit=list.filter(x=>(onErr&&x.level==='ERROR')||(kw&&(x.message+' '+x.function).toLowerCase().includes(kw)));
+  if(!hit.length)return;
+  alertCount+=hit.length; document.title='('+alertCount+') '+baseTitle;
+  const t=Date.now(); if(t-alertAt>5000){alertAt=t;try{createToast('Log alert: '+String(hit[hit.length-1].message).slice(0,90),'orange',5000)}catch(e){}}
+ }
+ function clearAlerts(){alertCount=0;document.title=baseTitle}
+
+ function addRows(list,alertOn){
+  if(historyMode)return;
+  const fresh=list.filter(x=>x&&x.id>lastId).sort((a,b)=>a.id-b.id); if(!fresh.length)return;
+  rows=rows.concat(fresh); if(rows.length>3000)rows=rows.slice(-3000);
+  lastId=fresh[fresh.length-1].id;
+  if(alertOn)checkAlerts(fresh);
+  renderSoon();
+ }
+
+ async function refresh(force){
+  if(refreshBusy || document.hidden || !panelOpen()) return;
   refreshBusy=true;
   try{
    const status=await api('/api/logs/status'); $('lcstate').textContent=status.running?'● Logging active':'Logging stopped'; $('lcstate').style.color=status.running?'#35d6a0':'var(--muted)'; $('lcsession').textContent=status.session||'No active session'; $('lcstart').disabled=!!status.running; $('lcstop').disabled=!status.running;
    dropped=status.droppedWrites||0;
-   if(!historyMode && !paused){const d=await api('/api/logs/entries?since='+lastId); if(d.reset)rows=[]; rows=rows.concat(d.entries||[]); if(rows.length>3000)rows=rows.slice(-3000); lastId=d.lastId||lastId;}
+   if(!historyMode && !paused && (force===true || !streamOk)){
+    const d=await api('/api/logs/entries?since='+lastId);
+    if(d.reset){rows=[];lastId=0}
+    const first=lastId===0;
+    addRows(d.entries||[],!first);
+   }
    render();
   }catch(e){$('lcstate').textContent='Log service unavailable';}
   finally{refreshBusy=false;}
  }
- function render(){
-  const level=$('lclevel').value, fn=$('lcfunction').value.toLowerCase(), q=$('lcsearch').value.toLowerCase();
-  const filtered=rows.filter(x=>(level==='ALL'||x.level===level)&&(!fn||x.function.toLowerCase().includes(fn))&&(!q||(x.message+' '+x.function).toLowerCase().includes(q)));
-  $('lccount').textContent=filtered.length+' / '+rows.length+' entries'+(paused?' · paused':'')+(dropped>0?' · '+dropped+' disk writes dropped':'');
-  const key=filtered.map(x=>x.id||x.timestamp+x.message).join('|'); if(key===lastKey)return; const firstPaint=lastKey===''; lastKey=key; const out=$('lcout'), stick=firstPaint||out.scrollHeight-out.scrollTop-out.clientHeight<48;
-  $('lcout').innerHTML=filtered.slice(-500).map(x=>`<span style="color:${x.level==='ERROR'?'#ff6b81':x.level==='WARNING'?'#ffc857':x.level==='DEBUG'?'#8aa4c8':'#b9c9dc'}">${esc(x.timestamp)} [${esc(x.level)}] [${esc(x.function)}] ${esc(x.message)}</span>`).join('\n')||'No matching log entries'; if(stick)out.scrollTop=out.scrollHeight;
+
+ /* ---- live stream (server-sent events over fetch, so the session header can be sent); polling is the fallback ---- */
+ const wantStream=()=>!historyMode&&!paused&&((panelOpen()&&!document.hidden)||alertsOn());
+ function handleFrame(f){
+  streamOk=true; if(f.startsWith(':'))return;
+  let ev='message',data=''; f.split('\n').forEach(l=>{if(l.startsWith('event:'))ev=l.slice(6).trim();else if(l.startsWith('data:'))data+=l.slice(5).trim()});
+  if(ev==='lagged'){refresh(true);return}
+  try{addRows([JSON.parse(data)],true)}catch(e){}
  }
- $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';$('lchistory').value='';$('lcdelete').style.display='none';await loadHistory();await refresh();}catch(e){alert('Could not start logging: '+e.message)}};
- $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();}catch(e){alert('Could not stop logging: '+e.message)}};
- function exportLogs(ext){const text=rows.map(x=>`${x.timestamp} [${x.level}] [${x.function}] ${x.message}`).join('\n');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
- ['lclevel','lcfunction','lcsearch'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(render,150)}));
- $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';if(paused)render();else refresh()};
+ async function openStream(){
+  if(stream||!wantStream()||typeof TOKEN!=='string'||!TOKEN)return;
+  const s={ctl:new AbortController(),stop:false}; stream=s; let got=false;
+  const timer=setTimeout(()=>{if(!got)s.ctl.abort()},8000);
+  try{
+   const r=await fetch('/api/logs/stream?since='+lastId,{headers:{'x-token':TOKEN},signal:s.ctl.signal});
+   if(!r.ok||!r.body)throw new Error('stream unavailable');
+   const rd=r.body.getReader(), dec=new TextDecoder(); let buf='';
+   for(;;){
+    const {done,value}=await rd.read(); if(done)break;
+    got=true; clearTimeout(timer); buf+=dec.decode(value,{stream:true});
+    let i; while((i=buf.indexOf('\n\n'))>=0){const frame=buf.slice(0,i);buf=buf.slice(i+2);handleFrame(frame)}
+   }
+  }catch(e){}
+  finally{
+   clearTimeout(timer); stream=null; streamOk=false;
+   if(!s.stop){if(got)streamFails=0;else streamFails++;if(wantStream()&&streamFails<3)setTimeout(openStream,got?500:2000)}
+  }
+ }
+ function syncStream(){
+  if(stream&&!wantStream()){stream.stop=true;stream.ctl.abort()}
+  else if(!stream&&wantStream()&&streamFails<3)openStream();
+ }
+
+ /* ---- buttons ---- */
+ $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').style.display='none';await loadHistory();await refresh();loadDevice();}catch(e){alert('Could not start logging: '+e.message)}};
+ $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){alert('Could not stop logging: '+e.message)}};
+ function saveBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
+ function exportLogs(ext){const text=rows.filter(makeFilter()).map(lineOf).join('\n');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
+ async function downloadZip(path,btn){
+  const old=btn.textContent; btn.disabled=true; btn.textContent='Preparing…';
+  try{
+   const r=await fetch(path,{headers:{'x-token':TOKEN}});
+   if(!r.ok){let m='Request failed ('+r.status+')';try{m=(await r.json()).error||m}catch(e){}throw new Error(m)}
+   const cd=r.headers.get('content-disposition')||'', nm=(cd.match(/filename="([^"]+)"/)||[])[1]||'matchitool_logs.zip';
+   saveBlob(await r.blob(),nm);
+  }catch(e){alert('Download failed: '+e.message)}
+  finally{btn.disabled=false;btn.textContent=old}
+ }
+ $('lcexportall').onclick=()=>downloadZip('/api/logs/export?kind=all',$('lcexportall'));
+ $('lcreport').onclick=()=>downloadZip('/api/logs/export?kind=report',$('lcreport'));
+ ['lclevel','lcsource','lcfunction','lcsearch','lcregex','lcfrom','lcuntil','lcgroup','lcbm'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>render(true),150)}));
+ ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
+ $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
  $('lccopy').onclick=async()=>{const text=$('lcout').innerText;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log')}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
  $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').style.display='none';await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
+
+ /* ---- search across every saved session ---- */
+ $('lcsearchall').onclick=async()=>{
+  const q=$('lcsearch').value.trim(), level=$('lclevel').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value);
+  if(!q&&level==='ALL'&&!from&&!until){alert('Type a keyword or regex, pick a level, or set a time range to search all saved sessions.');return}
+  $('lcout').textContent='Searching all saved sessions…';
+  try{
+   const p=new URLSearchParams({q,regex:$('lcregex').checked?'1':'0',level:level==='ALL'?'':level,from,until,limit:'500'});
+   const d=await api('/api/logs/search?'+p.toString());
+   if(d.error)throw new Error(d.error);
+   searchMode=true; $('lcsearchclose').style.display=''; const hits=d.hits||[];
+   $('lccount').textContent=hits.length+' match(es) in '+d.scanned+' session file(s)'+(d.truncated?' · more exist, narrow the search':'');
+   $('lcout').innerHTML=hits.length?hits.map(h=>`<span class="lcl lchit" data-session="${esc(h.session)}"><b>${esc(h.session)}</b> #${h.line}  ${esc(h.text)}</span>`).join('\n')+'\n\nTap a result to open that session.':'No matches in saved sessions';
+  }catch(e){searchMode=false;$('lcsearchclose').style.display='none';$('lcout').textContent='Search failed: '+e.message}
+ };
+ $('lcsearchclose').onclick=()=>{searchMode=false;$('lcsearchclose').style.display='none';lastKey='';render(true)};
+
+ /* ---- jump between errors; tap a line to bookmark ---- */
+ function jumpErr(dir){
+  const els=[...$('lcout').querySelectorAll('.lcerr')];
+  if(!els.length){try{createToast('No errors in the current view')}catch(e){}return}
+  $('lcout').querySelectorAll('.lccur').forEach(n=>n.classList.remove('lccur'));
+  errIdx=(errIdx<0||errIdx>=els.length)?(dir>0?0:els.length-1):(errIdx+dir+els.length)%els.length;
+  const el=els[errIdx]; el.classList.add('lccur'); el.scrollIntoView({block:'center'}); $('lcerrpos').textContent=(errIdx+1)+' / '+els.length;
+ }
+ $('lcerrprev').onclick=()=>jumpErr(-1); $('lcerrnext').onclick=()=>jumpErr(1);
+ async function openSession(name){
+  $('lchistory').value=name; if($('lchistory').value!==name){await loadHistory();$('lchistory').value=name}
+  await $('lchistory').onchange();
+ }
+ $('lcout').addEventListener('click',e=>{
+  clearAlerts();
+  const t=e.target.closest&&e.target.closest('.lcl'); if(!t)return;
+  if(t.dataset.session){openSession(t.dataset.session);return}
+  if(String(getSelection()))return;
+  const x=shown[+t.dataset.i]; if(!x)return;
+  const k=keyOf(x); if(bookmarks.has(k))bookmarks.delete(k);else bookmarks.add(k); saveBM(); render(true);
+ });
+
+ /* ---- history ---- */
  async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;sel.innerHTML='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');if(old)sel.value=old;}catch(e){}}
- $('lchistory').onchange=async()=>{historyMode=$('lchistory').value;lastKey='';$('lcdelete').style.display=historyMode?'':'none';if(!historyMode){rows=[];lastId=0;await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render()}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
- const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){loadHistory();refresh();}};
+ $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';$('lcdelete').style.display=historyMode?'':'none';syncStream();if(!historyMode){rows=[];lastId=0;await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+
+ /* ---- device-wide capture (root) ---- */
+ async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
+ $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
+
+ const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();}};
  // Poll only while the panel is visible; never overlap requests or waste router CPU in the background.
  refreshTimer=setInterval(()=>{if(!historyMode && !document.hidden && $('logcatcher')?.classList.contains('open'))refresh()},3000);
- document.addEventListener('visibilitychange',()=>{if(!document.hidden && $('logcatcher')?.classList.contains('open'))refresh()});
+ setInterval(syncStream,2000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden){clearAlerts();if($('logcatcher')?.classList.contains('open'))refresh()}syncStream()});
 })();
 </script>
 

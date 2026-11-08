@@ -26,6 +26,8 @@ class LogCatcherActivity : Activity() {
     private var selectedSession: File? = null
     private var sessionFiles: List<File> = emptyList()
     private var showingHistory = false
+    private var paused = false
+    private lateinit var pauseBtn: TextView
     @Volatile private var screenStarted = false
     private var historyLines: List<String> = emptyList()
     private val listener: (CatchLog) -> Unit = { entry -> queueEntry(entry) }
@@ -72,6 +74,14 @@ class LogCatcherActivity : Activity() {
         }
         actions.addView(export, LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f).apply { leftMargin = Ui.dp(this@LogCatcherActivity, 8) })
         controls.addView(actions, Ui.lp(-1, -2, 10, this))
+        val actions2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        pauseBtn = actionButton("Pause", Ui.blueLight) { togglePause() }
+        actions2.addView(pauseBtn, LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f))
+        actions2.addView(actionButton("Share", Ui.blueLight) { shareCurrent() },
+            LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f).apply { leftMargin = Ui.dp(this@LogCatcherActivity, 8) })
+        actions2.addView(actionButton("Delete session", Ui.bad) { confirmDelete() },
+            LinearLayout.LayoutParams(0, Ui.dp(this, 44), 1f).apply { leftMargin = Ui.dp(this@LogCatcherActivity, 8) })
+        controls.addView(actions2, Ui.lp(-1, -2, 8, this))
         root.addView(controls, Ui.lp(-1, -2, 16, this))
 
         root.addView(Ui.label(this, "FILTER LOGS", 11f, Ui.muted, true), Ui.lp(-2, -2, 18, this))
@@ -186,7 +196,7 @@ class LogCatcherActivity : Activity() {
             flushPosted = false
             buildList { while (pendingEntries.isNotEmpty()) add(pendingEntries.removeFirst()) }
         }
-        if (batch.isNotEmpty() && screenStarted && !isFinishing && !isDestroyed && !showingHistory) {
+        if (batch.isNotEmpty() && screenStarted && !isFinishing && !isDestroyed && !showingHistory && !paused) {
             val fresh = batch.filter { it.id > lastSeenId }.sortedBy { it.id }
             if (fresh.isNotEmpty()) {
                 entries.addAll(fresh)
@@ -197,6 +207,52 @@ class LogCatcherActivity : Activity() {
             }
         }
         if (screenStarted) schedulePendingFlush()
+    }
+
+    /** Freeze the live list so it can be read; logging itself keeps running. Resuming reloads the current buffer. */
+    private fun togglePause() {
+        paused = !paused
+        pauseBtn.text = if (paused) "Resume" else "Pause"
+        if (!paused && !showingHistory) {
+            val latest = LogCatcher.snapshot()
+            entries.clear(); entries.addAll(latest)
+            lastSeenId = latest.maxOfOrNull { it.id } ?: 0L
+            render()
+            updateCount()
+        }
+    }
+
+    /** Share the shown log as text (last 200 KB); no file provider is needed. */
+    private fun shareCurrent() {
+        val lines = if (showingHistory) historyLines else entries.map { it.line() }
+        if (lines.isEmpty()) { Toast.makeText(this, "Nothing to share yet.", Toast.LENGTH_SHORT).show(); return }
+        val text = lines.takeLast(3000).joinToString("\n").takeLast(200_000)
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_SUBJECT, "MatchiTOOL log" + (selectedSession?.let { " - ${it.name}" } ?: ""))
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+        }
+        try { startActivity(android.content.Intent.createChooser(send, "Share log")) }
+        catch (e: Exception) { Toast.makeText(this, "No app available to share with.", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun confirmDelete() {
+        val file = selectedSession
+        if (!showingHistory || file == null) {
+            Toast.makeText(this, "Pick a saved session in SESSION HISTORY first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Delete session?")
+            .setMessage("${file.name} (.log and .txt) will be removed permanently.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ ->
+                if (LogCatcher.deleteSession(this, file.name)) {
+                    Toast.makeText(this, "Deleted ${file.name}", Toast.LENGTH_SHORT).show()
+                    // Deleting runs on the log writer: refresh a moment later. Rebuilding the list returns to the live view.
+                    handler.postDelayed({ if (!isFinishing && !isDestroyed) refreshSessions() }, 400L)
+                } else Toast.makeText(this, "Cannot delete a session that is still logging. Stop logging first.", Toast.LENGTH_LONG).show()
+            }.show()
     }
 
     private fun toggleLogging() {

@@ -1,0 +1,416 @@
+package com.matchi.tool
+
+import android.app.ActivityManager
+import android.content.Context
+import android.os.Build
+import android.os.Process as AndroidProcess
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.FilterInputStream
+import java.io.IOException
+import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+/** One log entry as the web page and the live stream see it. */
+fun entryJson(e: CatchLog): JSONObject = JSONObject()
+    .put("id", e.id).put("timestamp", e.timestamp).put("level", e.level)
+    .put("function", e.function).put("message", e.message).put("session", e.session)
+    .put("source", e.source)
+
+/**
+ * Optional root capture of the WHOLE device (not just this app): `logcat` for every process and the kernel ring
+ * buffer (`dmesg`). It only runs while a Log Catcher session is active, only when the owner switched it on, and
+ * it is stopped with the session. Lines go through [LogCatcher.log], so they share the ring buffer, the session
+ * files, the size limits and the write-queue limit. Device logcat is filtered by priority (default W and above)
+ * because an unfiltered system log would overflow the bounded queue within seconds.
+ */
+object DeviceLogs {
+    private const val TAG = "MatchiDeviceLogs"
+    private const val PREFS = "matchi_log_catcher"
+
+    data class Settings(val logcat: Boolean, val dmesg: Boolean, val level: String)
+
+    private val gen = AtomicInteger()
+    private val procs = CopyOnWriteArrayList<Process>()
+    @Volatile private var running = false
+
+    // threadtime: "MM-DD HH:MM:SS.mmm  PID  TID L Tag     : message"
+    private val LINE = Regex("""^\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}\s+(\d+)\s+\d+\s+([VDIWEAF])\s+([^:]*?)\s*:\s?(.*)$""")
+    private val KERN_ERR = Regex("""(?i)\b(error|fail(ed|ure)?|panic|oops|fatal|segfault)\b""")
+    private val KERN_WARN = Regex("""(?i)\b(warn(ing)?|timeout|timed out|retry)\b""")
+
+    fun settings(ctx: Context): Settings {
+        val p = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val level = (p.getString("device_level", "W") ?: "W").take(1).uppercase(Locale.US)
+        return Settings(p.getBoolean("device_logcat", false), p.getBoolean("device_dmesg", false),
+            if (level in listOf("V", "D", "I", "W", "E")) level else "W")
+    }
+
+    fun isActive(): Boolean = running
+
+    fun configure(ctx: Context, logcat: Boolean, dmesg: Boolean, level: String) {
+        val lvl = level.take(1).uppercase(Locale.US).let { if (it in listOf("V", "D", "I", "W", "E")) it else "W" }
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("device_logcat", logcat).putBoolean("device_dmesg", dmesg).putString("device_level", lvl).apply()
+        if (LogCatcher.isRunning()) start(ctx) else stop()
+    }
+
+    @Synchronized fun start(ctx: Context) {
+        stop()
+        val st = settings(ctx)
+        if (!st.logcat && !st.dmesg) return
+        if (RootShell.isDenied()) {
+            LogCatcher.log("WARNING", "DeviceLogs", "Root was refused recently; device capture not started")
+            return
+        }
+        val g = gen.incrementAndGet()
+        running = true
+        if (st.logcat) Thread({ runLogcat(g, st.level) }, "MatchiTOOL-DevLogcat").apply { isDaemon = true; priority = Thread.MIN_PRIORITY; start() }
+        if (st.dmesg) Thread({ runDmesg(g) }, "MatchiTOOL-DevDmesg").apply { isDaemon = true; priority = Thread.MIN_PRIORITY; start() }
+        LogCatcher.log("INFO", "DeviceLogs", "Device capture started (logcat=${st.logcat}, dmesg=${st.dmesg}, level=${st.level})")
+    }
+
+    @Synchronized fun stop() {
+        gen.incrementAndGet()
+        running = false
+        procs.forEach { try { it.destroy() } catch (_: Exception) { } }
+        procs.clear()
+    }
+
+    private fun runLogcat(g: Int, level: String) {
+        var p: Process? = null
+        val started = System.currentTimeMillis()
+        var lines = 0
+        try {
+            val proc = ProcessBuilder("su", "-c", "logcat -v threadtime -T 1 '*:$level'").redirectErrorStream(true).start()
+            p = proc
+            procs.add(proc)
+            if (gen.get() == g) {
+                val myPid = AndroidProcess.myPid().toString()
+                proc.inputStream.bufferedReader().useLines { seq ->
+                    for (line in seq) {
+                        if (gen.get() != g || !LogCatcher.isRunning()) break
+                        lines++
+                        val m = LINE.matchEntire(line.trim()) ?: continue
+                        if (m.groupValues[1] == myPid) continue          // this app is already captured separately
+                        val msg = m.groupValues[4]
+                        if (msg.isBlank()) continue
+                        val tag = m.groupValues[3].ifBlank { "android" }.replace('.', '_').take(60)
+                        val lvl = when (m.groupValues[2]) { "E", "A", "F" -> "ERROR"; "W" -> "WARNING"; "D", "V" -> "DEBUG"; else -> "INFO" }
+                        LogCatcher.log(lvl, "device/$tag", msg)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (gen.get() == g) Log.w(TAG, "Device logcat stopped: ${e.message}")
+        } finally {
+            try { p?.destroy() } catch (_: Exception) { }
+            if (p != null) procs.remove(p)
+            if (gen.get() == g && System.currentTimeMillis() - started < 3000 && lines <= 1)
+                LogCatcher.log("WARNING", "DeviceLogs", "Device logcat ended immediately: root access refused or logcat unavailable")
+        }
+    }
+
+    /**
+     * dmesg is polled by one long-lived root shell instead of one su per poll. The shell runs a command only when it
+     * receives a line on stdin, so when this app dies its stdin closes and the shell exits by itself (no root loop is
+     * left behind). The first reply is only a baseline; afterwards only lines not seen before are logged.
+     */
+    private fun runDmesg(g: Int) {
+        var p: Process? = null
+        try {
+            val proc = ProcessBuilder("su", "-c", "while read x; do dmesg | tail -n 200; echo __MATCHI_TICK__; done")
+                .redirectErrorStream(true).start()
+            p = proc
+            procs.add(proc)
+            val stdin = proc.outputStream
+            val ticker = Thread({
+                try { while (gen.get() == g) { stdin.write(10); stdin.flush(); Thread.sleep(4000) } } catch (_: Exception) { }
+            }, "MatchiTOOL-DevDmesgTick").apply { isDaemon = true; start() }
+            val seen = LinkedHashSet<String>()
+            val batch = ArrayList<String>()
+            var baseline = true
+            proc.inputStream.bufferedReader().useLines { seq ->
+                for (line in seq) {
+                    if (gen.get() != g || !LogCatcher.isRunning()) break
+                    if (line == "__MATCHI_TICK__") {
+                        for (l in batch) if (seen.add(l) && !baseline) emitKernel(l)
+                        while (seen.size > 1000) { val iter = seen.iterator(); iter.next(); iter.remove() }
+                        batch.clear()
+                        baseline = false
+                    } else if (line.isNotBlank()) batch.add(line)
+                }
+            }
+            ticker.interrupt()
+        } catch (e: Exception) {
+            if (gen.get() == g) Log.w(TAG, "Kernel log capture stopped: ${e.message}")
+        } finally {
+            try { p?.destroy() } catch (_: Exception) { }
+            if (p != null) procs.remove(p)
+        }
+    }
+
+    private fun emitKernel(line: String) {
+        val l = line.trim()
+        val level = when { KERN_ERR.containsMatchIn(l) -> "ERROR"; KERN_WARN.containsMatchIn(l) -> "WARNING"; else -> "INFO" }
+        LogCatcher.log(level, "kernel", l)
+    }
+}
+
+/**
+ * Server-sent-events source for the web page: new entries are pushed as they happen instead of the page asking
+ * every few seconds. At most [MAX_STREAMS] run at once and each one ends by itself after [MAX_LIFETIME_MS], so a
+ * browser that vanished can never keep a thread forever. If the page cannot keep up, entries are dropped and a
+ * `lagged` event tells it to fetch the gap with a normal request.
+ */
+class LogStream private constructor() : InputStream() {
+    companion object {
+        private const val MAX_STREAMS = 3
+        private const val MAX_LIFETIME_MS = 20L * 60L * 1000L
+        private val openCount = AtomicInteger()
+
+        fun acquire(since: Long): LogStream? {
+            if (openCount.incrementAndGet() > MAX_STREAMS) { openCount.decrementAndGet(); return null }
+            return LogStream().also { it.begin(since) }
+        }
+    }
+
+    private val queue = LinkedBlockingQueue<ByteArray>(1500)
+    private val born = System.currentTimeMillis()
+    @Volatile private var closed = false
+    @Volatile private var overflow = false
+    private var cur = ByteArray(0)
+    private var pos = 0
+    private val listener: (CatchLog) -> Unit = { e -> if (!closed && !queue.offer(frame(e))) overflow = true }
+
+    private fun frame(e: CatchLog): ByteArray = ("data: " + entryJson(e).toString() + "\n\n").toByteArray(Charsets.UTF_8)
+
+    private fun begin(since: Long) {
+        queue.offer(": connected\n\n".toByteArray(Charsets.UTF_8))
+        LogCatcher.subscribe(listener)
+        LogCatcher.snapshot().filter { it.id > since }.forEach { if (!queue.offer(frame(it))) overflow = true }
+    }
+
+    override fun read(): Int {
+        val one = ByteArray(1)
+        return if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 0xff
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        while (true) {
+            if (closed || System.currentTimeMillis() - born > MAX_LIFETIME_MS) return -1
+            if (pos < cur.size) {
+                val n = minOf(len, cur.size - pos)
+                System.arraycopy(cur, pos, b, off, n)
+                pos += n
+                return n
+            }
+            val next = try { queue.poll(15, TimeUnit.SECONDS) } catch (_: InterruptedException) { closed = true; return -1 }
+            cur = when {
+                next != null -> next
+                overflow -> { overflow = false; "event: lagged\ndata: 1\n\n".toByteArray(Charsets.UTF_8) }
+                else -> ": ping\n\n".toByteArray(Charsets.UTF_8)   // keeps proxies open and lets a dead client be noticed
+            }
+            pos = 0
+        }
+    }
+
+    override fun available(): Int = if (pos < cur.size) cur.size - pos else 0
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        LogCatcher.unsubscribe(listener)
+        openCount.decrementAndGet()
+    }
+}
+
+/** Search every saved session file for a keyword or regular expression, optionally within a time range. */
+object LogSearch {
+    class Hit(val session: String, val line: Int, val text: String)
+
+    class Result(val hits: List<Hit>, val scanned: Int, val truncated: Boolean, val error: String?, val busy: Boolean = false) {
+        fun toJson(): JSONObject {
+            val arr = JSONArray()
+            hits.forEach { arr.put(JSONObject().put("session", it.session).put("line", it.line).put("text", it.text)) }
+            return JSONObject().put("hits", arr).put("scanned", scanned).put("truncated", truncated)
+                .put("error", error ?: JSONObject.NULL)
+        }
+    }
+
+    private val gate = Semaphore(1)
+    private const val BUDGET_NS = 8_000_000_000L
+
+    private class Timeout : RuntimeException()
+
+    private class Deadline(val until: Long) {
+        var n = 0
+        fun check() { if ((++n and 0x3ff) == 0 && System.nanoTime() > until) throw Timeout() }
+    }
+
+    /** A regex runs on this view of the line so a pathological pattern is cut off instead of freezing the device. */
+    private class Guarded(private val s: CharSequence, private val d: Deadline) : CharSequence {
+        override val length: Int get() = s.length
+        override fun get(index: Int): Char { d.check(); return s[index] }
+        override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = Guarded(s.subSequence(startIndex, endIndex), d)
+        override fun toString(): String = s.toString()
+    }
+
+    private fun levelOf(line: String): String? {
+        val a = line.indexOf(" [")
+        if (a < 0) return null
+        val b = line.indexOf(']', a + 2)
+        return if (b > a + 2) line.substring(a + 2, b) else null
+    }
+
+    private fun matches(p: Pattern, line: String, d: Deadline): Boolean =
+        try { p.matcher(Guarded(line, d)).find() } catch (_: StackOverflowError) { false }
+
+    fun run(ctx: Context, q: String, regex: Boolean, level: String, from: String, until: String, limit: Int): Result {
+        if (q.length > 200) return Result(emptyList(), 0, false, "Search text is limited to 200 characters")
+        if (!gate.tryAcquire()) return Result(emptyList(), 0, false, "A search is already running; try again in a moment", busy = true)
+        try {
+            val pattern: Pattern? = if (regex && q.isNotEmpty()) {
+                try { Pattern.compile(q, Pattern.CASE_INSENSITIVE) }
+                catch (e: PatternSyntaxException) { return Result(emptyList(), 0, false, "Invalid regular expression: ${e.description}") }
+            } else null
+            val lv = level.uppercase(Locale.US).takeIf { it in listOf("ERROR", "WARNING", "INFO", "DEBUG") }
+            val d = Deadline(System.nanoTime() + BUDGET_NS)
+            val hits = ArrayList<Hit>()
+            var scanned = 0
+            var truncated = false
+            outer@ for (file in LogCatcher.sessions(ctx)) {
+                if (System.nanoTime() > d.until) { truncated = true; break }
+                scanned++
+                val reader = try { file.bufferedReader() } catch (_: IOException) { continue }
+                try {
+                    var n = 0
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        n++
+                        if (line.startsWith("#")) continue
+                        if (lv != null && levelOf(line) != lv) continue
+                        if (from.isNotEmpty() && line.take(from.length) < from) continue
+                        if (until.isNotEmpty() && line.take(until.length) > until) continue
+                        if (q.isNotEmpty()) {
+                            val ok = if (pattern != null) matches(pattern, line, d) else line.contains(q, true)
+                            if (!ok) continue
+                        }
+                        hits.add(Hit(file.name, n, line.take(600)))
+                        if (hits.size >= limit) { truncated = true; break@outer }
+                    }
+                } catch (_: Timeout) {
+                    truncated = true; break@outer
+                } catch (_: IOException) {
+                    // unreadable file: skip it
+                } finally {
+                    try { reader.close() } catch (_: IOException) { }
+                }
+            }
+            return Result(hits, scanned, truncated, null)
+        } finally {
+            gate.release()
+        }
+    }
+}
+
+/**
+ * Zip archives for the web page: every saved session, or a problem-report bundle that also carries device info
+ * and (when root and a recent sign-in allow it) the kernel log. No password, token or router credential is ever
+ * written into an archive.
+ */
+object LogExport {
+    private val busy = Semaphore(1)
+    private const val MAX_BYTES = 64L * 1024L * 1024L
+
+    /** Deletes the archive as soon as the HTTP response has been sent (or abandoned). */
+    class DeleteOnClose(private val file: File) : FilterInputStream(FileInputStream(file)) {
+        override fun close() { try { super.close() } finally { file.delete() } }
+    }
+
+    fun build(ctx: Context, report: Boolean, rootOk: Boolean): File? {
+        if (!busy.tryAcquire()) return null
+        var out: File? = null
+        try {
+            val dir = File(ctx.cacheDir, "log_exports").apply { mkdirs() }
+            dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 3_600_000L }?.forEach { it.delete() }
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val zipFile = File(dir, (if (report) "matchitool_report_" else "matchitool_sessions_") + stamp + ".zip")
+            out = zipFile
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(zipFile))).use { z ->
+                fun put(name: String, text: String) {
+                    z.putNextEntry(ZipEntry(name)); z.write(text.toByteArray(Charsets.UTF_8)); z.closeEntry()
+                }
+                if (report) put("device.txt", deviceInfo(ctx, rootOk))
+                put("recent_buffer.txt", LogCatcher.snapshot().joinToString("\n") { it.line() })
+                if (report && rootOk) {
+                    val r = RootShell.run(ctx, "dmesg 2>&1 | tail -n 500", 15_000)
+                    put("dmesg.txt", r.content)
+                }
+                var total = 0L
+                for (file in LogCatcher.sessions(ctx)) {
+                    if (total + file.length() > MAX_BYTES) {
+                        put("TRUNCATED.txt", "Older sessions were left out: the archive is limited to ${MAX_BYTES / (1024 * 1024)} MB.")
+                        break
+                    }
+                    z.putNextEntry(ZipEntry("sessions/" + file.name))
+                    file.inputStream().use { it.copyTo(z) }
+                    z.closeEntry()
+                    total += file.length()
+                }
+            }
+            return zipFile
+        } catch (e: Exception) {
+            Log.e("MatchiLogExport", "Archive failed", e)
+            try { out?.delete() } catch (_: Exception) { }
+            return null
+        } finally {
+            busy.release()
+        }
+    }
+
+    private fun deviceInfo(ctx: Context, rootOk: Boolean): String {
+        val sb = StringBuilder()
+        fun line(k: String, v: Any?) { sb.append(k).append(": ").append(v).append('\n') }
+        line("generated", SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date()))
+        @Suppress("DEPRECATION")
+        val pi = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0) } catch (_: Exception) { null }
+        line("app version", pi?.versionName ?: "?")
+        line("manufacturer / model", "${Build.MANUFACTURER} / ${Build.MODEL}")
+        line("android", "${Build.VERSION.RELEASE} (sdk ${Build.VERSION.SDK_INT})")
+        line("build", Build.DISPLAY)
+        line("abi", Build.SUPPORTED_ABIS.joinToString(","))
+        try {
+            val mi = ActivityManager.MemoryInfo()
+            (ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(mi)
+            line("memory", "${mi.availMem / (1024 * 1024)} MB free of ${mi.totalMem / (1024 * 1024)} MB, low=${mi.lowMemory}")
+        } catch (_: Exception) { }
+        line("app storage free", "${ctx.filesDir.usableSpace / (1024 * 1024)} MB")
+        line("log session running", LogCatcher.isRunning())
+        line("log disk writes dropped", LogCatcher.droppedWriteCount())
+        val dev = DeviceLogs.settings(ctx)
+        line("device capture", "logcat=${dev.logcat}, dmesg=${dev.dmesg}, level=${dev.level}, active=${DeviceLogs.isActive()}")
+        if (rootOk) {
+            try { val st = RootShell.status(ctx); line("root", "granted=${st.granted}, uid=${st.uid}, manager=${st.managerHint}") }
+            catch (_: Exception) { line("root", "status check failed") }
+        } else line("root", "not queried (HTTP needs confirmation, or the sign-in is too old); dmesg left out")
+        return sb.toString()
+    }
+}

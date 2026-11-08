@@ -668,9 +668,43 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val askedSince = s.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
             val reset = askedSince > lastId
             val since = if (reset) 0L else askedSince
-            all.filter { it.id > since }.forEach { e -> rows.put(JSONObject().put("id", e.id).put("timestamp", e.timestamp).put("level", e.level).put("function", e.function).put("message", e.message).put("session", e.session)) }
+            all.filter { it.id > since }.forEach { e -> rows.put(entryJson(e)) }
             json(Response.Status.OK, JSONObject().put("entries", rows).put("lastId", lastId).put("reset", reset)
                 .put("droppedWrites", LogCatcher.droppedWriteCount()).put("running", LogCatcher.isRunning()))
+        }
+        uri == "/api/logs/stream" && s.method == Method.GET -> {
+            val since = s.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: 0L
+            val live = LogStream.acquire(since)
+            if (live == null) json(tooMany, JSONObject().put("error", "too many live log streams are open"))
+            else harden(newChunkedResponse(Response.Status.OK, "text/event-stream; charset=utf-8", live)).also {
+                it.addHeader("X-Accel-Buffering", "no")
+                it.setGzipEncoding(false)   // gzip would hold the small event frames back until its buffer fills
+            }
+        }
+        uri == "/api/logs/search" && s.method == Method.GET -> {
+            fun p(n: String) = s.parameters[n]?.firstOrNull() ?: ""
+            val found = LogSearch.run(ctx, p("q"), p("regex") == "1", p("level"), p("from"), p("until"), (p("limit").toIntOrNull() ?: 300).coerceIn(1, 1000))
+            json(if (found.busy) tooMany else Response.Status.OK, found.toJson())
+        }
+        uri == "/api/logs/export" && s.method == Method.GET -> {
+            val report = s.parameters["kind"]?.firstOrNull() == "report"
+            val rootOk = report && rootGate(s) == null
+            val zip = LogExport.build(ctx, report, rootOk)
+            if (zip == null) json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "Could not build the archive (another export is running, or storage is full)"))
+            else harden(newFixedLengthResponse(Response.Status.OK, "application/zip", LogExport.DeleteOnClose(zip), zip.length())).also {
+                it.addHeader("Content-Disposition", "attachment; filename=\"${zip.name}\"")
+            }
+        }
+        uri == "/api/logs/device" && s.method == Method.GET -> {
+            val st = DeviceLogs.settings(ctx)
+            json(Response.Status.OK, JSONObject().put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("active", DeviceLogs.isActive()))
+        }
+        uri == "/api/logs/device" && s.method == Method.POST -> rootGate(s) ?: run {
+            val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", req.toString(), "logs-device")
+            DeviceLogs.configure(ctx, req.optBoolean("logcat"), req.optBoolean("dmesg"), req.optString("level", "W"))
+            val st = DeviceLogs.settings(ctx)
+            json(Response.Status.OK, JSONObject().put("ok", true).put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("active", DeviceLogs.isActive()))
         }
         uri == "/api/logs/delete" && s.method == Method.POST -> {
             val ok = LogCatcher.deleteSession(ctx, body(s).optString("name", ""))

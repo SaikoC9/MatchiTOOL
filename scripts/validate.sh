@@ -88,6 +88,19 @@ assert 'UUID.randomUUID()' in logger and 'enqueueWrite(critical = true)' in logg
 assert 'fun exportText(context: Context, onComplete: (File?) -> Unit)' in logger, 'log export must be asynchronous'
 assert 'startLogcatCapture()' in logger and start_body.index('pruneSessions(dir, file)') < start_body.index('startLogcatCapture()'), 'logcat capture must wait for session initialization'
 assert 'screenStarted' in activity and 'lastSeenId' in activity and 'override fun onDestroy()' in activity, 'Log Catcher Activity lifecycle/de-duplication guards missing'
+tools_kt = (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text()
+for marker in ('object DeviceLogs', 'while read x; do dmesg', 'gen.get() != g', 'class LogStream', 'MAX_STREAMS = 3', 'MAX_LIFETIME_MS',
+               'object LogSearch', 'Guarded(line, d)', 'BUDGET_NS', 'object LogExport', 'MAX_BYTES = 64L', 'class DeleteOnClose'):
+    assert marker in tools_kt, f'Log Catcher tools marker missing: {marker}'
+assert 'DeviceLogs.start(' in logger and 'DeviceLogs.stop()' in logger, 'device capture must follow the session lifecycle'
+assert 'fun deleteSession(context: Context, name: String)' in logger and 'flush(1500L)' in logger, 'delete / crash flush missing'
+for route_marker in ('"/api/logs/stream"', '"/api/logs/search"', '"/api/logs/export"', '"/api/logs/device"', '"/api/logs/delete"', 'setGzipEncoding(false)'):
+    assert route_marker in server, f'log route missing: {route_marker}'
+assert 'uri == "/api/logs/device" && s.method == Method.POST -> rootGate(s)' in server, 'changing device capture must be root-gated'
+for marker in ('openStream', 'syncStream', 'lcsearchall', 'lcexportall', 'lcreport', 'lcdevapply', 'lcregex', 'lcgroup', 'jumpErr', 'matchi_lc_bookmarks', 'checkAlerts'):
+    assert marker in html, f'web Log Catcher feature missing: {marker}'
+for marker in ('togglePause', 'shareCurrent', 'confirmDelete'):
+    assert marker in activity, f'native Log Catcher feature missing: {marker}'
 gradle_src = (root / 'app/build.gradle.kts').read_text()
 assert 'else if (name == "release") {' in gradle_src and 'signingConfig = signingConfigs.getByName("debug")' in gradle_src, 'release builds must never be unsigned'
 assert 'id="appupdate"' in html and "'/api/update/stage'" in html and "'/api/update/install'" in html, 'web update UI missing'
