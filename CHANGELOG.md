@@ -1,3 +1,11 @@
+# MatchiTOOL 1.3.9 - bundled curl
+
+- Android has no `curl`, so plugins that download files (ADGuard Home and other converted UFI-TOOLS plugins) stopped at "Downloading 0%" with no error. The app now ships an arm64 `curl` (`assets/bin/curl`, curl 8.0.1-DEV from the UFI-TOOLS V4.0.0 APK) and copies it to `files/curl` at start, using the same copy-then-rename as `sendat`.
+- The plugin helper's `curl` wrapper now also looks in `/data/data/com.matchi.tool/files/curl` (after a hand-placed `/data/local/matchitool/bin/curl.real`, which still wins). Its "no curl" message now says to update the app.
+- Diagnostics report lists the bundled curl. `validate.sh` pins the curl SHA-256; `NOTICE.md` records it.
+- Not changed: no new permissions, no network code in the app itself.
+- Version 1.3.9 / versionCode 309 (app, web page, validation, README).
+
 # MatchiTOOL 1.3.8 - Log Catcher leftovers (privacy of single-file exports, keep-every-line switch)
 
 - Redaction now also covers the single-file buttons: **Export .txt**, **Export .log** and every **Copy** button (visible log, whole boot file, boot page). The same box as for the zips (now "Hide private data in exports and copies", on by default) controls it; the toast says how many lines were changed. The rules are a JavaScript copy of `Redactor.kt`; `scripts/test_page_redact.js` runs the `RedactorTest` cases against the page so the two cannot drift apart. Files on the device are never changed.

@@ -3059,12 +3059,12 @@ chmod 700 /data/local/matchitool/tmp ${P.jobs} 2>/dev/null
 [ -f ${P.boot} ] || printf '#!/system/bin/sh\n' > ${P.boot}
 cat > ${P.curl} <<'MATCHI_CURL_EOF'
 #!/system/bin/sh
-for c in /data/local/matchitool/bin/curl.real /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl /data/data/com.minikano.f50_sms/files/curl; do
+for c in /data/local/matchitool/bin/curl.real /data/data/com.matchi.tool/files/curl /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl /data/data/com.minikano.f50_sms/files/curl; do
   [ -x "$c" ] && exec "$c" "$@"
 done
 c=$(command -v curl 2>/dev/null)
 case "$c" in ""|/data/local/matchitool/bin/curl) ;; *) exec "$c" "$@" ;; esac
-echo "curl: no curl binary found on this device. Copy an arm64 curl to /data/local/matchitool/bin/curl.real and chmod 755 it." >&2
+echo "curl: no curl binary found on this device. MatchiTOOL normally bundles curl; if this appears, reinstall or update the app, or copy an arm64 curl to /data/local/matchitool/bin/curl.real and chmod 755 it." >&2
 exit 127
 MATCHI_CURL_EOF
 chmod 755 ${P.curl}; chmod 700 ${P.uploads}
@@ -7433,7 +7433,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.3.8';
+const PAGE_VERSION='1.3.9';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},

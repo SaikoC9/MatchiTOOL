@@ -55,6 +55,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         var copied = true
         if (refresh || !sendat.exists()) copied = installSendat(sendat)
         try { sendat.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
+        // curl (arm64, from UFI-TOOLS V4.0.0) is for plugins that download files (for example ADGuard Home). Android has no curl.
+        val curl = File(ctx.filesDir, "curl")
+        if (refresh || !curl.exists()) installBundledBinary("bin/curl", curl)
+        try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
         if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
     }
@@ -75,6 +79,21 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         } catch (e: Exception) {
             LogCatcher.log("WARNING", "WebServer", "sendat copy failed, keeping the existing binary: ${e.message}")
             try { tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.installSendat", e) }
+            false
+        }
+    }
+
+    /** Same safe copy-then-rename as [installSendat], for any bundled executable. Never throws; false when the copy failed. */
+    private fun installBundledBinary(asset: String, dest: File): Boolean {
+        val tmp = File(dest.parentFile, dest.name + ".new")
+        return try {
+            ctx.assets.open(asset).use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            tmp.setExecutable(true, false)
+            if (!tmp.renameTo(dest)) throw java.io.IOException("could not move ${dest.name} into place")
+            true
+        } catch (e: Exception) {
+            LogCatcher.log("WARNING", "WebServer", "${dest.name} copy failed, keeping the existing binary: ${e.message}")
+            try { tmp.delete() } catch (e2: Exception) { Quiet.note("WebServer.installBundledBinary", e2) }
             false
         }
     }
@@ -360,6 +379,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             echo '--- tool availability ---'
             for x in busybox ip nft iptables ip6tables tc bpftool; do p=$(command -v "${'$'}x" 2>/dev/null); echo "${'$'}x: ${'$'}{p:-unavailable}"; done
             [ -x "${ctx.filesDir.absolutePath}/sendat" ] && echo "sendat: ${ctx.filesDir.absolutePath}/sendat" || echo "sendat: unavailable"
+            [ -x "${ctx.filesDir.absolutePath}/curl" ] && echo "curl: ${ctx.filesDir.absolutePath}/curl (bundled)" || echo "curl: bundled copy unavailable"
             [ -x /data/local/matchitool/dpi/nfqws ] && echo "nfqws: /data/local/matchitool/dpi/nfqws" || echo "nfqws: not installed (optional)"
             echo '--- root capabilities ---'; [ "$(id -u)" = 0 ] && echo 'UID 0 confirmed' || echo 'root unavailable'
             echo '--- storage ---'; df -h /data 2>/dev/null; echo '(the mount point shown can be a bind mount such as Android/obb; it is the same /data partition)'; grep ' /data ' /proc/mounts | head -1 | cut -d' ' -f1-3
