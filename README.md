@@ -42,7 +42,7 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
-Current source version: **1.3.0** (versionCode **233**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.3.3** (versionCode **302**). The Android package and embedded web UI version are kept in sync.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
@@ -130,3 +130,13 @@ See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression,
 - **Forks:** the online-update field in the page starts empty (placeholder only); paste your own releases link once, it is remembered in the browser.
 - **IMEI rewrite:** the IMEI feature writes the IMEI with `AT+SPIMEI` and re-applies it at boot. Changing an IMEI is restricted or illegal in some countries; use it only where it is allowed and only on your own device.
 - **Root temp files:** the root shell keeps its pid/output files in the root-only folder `/data/local/matchitool/tmp`.
+
+
+Current source release: **1.3.5**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
+
+
+### Log Catcher 1.3.5
+
+- Captures Android logcat output for the full MatchiTOOL process while a session is active, in addition to explicit diagnostic events.
+- Automatically writes each session in paired `.log` and `.txt` files. The `.log` file is the canonical session-history entry; the `.txt` companion is saved alongside it.
+- Both formats receive the same timestamped, leveled records and session start/stop markers.

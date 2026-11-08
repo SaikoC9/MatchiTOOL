@@ -21,6 +21,7 @@ class HostService : Service() {
     private val workers: ScheduledExecutorService by lazy { Executors.newScheduledThreadPool(4) }   // boot scripts + IMEI keeper hold two threads for up to ~3 min; the firewall check, router detection and retries must not queue behind them
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
+        LogCatcher.initialize(applicationContext)
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel("matchi") == null) nm.createNotificationChannel(NotificationChannel("matchi", "MatchiTOOL", NotificationManager.IMPORTANCE_MIN))
         val n = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "matchi") else Notification.Builder(this))

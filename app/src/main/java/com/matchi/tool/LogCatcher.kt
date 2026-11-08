@@ -65,6 +65,46 @@ object LogCatcher {
             }
             crashHandlerInstalled = true
         }
+        recoverInterruptedSession()
+    }
+
+    /**
+     * A session is deliberately persisted as active until Stop has durably queued its footer.
+     * If Android kills the process or the device reboots, the next service/activity initialization
+     * reopens the same pair of files and records the interruption instead of losing the session.
+     */
+    private fun recoverInterruptedSession() {
+        val context = app ?: return
+        synchronized(lock) {
+            if (active) return
+            val prefs = context.getSharedPreferences("matchi_log_catcher", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("session_active", false)) return
+            val id = prefs.getString("session_id", null) ?: run {
+                prefs.edit().putBoolean("session_active", false).apply()
+                return
+            }
+            val dir = File(context.filesDir, "logs/sessions")
+            val file = File(dir, "$id.log")
+            val textFile = File(dir, "$id.txt")
+            if (!file.isFile || !textFile.isFile) {
+                prefs.edit().putBoolean("session_active", false).apply()
+                return
+            }
+            sessionId = id
+            sessionFile = file
+            active = true
+            val recovered = CatchLog(ids.incrementAndGet(), now(), "WARNING", "LogCatcher",
+                "Recovered interrupted logging session after process restart", id)
+            recent.add(recovered)
+            enqueueWrite(critical = true) {
+                val line = recovered.line() + "\\n"
+                try {
+                    BufferedWriter(FileWriter(file, true)).use { it.append(line) }
+                    BufferedWriter(FileWriter(textFile, true)).use { it.append(line) }
+                } catch (e: Exception) { Log.e(TAG, "Unable to append session recovery marker", e) }
+            }
+        }
+        startLogcatCapture()
     }
 
     fun isRunning(): Boolean = active
@@ -74,6 +114,8 @@ object LogCatcher {
 
     fun start(context: Context) {
         initialize(context)
+        val id: String
+        val file: File
         synchronized(lock) {
             if (active) return
             val dir = File(app!!.filesDir, "logs/sessions")
@@ -82,33 +124,28 @@ object LogCatcher {
                 return
             }
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
-            val id = "session_${stamp}_${UUID.randomUUID().toString().take(8)}"
-            val file = File(dir, "$id.log")
+            id = "session_${stamp}_${UUID.randomUUID().toString().take(8)}"
+            file = File(dir, "$id.log")
+            val textFile = File(dir, "$id.txt")
+            // Initialize both durable formats before advertising an active session.
+            try {
+                val header = "# MatchiTOOL Log Catcher\n# Session: $id\n# Started: ${now()}\n"
+                BufferedWriter(FileWriter(file, false)).use { it.append(header) }
+                BufferedWriter(FileWriter(textFile, false)).use { it.append(header) }
+                pruneSessions(dir, file)
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to initialize log session ${file.name}", e)
+                try { file.delete() } catch (_: Exception) { }
+                return
+            }
             sessionId = id
             sessionFile = file
             active = true
-            val accepted = enqueueWrite(critical = true) {
-                try {
-                    BufferedWriter(FileWriter(file, false)).use { out ->
-                        out.append("# MatchiTOOL Log Catcher\n# Session: $id\n# Started: ${now()}\n")
-                    }
-                    pruneSessions(dir, file)
-                    if (active && sessionId == id) startLogcatCapture()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Unable to initialize log session ${file.name}", e)
-                    synchronized(lock) {
-                        if (sessionId == id) { active = false; sessionId = null; sessionFile = null }
-                    }
-                }
-            }
-            if (!accepted) {
-                active = false
-                sessionId = null
-                sessionFile = null
-                Log.e(TAG, "Unable to start log session: writer queue is full")
-                return
-            }
+            app!!.getSharedPreferences("matchi_log_catcher", Context.MODE_PRIVATE).edit()
+                .putString("session_id", id).putBoolean("session_active", true).commit()
         }
+        // Start capture only after the session file is ready.
+        startLogcatCapture()
         log("INFO", "LogCatcher", "Logging session started")
     }
 
@@ -125,10 +162,16 @@ object LogCatcher {
         }
         stopLogcatCapture()
         enqueueWrite(critical = true) {
-            try { BufferedWriter(FileWriter(file, true)).use { out ->
-                out.append("${now()} [INFO] [LogCatcher] Logging session stopped ($id)\n")
-                out.append("# Stopped: ${now()}\n")
-            } } catch (e: Exception) { Log.e(TAG, "Unable to finalize log session ${file.name}", e) }
+            try {
+                val ending = "${now()} [INFO] [LogCatcher] Logging session stopped ($id)\n# Stopped: ${now()}\n"
+                listOf(file, File(file.parentFile, file.nameWithoutExtension + ".txt")).forEach { target ->
+                    BufferedWriter(FileWriter(target, true)).use { it.append(ending) }
+                }
+            } catch (e: Exception) { Log.e(TAG, "Unable to finalize log session ${file.name}", e) }
+            finally {
+                app?.getSharedPreferences("matchi_log_catcher", Context.MODE_PRIVATE)?.edit()
+                    ?.putBoolean("session_active", false)?.commit()
+            }
         }
     }
 
@@ -156,11 +199,21 @@ object LogCatcher {
                         val rotated = File(target.parentFile, target.nameWithoutExtension + "_part" + now().replace(":", "").replace(".", "") + ".log")
                         if (!target.renameTo(rotated)) Log.w(TAG, "Log rotation failed for ${target.name}; continuing current file")
                         else {
-                            target.writeText("# MatchiTOOL Log Catcher (continued)\n# Session: ${entry.session}\n")
+                            val textTarget = File(target.parentFile, target.nameWithoutExtension + ".txt")
+                            val rotatedText = File(rotated.parentFile, rotated.nameWithoutExtension + ".txt")
+                            if (textTarget.exists() && !textTarget.renameTo(rotatedText)) {
+                                Log.w(TAG, "Text log rotation failed for ${textTarget.name}; continuing current text file")
+                            }
+                            val header = "# MatchiTOOL Log Catcher (continued)\n# Session: ${entry.session}\n"
+                            target.writeText(header)
+                            if (!textTarget.exists()) textTarget.writeText(header)
                             pruneSessions(target.parentFile ?: return@enqueueWrite, target)
                         }
                     }
-                    BufferedWriter(FileWriter(target, true)).use { out -> out.append(entry.line()).append('\n') }
+                    val line = entry.line() + "\n"
+                    BufferedWriter(FileWriter(target, true)).use { out -> out.append(line) }
+                    val textTarget = File(target.parentFile, target.nameWithoutExtension + ".txt")
+                    BufferedWriter(FileWriter(textTarget, true)).use { out -> out.append(line) }
                 } catch (e: Exception) { Log.e(TAG, "Log write failed (${target.name})", e) }
             }
         }
@@ -172,7 +225,8 @@ object LogCatcher {
 
     fun sessions(context: Context): List<File> {
         val dir = File(context.applicationContext.filesDir, "logs/sessions")
-        return dir.listFiles()?.filter { it.isFile && (it.extension == "log" || it.extension == "txt") }
+        // .log is the canonical session index; its same-named .txt companion is saved automatically.
+        return dir.listFiles()?.filter { it.isFile && it.extension == "log" }
             ?.sortedByDescending { it.lastModified() } ?: emptyList()
     }
 
@@ -199,7 +253,12 @@ object LogCatcher {
         }
     }
 
-    /** Captures Android logcat entries emitted by this process while a session is active. */
+    /**
+     * Captures Android logcat entries emitted by the entire MatchiTOOL process while a
+     * session is active. This complements explicit LogCatcher.log() events, so existing
+     * Android Log calls from any class/function are collected without editing each callsite.
+     * Functions that emit no diagnostic/log event cannot be inferred automatically.
+     */
     private fun startLogcatCapture() {
         stopLogcatCapture()
         val thread = Thread({
@@ -262,9 +321,13 @@ object LogCatcher {
     }
 
     private fun pruneSessions(dir: File, current: File) {
-        val files = dir.listFiles()?.filter { it.isFile && it != current && it.extension == "log" }
+        val files = dir.listFiles()?.filter { it.isFile && it.extension == "log" }
             ?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(MAX_SESSIONS - 1).forEach { old -> if (!old.delete()) Log.w(TAG, "Could not prune ${old.name}") }
+        files.drop(MAX_SESSIONS).forEach { old ->
+            if (!old.delete()) Log.w(TAG, "Could not prune ${old.name}")
+            val companion = File(dir, old.nameWithoutExtension + ".txt")
+            if (companion.exists() && !companion.delete()) Log.w(TAG, "Could not prune ${companion.name}")
+        }
     }
 
     private fun now(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())

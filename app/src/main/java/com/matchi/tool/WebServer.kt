@@ -648,6 +648,33 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
         uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
+        uri == "/api/logs/status" && s.method == Method.GET -> json(Response.Status.OK, JSONObject()
+            .put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL)
+            .put("droppedWrites", LogCatcher.droppedWriteCount()))
+        uri == "/api/logs/start" && s.method == Method.POST -> {
+            LogCatcher.start(ctx)
+            json(Response.Status.OK, JSONObject().put("ok", LogCatcher.isRunning()).put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL))
+        }
+        uri == "/api/logs/stop" && s.method == Method.POST -> {
+            LogCatcher.stop()
+            json(Response.Status.OK, JSONObject().put("ok", true).put("running", false))
+        }
+        uri == "/api/logs/entries" && s.method == Method.GET -> {
+            val rows = JSONArray()
+            LogCatcher.snapshot().forEach { e -> rows.put(JSONObject().put("id", e.id).put("timestamp", e.timestamp).put("level", e.level).put("function", e.function).put("message", e.message).put("session", e.session)) }
+            json(Response.Status.OK, JSONObject().put("entries", rows).put("droppedWrites", LogCatcher.droppedWriteCount()).put("running", LogCatcher.isRunning()))
+        }
+        uri == "/api/logs/sessions" && s.method == Method.GET -> {
+            val rows = JSONArray()
+            LogCatcher.sessions(ctx).forEach { f -> rows.put(JSONObject().put("name", f.name).put("size", f.length()).put("modified", f.lastModified())) }
+            json(Response.Status.OK, JSONObject().put("sessions", rows))
+        }
+        uri.startsWith("/api/logs/session/") && s.method == Method.GET -> {
+            val name = uri.removePrefix("/api/logs/session/")
+            val file = LogCatcher.sessions(ctx).firstOrNull { it.name == name }
+            if (file == null) json(Response.Status.NOT_FOUND, JSONObject().put("error", "Session not found"))
+            else json(Response.Status.OK, JSONObject().put("name", file.name).put("lines", JSONArray(LogCatcher.readSession(file))))
+        }
         uri == "/api/root/status" && s.method == Method.GET -> {
             // ?retry=1 = explicit re-check (root just granted): forget the cool-down after a refusal. Plain polls keep it.
             if (s.parameters["retry"]?.firstOrNull() == "1") RootShell.resetDenial()

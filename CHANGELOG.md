@@ -1,3 +1,26 @@
+# MatchiTOOL 1.3.6 — Log Catcher Complete Edition
+
+- Persist active log-session state and recover interrupted sessions after process/device restart.
+- HostService initializes Log Catcher on startup so recovery works even when the UI is never opened.
+- Retain independent Start/Stop, bounded background logcat capture, and paired .log/.txt session records.
+
+# Changelog
+
+## 1.3.3 - Web Log Catcher reliability
+- Added direct `.log` export alongside `.txt` export.
+- Start action now checks the API acknowledgement and reports a failed session start instead of silently appearing successful.
+- Starting a new session clears history selection, refreshes the session list, and returns the viewer to the live session.
+- Export links are attached to the document before activation and object URLs are retained briefly for mobile browser compatibility.
+
+# MatchiTOOL v1.3.2 — Web Performance Optimization
+
+- Reduced Log Catcher polling from 1.5s to 3s.
+- Poll only while the Log Catcher popup is open and the browser tab is visible.
+- Prevent overlapping refresh requests to avoid request pileups on slow router connections.
+- Repaint only when filtered log content changes (existing keyed render retained).
+- Delay export Blob URL revocation to allow mobile browsers to begin the download.
+- Corrected app and web version metadata to 1.3.2 / versionCode 302.
+
 # MatchiTOOL v1.3.0 — Ultimate Performance, Stability & Diagnostics
 
 - Hardened Log Catcher session creation with collision-resistant session IDs.
@@ -785,3 +808,17 @@
 - Upgraded Plugin Manager with search, enabled/disabled filters, refresh, per-plugin source export, full JSON backup export/import, JavaScript syntax preflight and explicit replacement confirmation.
 - Added server-side custom-plugin limits: 50 plugins, 1 MB per plugin, 5 MB total, and reserved built-in filenames.
 - Custom plugins remain executable JavaScript with the signed-in console's permissions. Import only trusted plugin source.
+
+
+## 1.3.4 — Web Log Catcher review fixes
+
+- Initialize the session file before reporting logging as active, preventing a successful-looking Start response when storage initialization fails.
+- Start process logcat capture only after the session file is ready.
+- Synchronize Android package and embedded web page version metadata to 1.3.4.
+
+
+## 1.3.5 — Log Catcher coverage and dual-format persistence
+
+- Capture Android logcat output from the MatchiTOOL process during active sessions, complementing explicit LogCatcher events across app functions.
+- Automatically mirror each session into `.log` and `.txt` files, including start/stop markers.
+- Keep `.log` as the canonical history index to avoid duplicate session entries; rotate and prune paired text files with their log sessions.

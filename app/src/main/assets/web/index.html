@@ -552,7 +552,16 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
     <div class="lg-row"><button id="tokbtn">Connect</button><span id="tokerr" class="lg-err"></span></div>
   </div>
   <div class="card" id="home" style="display:none">
-    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button><button onclick="openPop('conpw')">Password</button></div>
+    <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('logcatcher')">Log Catcher</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button><button onclick="openPop('conpw')">Password</button></div>
+  </div>
+  <div class="card pop" id="logcatcher">
+    <div class="mut" style="margin-bottom:8px">Log Catcher · Web dashboard</div>
+    <div class="row" style="align-items:center;justify-content:space-between"><strong id="lcstate">Logging stopped</strong><span class="mut" id="lcsession">No active session</span></div>
+    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button></div>
+    <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword"></div>
+    <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
+    <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
+    <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="diagnostics">
     <div class="mut" style="margin-bottom:8px">Device diagnostics</div>
@@ -7393,7 +7402,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.3.0';
+const PAGE_VERSION='1.3.5';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
@@ -8158,4 +8167,39 @@ setInterval(hostPing,15000);
   setInterval(function(){if(!got&&!document.hidden)tick()},3000);
 })();
 </script>
+
+<script>
+(function(){
+ const $=id=>document.getElementById(id); let lastKey='', rows=[], historyMode='', refreshBusy=false, refreshTimer=null;
+ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ async function refresh(){
+  if(refreshBusy || document.hidden || !$('logcatcher')?.classList.contains('open')) return;
+  refreshBusy=true;
+  try{
+   const status=await api('/api/logs/status'); $('lcstate').textContent=status.running?'● Logging active':'Logging stopped'; $('lcstate').style.color=status.running?'#35d6a0':'var(--muted)'; $('lcsession').textContent=status.session||'No active session'; $('lcstart').disabled=!!status.running; $('lcstop').disabled=!status.running;
+   if(!historyMode){const d=await api('/api/logs/entries'); rows=d.entries||[];}
+   render();
+  }catch(e){$('lcstate').textContent='Log service unavailable';}
+  finally{refreshBusy=false;}
+ }
+ function render(){
+  const level=$('lclevel').value, fn=$('lcfunction').value.toLowerCase(), q=$('lcsearch').value.toLowerCase();
+  const filtered=rows.filter(x=>(level==='ALL'||x.level===level)&&(!fn||x.function.toLowerCase().includes(fn))&&(!q||(x.message+' '+x.function).toLowerCase().includes(q)));
+  $('lccount').textContent=filtered.length+' / '+rows.length+' entries';
+  const key=filtered.map(x=>x.id||x.timestamp+x.message).join('|'); if(key===lastKey)return; lastKey=key;
+  $('lcout').innerHTML=filtered.slice(-500).map(x=>`<span style="color:${x.level==='ERROR'?'#ff6b81':x.level==='WARNING'?'#ffc857':x.level==='DEBUG'?'#8aa4c8':'#b9c9dc'}">${esc(x.timestamp)} [${esc(x.level)}] [${esc(x.function)}] ${esc(x.message)}</span>`).join('\n')||'No matching log entries'; $('lcout').scrollTop=$('lcout').scrollHeight;
+ }
+ $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';$('lchistory').value='';await loadHistory();await refresh();}catch(e){alert('Could not start logging: '+e.message)}};
+ $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();}catch(e){alert('Could not stop logging: '+e.message)}};
+ function exportLogs(ext){const text=rows.map(x=>`${x.timestamp} [${x.level}] [${x.function}] ${x.message}`).join('\n');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
+ ['lclevel','lcfunction','lcsearch'].forEach(id=>$(id).addEventListener('input',render));
+ async function loadHistory(){try{const d=await api('/api/logs/sessions');const sel=$('lchistory');const old=sel.value;sel.innerHTML='<option value="">Current session / recent</option>'+(d.sessions||[]).map(x=>`<option value="${esc(x.name)}">${esc(x.name)}</option>`).join('');if(old)sel.value=old;}catch(e){}}
+ $('lchistory').onchange=async()=>{historyMode=$('lchistory').value;lastKey='';if(!historyMode){await refresh();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render()}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+ const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){loadHistory();refresh();}};
+ // Poll only while the panel is visible; never overlap requests or waste router CPU in the background.
+ refreshTimer=setInterval(()=>{if(!historyMode && !document.hidden && $('logcatcher')?.classList.contains('open'))refresh()},3000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden && $('logcatcher')?.classList.contains('open'))refresh()});
+})();
+</script>
+
 </body></html>
