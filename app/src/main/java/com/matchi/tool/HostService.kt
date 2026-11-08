@@ -63,18 +63,40 @@ class HostService : Service() {
     private fun startWebHost() {
         if (destroyed || server != null) return
         Tls.ready = false
-        // HTTPS first (self-signed, key kept in Android's key store); plain HTTP only if TLS cannot work on this device.
-        val factory = Tls.serverFactory()
-        // Some devices (seen on the ZTE F50) fail the TLS 1.3 handshake with a key-store key ("connection closed").
-        // Try TLS 1.3 + 1.2 first (never older versions), then TLS 1.2 only, before giving up on HTTPS.
-        // Never TLS 1.0/1.1, even on Android 8/9: only versions this device really supports are requested (TLS 1.3 needs Android 10+).
-        val supported: Set<String> = try { (factory?.createServerSocket() as? javax.net.ssl.SSLServerSocket)?.use { it.supportedProtocols.toSet() } ?: emptySet() } catch (_: Exception) { emptySet() }
-        val firstSet = arrayOf("TLSv1.3", "TLSv1.2").filter { it in supported }.toTypedArray()
-        val protocolSets: List<Array<String>?> = if (factory != null) listOf(firstSet.ifEmpty { arrayOf("TLSv1.2") }, arrayOf("TLSv1.2")).distinctBy { it.joinToString() } else emptyList()
+        // HTTPS first (self-signed). Order of attempts, each checked by a real loopback handshake:
+        //   1. Android key store key, TLS 1.3 + 1.2   2. key store, TLS 1.2 only
+        //   3. software key (file in the app's private folder), TLS 1.3 + 1.2   4. software key, TLS 1.2 only
+        //   5. plain HTTP (last resort).
+        // Step 3 exists because the ZTE F50's key store breaks the handshake ("connection closed") for every protocol version.
+        // Never TLS 1.0/1.1; TLS 1.3 only where this device supports it (Android 10+).
+        var factory: javax.net.ssl.SSLServerSocketFactory? = null
+        var protocolSets: List<Array<String>> = emptyList()
+        var source = 0   // 0 = key store, 1 = software key, 2 = none (plain HTTP)
         var protoIdx = 0
+        fun prepare(src: Int): Boolean {
+            factory = when (src) { 0 -> Tls.serverFactory(); 1 -> Tls.softwareFactory(applicationContext); else -> null }
+            val f = factory ?: return false
+            val supported: Set<String> = try { (f.createServerSocket() as? javax.net.ssl.SSLServerSocket)?.use { it.supportedProtocols.toSet() } ?: emptySet() } catch (_: Exception) { emptySet() }
+            val firstSet = arrayOf("TLSv1.3", "TLSv1.2").filter { it in supported }.toTypedArray()
+            protocolSets = listOf(firstSet.ifEmpty { arrayOf("TLSv1.2") }, arrayOf("TLSv1.2")).distinctBy { it.joinToString() }
+            protoIdx = 0
+            return true
+        }
+        // Moves to the next attempt. Returns false when only plain HTTP is left.
+        fun advance(): Boolean {
+            protoIdx++
+            while (true) {
+                if (factory != null && protoIdx < protocolSets.size) return true
+                source++
+                if (source > 1) { factory = null; protocolSets = emptyList(); return false }
+                Log.w("MatchiTOOL", "HTTPS failed with the ${if (source == 1) "Android key store" else "previous"} key; trying the ${if (source == 1) "software key" else "next option"}")
+                if (prepare(source)) return true
+            }
+        }
+        if (!prepare(0)) { source = 0; advance() }
         var secure = factory != null
         // Building the server must not be able to end this task silently: an exception here used to leave the console down for good.
-        var srv = try { newServer(factory, protocolSets.firstOrNull()) } catch (e: Exception) {
+        var srv = try { newServer(factory, protocolSets.getOrNull(protoIdx)) } catch (e: Exception) {
             Log.e("MatchiTOOL", "Web host could not be created: ${e.message}")
             scheduleStartRetry()
             return
@@ -87,12 +109,11 @@ class HostService : Service() {
             while (ok && secure && !destroyed && !Tls.selfTest(Prefs.PORT)) {
                 stopQuietly(srv)
                 try { Thread.sleep(500) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); ok = false; break }
-                protoIdx++
-                if (protoIdx < protocolSets.size) {
-                    Log.w("MatchiTOOL", "HTTPS handshake failed; retrying with TLS 1.2 only")
+                if (advance()) {
+                    Log.w("MatchiTOOL", "HTTPS handshake failed; retrying (${if (source == 0) "key store" else "software key"}, ${protocolSets[protoIdx].joinToString("+")})")
                     srv = newServer(factory, protocolSets[protoIdx])
                 } else {
-                    Log.w("MatchiTOOL", "HTTPS handshake failed; restarting as plain HTTP")
+                    Log.w("MatchiTOOL", "HTTPS handshake failed with every key; restarting as plain HTTP")
                     secure = false
                     srv = newServer(null, null)
                 }
@@ -111,7 +132,7 @@ class HostService : Service() {
         }
         if (ok) {
             Tls.ready = true   // the scheme is final now: the home screen may show the address and open the console
-            Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https" else "http"})")
+            Log.i("MatchiTOOL", "Web host listening on port ${Prefs.PORT} (${if (secure) "https, ${Tls.keySource} key" else "http"})")
             return
         }
         stopQuietly(srv)

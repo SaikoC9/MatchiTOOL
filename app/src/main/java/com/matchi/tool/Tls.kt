@@ -1,12 +1,24 @@
 package com.matchi.tool
 
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Log
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.InetSocketAddress
+import java.security.KeyFactory
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.SecureRandom
+import java.security.Signature
+import java.security.cert.CertificateFactory
+import java.security.spec.PKCS8EncodedKeySpec
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.security.cert.X509Certificate
 import java.util.Date
 import javax.net.ssl.KeyManagerFactory
@@ -34,7 +46,10 @@ object Tls {
     @Volatile var ready = false
     val scheme: String get() = if (active) "https" else "http"
 
-    /** Server socket factory backed by the key store, or null when TLS cannot be set up on this device. */
+    /** Which key the current factory uses: "keystore" (Android key store) or "software" (key file in the app's private folder). */
+    @Volatile var keySource = ""
+
+    /** Server socket factory backed by the Android key store, or null when TLS cannot be set up this way on this device. */
     fun serverFactory(): SSLServerSocketFactory? = try {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (!ks.containsAlias(ALIAS) || certExpiresSoon(ks)) {
@@ -45,10 +60,89 @@ object Tls {
         kmf.init(ks, null)
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(kmf.keyManagers, null, SecureRandom())
+        keySource = "keystore"
         ctx.serverSocketFactory
     } catch (e: Exception) {
-        Log.w("MatchiTOOL", "TLS setup failed, using plain HTTP: ${e.message}")
+        Log.w("MatchiTOOL", "TLS setup (key store) failed: ${e.javaClass.simpleName}: ${e.message}")
         null
+    }
+
+    /**
+     * Fallback for devices whose key store cannot sign during a TLS handshake (seen on the ZTE F50: the handshake is cut with
+     * "connection closed" while the key store key is used). The key is an ordinary RSA key made in software and kept in two
+     * files in the app's private folder (mode 600, not readable by other apps). It is less protected than a key store key,
+     * but the traffic is still encrypted, which plain HTTP is not.
+     */
+    fun softwareFactory(ctx0: Context): SSLServerSocketFactory? = try {
+        val dir = ctx0.filesDir
+        val keyF = File(dir, "tls_sw.key"); val crtF = File(dir, "tls_sw.crt")
+        var cert: X509Certificate? = null
+        var priv: java.security.PrivateKey? = null
+        try {
+            if (keyF.isFile && crtF.isFile) {
+                cert = CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(crtF.readBytes())) as X509Certificate
+                priv = KeyFactory.getInstance("RSA").generatePrivate(PKCS8EncodedKeySpec(keyF.readBytes()))
+                if (cert.notAfter.time - System.currentTimeMillis() < 30L * 24 * 3600 * 1000) { cert = null; priv = null }
+            }
+        } catch (_: Exception) { cert = null; priv = null }
+        if (cert == null || priv == null) {
+            val kp: KeyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048, SecureRandom()) }.generateKeyPair()
+            val der = selfSignedCert(kp)
+            cert = CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(der)) as X509Certificate
+            priv = kp.private
+            writePrivate(keyF, priv.encoded); writePrivate(crtF, der)
+        }
+        val pw = "matchi".toCharArray()   // only protects the in-memory key store below; the files are protected by the app's private folder
+        val ks = KeyStore.getInstance("PKCS12").apply { load(null, null); setKeyEntry("matchitool_sw", priv, pw, arrayOf(cert)) }
+        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, pw) }
+        val ctx = SSLContext.getInstance("TLS")
+        ctx.init(kmf.keyManagers, null, SecureRandom())
+        keySource = "software"
+        ctx.serverSocketFactory
+    } catch (e: Exception) {
+        Log.w("MatchiTOOL", "TLS setup (software key) failed: ${e.javaClass.simpleName}: ${e.message}")
+        null
+    }
+
+    private fun writePrivate(f: File, data: ByteArray) {
+        val t = File(f.parentFile, f.name + ".new")
+        t.writeBytes(data)
+        t.setReadable(false, false); t.setWritable(false, false); t.setReadable(true, true); t.setWritable(true, true)
+        if (!t.renameTo(f)) { f.delete(); if (!t.renameTo(f)) throw java.io.IOException("cannot save ${f.name}") }
+    }
+
+    // ---- minimal DER writer for a self-signed X.509 v3 certificate (no extra library needed) ----
+    private fun der(tag: Int, body: ByteArray): ByteArray {
+        val o = ByteArrayOutputStream()
+        o.write(tag)
+        val n = body.size
+        when {
+            n < 0x80 -> o.write(n)
+            n < 0x100 -> { o.write(0x81); o.write(n) }
+            n < 0x10000 -> { o.write(0x82); o.write(n shr 8); o.write(n and 0xff) }
+            else -> { o.write(0x83); o.write(n shr 16); o.write((n shr 8) and 0xff); o.write(n and 0xff) }
+        }
+        o.write(body)
+        return o.toByteArray()
+    }
+    private fun cat(vararg p: ByteArray): ByteArray { val o = ByteArrayOutputStream(); p.forEach { o.write(it) }; return o.toByteArray() }
+    private fun utc(ms: Long): ByteArray {
+        val f = SimpleDateFormat("yyMMddHHmmss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+        return der(0x17, f.format(Date(ms)).toByteArray(Charsets.US_ASCII))
+    }
+
+    /** DER of a self-signed certificate (CN=MatchiTOOL, 10 years, SHA256withRSA) for [kp]. */
+    fun selfSignedCert(kp: KeyPair): ByteArray {
+        val now = System.currentTimeMillis()
+        val sigAlg = der(0x30, cat(der(0x06, byteArrayOf(0x2a, 0x86.toByte(), 0x48, 0x86.toByte(), 0xf7.toByte(), 0x0d, 0x01, 0x01, 0x0b)), der(0x05, ByteArray(0))))   // sha256WithRSAEncryption
+        val name = der(0x30, der(0x31, der(0x30, cat(der(0x06, byteArrayOf(0x55, 0x04, 0x03)), der(0x0c, "MatchiTOOL".toByteArray(Charsets.UTF_8))))))
+        val serial = ByteArray(16).also { SecureRandom().nextBytes(it); it[0] = ((it[0].toInt() and 0x3f) or 0x40).toByte() }   // positive, no leading zero
+        val validity = der(0x30, cat(utc(now - 24L * 3600 * 1000), utc(now + 3650L * 24 * 3600 * 1000)))
+        val tbs = der(0x30, cat(
+            der(0xa0, der(0x02, byteArrayOf(2))),   // version v3
+            der(0x02, serial), sigAlg, name, validity, name, kp.public.encoded))   // public.encoded is already a SubjectPublicKeyInfo
+        val sig = Signature.getInstance("SHA256withRSA").apply { initSign(kp.private); update(tbs) }.sign()
+        return der(0x30, cat(tbs, sigAlg, der(0x03, cat(byteArrayOf(0), sig))))
     }
 
     private fun certExpiresSoon(ks: KeyStore): Boolean = try {
@@ -82,6 +176,7 @@ object Tls {
             s.soTimeout = 5000
             s.connect(InetSocketAddress("127.0.0.1", port), 3000)
             s.startHandshake()
+            Log.i("MatchiTOOL", "TLS self-test ok (${keySource}, ${s.session.protocol}, ${s.session.cipherSuite})")
             true
         }
     } catch (e: Exception) {
