@@ -725,6 +725,28 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val st = DeviceLogs.settings(ctx)
             json(Response.Status.OK, JSONObject().put("ok", true).put("logcat", st.logcat).put("dmesg", st.dmesg).put("level", st.level).put("active", DeviceLogs.isActive()))
         }
+        // Boot-time capture (Magisk script): every call reads or changes root-owned files, so all need the root gate.
+        uri == "/api/logs/boot/status" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.status(ctx))
+        uri == "/api/logs/boot/files" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, BootLogd.files(ctx))
+        uri == "/api/logs/boot/read" && s.method == Method.GET -> rootGate(s) ?: run {
+            fun p(n: String) = s.parameters[n]?.firstOrNull() ?: ""
+            val res = BootLogd.page(ctx, p("file"), p("start").toIntOrNull() ?: 1, p("limit").toIntOrNull() ?: 300, p("from").ifBlank { null })
+            json(if (res.optBoolean("ok")) Response.Status.OK else Response.Status.BAD_REQUEST, res)
+        }
+        uri == "/api/logs/boot/install" && s.method == Method.POST -> rootGate(s) ?: run {
+            val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", req.toString(), "logs-boot-install")
+            val cur = BootLogd.config(ctx)
+            val cfg = BootLogdModel.Config(req.optInt("fileKb", cur.fileKb), req.optInt("files", cur.files), req.optInt("minFreeMb", cur.minFreeMb))
+            val res = BootLogd.install(ctx, cfg)
+            json(if (res.optBoolean("ok")) Response.Status.OK else Response.Status.INTERNAL_ERROR, res)
+        }
+        uri == "/api/logs/boot/uninstall" && s.method == Method.POST -> rootGate(s) ?: run {
+            val req = body(s)
+            auditShell(s.remoteIpAddress ?: "?", req.toString(), "logs-boot-remove")
+            val res = BootLogd.uninstall(ctx, req.optBoolean("purge", false))
+            json(if (res.optBoolean("ok")) Response.Status.OK else Response.Status.INTERNAL_ERROR, res)
+        }
         uri == "/api/logs/delete" && s.method == Method.POST -> {
             val ok = LogCatcher.deleteSession(ctx, body(s).optString("name", ""))
             json(if (ok) Response.Status.OK else Response.Status.BAD_REQUEST, JSONObject().put("ok", ok)

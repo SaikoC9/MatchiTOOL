@@ -1,3 +1,14 @@
+# MatchiTOOL 1.3.7 - Boot capture (Log Catcher improvement path, phases 1, 2 and 5)
+
+- New boot-time capture script `assets/bin/matchi_logd.sh` (versioned). Installed from the Log Catcher page ("Boot capture") into `/data/adb/service.d/`, it runs Android's own `logcat -b all -v threadtime` and `dmesg -w` into size-capped rotating files in `/data/local/matchitool/bootlogs/`, from boot and independent of the app. Nothing is filtered or dropped at capture time.
+- Supervisor loops restart logcat/dmesg with back-off and fall back to simpler flags (`-v year`, `-b all`, `logcat -b kernel`, `/proc/kmsg`); each restart writes a gap marker (`logcat.gaps`) and a line in `events.log`.
+- Hard cap: FILE_KB x FILES per source (defaults 2048 KB x 10, limits 64-16384 KB and 2-40 files); capture pauses below MIN_FREE_MB free on /data and resumes by itself.
+- `context.txt` written at every start (build, kernel, Magisk, SELinux, app version, memory, network); `status` heartbeat file every 30 s.
+- App: install/remove with one root call, settings, self-test (a test line must appear in logcat.log), re-install when the shipped script version is newer or the script is not running (checked at boot).
+- Web page: Boot capture panel with state, install/remove, file list, paged reading (300 lines per page, no 3,000-line limit) and jump-to-time. API: `/api/logs/boot/{status,files,read,install,uninstall}`, all behind the root gate; file names are whitelisted.
+- Guards: `scripts/test_logd.sh` (runs the real script against fake logcat/dmesg/df), `BootLogdModelTest`, validate.sh checks (script header, root gate on routes, silent-catch baseline of 48).
+- Not done yet: phases 3 and 4 (more sources, compression, redaction, export bundle), original PID/thread/buffer columns in the viewer, per-source counters.
+
 # MatchiTOOL 1.3.7 — Log Catcher fixes
 
 - HTTPS: once the Android key store is seen to break the TLS handshake (as on the ZTE F50), that is remembered for the installed version and the next starts use the software key directly (no failed handshakes, no warnings, about 1 s faster). It is tried again after an update.

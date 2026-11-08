@@ -567,6 +567,14 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
       <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><button id="lcdevapply">Apply</button></div>
       <div class="mut" id="lcdevstate" style="margin-top:6px">Off. Captures every process on the device while a session is logging; needs root.</div>
     </details>
+    <details id="lcboot" style="margin-bottom:8px"><summary class="mut">Boot capture (Magisk, runs without the app)</summary>
+      <div class="mut" id="lcbootstate" style="margin-top:8px">Open this section to read the state (needs root).</div>
+      <div class="btnrow" style="margin-top:8px"><label class="mut">File size KB <input type="number" id="lcbootkb" min="64" max="16384" step="64" style="width:6em"></label><label class="mut">Files <input type="number" id="lcbootn" min="2" max="40" style="width:4em"></label><label class="mut">Pause below MB free <input type="number" id="lcbootfree" min="50" max="5000" style="width:5em"></label></div>
+      <div class="btnrow" style="margin-top:8px"><button id="lcbootinstall">Install / update</button><button id="lcbootremove" class="danger">Remove</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbootpurge"> also delete captured files</label></div>
+      <div class="btnrow" style="margin-top:8px"><select id="lcbootfile" title="Capture file"></select><button id="lcbootprev">&laquo; Prev</button><button id="lcbootnext">Next &raquo;</button><button id="lcbootlast">Latest</button><input id="lcbootjump" placeholder="Jump to time, e.g. 11-08 16:00" style="min-width:12em"><button id="lcbootgo">Go</button></div>
+      <div class="mut" id="lcbootpos" style="margin-top:6px"></div>
+      <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Nothing loaded.</pre>
+    </details>
     <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
     <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
     <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
@@ -8371,6 +8379,28 @@ setInterval(hostPing,15000);
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
  $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
+
+ /* ---- boot capture (Magisk script) ---- */
+ const BOOT_PAGE=300; let bootStart=1,bootTotal=0,bootFiles=[];
+ const bootNum=(n)=>Number(n||0).toLocaleString();
+ async function loadBoot(){try{const d=await api('/api/logs/boot/status');
+  $('lcbootkb').value=d.fileKb;$('lcbootn').value=d.files;$('lcbootfree').value=d.minFreeMb;
+  let t;if(!d.installed)t='Not installed. Install it to capture logcat (all buffers) and the kernel log from boot, even when this app is stopped.';
+  else{t=(d.running?'Running':'Installed but NOT running')+(d.state&&d.state!=='running'?' ('+d.state+')':'')+'. Script v'+d.installedVersion+(d.outdated?' (outdated: install to update to v'+d.bundledVersion+')':'')+'. Disk use '+bootNum(d.usedKb)+' KB of at most '+bootNum(d.maxTotalKb)+' KB; '+(d.freeMb==null?'':bootNum(d.freeMb)+' MB free; ')+'restarts: logcat '+d.logcatRestarts+', kernel '+d.dmesgRestarts+(d.lastRestart&&d.lastRestart!=='-'?' (last '+d.lastRestart+')':'')+'. Heartbeat '+(d.heartbeat||'none')+'.'}
+  $('lcbootstate').textContent=t;await loadBootFiles()}catch(e){$('lcbootstate').textContent='Could not read boot capture: '+e.message}}
+ async function loadBootFiles(){const d=await api('/api/logs/boot/files');bootFiles=d.files||[];const sel=$('lcbootfile');const old=sel.value;sel.innerHTML=bootFiles.map(f=>`<option value="${esc(f.name)}">${esc(f.name)} (${bootNum(Math.round(f.size/1024))} KB, ${esc(f.modified)})</option>`).join('');if(old&&bootFiles.some(f=>f.name===old))sel.value=old}
+ async function bootRead(start,from){const f=$('lcbootfile').value;if(!f){$('lcbootout').textContent='No capture files yet.';return}
+  try{const q='/api/logs/boot/read?file='+encodeURIComponent(f)+'&start='+Math.max(1,start|0)+'&limit='+BOOT_PAGE+(from?'&from='+encodeURIComponent(from):'');const d=await api(q);
+   bootStart=d.start;bootTotal=d.total;$('lcbootout').textContent=(d.lines||[]).join('\n')||'(empty)';
+   $('lcbootpos').textContent='Lines '+bootNum(d.start)+'-'+bootNum(d.end)+' of '+bootNum(d.total);$('lcbootout').scrollTop=0}catch(e){$('lcbootout').textContent='Unable to read: '+e.message}}
+ $('lcboot').addEventListener('toggle',()=>{if($('lcboot').open)loadBoot()});
+ $('lcbootfile').onchange=()=>bootRead(1);
+ $('lcbootprev').onclick=()=>bootRead(Math.max(1,bootStart-BOOT_PAGE));
+ $('lcbootnext').onclick=()=>{if(bootStart+BOOT_PAGE<=bootTotal)bootRead(bootStart+BOOT_PAGE)};
+ $('lcbootlast').onclick=()=>bootRead(Math.max(1,bootTotal-BOOT_PAGE+1));
+ $('lcbootgo').onclick=()=>{const v=$('lcbootjump').value.trim();if(v)bootRead(1,v)};
+ $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Installing (about 10 s, includes a self-test)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200})});createToast(d.selftest?'Boot capture installed; self-test passed':'Boot capture installed; self-test not confirmed yet');await loadBoot()}catch(e){alert('Install failed: '+e.message);loadBoot()}};
+ $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!confirm(purge?'Remove boot capture AND delete all captured files?':'Remove boot capture (captured files are kept)?'))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture removed');await loadBoot()}catch(e){alert('Remove failed: '+e.message)}};
 
  const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();}};
  // Poll only while the panel is visible; never overlap requests or waste router CPU in the background.

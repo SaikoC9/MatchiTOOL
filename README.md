@@ -140,3 +140,8 @@ Current source release: **1.3.7**. The web Log Catcher runs as a server-side ses
 - Captures Android logcat output for the full MatchiTOOL process while a session is active, in addition to explicit diagnostic events.
 - Automatically writes each session in paired `.log` and `.txt` files. The `.log` file is the canonical session-history entry; the `.txt` companion is saved alongside it.
 - Both formats receive the same timestamped, leveled records and session start/stop markers.
+
+
+## Boot capture (Magisk)
+
+Log Catcher > "Boot capture" installs `matchi_logd.sh` into `/data/adb/service.d/`. At boot it starts Android's own `logcat -b all` and `dmesg -w` into rotating files under `/data/local/matchitool/bootlogs/`, so capture survives app kills, crashes and updates and includes early-boot lines. Total disk use is capped (default at most about 41 MB) and capture pauses when /data has less than the configured free space. Remove it from the same panel (optionally deleting the files). Needs root and Magisk (or KernelSU/APatch); not yet verified on a real F50, see `docs/TESTING_BOOT_CAPTURE.md`.

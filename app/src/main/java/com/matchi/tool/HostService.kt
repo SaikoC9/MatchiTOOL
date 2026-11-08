@@ -210,7 +210,7 @@ class HostService : Service() {
         if (!bootTasksRunning.compareAndSet(false, true)) return
         // The boot scripts (up to 170 s) and the IMEI keeper run in separate workers, so the modem is not left on the
         // factory IMEI for minutes while a slow boot script runs. The flag is released when both have finished.
-        val pending = java.util.concurrent.atomic.AtomicInteger(2)
+        val pending = java.util.concurrent.atomic.AtomicInteger(3)
         fun finished() { if (pending.decrementAndGet() == 0) bootTasksRunning.set(false) }
         workers.execute {
             try {
@@ -227,6 +227,11 @@ class HostService : Service() {
                 val imei = ImeiGuard.apply(this, 20, false)
                 LogCatcher.log("INFO", "HostService", "IMEI keeper: ${imei.take(600)}")
             } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "IMEI keeper failed: ${e.message}") }
+            finally { finished() }
+        }
+        workers.execute {
+            // Boot-time log capture: re-install the Magisk script after an app update, or start it if it is not running.
+            try { BootLogd.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot capture check failed: ${e.message}") }
             finally { finished() }
         }
     }

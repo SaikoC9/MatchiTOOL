@@ -174,6 +174,28 @@ SENDAT_SHA256 = 'f0da6be08ed2cdb46f517baa8d964327d2550b68017468d2dbbe4aa8224e41a
 got = hashlib.sha256((root / 'app/src/main/assets/bin/sendat').read_bytes()).hexdigest()
 assert got == SENDAT_SHA256, f'sendat changed (sha256 {got}); update SENDAT_SHA256 here and in NOTICE.md after reviewing the new binary'
 assert SENDAT_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the sendat SHA-256'
+# Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
+logd = (root / 'app/src/main/assets/bin/matchi_logd.sh').read_text()
+logd_ver = re.search(r'^# MATCHI_LOGD_VERSION=(\d+)$', logd, re.M)
+assert logd_ver, 'boot script must carry a "# MATCHI_LOGD_VERSION=n" header (the app re-installs it when the version changes)'
+assert logd.startswith('#!/system/bin/sh'), 'boot script must use the Android shell'
+assert 'logcat "$@" -f' in logd and '-b all' in logd and 'dmesg -w' in logd and '-r "$FILE_KB" -n "$FILES"' in logd, 'boot script must capture all buffers + dmesg -w into rotating files'
+assert 'MIN_FREE_MB' in logd and 'size cap exceeded' in logd, 'boot script must keep its size cap and low-space guard'
+assert 'MATCHI_LOGD_EOF' not in logd, 'boot script must not contain the installer heredoc delimiter'
+bl = (root / 'app/src/main/java/com/matchi/tool/BootLogd.kt').read_text()
+assert 'BootLogdModel.SCRIPT_PATH' in bl and 'fun ensureCurrent' in bl and 'bin/matchi_logd.sh' in bl, 'boot script installer missing'
+assert 'BootLogd.ensureCurrent' in service, 'boot tasks must re-install an outdated boot script'
+for route in ('/api/logs/boot/status', '/api/logs/boot/install', '/api/logs/boot/uninstall', '/api/logs/boot/read', '/api/logs/boot/files'):
+    i = server.index('"' + route + '"')
+    assert 'rootGate(s)' in server[i:i + 120], route + ' must sit behind the root gate'
+assert 'id="lcboot"' in html and '/api/logs/boot/read' in html, 'web page boot capture viewer missing'
+silent = 0
+for f in (root / 'app/src/main/java').rglob('*.kt'):
+    n = len(re.findall(r'catch \(_: \w+\) *\{ *\}', f.read_text()))
+    if f.name.startswith('BootLogd'): assert n == 0, f.name + ': log the exception instead of swallowing it'
+    silent += n
+SILENT_CATCH_BASELINE = 48
+assert silent <= SILENT_CATCH_BASELINE, f'{silent} silent catch blocks (baseline {SILENT_CATCH_BASELINE}): log the exception (LogCatcher.log) instead of "catch (_: ...) {{ }}"'
 print('MatchiTOOL 1.3.7 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
@@ -181,6 +203,7 @@ PY
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   bash "$(dirname "$0")/test_legacy_cleanup.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_boot_tasks.sh" </dev/null || exit 1
+  bash "$(dirname "$0")/test_logd.sh" </dev/null || exit 1
 else
   echo "skipped: legacy cleanup upgrade test (setsid, pgrep or node missing)"
 fi
