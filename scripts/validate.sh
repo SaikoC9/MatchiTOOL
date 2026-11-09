@@ -39,6 +39,8 @@ assert '/api/device/adb' not in server and '/api/device/fastboot' not in server
 assert 'deviceDiscovery' not in server
 assert '/api/builtin' not in server and not (root / 'app/src/main/assets/builtin').exists(), 'tools must live in the web page, not as APK assets'
 assert '/api/usb/status' in server and '/api/usb/control' in server
+assert 'uri == "/api/AT" && s.method == Method.GET' in server and 'AtBatch.checkSlot' in server, 'UFI GET /api/AT route missing'
+assert "u.pathname==='/api/AT'" in html, 'page fetch shim must ask the HTTP confirm for UFI AT writes'
 assert 'adb_enable' in server and 'rndis_enable' in server and 'ecm_enable' in server
 assert 'USB controls' in html and 'rndison' in html and 'ecmon' in html and 'CDC-ECM' in html
 assert 'ADB / Fastboot discovery' not in html and 'Detect Fastboot devices' not in html
@@ -46,7 +48,7 @@ assert 'adbbtn' not in html and 'fastbootbtn' not in html
 assert 'command.length > 128_000' in server, 'root shell request size guard missing'
 assert 'Xml.newPullParser()' in server, 'XML well-formedness validation missing'
 assert 'id="selftest"' in html and 'runSelfTest' in html and 'copyText' in html, 'full diagnose missing'
-assert "PAGE_VERSION='1.3.9'" in html, 'page version must match app version'
+assert "PAGE_VERSION='1.4.0'" in html, 'page version must match app version'
 assert 'refreshBusy' in html and 'setInterval(()=>{if(!historyMode && !document.hidden' in html, 'Log Catcher polling must be visibility-aware and overlap-safe'
 assert 'setTimeout(()=>URL.revokeObjectURL(url),3000)' in html, 'export download URL must remain available briefly for mobile browsers'
 screen = (root / 'app/src/main/java/com/matchi/tool/ScreenCapture.kt').read_text()
@@ -59,7 +61,7 @@ assert 'Screen_Control.js' in dict(tools) or any(n == 'Screen_Control.js' for n,
 assert 'Trusted hotspot only · HTTP is unencrypted' in main, 'native LAN warning missing'
 assert (root / 'app/src/main/java/com/matchi/tool/Tls.kt').exists() and 'makeSecure' in service, 'HTTPS support missing'
 gradle = (root / 'app/build.gradle.kts').read_text()
-assert 'versionCode = 309' in gradle and 'versionName = "1.3.9"' in gradle
+assert 'versionCode = 400' in gradle and 'versionName = "1.4.0"' in gradle
 assert 'uri == "/api/root/status"' in server and 'getPackageInfo(ctx.packageName, 0)' in server
 upd = (root / 'app/src/main/java/com/matchi/tool/ApkUpdater.kt').read_text()
 manifest = (root / 'app/src/main/AndroidManifest.xml').read_text()
@@ -161,12 +163,12 @@ assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both help
 for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
     assert needle in html, 'legacy cleanup piece missing: ' + needle
 assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
-assert "PAGE_VERSION='1.3.9'" in html and 'versionCode = 309' in gradle and 'versionName = "1.3.9"' in gradle, 'version metadata mismatch'
+assert "PAGE_VERSION='1.4.0'" in html and 'versionCode = 400' in gradle and 'versionName = "1.4.0"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
 assert '"/api/upload"' in server and '"/api/uploads/"' in server and 'uploadNameRx' in server, 'plugin upload/download routes missing'
-for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval', 'fillUfiData'):
+for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval', 'ufiDataStart'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
 import hashlib
@@ -179,6 +181,21 @@ got = hashlib.sha256((root / 'app/src/main/assets/bin/curl').read_bytes()).hexdi
 assert got == CURL_SHA256, f'curl changed (sha256 {got}); update CURL_SHA256 here and in NOTICE.md after reviewing the new binary'
 assert CURL_SHA256 in (root / 'NOTICE.md').read_text(), 'NOTICE.md must list the curl SHA-256'
 assert 'installBundledBinary("bin/curl"' in server and 'files/curl' in html, 'bundled curl is not installed or not on the wrapper search path'
+UFI_TOOL_SHA256 = {
+    'jq': '91bb0b08fd8053c04be41846f83be24bfa06d5c1eac2c0c925298638c642ea52',
+    'sha256': 'db89e71feadd7253e5ad39b700f1233ebeb6816cec7ded122721db7a2a0640ca',
+    'zreq': 'b7b0b01e55dcd3cf758648cba63d67f83fa72cbadeb4687eda514741fb76600d',
+}
+for tool_name, want in UFI_TOOL_SHA256.items():
+    got = hashlib.sha256((root / f'app/src/main/assets/bin/{tool_name}').read_bytes()).hexdigest()
+    assert got == want, f'{tool_name} changed (sha256 {got}); update UFI_TOOL_SHA256 here and in NOTICE.md after reviewing the new binary'
+    assert want in (root / 'NOTICE.md').read_text(), f'NOTICE.md must list the {tool_name} SHA-256'
+assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")' in server and 'installBundledBinary("bin/$tool"' in server, 'jq/sha256/zreq are not installed at start-up'
+for needle in ('UFISTORE-BEGIN', 'storeUrlOk', 'storeInstall', 'plugin_store_open', 'storeSha256', 'redirect:\'follow\'', "credentials:'omit'"):
+    assert needle in html, 'plugin store piece missing: ' + needle
+assert (root / 'docs/PLUGIN_STORE.md').is_file(), 'plugin store format notes missing'
+for f in ('scan_plugins.js', 'deob_requests_js.js'):
+    assert (root / 'scripts/phase0' / f).is_file(), 'Phase 0 script missing: ' + f
 # Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
 logd = (root / 'app/src/main/assets/bin/matchi_logd.sh').read_text()
 logd_ver = re.search(r'^# MATCHI_LOGD_VERSION=(\d+)$', logd, re.M)
@@ -213,7 +230,24 @@ for t in ('QuietTest', 'LogLineParserTest', 'SourceCountersTest'):
     assert (root / f'app/src/test/java/com/matchi/tool/{t}.kt').exists(), t + ' missing'
 assert 'function maybeRedact(' in html and 'maybeRedact(rows.filter' in html and "id=\"lcdevkeepall\"" in html, 'web page: redaction of exports/copies or the keep-every-line switch missing'
 assert 'keepEverything' in (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text(), 'NoiseGate keep-everything switch missing'
-print('MatchiTOOL 1.3.9 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
+assert (root / 'app/src/main/java/com/matchi/tool/UfiPathMap.kt').exists() and 'UfiPathMap.map(command, ctx.packageName)' in server, 'UFI path mapping must run before root commands'
+assert (root / 'app/src/test/java/com/matchi/tool/UfiPathMapTest.kt').exists(), 'UfiPathMapTest missing'
+assert all(r in server for r in ('"/api/root_shell"', '"/api/user_shell"', '"/api/one_click_shell"')), 'UFI shell alias routes missing'
+assert server.count('rootGate(s) ?: run {') >= 3 and 'UserShell.run(ctx.filesDir' in server, 'user_shell must sit behind the root gate and run as the app user'
+assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text() and '"su"' not in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text(), 'user shell must not use su'
+assert 'UFIHOST-BEGIN' in html and 'async function runShellWithUser' in html and 'window.__matchiCompat=' in html, 'host UFI API missing'
+bypass = dict(tools)['Bypass.js']
+assert 'MatchiTOOL compatibility layer =====' not in bypass and 'window.__matchiCompat' in bypass and len(bypass.splitlines()) < 4300, 'Bypass must use the host compatibility layer, not its own copy'
+zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()
+assert all(r in server for r in ('"/api/goform/"', '"/api/proxy/"', '"/api/get_cookie"', '"/api/set_cookie"')), 'router API routes missing'
+assert 'GatewayProxy.goformPath(name)' in server and 'GatewayProxy.proxyPath(' in server, 'router routes must check the path with GatewayProxy'
+assert 'RouterHost.isValid(Prefs.zteHost(ctx))' in zc and 'GatewayProxy.safePath(path)' in zc, 'proxy must send only to the saved local gateway'
+assert 'fun proxy(ctx: Context, method: String, path: String' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
+assert server.count('rootGate(s) ?: json(Response.Status.OK, JSONObject().put("cookie"') == 1 and '"/api/set_cookie" && s.method == Method.POST -> rootGate(s)' in server, 'cookie routes must be root-gated'
+assert (root / 'app/src/test/java/com/matchi/tool/GatewayProxyTest.kt').exists(), 'GatewayProxyTest missing'
+assert 'UFIDATA-BEGIN' in html and 'function ufiDataStart(' in html and 'fillUfiData' not in html, 'UFI_DATA poller missing'
+assert 'if(UFIPOLL.busy||!UFIPOLL.fields||!TOKEN)return' in html and 'document.hidden' in html, 'UFI_DATA poller must not overlap and must pause when hidden'
+print('MatchiTOOL 1.4.0 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
 # Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).
@@ -228,6 +262,12 @@ fi
 # The page's redaction rules must give the same results as Redactor.kt (same cases as RedactorTest).
 if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_page_redact.js" || exit 1
+  node "$(dirname "$0")/test_ufi_bundle.js" || exit 1
+  node "$(dirname "$0")/test_ufi_host.js" || exit 1
+  node "$(dirname "$0")/test_ufi_data.js" || exit 1
+  node "$(dirname "$0")/test_ufi_store.js" || exit 1
+  node "$(dirname "$0")/test_log_basket.js" || exit 1
+  node "$(dirname "$0")/test_phase0.js" || exit 1
 fi
 
 # IMEI keeper: pure sh, runs against a fake sendat.

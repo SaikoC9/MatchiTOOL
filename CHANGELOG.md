@@ -1,3 +1,135 @@
+# MatchiTOOL (unreleased) - Log basket: review of steps 1 to 6
+
+- **Redaction fails closed in the basket page:** if the page's redaction function is missing while "Hide private data" is ticked, View and Copy now stop with a message instead of showing the original text. Unticking the box still gives the original on purpose.
+- **Snapshot guard:** only one snapshot is made at a time (a second request gets a "busy" answer), since it can read up to 64 MB of session files.
+- `scripts/test_log_basket.js` extended for both. Not compiled or run here: the Kotlin and the screen on a device.
+
+# MatchiTOOL (unreleased) - Log basket: review fixes for chips and snapshot
+
+- **Root shell chip on Audit rows:** every audit line is a root command, so the chip now keeps all of them. Errors and Plugins on an audit row show a one-line reason instead of an empty list.
+- **Chips on Boot rows:** Errors uses the level the server already parsed for each boot line (raw logcat has no `[ERROR]` text). Plugins and Root shell say that plugin tags exist only in session logs.
+- **Snapshot counts the whole session:** the plugin problem and route counts now read every kept part of the newest session (`_part` files too, up to 64 MB, oldest part dropped first), not just the last 3000 lines in memory. A before and an after snapshot taken at different times now compare like with like. The recent buffer is used only when no session file exists yet.
+- `LogSnapshot.Counter` added (counts line by line); `LogSnapshotTest` and `scripts/test_log_basket.js` extended. Not compiled or run here.
+
+# MatchiTOOL (unreleased) - Log basket, steps 5 and 6: live view inside the basket, ready-for-update snapshot
+
+- **Live view button (step 5):** the main screen now has only Log Basket. The old live panel opens from a Live view button inside the basket and has a Back to basket button. The stream check runs on a timer only while the panel is open, an alert is set or a stream is open.
+- **Snapshot (step 6):** Snapshot: before update / after update saves one redacted text file as an Export row: app version, plugin script problems per plugin, plugin route counts and the last 200 lines. Route `POST /api/logs/snapshot`. Same layout every time so two files can be compared with a text diff.
+- New `LogSnapshot.kt` and `LogSnapshotTest.kt`; `scripts/test_log_basket.js` extended. Not compiled or run here: the Kotlin and the screen on a device.
+
+# MatchiTOOL (unreleased) - Log basket, step 4: filter chips
+
+- **Filter chips** above the View output: All, Errors (`[ERROR]` lines), Plugins (`[plugin/...]` tags) and Root shell (`[plugin/shell]`). The chosen chip applies when View opens, can be changed while viewing, and works together with the search box. The match line shows "n of m lines match".
+- Chips filter the lines that were loaded (last 500, or the full-file option). Page only: no Kotlin change.
+- `scripts/test_log_basket.js` extended: each chip, chip plus search, and View opening already filtered. Not opened in a browser or on the F50.
+
+# MatchiTOOL (unreleased) - Log basket, step 3: search, boot delete, tests
+
+- **Search in View:** a box under the viewed log keeps only the lines that contain the text (case-insensitive) and shows "n of m lines match". It searches what is on screen (the last 500 lines, or the full-file option), after private data is hidden.
+- **Boot files can be deleted** from the basket, but only rotated capture files (`logcat.log.1`, `dmesg.log.2` ...). The live `logcat.log` and `dmesg.log`, and the script's own info files, stay (they are still being written, or explain the capture). Needs the root gate; each delete is written to the shell audit log (`logs-boot-delete`). New `BootLogd.deleteFile` and the pure rule `LogBasket.bootDeletable`.
+- **Page test:** `scripts/test_log_basket.js` (run by `validate.sh`) runs the basket's page script on a fake page with the page's real redaction function: copy hides a password and keeps it when the box is unticked, several rows get headers, delete sends only deletable rows (never the active session or the live boot file), the confirm explains audit and boot rows, and the search box filters.
+- `LogBasketTest` updated and extended for the boot rule. Not compiled or run here: the Kotlin (`WebServer.kt`, `BootLogd.kt`, the tests) and the screen on a device.
+
+# MatchiTOOL (unreleased) - Log basket: the audit log can be deleted
+
+- The audit log (`shell_audit.log`) row now has Delete. It is the only basket delete that needs the root gate (a root sign-in under 4 h; the "not encrypted" question over plain HTTP): without it the row stays and the page says "root sign-in needed". The confirm text explains what the file records.
+- Deleting it is itself recorded: the server writes a fresh `audit-cleared` line (time, client address, hash of a fixed text) straight after, so the file is never silently empty. The list shows the audit row again with that one line.
+- The active session and boot files are still not deletable from the basket. `POST /api/logs/basket/delete` results now carry a `reason` field (empty unless the root gate refused).
+- `LogBasketTest` updated (audit is deletable). Not compiled or run here: the `WebServer.kt` change and the test still need `gradle :app:testDebugUnitTest`.
+
+# MatchiTOOL (unreleased) - Log basket, step 2: the basket screen
+
+- New **Log Basket** button next to Log Catcher (Diagnostics row): a list with one row per log (type, name, size, date, a "logging now" / "root" mark) and a checkbox each. **Select all**, **View**, **Copy**, **Delete**, **Refresh**. No polling: the list loads when the window opens and when you press Refresh.
+- View shows one row (the last 500 lines, scrolled to the end). Copy joins several rows with a `===== name =====` header. Both hide private data by default (same redaction as Log Catcher); untick "Hide private data in copies" to turn that off. "Full file" asks for up to 5000 lines from the last 2 MB of the file; boot files stay at 500 lines here (use Log Catcher for more).
+- Delete asks once, deletes finished sessions and exports, and keeps the rest (the active session, the audit log, boot files); it says how many were kept.
+- New routes: `GET /api/logs/basket/read?id=type:name[&tail=N|&full=1]` (session, export or audit; boot files keep `/api/logs/boot/read`) and `POST /api/logs/basket/delete` body `{ids:[...]}` (max 100; per-row `{id, ok}` result). Ids go through `LogBasket.parseId`, so only plain file names in the known folders are reachable.
+- `LogBasket.tailLines` and `clampTail` (pure Kotlin) with tests. The page's redaction function is now also available as `window.__lcRedact`.
+- The live panel and all existing log routes are untouched.
+- Not compiled or run here: the `WebServer.kt` routes, `LogBasketTest`, and the page (not tried in a browser or on the F50).
+
+# MatchiTOOL (unreleased) - Log basket, step 1: one list of every log
+
+- New `GET /api/logs/basket`: one row per log file of every kind, newest first inside each type: Session (`files/logs/sessions/*.log`), Export (`files/logs/exports/*.txt`), Audit (`files/shell_audit.log`) and Boot (`/data/local/matchitool/bootlogs/*`). A row has `id` (`type:name`), `type`, `name`, `size`, `modified` (epoch ms, 0 for boot files) with `modifiedText`, `active`, `rootOnly` and the flags `canView`, `canCopy`, `canDelete`.
+- Boot rows are listed only when boot capture is installed and the root gate passes; otherwise `bootNote` says why. Without root the route still lists the other three types.
+- Delete is allowed for finished sessions and exports only. The active session, the audit log and boot files are not deletable from the basket yet (audit stays view and copy only until you decide; boot files need their own root route in step 3).
+- New `LogBasket.kt` (pure Kotlin: ids, name safety, order, delete rules) and `LogBasketTest`. A row id only accepts a plain file name, so later steps cannot be pointed outside their folder.
+- No page change yet (step 2 adds the basket screen). Existing log routes and the live panel are untouched.
+- Not compiled here: the `WebServer.kt` route and `LogBasketTest` still need `gradle :app:testDebugUnitTest`.
+
+# MatchiTOOL (unreleased) - Log Catcher: plugin-aware logging
+
+- Plugin errors now name the plugin. Plugin scripts carry a `//# sourceURL=matchi-plugin/NAME` line, so the page's error reports (and rejected promises, from their stack) reach the log as `[plugin/js] [NAME.js] JS error: ...` instead of an anonymous `WebPage` line pointing into index.html.
+- Plugin-facing routes are logged with a `plugin/...` function tag (`plugin/shell`, `plugin/at`, `plugin/goform`, `plugin/proxy`, `plugin/head`, `plugin/cookie`, `plugin/upload`): method, path without the query, HTTP status and time. Successful calls are DEBUG (polling stays quiet), refusals (401/403/404/429) and calls over 5 s are WARNING, 5xx is ERROR. Never logged: command text, query values, cookies, request or reply bodies. Filter by `plugin` in Log Catcher.
+- New `PluginLog.kt` (pure Kotlin) and `PluginLogTest`. Not compiled here: no Gradle or Android SDK in this sandbox, so `WebServer.kt` changes and the new test still need `gradle :app:testDebugUnitTest`.
+
+# MatchiTOOL (unreleased) - Phase 5.5 (partial): first Kotlin compile
+
+- First time any of the Kotlin was compiled. The Android build still cannot run in the build sandbox (no Android SDK, no network), but the Kotlin compiler inside Gradle can compile the files that use no Android classes. New `scripts/kotlin_pure_tests.sh` does that and runs the unit tests that only need them with JUnit: **106 tests pass** (AtBatch incl. the new `/api/AT` rules, GatewayProxy incl. refusal of other hosts, UfiPathMap, RootGate, LoginGuard, Redactor and others).
+- Bug found and fixed: `GatewayProxy.kt` had `/api/goform/*` and `/api/proxy/*` inside doc comments. Kotlin comments nest, so `/*` opened a comment that was never closed and the Gradle build would have failed ("Unclosed comment"). Reworded; no other Kotlin file has this.
+- Still not compiled: `WebServer.kt` (incl. the `/api/AT` route), `RootShell.kt`, `PluginOrder.kt` and every other file that imports `android.*`, `org.json` or NanoHTTPD, and the 8 tests for them (ExitReasonModel, HostControl, HostHeader, NoiseGate, PluginData, PluginOrder, RootShellLauncher, SourceCounters). Run `gradle :app:testDebugUnitTest` on a machine with the Android SDK (`scripts/bootstrap-build.sh`). No device run yet.
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.3: UFI's `/api/AT` route
+
+- New route `GET /api/AT?command=AT+CSQ&slot=0`, the one UFI-TOOLS' own `ufi_req` help text shows and the E5 baseband plugin calls. It runs the command through the bundled `sendat`, like `/api/at` (POST), with the same gate: pure reads (`AT+COPS?`, `AT+CSQ`, `AT+CGMR=?` ...) need only a session; anything else (NV writes, `AT+CFUN`, `AT^...`, chained commands) also needs the root gate (sign-in under 4 h; the page's "not encrypted" question over plain HTTP). Writes are written to the shell audit log (hash and length of the command only).
+- Reply: `{"success":true,"result":"<modem text>","error":null}`, or `{"success":false,"result":null,"error":"<text>"}`. Checked against the E5 plugin's own reader (v1.0.4: it takes `result` or `content` as text and fails on a truthy `error` or `success === false`; it only sends `AT+CFUN?`, `AT+CFUN=0` and `AT+CFUN=1`, and needs `OK` in the reply for the two writes), so this shape works for E5. For other plugins it is still **a guess**: UFI's server code is compiled and no plugin or script in the APK reads the reply. `result` and `error` match UFI's shell routes; `success` matches MatchiTOOL's `/api/at`. Compare with a real reply from an F50 before relying on it.
+- Stricter than `/api/at` on purpose: `slot` must be missing, `0` or `1` (anything else is a 400 instead of being clamped to the other SIM slot), and the command may not contain NUL, CR or LF. A command must start with `AT` and be at most 300 characters.
+- The page's fetch shim now treats `/api/AT` like the shell routes: over plain HTTP it asks the "not encrypted" question once before an AT *write* (reads never ask). The rule is a copy of `RootGate.isReadOnlyAt`.
+- `scripts/phase0/scan_plugins.js` now lists routes written as `${KANO_baseURL}/AT?...` and no longer reports them as dynamic. Tests: `AtBatchTest` (command and slot rules; Kotlin), `test_ufi_host.js` (shim asks for writes and chained commands, not for reads), `test_phase0.js`. `validate.sh` checks the route and the shim rule exist.
+- The E5 plugin edits baseband NV and can brick a device. Back up first (for example read the values with AT first and keep them); MatchiTOOL does not add a safety net for it.
+- Not shown yet: Kotlin compiling (`gradle` here has no Android SDK, so `testDebugUnitTest` could not run); the E5 plugin working on an F50; the real UFI reply shape; `sendat` timing for slow NV commands (the route allows 15 s, same as `/api/at`).
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.1: globals and menu that real plugins need
+
+Found by running 8 real UFI plugins in Chromium (4 of them failed on names MatchiTOOL did not define).
+- New page globals: `checkAdvancedFunc()` (true when the root shell answers `root`), `encodeBase64()` (UTF-8 safe), `getData(URLSearchParams)` (router read through `/api/goform/goform_get_cmd_process`, adds `multi_data=1` for a comma list), `postData(login, {goformId,...})` (router write through `/api/goform/goform_set_cmd_process`, form body, returns a fetch `Response`), and `login()` (a function again: the page element `#login` used to shadow it; it only returns a marker because the host signs in to the router itself).
+- `postData` asks once per page load before an `ENABLE_PIN` command (a wrong PIN value counts as a failed attempt and can lock a SIM); cancelling sends nothing.
+- New plugin menu anchors: `#collapseBtn_menu` with a next sibling holding `.collapse_box` (the button shows only once a plugin adds something and folds the box), and `.functions-container`.
+- `UFI_DATA` default field list now includes `monthly_tx_bytes` and `monthly_rx_bytes`.
+- `scripts/phase0/scan_plugins.js`: counts `window.UFI_DATA`, lists `checkAdvancedFunc`, `getData`, `postData`, `encodeBase64`, `login` and the page elements a plugin uses. Added `scripts/phase0/run_plugins.js` (Playwright: runs each plugin alone against a stubbed `/api`, reports errors, shell commands and new elements) and `scripts/phase0/test_ufi_globals_browser.js` (14 checks of the items above). Both need Playwright and Chromium, so `validate.sh` does not run them.
+- Result with the 8 plugins: no page errors; the USB, ADB-off and Ethernet-reboot plugins now run; the 飞猫 network switch posts `ENABLE_PIN` as a form.
+- Not shown yet: Kotlin compiling; any of this on an F50; the router's real reply to `/api/goform` writes; E5's `/api/AT` route (still missing).
+
+# MatchiTOOL 1.4.0 - UFI-TOOLS plugin support, Phase 4: tools, plugin store, security pass
+
+- New bundled arm64 tools, taken unchanged from the UFI-TOOLS 4.1.5 APK: `jq`, `sha256` and `zreq`. They are copied to the app's files folder at start-up like curl, so a plugin that calls `/data/data/com.minikano.f50_sms/files/jq` (and `sha256`, `zreq`) finds them through the Phase 2 path map. SHA-256 pinned in `NOTICE.md` and `scripts/validate.sh`. `ufi_req`, `socat`, `ttyd`, `adb`, `iperf3` and `imei_reader` are not bundled: the Phase 0 corpus is still empty, so which tools plugins need is a guess (jq, sha256 and zreq were the roadmap's likely three). Scheduled tasks were not added (no plugin is known to need them).
+- New **Plugin store** (Plugins card): load an index JSON from an https address, search, page through it, install with a confirm. Fetching runs in the browser page, so the app still makes no network request of its own. Before the confirm it shows the file's SHA-256 (refuses a file that differs from the hash in the index), the commands and bundled tools the source names, risky patterns and which plugins would be replaced. The scan is a text search and is not a safety check. Format and limits: `docs/PLUGIN_STORE.md`. No default store address is built in.
+- Store URL rules: https only, a domain name (no IP address, localhost, `.local` and similar), no credentials in the URL, redirects re-checked, 1 MB index / ~4 MB plugin / 20 s limits, no cookies or referrer sent.
+- Security pass: `POST /api/proxy/*` now needs the root gate (a POST can change router settings through any router path); `GET` stays open. This changes the Phase 3 decision that proxy is not root-gated.
+- Tests: `scripts/test_ufi_store.js` (SHA-256 against Node's for the padding edge lengths, URL rules, index parsing, paging, scan; run by `validate.sh`). `validate.sh` also pins the three new binaries and checks the store pieces exist.
+- Phase 0 tools added in `scripts/phase0/`: `scan_plugins.js` (static per-plugin table of helpers, `/api` routes, UFI_DATA fields, UFI paths, bundled tools and shell use, from UFI `.txt` exports or loose files; text, `--json` or `--csv`) and `deob_requests_js.js` (decodes an obfuscator.io style string table; run on UFI 4.1.5 `requests.js` it replaced 1556 string calls with 0 failures and showed `/root_shell`, `/user_shell`, `/get_custom_head`, `/set_custom_head`, `/get_cookie`, `/set_cookie`, `/adb_alive`, `/version_info`, `/update_admin_pwd`). Test: `scripts/test_phase0.js`. The scanner is static (run-time URLs show as "dynamic") and has only run on synthetic plugins; the Playwright harness is still not written.
+- Version 1.4.0 / versionCode 400 (app, web page, validation, README).
+- Not shown yet: Kotlin compiling (still no Kotlin, Gradle or Android SDK in the build sandbox); the store dialog and installs in a browser; the new binaries running on an F50 (`sha256` has no section headers and was only checked as an ELF file, never run); a real UFI plugin corpus passing.
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 3: modem data and router API
+
+- `window.UFI_DATA` is now filled by a poller that runs only while an enabled plugin mentions `UFI_DATA`. It asks the router for the fields the plugins read (`UFI_DATA.name` or `UFI_DATA['name']`; the router's own field names are the keys) through `/api/zte`, 20 fields per request, one request at a time. It polls every 5 s, waits longer (doubling to 60 s) while the router does not answer, pauses while the page is hidden, and stops when no enabled plugin uses it. A plugin that reads it in a way the page cannot see (a computed key, `Object.keys`) gets a default list of usual ZTE names. UFI-TOOLS' own full field list could not be read (its `main.js` is obfuscated), so that default list is a best guess. `cpuUsageInfo` is computed by UFI-TOOLS itself and stays empty. `lan_ipaddr` still falls back to the bridge interface.
+- New routes: `GET /api/goform/goform_get_cmd_process` and `POST /api/goform/goform_set_cmd_process` (query, form or JSON parameters; the AD token is added for a set, like `/api/zte`; the router's raw reply is returned), `GET|POST /api/proxy/<path>` (a plain path on the saved gateway, with the router session), `GET /api/get_cookie` and `POST /api/set_cookie` (body `{cookie}`; both root-gated, because the cookie signs in to the router). UFI's request and reply shapes for these were not seen; `get_cookie` replies `{cookie}` and `set_cookie` replies `{result, error}` by analogy with `set_custom_head`.
+- The target is always the saved gateway. A request can only choose a path: `GatewayProxy.safePath` refuses another host (`//host`, `http://...`, `host@...`), `..`, encoded separators and anything outside `[A-Za-z0-9._/-]`. `ZteClient.proxy` also checks the saved address with `RouterHost` before every call. Only the two goform endpoints are forwarded by `/api/goform/*`.
+- Tests: `GatewayProxyTest` (Kotlin; includes the cases for a request to any host other than the saved gateway) and `scripts/test_ufi_data.js` (run by `validate.sh`). Not compiled, not run in a browser, not run on a device.
+- Not changed: `/api/zte` and its stored encrypted credentials; version became 1.4.0 in Phase 4.
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 2: runtime API and paths
+
+- The UFI-TOOLS helpers now live in the page, not in each converted plugin. `createModal` follows UFI's signature: `onConfirm`, `confirmBtnText`, `closeBtnText`, `isMask`, `noBlur`, the `NAME_confirm` and `NAME_close` button ids, the id returned as `#NAME`, and the dialog closes only when `onClose` / `onConfirm` return a true value (a dialog with no `onClose` stays open, as in UFI). `showModal` and `closeModal` take a selector, a bare id (the old form), `time`, and a callback in either place; `closeModal(sel, 300, cb)` no longer throws. `createToast` runs its callback and treats a non-built-in colour as the text colour. `copyText` takes a string or a click event.
+- New globals: `runShellWithUser`, `createSwitch`, `createFormToast`, `setBtnLoading`, `formatBytes`, `escapeHtml`, `wait`, `debounce`, `t()` (English strings for the helpers only). Ported from UFI-TOOLS 4.1.5 (MIT, see `LICENSE-UFI-TOOLS`).
+- Same-origin `/api/` calls made with `fetch` by a plugin get the session token added; root-capable routes over plain HTTP ask the usual "not encrypted" question first. UFI's `kano-t`, `kano-sign` and `authorization` headers are accepted and ignored.
+- New routes, all behind the same root gate as `/api/shell`: `POST /api/root_shell` and `POST /api/one_click_shell` (body `{command, timeout}`, run as root) and `POST /api/user_shell` (body `{command}`, runs as the app's own user, no `su`, 20 s limit, 256 KB output cap). Replies are `{result, error}`. `user_shell` returns `result` as `{content: text}`, which is how UFI's own upload code reads it. The `one_click_shell` request and reply shapes in UFI are not confirmed; it is treated as `root_shell`.
+- New `UfiPathMap.kt`: before any root command from `/api/shell` or the aliases runs, `/sdcard/ufi_tools_boot.sh` (and `/storage/emulated/0/...`) becomes `/data/local/matchitool/boot.sh`, and `/data/data/com.minikano.f50_sms/...` becomes this app's files folder (UFI's `files/uploads`, `files/curl` and `files/sendat` therefore point at this app's uploads folder, curl and sendat). Whole prefixes only. The audit log still records the command as sent.
+- `POST /api/upload_img` now replies `url: "/uploads/NAME"` as UFI does, so a plugin that cuts `/uploads/` off gets the right file name. `/api/upload` still replies `/api/uploads/NAME`.
+- The Bypass tool's ~200-line embedded compatibility block is gone; it uses the page's `window.__matchiCompat` (same names as before) and the page's modal helpers. Converted plugins that carry their own copy (`window.__matchiCompat || ...`) adopt the page's.
+- Tests: `UfiPathMapTest` (Kotlin) and `scripts/test_ufi_host.js` (fake DOM; run by `validate.sh`). Not compiled, not run in a browser and not run on a device.
+- On purpose different from UFI: toast text is plain text, not HTML, and every toast still stays 4 s whatever delay is passed (existing rule); a dialog's `el` is the box unless `isMask` is set.
+- Not changed: version became 1.4.0 in Phase 4.
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 1: plugin format and manager
+
+- UFI-TOOLS plugin files (one `.txt` of `<!-- [KANO_PLUGIN_START] name -->` ... `<!-- [KANO_PLUGIN_END] name -->` blocks) can be added in Plugins. Each block is stored as its own `.html` plugin beside the `.js` ones, with UFI's own marker pattern. Inside text is kept as it was; script tags are re-created so they run, and style/meta tags go to the page head in saved order.
+- New **Export UFI .txt** / **Import UFI .txt** buttons. Export writes `.js` plugins as `<script>` blocks. Limits: 1 MB per block, 50 plugins, 4 MB per UFI file (UFI's own), 5 MB stored in total.
+- Load order: Move up / Move down buttons and drag-and-drop in the plugin list. The order is saved (`POST /api/plugins/order`, root-gated like uploads) and applies the next time the page loads. Plugins never ordered still load alphabetically.
+- `GET /api/plugins` now also returns `kind` (`js` or `html`) and `title`. `POST /api/plugins` accepts an optional `title` (the block's original name, which may hold spaces or non-Latin letters) and `.html` names. Deleting a plugin also forgets its order and title.
+- Tests: `PluginOrderTest` (Kotlin) and `scripts/test_ufi_bundle.js` (run by `validate.sh`). Not compiled or run on a device yet, and the DOM injection needs a browser test.
+- Not changed: version became 1.4.0 in Phase 4.
+
 # MatchiTOOL 1.3.9 - bundled curl
 
 - Android has no `curl`, so plugins that download files (ADGuard Home and other converted UFI-TOOLS plugins) stopped at "Downloading 0%" with no error. The app now ships an arm64 `curl` (`assets/bin/curl`, curl 8.0.1-DEV from the UFI-TOOLS V4.0.0 APK) and copies it to `files/curl` at start, using the same copy-then-rename as `sendat`.

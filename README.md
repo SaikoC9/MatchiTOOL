@@ -42,7 +42,7 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
-Current source version: **1.3.9** (versionCode **309**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.4.0** (versionCode **400**). The Android package and embedded web UI version are kept in sync.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
@@ -91,6 +91,12 @@ The web API rejects every source that is not this device or inside the ZTE hotsp
 - Browser settings: `// @matchi-localstorage myplugin_` removes the saved keys that start with that prefix. The prefix has to start with the plugin's own name (letters and digits, any case) and can never match MatchiTOOL's own keys.
 - Not covered: processes the plugin started, firewall rules, uploaded files, anything outside the allowed folders. A plugin that needs those should clean up in its own code.
 
+**UFI-TOOLS plugin API (Phase 2, 1.4.0):** the page defines UFI's helpers (`createModal`, `showModal`, `closeModal`, `createToast`, `copyText`, `runShellWithUser`, `createSwitch`, `createFormToast`, `setBtnLoading`, `formatBytes`, `escapeHtml`, `wait`, `debounce`, `t`), and the host serves `/api/root_shell`, `/api/user_shell` and `/api/one_click_shell`. A root command that names UFI's boot script or UFI's files folder is rewritten to MatchiTOOL's own (`/data/local/matchitool/boot.sh`, this app's files folder). `runShellWithUser` runs as the app's own user, not root.
+
+**UFI-TOOLS router API (Phase 3, 1.4.0):** `window.UFI_DATA` is kept current while an enabled plugin uses it, and the host serves `/api/goform/*`, `/api/proxy/*`, `/api/get_cookie` and `/api/set_cookie`. These only ever talk to the saved router address (a local IPv4 address); a plugin can choose a path on it, never another host.
+
+**Plugin store and bundled tools (Phase 4, 1.4.0):** Plugins has a **Plugin store…** button that loads an https index (format in `docs/PLUGIN_STORE.md`), shows each file's SHA-256 and a scan of the commands it names before you confirm. The browser page does the downloading; the app makes no request. The app also carries UFI-TOOLS' `jq`, `sha256` and `zreq` (arm64) next to curl and sendat; a plugin reaches them at the UFI path `/data/data/com.minikano.f50_sms/files/NAME`, which is rewritten to this app's folder. `POST /api/proxy/*` needs a fresh sign-in, like other root-capable routes. None of this has been compiled or run on a device.
+
 The web bridge retains the existing plugin-facing functions (`runShellWithRoot`, `createToast`, `createModal`, and
 `showModal`) and the `.actions-buttons` insertion point. Plugin compatibility is best-effort: plugins may still rely on
 specific modem firmware, device nodes, AT command tools, or shell utilities. The bundled `sendat` binary must match the
@@ -132,7 +138,7 @@ See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression,
 - **Root temp files:** the root shell keeps its pid/output files in the root-only folder `/data/local/matchitool/tmp`.
 
 
-Current source release: **1.3.9**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
+Current source release: **1.4.0**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
 
 
 ### Log Catcher 1.3.5
