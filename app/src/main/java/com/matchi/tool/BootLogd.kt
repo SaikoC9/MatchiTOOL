@@ -75,6 +75,15 @@ object BootLogd {
         return JSONObject().put("ok", ok).put("error", if (ok) JSONObject.NULL else r.content.take(200))
     }
 
+    /** Deletes one rotated capture file (the caller checks the name with LogBasket.bootDeletable and the root gate). */
+    fun deleteFile(ctx: Context, name: String): Boolean {
+        if (!BootLogdModel.isSafeFileName(name) || !LogBasket.bootDeletable(name)) return false
+        val r = RootShell.run(ctx, "rm -f \"${BootLogdModel.LOG_DIR}/$name\" && echo DELETED=1", 10_000)
+        val ok = r.success && r.content.contains("DELETED=1")
+        LogCatcher.log("INFO", TAG, "Boot file $name deleted: $ok")
+        return ok
+    }
+
     /** Installed state, running state, heartbeat, restarts and disk use, from one root call. */
     fun status(ctx: Context): JSONObject {
         val bundled = BootLogdModel.scriptVersion(bundledScript(ctx))

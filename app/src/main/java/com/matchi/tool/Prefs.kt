@@ -21,6 +21,22 @@ object Prefs {
         if (enabled) d.remove(name) else d.add(name)
         sp(c).edit().putStringSet("disabled", d).apply()
     }
+    /** Plugin load order (JSON array of file names) and display titles (JSON object, file name to title) for UFI-TOOLS blocks. */
+    fun pluginOrder(c: Context): List<String> = parsePluginOrder(sp(c).getString("plugin_order", null))
+    fun setPluginOrder(c: Context, names: List<String>) {
+        sp(c).edit().putString("plugin_order", org.json.JSONArray(names.distinct()).toString()).apply()
+    }
+    fun pluginTitles(c: Context): Map<String, String> = parsePluginTitles(sp(c).getString("plugin_titles", null))
+    fun setPluginTitle(c: Context, name: String, title: String?) {
+        val m = pluginTitles(c).toMutableMap()
+        if (title.isNullOrBlank()) m.remove(name) else m[name] = title
+        sp(c).edit().putString("plugin_titles", org.json.JSONObject(m as Map<*, *>).toString()).apply()
+    }
+    /** Forget a deleted plugin's place in the order and its title. */
+    fun forgetPlugin(c: Context, name: String) {
+        setPluginOrder(c, pluginOrder(c).filter { it != name })
+        setPluginTitle(c, name, null)
+    }
     /** True once the root temp files that older versions left in /data/local/tmp have been deleted (see HostService.cleanOldTmpFiles). */
     fun oldTmpCleaned(c: Context): Boolean = sp(c).getBoolean("old_tmp_cleaned", false)
     fun setOldTmpCleaned(c: Context) { sp(c).edit().putBoolean("old_tmp_cleaned", true).apply() }

@@ -14,7 +14,7 @@ import java.security.MessageDigest
 
 class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.0.0.1") : NanoHTTPD(bindAddress, port) {
     private val pluginDir = File(ctx.filesDir, "plugins").apply { mkdirs() }
-    private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.js$")
+    private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.(js|html)$")
     // Files handed to plugins (UFI-TOOLS plugins expect an upload endpoint). Root plugins read them from this folder.
     private val uploadDir = File(ctx.filesDir, "uploads").apply { mkdirs() }
     private val uploadNameRx = Regex("^[A-Za-z0-9._-]{1,120}$")
@@ -40,6 +40,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return null
     }
 
+    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")
+
     init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
     /**
@@ -59,6 +61,13 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val curl = File(ctx.filesDir, "curl")
         if (refresh || !curl.exists()) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
+        // jq, sha256 and zreq (arm64, from UFI-TOOLS 4.1.5) are for plugins that call them by the UFI path
+        // /data/data/com.minikano.f50_sms/files/NAME, which UfiPathMap rewrites to this folder. Same copy-then-rename as curl.
+        for (tool in BUNDLED_TOOLS) {
+            val dest = File(ctx.filesDir, tool)
+            if (refresh || !dest.exists()) installBundledBinary("bin/$tool", dest)
+            try { dest.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
+        }
         // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
         if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
     }
@@ -112,6 +121,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         return x == "::1" || x == "0:0:0:0:0:0:0:1" || x == "localhost" || x.startsWith("127.")
     }
 
+    private val snapshotBusy = java.util.concurrent.Semaphore(1)
     private val tooMany = object : Response.IStatus {
         override fun getRequestStatus() = 429
         override fun getDescription() = "429 Too Many Requests"
@@ -141,6 +151,32 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // have been sent before the body was consumed, so close the connection instead of letting the leftover bytes
         // be parsed as the start of the next keep-alive request.
         if (it.status.requestStatus >= 400) it.addHeader("Connection", "close")
+    }
+
+    /** UFI-TOOLS shell reply: {"result": ..., "error": ...}; the one that does not apply is JSON null. */
+    private fun ufiShellReply(result: Any?, error: String?): Response =
+        json(Response.Status.OK, JSONObject().put("result", result ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL))
+
+    /**
+     * Parameters of a forwarded router request: the query string, plus for a POST the body (a JSON object, or a form when it
+     * does not start with "{"). At most 64 KB of body is read; a missing Content-Length means an empty body.
+     */
+    private fun gatewayParams(s: IHTTPSession): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for ((k, v) in s.parameters) v.firstOrNull()?.let { out[k] = it }
+        if (s.method == Method.POST) {
+            val len = s.headers["content-length"]?.trim()?.toIntOrNull() ?: 0
+            if (len < 0 || len > 65536) throw IllegalArgumentException("request body too large")
+            if (len > 0) {
+                val buf = ByteArray(len)
+                var off = 0
+                while (off < len) { val n = s.inputStream.read(buf, off, len - off); if (n < 0) break; off += n }
+                val text = String(buf, 0, off, Charsets.UTF_8).trim()
+                if (text.startsWith("{")) { val o = JSONObject(text); for (k in o.keys()) out[k] = o.optString(k) }
+                else out.putAll(GatewayProxy.parseForm(text))
+            }
+        }
+        return out
     }
 
     private fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json; charset=utf-8", o.toString()))
@@ -246,9 +282,18 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         }
         if (!authed(s)) return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again"))
 
-        return try { route(s, uri) } catch (e: Exception) {
+        val pluginKind = PluginLog.kindOf(s.method.name, uri)
+        val t0 = System.nanoTime()
+        val resp = try { route(s, uri) } catch (e: Exception) {
             json(Response.Status.BAD_REQUEST, JSONObject().put("error", e.message ?: "bad request"))
         }
+        // Plugin-facing routes are logged (route kind, status, time; never commands, queries, cookies or bodies).
+        if (pluginKind != null) {
+            val ms = (System.nanoTime() - t0) / 1_000_000L
+            val code = resp.status.requestStatus
+            LogCatcher.log(PluginLog.level(code, ms), pluginKind, PluginLog.message(s.method.name, uri, code, ms))
+        }
+        return resp
     }
 
 
@@ -280,6 +325,20 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         "if [ -e '$p' ] || [ -L '$p' ]; then if $links; then echo \"SKIPPED $p\"; " +
         "elif rm -rf -- '$p'; then echo \"REMOVED $p\"; else echo \"FAILED $p\"; fi; fi"
     } + "\ntrue"
+
+    /** Last [maxBytes] of a file as text, and whether the start was cut (the first partial line is dropped then). */
+    private fun readTail(file: File, maxBytes: Long): Pair<String, Boolean> {
+        val len = file.length()
+        val start = (len - maxBytes).coerceAtLeast(0L)
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(start)
+            val buf = ByteArray((len - start).toInt())
+            raf.readFully(buf)
+            var text = String(buf, Charsets.UTF_8)
+            if (start > 0) text = text.substringAfter('\n', "")
+            return text to (start > 0)
+        }
+    }
 
     private val auditLock = Any()
 
@@ -593,15 +652,15 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
      * Multipart upload (field "file") for plugins: {"ok":true,"name":"x.tar.gz","url":"/uploads/x.tar.gz","path":"..."}.
      * The name is sanitised to [A-Za-z0-9._-]; an existing file of the same name is replaced.
      */
-    private fun uploadFile(s: IHTTPSession): Response {
+    private fun uploadFile(s: IHTTPSession, viaUfiRoute: Boolean = false): Response {
         val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
         if (len < 0 || len > MAX_UPLOAD_BYTES + 1_000_000L)
             throw IllegalArgumentException("Upload must be at most ${MAX_UPLOAD_BYTES / 1024 / 1024} MB")
         auditShell(s.remoteIpAddress ?: "?", "len=$len", "upload")
-        return withUploadSlot(len) { uploadFileLocked(s) }
+        return withUploadSlot(len) { uploadFileLocked(s, viaUfiRoute) }
     }
 
-    private fun uploadFileLocked(s: IHTTPSession): Response {
+    private fun uploadFileLocked(s: IHTTPSession, viaUfiRoute: Boolean): Response {
         val files = HashMap<String, String>()
         s.parseBody(files)
         val tmp = files["file"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"file\")")
@@ -617,8 +676,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 throw IllegalArgumentException("Upload folder is full; delete old uploads first")
             if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true) }
             dest.setReadable(true, false)
+            // UFI's /upload_img replies "/uploads/NAME" and its plugins cut that prefix off to get the file name; /api/upload keeps "/api/uploads/NAME".
+            val url = (if (viaUfiRoute) "/uploads/" else "/api/uploads/") + name
             return json(Response.Status.OK, JSONObject().put("ok", true).put("name", name)
-                .put("url", "/api/uploads/$name").put("path", dest.absolutePath).put("size", dest.length()))
+                .put("url", url).put("path", dest.absolutePath).put("size", dest.length()))
         } finally {
             try { if (tmp.exists()) tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.uploadFileLocked", e) }
         }
@@ -714,7 +775,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         // JavaScript errors from the web page go into the app log (the page sends at most 20 per load, text is clipped here too).
         uri == "/api/logs/clienterror" && s.method == Method.POST -> {
             val req = body(s, 8 * 1024)
-            LogCatcher.log("ERROR", "WebPage", "JS error: " + req.optString("msg").take(500) +
+            val plugin = PluginLog.pluginFromSource(req.optString("src"))
+            LogCatcher.log("ERROR", if (plugin != null) "plugin/js" else "WebPage", (if (plugin != null) "[$plugin] " else "") + "JS error: " + req.optString("msg").take(500) +
                 (req.optString("src").takeIf { it.isNotBlank() }?.let { " @ " + it.take(200) } ?: "") +
                 (if (req.has("line")) ":" + req.optInt("line") else ""))
             json(Response.Status.OK, JSONObject().put("ok", true))
@@ -809,6 +871,113 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             LogCatcher.sessions(ctx).forEach { f -> rows.put(JSONObject().put("name", f.name).put("size", f.length()).put("modified", f.lastModified())) }
             json(Response.Status.OK, JSONObject().put("sessions", rows).put("bootEnabled", BootLogd.enabled(ctx)))
         }
+        // Log basket (step 1): one list of every log file. Boot files are added only when capture is installed and the root gate passes.
+        uri == "/api/logs/basket" && s.method == Method.GET -> {
+            val rows = ArrayList<LogBasket.Row>()
+            val activeName = LogCatcher.currentSession()?.let { "$it.log" }
+            LogCatcher.sessions(ctx).forEach { f -> rows.add(LogBasket.Row(LogBasket.SESSION, f.name, f.length(), f.lastModified(), "", f.name == activeName)) }
+            File(ctx.filesDir, "logs/exports").listFiles()?.filter { it.isFile && it.extension == "txt" }
+                ?.forEach { f -> rows.add(LogBasket.Row(LogBasket.EXPORT, f.name, f.length(), f.lastModified())) }
+            File(ctx.filesDir, "shell_audit.log").takeIf { it.isFile }
+                ?.let { f -> rows.add(LogBasket.Row(LogBasket.AUDIT, f.name, f.length(), f.lastModified())) }
+            val installed = BootLogd.enabled(ctx)
+            val rootOk = installed && rootGate(s) == null
+            if (rootOk) {
+                try {
+                    val files = BootLogd.files(ctx).optJSONArray("files") ?: JSONArray()
+                    for (i in 0 until files.length()) {
+                        val o = files.getJSONObject(i)
+                        rows.add(LogBasket.Row(LogBasket.BOOT, o.optString("name"), o.optLong("size"), 0L, o.optString("modified"), false, true))
+                    }
+                } catch (e: Exception) { Quiet.note("WebServer.logsBasket", e) }
+            }
+            val out = JSONArray()
+            LogBasket.arrange(rows).forEach { r ->
+                out.put(JSONObject().put("id", r.id).put("type", r.type).put("name", r.name).put("size", r.size)
+                    .put("modified", r.modified).put("modifiedText", r.modifiedText).put("active", r.active).put("rootOnly", r.rootOnly)
+                    .put("canView", r.canView).put("canCopy", r.canCopy).put("canDelete", r.canDelete))
+            }
+            json(Response.Status.OK, JSONObject().put("rows", out).put("running", LogCatcher.isRunning())
+                .put("bootNote", LogBasket.bootNote(installed, rootOk)))
+        }
+        // Log basket (step 6): one redacted snapshot file (version, plugin problem counts, session tail) saved as an export row, so a before and an after run can be compared.
+        uri == "/api/logs/snapshot" && s.method == Method.POST -> {
+            if (!snapshotBusy.tryAcquire()) json(tooMany, JSONObject().put("error", "A snapshot is already being made")) else try {
+            val label = body(s).optString("label", "").takeIf { it in LogSnapshot.LABELS } ?: ""
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+            // Counts cover every kept part of the newest session (a session rotates into "_part" files at 8 MB), not just the 3000-line recent buffer,
+            // so a before and an after snapshot taken at different times still compare like with like. Capped at 64 MB, oldest part dropped first.
+            val all = LogCatcher.sessions(ctx)
+            val base = all.firstOrNull()?.nameWithoutExtension?.substringBefore("_part")
+            val parts = if (base == null) emptyList() else all.filter { it.nameWithoutExtension.substringBefore("_part") == base }.sortedBy { it.lastModified() }
+            val use = ArrayList<File>(); var budget = 64L * 1024 * 1024
+            for (f in parts.asReversed()) { if (budget - f.length() < 0 && use.isNotEmpty()) break; budget -= f.length(); use.add(0, f) }
+            val counter = LogSnapshot.Counter(); val tail = java.util.ArrayDeque<String>()
+            val fromFiles = try {
+                for (f in use) f.useLines(Charsets.UTF_8) { seq -> for (l in seq) { counter.add(l); tail.addLast(l); if (tail.size > LogSnapshot.TAIL_LINES) tail.removeFirst() } }
+                use.isNotEmpty()
+            } catch (_: Exception) { false }
+            val (counts, examined, tailLines, source) = if (fromFiles)
+                Quad(counter.counts(), counter.examined, tail.toList(), "newest session, all kept parts (${use.size} file(s))" + (if (LogCatcher.isRunning()) ", still logging" else ""))
+            else {
+                val buf = if (LogCatcher.isRunning()) LogCatcher.snapshot().map { it.line() } else emptyList()
+                Quad(LogSnapshot.count(buf), buf.size, buf, if (buf.isEmpty()) "no session available" else "running session (recent buffer only: no session file yet)")
+            }
+            @Suppress("DEPRECATION")
+            val version = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (_: Exception) { "" }
+            val red = Redactor()
+            val text = red.text(LogSnapshot.render(version, stamp, label, source, counts, examined, tailLines)) + "\nPrivate data hidden by the snapshot: " + red.summary() + "\n"
+            val dir = File(ctx.filesDir, "logs/exports").apply { mkdirs() }
+            val file = File(dir, LogSnapshot.fileName(label, stamp))
+            file.writeText(text)
+            json(Response.Status.OK, JSONObject().put("ok", true).put("id", LogBasket.EXPORT + ":" + file.name).put("name", file.name).put("lines", examined).put("source", source))
+            } finally { snapshotBusy.release() }
+        }
+        // Log basket (step 2): the last lines of one session, export or audit file. Boot files keep their own root route.
+        uri == "/api/logs/basket/read" && s.method == Method.GET -> {
+            val parsed = LogBasket.parseId(s.parameters["id"]?.firstOrNull() ?: "") ?: throw IllegalArgumentException("bad log id")
+            val full = s.parameters["full"]?.firstOrNull() == "1"
+            val tail = if (full) LogBasket.TAIL_MAX else LogBasket.clampTail(s.parameters["tail"]?.firstOrNull()?.toIntOrNull() ?: LogBasket.TAIL_DEFAULT)
+            val file: File? = when (parsed.first) {
+                LogBasket.SESSION -> LogCatcher.sessions(ctx).firstOrNull { it.name == parsed.second }
+                LogBasket.EXPORT -> File(ctx.filesDir, "logs/exports/" + parsed.second).takeIf { it.isFile && it.extension == "txt" }
+                LogBasket.AUDIT -> File(ctx.filesDir, "shell_audit.log").takeIf { it.isFile && parsed.second == "shell_audit.log" }
+                else -> throw IllegalArgumentException("boot files are read with /api/logs/boot/read")
+            }
+            if (file == null) json(Response.Status.NOT_FOUND, JSONObject().put("error", "Log not found"))
+            else {
+                val (text, cut) = readTail(file, 2L * 1024 * 1024)
+                val lines = LogBasket.tailLines(text, tail)
+                json(Response.Status.OK, JSONObject().put("id", s.parameters["id"]?.firstOrNull()).put("size", file.length())
+                    .put("lines", JSONArray(lines)).put("shown", lines.size)
+                    .put("truncated", cut || lines.size >= tail))
+            }
+        }
+        // Log basket: delete finished sessions, exports, the audit log and rotated boot files. Audit and boot rows need the root gate; clearing the audit log leaves a new line saying so. The active session and the live boot files are refused per row.
+        uri == "/api/logs/basket/delete" && s.method == Method.POST -> {
+            val ids = body(s).optJSONArray("ids") ?: JSONArray()
+            if (ids.length() > 100) throw IllegalArgumentException("at most 100 rows at once")
+            val results = JSONArray()
+            for (i in 0 until ids.length()) {
+                val id = ids.optString(i, "")
+                val p = LogBasket.parseId(id)
+                var reason = ""
+                val ok = if (p == null) false else when (p.first) {
+                    LogBasket.SESSION -> LogCatcher.deleteSession(ctx, p.second)
+                    LogBasket.EXPORT -> File(ctx.filesDir, "logs/exports/" + p.second).let { it.isFile && it.extension == "txt" && it.delete() }
+                    LogBasket.AUDIT -> if (p.second != "shell_audit.log") false
+                        else if (rootGate(s) != null) { reason = "root sign-in needed"; false }
+                        else synchronized(auditLock) { File(ctx.filesDir, "shell_audit.log").let { it.isFile && it.delete() } }
+                            .also { done -> if (done) auditShell(s.remoteIpAddress ?: "?", "audit log cleared from the log basket", "audit-cleared") }
+                    LogBasket.BOOT -> if (!LogBasket.bootDeletable(p.second)) { reason = "only rotated capture files can be deleted"; false }
+                        else if (rootGate(s) != null) { reason = "root sign-in needed"; false }
+                        else BootLogd.deleteFile(ctx, p.second).also { auditShell(s.remoteIpAddress ?: "?", "boot file " + p.second, "logs-boot-delete") }
+                    else -> false
+                }
+                results.put(JSONObject().put("id", id).put("ok", ok).put("reason", reason))
+            }
+            json(Response.Status.OK, JSONObject().put("results", results))
+        }
         uri.startsWith("/api/logs/session/") && s.method == Method.GET -> {
             val name = uri.removePrefix("/api/logs/session/")
             val file = LogCatcher.sessions(ctx).firstOrNull { it.name == name }
@@ -851,8 +1020,32 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
             val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
             auditShell(s.remoteIpAddress ?: "?", command)
-            val r = RootShell.run(ctx, command, t)
+            val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
+        }
+        // UFI-TOOLS aliases. Request {"command", "timeout"}; reply {"result", "error"}. UFI's kano-t / kano-sign / authorization
+        // headers are never read, so they are ignored. root_shell and one_click_shell run as root (same gate, limits and path
+        // mapping as /api/shell); user_shell runs as the app's own user. UFI's one_click_shell shapes are not confirmed: it is
+        // treated as root_shell.
+        (uri == "/api/root_shell" || uri == "/api/one_click_shell") && s.method == Method.POST -> rootGate(s) ?: run {
+            val req = body(s)
+            val command = req.optString("command")
+            if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
+                throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
+            val t = req.optLong("timeout", 10000).coerceIn(1000, 120000)
+            auditShell(s.remoteIpAddress ?: "?", command, if (uri == "/api/root_shell") "root_shell" else "one_click_shell")
+            val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
+            ufiShellReply(if (r.success) r.content else null, if (r.success) null else r.content.ifBlank { "command failed" })
+        }
+        uri == "/api/user_shell" && s.method == Method.POST -> rootGate(s) ?: run {
+            val req = body(s)
+            val command = req.optString("command")
+            if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
+                throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
+            auditShell(s.remoteIpAddress ?: "?", command, "user_shell")
+            val r = UserShell.run(ctx.filesDir, command, 20000)
+            // UFI's own page reads this result as an object with a "content" text (see its upload rename code).
+            ufiShellReply(if (r.success) JSONObject().put("content", r.content) else null, if (r.success) null else r.content.ifBlank { "command failed" })
         }
         // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
         uri == "/api/imei/apply" && s.method == Method.POST -> rootGate(s) ?: run {
@@ -873,6 +1066,25 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val q = "'" + cmd.replace("'", "'\\''") + "'"
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
+        }
+        // UFI-TOOLS route GET /api/AT?command=AT+CSQ&slot=0 (UFI's own tools and plugins call it; see ufi_req's help text).
+        // The reply shape of UFI's route could not be confirmed (its server code is compiled), so this sends both families
+        // of fields a plugin may read: {"success":true,"result":"<modem text>","error":null}, or on failure
+        // {"success":false,"result":null,"error":"<text>"}. Same gate as /api/at: pure read commands skip the sign-in age
+        // check, everything else (NV writes, AT+CFUN, AT^...) needs it. Writes are audited (hash and length only).
+        uri == "/api/AT" && s.method == Method.GET -> run {
+            val cmd = AtBatch.checkCommand(s.parameters["command"]?.firstOrNull())
+            val slot = AtBatch.checkSlot(s.parameters["slot"]?.firstOrNull())
+            val readOnly = RootGate.isReadOnlyAt(cmd)
+            if (!readOnly) rootGate(s)?.let { return@run it }
+            if (readOnly) auditBusy(s.remoteIpAddress ?: "?", "at-ufi") else auditShell(s.remoteIpAddress ?: "?", cmd, "at-ufi-write")
+            val q = "'" + cmd.replace("'", "'\\''") + "'"
+            val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
+            val text = r.content.trim()
+            json(Response.Status.OK, JSONObject()
+                .put("success", r.success)
+                .put("result", if (r.success) text else JSONObject.NULL)
+                .put("error", if (r.success) JSONObject.NULL else text.ifBlank { "command failed" }))
         }
         // Several AT commands in ONE root call: {"commands":["AT+CSQ","AT+COPS?"],"slot":0} -> {"results":["...","..."]}
         uri == "/api/at/batch" && s.method == Method.POST -> run {
@@ -908,6 +1120,35 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val raw = ZteClient.call(ctx, op, p, req.optInt("retry", 0).coerceIn(0, 2))
             val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
             json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed).put("info", if (op == "set") ZteClient.lastInfo else ""))
+        }
+        // UFI-TOOLS router routes. The target is always the saved gateway (ZteClient never takes a host from a request).
+        // goform: GET query = router "get"; POST (form or JSON body) = router "set" with the AD token added, as /api/zte does.
+        uri.startsWith("/api/goform/") && (s.method == Method.GET || s.method == Method.POST) -> {
+            val name = uri.removePrefix("/api/goform/")
+            GatewayProxy.goformPath(name) ?: throw IllegalArgumentException("unknown goform endpoint")
+            val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
+            val isSet = name == "goform_set_cmd_process"
+            if (isSet != (s.method == Method.POST)) throw IllegalArgumentException(if (isSet) "goform_set_cmd_process needs POST" else "goform_get_cmd_process needs GET")
+            val raw = ZteClient.call(ctx, if (isSet) "set" else "get", p.filterKeys { it != "isTest" })
+            harden(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", raw))
+        }
+        // 1.4.0 security pass: a POST can change router settings through any path on the router, with the router session this
+        // app holds, so it needs the same fresh sign-in as the other root-capable routes. A GET stays open (read-only plugins).
+        uri.startsWith("/api/proxy/") && (s.method == Method.GET || s.method == Method.POST) -> run {
+            if (s.method == Method.POST) rootGate(s)?.let { return@run it }
+            val path = GatewayProxy.proxyPath(uri.removePrefix("/api/proxy/")) ?: throw IllegalArgumentException("bad proxy path")
+            val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
+            val r = ZteClient.proxy(ctx, s.method.name, path, p)
+            harden(newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", r.body)).also { it.addHeader("X-Router-Status", r.code.toString()) }
+        }
+        // Router session cookie. Root-gated: whoever holds it is signed in to the router. Reply shapes are not confirmed from UFI-TOOLS.
+        uri == "/api/get_cookie" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, JSONObject().put("cookie", ZteClient.sessionCookie()))
+        uri == "/api/set_cookie" && s.method == Method.POST -> rootGate(s) ?: run {
+            val c = body(s).optString("cookie")
+            if (!GatewayProxy.cookieOk(c)) throw IllegalArgumentException("cookie must be printable ASCII, at most 2 KB")
+            auditShell(s.remoteIpAddress ?: "?", "set_cookie len=" + c.length, "set_cookie")
+            ZteClient.setSessionCookie(c)
+            json(Response.Status.OK, JSONObject().put("result", "success").put("error", JSONObject.NULL))
         }
         uri == "/api/zte/page" && s.method == Method.POST ->
             json(Response.Status.OK, JSONObject().put("ok", true).put("text", ZteClient.fetchPage(ctx, body(s).optString("path"))))
@@ -960,14 +1201,19 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")
             json(Response.Status.OK, JSONObject().put("ok", true).put("separate", Prefs.hasConsolePassword(ctx)))
         }
-        (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s)
+        (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s, uri == "/api/upload_img")
         uri == "/api/uploads/delete" && s.method == Method.POST -> deleteUpload(body(s).optString("name"))
         uri.startsWith("/api/uploads/") && s.method == Method.GET -> serveUpload(uri.removePrefix("/api/uploads/"))
         uri == "/api/plugins" && s.method == Method.GET -> {
             val off = Prefs.disabled(ctx)
             val arr = JSONArray()
-            pluginDir.listFiles { f -> f.name.endsWith(".js") }?.sortedBy { it.name }?.forEach {
-                arr.put(JSONObject().put("name", it.name).put("code", it.readText()).put("enabled", it.name !in off))
+            val all = pluginDir.listFiles { f -> f.isFile && (f.name.endsWith(".js") || f.name.endsWith(".html")) }
+                ?.associateBy { it.name }.orEmpty()
+            val titles = Prefs.pluginTitles(ctx)
+            for (n in orderPlugins(all.keys, Prefs.pluginOrder(ctx))) {
+                val f = all.getValue(n)
+                arr.put(JSONObject().put("name", n).put("code", f.readText()).put("enabled", n !in off)
+                    .put("kind", pluginKind(n)).put("title", titles[n] ?: n.removeSuffix(".js").removeSuffix(".html")))
             }
             json(Response.Status.OK, arr)
         }
@@ -981,12 +1227,24 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val reserved = setOf("AT_Radio.js", "Network_Diagnostics.js",
                 "Live_Status.js", "Memory_Cleaner.js", "Change_IP.js", "SMS.js", "Screen_Control.js", "Bypass.js")
             if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
-            val files = pluginDir.listFiles { f -> f.isFile && f.name.endsWith(".js") }?.toList().orEmpty()
+            val files = pluginDir.listFiles { f -> f.isFile && (f.name.endsWith(".js") || f.name.endsWith(".html")) }?.toList().orEmpty()
             if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
             val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes
             if (total > 5L * 1024L * 1024L) throw IllegalArgumentException("custom plugin storage limit is 5 MB")
             auditShell(s.remoteIpAddress ?: "?", name + "\n" + code, "plugin-upload")
             File(pluginDir, name).writeText(code)
+            // UFI-TOOLS blocks keep their original name (it may hold spaces or non-Latin letters) next to the safe file name.
+            if (req.has("title")) Prefs.setPluginTitle(ctx, name, cleanPluginTitle(req.optString("title")).ifBlank { null })
+            json(Response.Status.OK, JSONObject().put("ok", true))
+        }
+        // Save the load order: {"names":["B.js","A-1f2e3d.html"]}. Unknown names are dropped; plugins not listed load after them.
+        uri == "/api/plugins/order" && s.method == Method.POST -> rootGate(s) ?: run {
+            val arr = body(s).optJSONArray("names") ?: throw IllegalArgumentException("names must be an array")
+            if (arr.length() > 50) throw IllegalArgumentException("at most 50 names")
+            val have = pluginDir.listFiles { f -> f.isFile }?.map { it.name }?.toSet().orEmpty()
+            val names = (0 until arr.length()).map { arr.optString(it) }
+            if (names.any { !nameRx.matches(it) || it.contains("..") }) throw IllegalArgumentException("invalid plugin name")
+            Prefs.setPluginOrder(ctx, names.filter { it in have })
             json(Response.Status.OK, JSONObject().put("ok", true))
         }
         // What deleting this plugin would erase (read-only): its own data folder plus the paths it declares with
@@ -1019,6 +1277,7 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
             val deleted = File(pluginDir, name).delete()
             Prefs.setEnabled(ctx, name, true)
+            if (deleted) Prefs.forgetPlugin(ctx, name)
             val out = JSONObject().put("ok", deleted)
             if (plan != null && deleted) {
                 val script = eraseScript(plan.first)
@@ -1078,7 +1337,7 @@ private val SDCARD_PROTECTED = setOf("download", "dcim", "pictures", "movies", "
 private val TMP_OWN = Regex("^\\.?(matchi|mt_|sqlite)")
 
 /** The folder every plugin may use for its own data; it is erased automatically when the plugin is deleted. */
-internal fun pluginDataDir(pluginName: String): String = "$MATCHI_DIR/plugin_data/" + pluginName.removeSuffix(".js")
+internal fun pluginDataDir(pluginName: String): String = "$MATCHI_DIR/plugin_data/" + pluginName.removeSuffix(".js").removeSuffix(".html")
 
 /** Paths a plugin asks to have erased: header lines of the form `// @matchi-data /path` (first 400 lines, at most 20). */
 internal fun pluginDataDeclarations(code: String): List<String> =
@@ -1133,3 +1392,6 @@ internal fun symlinkAncestors(path: String): List<String> {
 /** Free space needed before accepting a body of [len] bytes: the body itself plus [UPLOAD_RESERVE_BYTES] left for the system. */
 internal const val UPLOAD_RESERVE_BYTES = 200L * 1024L * 1024L
 internal fun uploadSpaceOk(freeBytes: Long, len: Long): Boolean = len >= 0 && freeBytes - len >= UPLOAD_RESERVE_BYTES
+
+/** Four values returned together by the snapshot route. */
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)

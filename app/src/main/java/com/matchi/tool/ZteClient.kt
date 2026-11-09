@@ -247,6 +247,41 @@ object ZteClient {
         } catch (e: java.io.IOException) { throw IllegalStateException("Router web page unreachable: ${e.message ?: e.javaClass.simpleName}") }
     }
 
+
+    /** One router reply for the UFI-TOOLS style routes: the HTTP status and the raw body. */
+    class Raw(val code: Int, val body: String)
+
+    /**
+     * Sends [method] to [path] on the SAVED gateway only (the host is never taken from the caller) with the signed-in router
+     * session. [path] must already have passed [GatewayProxy.safePath]. Signs in first when a password is saved and there is
+     * no session, and once more after a 401 / 403. No AD token is added: the caller sends what the router expects.
+     */
+    fun proxy(ctx: Context, method: String, path: String, params: Map<String, String>): Raw = synchronized(lock) {
+        if (GatewayProxy.safePath(path) == null) throw IllegalArgumentException("bad path")
+        if (!RouterHost.isValid(Prefs.zteHost(ctx))) throw IllegalStateException("The saved router address is not a local address")
+        try {
+            val hasPass = Prefs.ztePass(ctx).isNotEmpty()
+            if (hasPass && cookie.isNotEmpty() && System.currentTimeMillis() - lastUse > IDLE_RELOGIN_MS) cookie = ""
+            if (cookie.isEmpty() && hasPass) login(ctx)?.let { throw IllegalStateException(it) }
+            var r = http(ctx, method, path, params)
+            if ((r.code == 401 || r.code == 403) && hasPass) {
+                login(ctx)?.let { throw IllegalStateException(it) }
+                r = http(ctx, method, path, params)
+            }
+            if (r.code < 400) lastUse = System.currentTimeMillis()
+            Raw(r.code, r.body)
+        } catch (e: java.io.IOException) {
+            found = ""
+            throw IllegalStateException("Router web API unreachable (${e.message ?: e.javaClass.simpleName})")
+        }
+    }
+
+    /** The router session cookie this app holds ("" when signed out). */
+    fun sessionCookie(): String = synchronized(lock) { cookie }
+
+    /** Replaces the held router session cookie; [GatewayProxy.cookieOk] must have passed. */
+    fun setSessionCookie(c: String) = synchronized(lock) { cookie = c; lastUse = System.currentTimeMillis() }
+
     /** op is "get" or "set". Returns the router's raw response body. */
     fun call(ctx: Context, op: String, params: Map<String, String>, retry: Int = 0): String = synchronized(lock) {
         try {

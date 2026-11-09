@@ -17,6 +17,27 @@ object AtBatch {
         return "##" + b.joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Checks one AT command from UFI's GET /api/AT?command=&slot= route. Same rules as /api/at: starts with AT, at most
+     * 300 characters, one line. Throws IllegalArgumentException (the server answers 400). Returns the trimmed command.
+     */
+    fun checkCommand(raw: String?): String {
+        val cmd = (raw ?: "").trim()
+        if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' || it == '\u0000' })
+            throw IllegalArgumentException("AT command must start with AT")
+        return cmd
+    }
+
+    /**
+     * The slot of the same route: missing means 0. Anything but "0" or "1" is refused, because a plugin that edits modem
+     * settings must not be silently sent to the other SIM slot (the older /api/at route clamps instead).
+     */
+    fun checkSlot(raw: String?): Int = when (raw?.trim()) {
+        null, "", "0" -> 0
+        "1" -> 1
+        else -> throw IllegalArgumentException("slot must be 0 or 1")
+    }
+
     /** One `sendat` call per command, each preceded by a marker line, and a final END marker. [commands] are already validated. */
     fun script(sendat: String, slot: Int, commands: List<String>, marker: String): String {
         val sb = StringBuilder()
