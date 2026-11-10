@@ -23,9 +23,47 @@
   const setVoNR = async (on) => (await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0))).includes('OK');
 
   const PRESETS = [
-    ['Signal quality', 'AT+CSQ'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
+    ['Signal quality', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
     ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'ATI'],
   ];
+
+  // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
+  const tidy = (t) => String(t || '').replace(/\r/g, '').replace(/([^\n])(OK|ERROR|\+CME ERROR:[^\n]*|\+CMS ERROR:[^\n]*)\s*$/, '$1\n$2').replace(/\n{2,}/g, '\n').trim();
+  const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+  // "Signal quality": AT+CSQ only covers 2G/3G/4G and answers 99,99 ("unknown") while the modem is on 5G. So also ask AT+CESQ
+  // (LTE RSRP/RSRQ) and the router's own 5G values, and say in words what a 99 means.
+  async function signal() {
+    log('> Signal quality (AT+CSQ, AT+CESQ, router)');
+    let csq = '', cesq = '';
+    try { csq = tidy(await at('AT+CSQ')); } catch (e) { log('AT+CSQ: ' + e.message); }
+    if (csq) {
+      log(csq);
+      const m = csq.match(/\+CSQ:\s*(\d+)/);
+      if (m) log(+m[1] === 99 ? '  -> CSQ 99 = unknown. Normal on 5G: CSQ only measures 2G/3G/4G. The 5G values are below.'
+        : '  -> signal strength ' + (-113 + 2 * Math.min(+m[1], 31)) + ' dBm');
+    }
+    try { cesq = tidy(await at('AT+CESQ')); } catch (e) { log('AT+CESQ: ' + e.message); }
+    if (cesq) {
+      log(cesq);
+      const m = cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+      if (m) {
+        const rsrq = +m[5], rsrp = +m[6];
+        log('  -> LTE RSRP ' + (rsrp <= 97 ? (-140 + rsrp) + ' dBm' : 'unknown') + ', RSRQ ' + (rsrq <= 34 ? (-19.5 + 0.5 * rsrq) + ' dB' : 'unknown'));
+      }
+    }
+    try {
+      const keys = ['network_type', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band'];
+      const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: keys.join(',') } }) });
+      const d = (r && r.data) || {}, v = (k) => (d[k] === undefined || d[k] === null || String(d[k]).trim() === '' ? null : String(d[k]).trim());
+      const row = (label, k, unit) => v(k) !== null && num(v(k)) !== null ? label + ' ' + v(k) + unit : (v(k) !== null && !unit ? label + ' ' + v(k) : null);
+      const lines = [v('network_type') && 'Network ' + v('network_type'),
+        row('5G RSRP', 'Z5g_rsrp', ' dBm'), row('5G RSRQ', 'Z5g_rsrq', ' dB'), row('5G SINR', 'Z5g_SINR', ' dB'),
+        row('5G PCI', 'nr5g_pci', ''), v('nr5g_action_band') && '5G band ' + v('nr5g_action_band'), row('5G channel', 'nr5g_action_channel', ''),
+        row('LTE RSRP', 'lte_rsrp', ' dBm'), row('LTE RSRQ', 'lte_rsrq', ' dB'), row('LTE SINR', 'lte_snr', ' dB'),
+        row('LTE PCI', 'lte_pci', ''), v('wan_active_band') && 'LTE band ' + v('wan_active_band')].filter(Boolean);
+      log(lines.length ? 'Router:\n  ' + lines.join('\n  ') : 'Router answered but has no signal values for this firmware.');
+    } catch (e) { log('Router values not available: ' + e.message + '. Live Status shows the signal from Android telephony instead.'); }
+  }
 
   function log(line) {
     const o = document.getElementById('matchi_at_out'); if (!o) return;
@@ -33,8 +71,9 @@
   }
   async function run(cmd) {
     cmd = (cmd || '').trim(); if (!cmd) return;
+    if (cmd === '@signal') return signal();
     log('> ' + cmd);
-    try { log(await at(cmd) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
+    try { log(tidy(await at(cmd)) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
 
   async function refreshSwitches() {

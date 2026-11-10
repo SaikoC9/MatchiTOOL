@@ -870,9 +870,47 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
   }
 
   const PRESETS = [
-    ['Signal quality', 'AT+CSQ'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
+    ['Signal quality', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
     ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
   ];
+
+  // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
+  const tidy = (t) => String(t || '').replace(/\r/g, '').replace(/([^\n])(OK|ERROR|\+CME ERROR:[^\n]*|\+CMS ERROR:[^\n]*)\s*$/, '$1\n$2').replace(/\n{2,}/g, '\n').trim();
+  const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+  // "Signal quality": AT+CSQ only covers 2G/3G/4G and answers 99,99 ("unknown") while the modem is on 5G. So also ask AT+CESQ
+  // (LTE RSRP/RSRQ) and the router's own 5G values, and say in words what a 99 means.
+  async function signal() {
+    log('> Signal quality (AT+CSQ, AT+CESQ, router)');
+    let csq = '', cesq = '';
+    try { csq = tidy(await at('AT+CSQ')); } catch (e) { log('AT+CSQ: ' + e.message); }
+    if (csq) {
+      log(csq);
+      const m = csq.match(/\+CSQ:\s*(\d+)/);
+      if (m) log(+m[1] === 99 ? '  -> CSQ 99 = unknown. Normal on 5G: CSQ only measures 2G/3G/4G. The 5G values are below.'
+        : '  -> signal strength ' + (-113 + 2 * Math.min(+m[1], 31)) + ' dBm');
+    }
+    try { cesq = tidy(await at('AT+CESQ')); } catch (e) { log('AT+CESQ: ' + e.message); }
+    if (cesq) {
+      log(cesq);
+      const m = cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+      if (m) {
+        const rsrq = +m[5], rsrp = +m[6];
+        log('  -> LTE RSRP ' + (rsrp <= 97 ? (-140 + rsrp) + ' dBm' : 'unknown') + ', RSRQ ' + (rsrq <= 34 ? (-19.5 + 0.5 * rsrq) + ' dB' : 'unknown'));
+      }
+    }
+    try {
+      const keys = ['network_type', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band'];
+      const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: keys.join(',') } }) });
+      const d = (r && r.data) || {}, v = (k) => (d[k] === undefined || d[k] === null || String(d[k]).trim() === '' ? null : String(d[k]).trim());
+      const row = (label, k, unit) => v(k) !== null && num(v(k)) !== null ? label + ' ' + v(k) + unit : (v(k) !== null && !unit ? label + ' ' + v(k) : null);
+      const lines = [v('network_type') && 'Network ' + v('network_type'),
+        row('5G RSRP', 'Z5g_rsrp', ' dBm'), row('5G RSRQ', 'Z5g_rsrq', ' dB'), row('5G SINR', 'Z5g_SINR', ' dB'),
+        row('5G PCI', 'nr5g_pci', ''), v('nr5g_action_band') && '5G band ' + v('nr5g_action_band'), row('5G channel', 'nr5g_action_channel', ''),
+        row('LTE RSRP', 'lte_rsrp', ' dBm'), row('LTE RSRQ', 'lte_rsrq', ' dB'), row('LTE SINR', 'lte_snr', ' dB'),
+        row('LTE PCI', 'lte_pci', ''), v('wan_active_band') && 'LTE band ' + v('wan_active_band')].filter(Boolean);
+      log(lines.length ? 'Router:\n  ' + lines.join('\n  ') : 'Router answered but has no signal values for this firmware.');
+    } catch (e) { log('Router values not available: ' + e.message + '. Live Status shows the signal from Android telephony instead.'); }
+  }
 
   function log(line) {
     const o = document.getElementById('matchi_at_out'); if (!o) return;
@@ -880,12 +918,13 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
   }
   async function run(cmd) {
     cmd = (cmd || '').trim(); if (!cmd) return;
+    if (cmd === '@signal') return signal();
     if (cmd.includes('|')) {   // preset made of several commands: run each, keep going when one is not supported
-      for (const c of cmd.split('|')) { log('> ' + c); try { log(await at(c) || '(no output)'); } catch (e) { log('Error: ' + e.message); } }
+      for (const c of cmd.split('|')) { log('> ' + c); try { log(tidy(await at(c)) || '(no output)'); } catch (e) { log('Error: ' + e.message); } }
       return;
     }
     log('> ' + cmd);
-    try { log(await at(cmd) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
+    try { log(tidy(await at(cmd)) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
 
   let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
@@ -1171,7 +1210,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo|CellSignalStrengthNr" | head -40' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + 'cs() { while read l; do case "$l" in cpu*) echo "$1$l";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.8; cs B; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo|CellSignalStrengthNr" | head -40' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
@@ -1192,13 +1231,21 @@ rm -f $P.g $P.4 $P.6 $P.d
     const parseCpu = (a) => (a.length >= 4 && a.every(Number.isFinite)) ? { total: a.slice(0, 8).reduce((x, y) => x + y, 0), idle: a[3] + (a[4] || 0) } : null;
     const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     const cpu0A = (grab(/^cpu0:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
-    let cpu;
-    const cur = parseCpu(cpuA);
+    // Same method as UFI-TOOLS (DeviceInfo.kt): two reads of /proc/stat a short moment apart, busy = 1 - idle / total, idle = idle + iowait,
+    // one decimal. The two reads are inside ONE root call, right after each other, so the window is the last second and not the whole
+    // 15 s between polls (which also counted this app's own polling and gave a floor of 1 % or more on a quiet phone).
+    const statRows = (tag) => { const m = {}; for (const x of sh.matchAll(new RegExp('^' + tag + '(cpu\\d*)\\s+([\\d ]+?)\\s*$', 'gm'))) { const r = parseCpu(x[2].trim().split(/\s+/).map(Number)); if (r) m[x[1]] = r; } return m; };
+    const pct1 = (b, a) => (a && b && b.total > a.total) ? Math.max(0, Math.min(100, Math.round(1000 * ((b.total - a.total) - (b.idle - a.idle)) / (b.total - a.total)) / 10)) : undefined;
+    const rowA = statRows('A'), rowB = statRows('B');
+    let cpu = pct1(rowB.cpu, rowA.cpu);
+    const cores = Object.keys(rowB).filter((k) => k !== 'cpu').map((k) => ({ id: Number(k.slice(3)), pct: pct1(rowB[k], rowA[k]) }));
+    if (cpu !== undefined && rowB.cpu) prevCpu = rowB.cpu;
+    const cur = cpu === undefined ? parseCpu(cpuA) : null;
     if (cur) {
       // The first poll after a page load or a live-refresh restart has no previous sample, so the shell call
       // takes two samples a moment apart (cpu0, then cpu) and the percentage shows immediately.
       const base = prevCpu || parseCpu(cpu0A);
-      if (base && cur.total > base.total) cpu = Math.max(0, Math.min(100, Math.round(100 * ((cur.total - base.total) - (cur.idle - base.idle)) / (cur.total - base.total))));
+      if (base && cur.total > base.total) cpu = pct1(cur, base);
       prevCpu = cur;
     }
     if (cpu === undefined && lastCpu !== undefined) cpu = lastCpu;   // keep the last value if one poll cannot be measured
@@ -1206,14 +1253,14 @@ rm -f $P.g $P.4 $P.6 $P.d
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
-    return { bat, st, temp, zones, cpu, mem, load, upSec, errs };
+    return { bat, st, temp, zones, cpu, cores, mem, load, upSec, errs };
   }
 
   // Merge the router values (fast loop) with the root shell values (slow loop) into one `last` object.
   function build() {
     const zte = zteData, S = sysPart || { zones: [], errs: [] }, tele = teleCache, zOk = zteOk();
     const raw = zOk ? { cops: '', csq: '', cesq: '', cereg: '' } : atRaw;
-    const { bat, st, temp, zones, cpu, mem, load, upSec } = S, errs = S.errs;
+    const { bat, st, temp, zones, cpu, cores, mem, load, upSec } = S, errs = S.errs;
     const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -1279,7 +1326,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     return {
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
-      batTemp, sysMax, modemTemp, thermalLevel, cpu, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
+      batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
       // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
       rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
       ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
@@ -1335,7 +1382,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     };
     const netRow = (nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '') + (nt.length ? spark() : '');
     const sys = `<div class="liv-tiles liv-t4">
-      ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu + ' %' : '—', '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
+      ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu.toFixed(1) + ' %' : '—', M.cores && M.cores.some((c) => c.pct !== undefined) ? M.cores.map((c) => c.pct === undefined ? '-' : Math.round(c.pct)).join(' ') : '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
       ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>`;
@@ -1529,6 +1576,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       '  rd $d/cpufreq/scaling_setspeed; s=$v',
       '  echo "C|$i|$o|$c|$m|$g|$s"',
       'done',
+      'while read l; do case "$l" in cpu[0-9]*) set -- $l; echo "U|${1#cpu}|$2 $3 $4 $5 $6 $7 $8 $9";; cpu*) ;; *) break;; esac; done < /proc/stat',
       'rd $S/cpu0/cpufreq/scaling_available_governors; echo "AGL|$v"',
       'rd $S/cpu4/cpufreq/scaling_available_governors; echo "AGB|$v"',
       'rd $S/cpu0/cpufreq/scaling_available_frequencies; echo "AFL|$v"',
@@ -1536,10 +1584,15 @@ rm -f $P.g $P.4 $P.6 $P.d
       `if [ -f ${BOOT_FILE} ]; then echo "BOOT|1"; else echo "BOOT|0"; fi`,
     ].join('\n');
 
+    // CPU usage per core, UFI-TOOLS way: busy = 1 - idle / total between two reads of /proc/stat (idle = idle + iowait), one decimal.
+    // This is the real load. The bar used to show speed / max speed, which is always full in Performance mode.
+    const prevU = {}, lastU = {};
     const parse = (txt) => {
       const st = { cores: {}, gov: { little: [], big: [] }, freq: { little: [], big: [] }, boot: false };
+      const uNow = {}, now = Date.now();
       for (const raw of String(txt || '').split('\n')) {
         const p = raw.trim().split('|');
+        if (p[0] === 'U' && /^\d+$/.test(p[1] || '')) { const a = String(p[2] || '').split(' ').map(Number); if (a.length >= 5 && a.every(Number.isFinite)) uNow[Number(p[1])] = { total: a.reduce((x, y) => x + y, 0), idle: a[3] + a[4] }; continue; }
         if (p[0] === 'C' && p.length >= 7) {
           const i = Number(p[1]);
           if (Number.isInteger(i) && i >= 0 && i < 8) st.cores[i] = { i, on: p[2] === '1', cur: Number(p[3]) || 0, max: Number(p[4]) || 0, gov: /^[a-z_]+$/.test(p[5]) ? p[5] : '', set: /^\d+$/.test(p[6]) ? Number(p[6]) : 0 };
@@ -1548,6 +1601,14 @@ rm -f $P.g $P.4 $P.6 $P.d
         else if (p[0] === 'AFL') st.freq.little = nums(p[1]).filter(okFreq);
         else if (p[0] === 'AFB') st.freq.big = nums(p[1]).filter(okFreq);
         else if (p[0] === 'BOOT') st.boot = p[1] === '1';
+      }
+      for (const k of Object.keys(st.cores)) {
+        const i = Number(k), n = uNow[i], o = prevU[i];
+        if (n && o && n.total - o.total >= 50 && now - o.at >= 800) {   // too short a window (a read right after another) keeps the last value
+          lastU[i] = Math.max(0, Math.min(100, Math.round(1000 * ((n.total - o.total) - (n.idle - o.idle)) / (n.total - o.total)) / 10));
+          prevU[i] = { total: n.total, idle: n.idle, at: now };
+        } else if (n && !o) prevU[i] = { total: n.total, idle: n.idle, at: now };
+        st.cores[i].use = st.cores[i].on && lastU[i] !== undefined ? lastU[i] : undefined;
       }
       return st;
     };
@@ -1629,14 +1690,15 @@ rm -f $P.g $P.4 $P.6 $P.d
             const c = st.cores[i], b = box.querySelector('[data-core="' + i + '"]'); if (!b) continue;
             const sp = b.querySelector('span'), bar = b.querySelector('.lcpu-bar i');
             if (sp) sp.textContent = c.on ? Math.round(c.cur / 1000) + ' MHz' : 'off';
-            if (bar) bar.style.width = (c.on && c.max ? Math.min(100, Math.round(c.cur * 100 / c.max)) : 0) + '%';
+            const us = b.querySelector('small'); if (us) us.textContent = c.on && c.use !== undefined ? c.use.toFixed(1) + ' %' : '';
+            if (bar) bar.style.width = (c.on && c.use !== undefined ? Math.min(100, Math.round(c.use)) : 0) + '%';
           }
         } else {
         box.dataset.k = ckey;
         box.innerHTML = ids.map((i) => {
-          const c = st.cores[i], mhz = c.on ? Math.round(c.cur / 1000) : 0, pct = c.on && c.max ? Math.min(100, Math.round(c.cur * 100 / c.max)) : 0;
+          const c = st.cores[i], mhz = c.on ? Math.round(c.cur / 1000) : 0, pct = c.on && c.use !== undefined ? Math.min(100, Math.round(c.use)) : 0;
           const lab = (cl === 'little' ? 'L' : 'B') + (i - CL[cl][0] + 1);
-          return `<button type="button" class="lcpu-core ${c.on ? 'on' : 'off'}" data-core="${i}" aria-pressed="${c.on}" title="${c.on ? 'Tap to turn this core off' : 'Tap to turn this core on'}"><b>${lab}</b><span>${c.on ? mhz + ' MHz' : 'off'}</span><div class="lcpu-bar"><i style="width:${pct}%"></i></div></button>`;
+          return `<button type="button" class="lcpu-core ${c.on ? 'on' : 'off'}" data-core="${i}" aria-pressed="${c.on}" title="${c.on ? 'Tap to turn this core off' : 'Tap to turn this core on'}"><b>${lab}</b><span>${c.on ? mhz + ' MHz' : 'off'}</span><small style="font-size:10px;color:var(--mut)">${c.on && c.use !== undefined ? c.use.toFixed(1) + ' %' : ''}</small><div class="lcpu-bar"><i style="width:${pct}%"></i></div></button>`;
         }).join('');
         }
         const gov = clusterGov(st, cl), set = clusterSet(st, cl);
