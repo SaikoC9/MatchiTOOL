@@ -1,3 +1,26 @@
+# MatchiTOOL (unreleased) - Live status: 5G / 4G detail filled from Android telephony (fix)
+
+- **Bug:** on the F50 the 5G box showed RSRP but RSRQ, SINR, PCI and Ch were all "-". The router keys for those (`Z5g_rsrq`, `Z5g_SINR`, `nr5g_pci`, `nr5g_action_channel`, and the 4G twins) come back empty on this firmware, and the Android telephony read (which has them) only ran when the router API failed.
+- **UFI-TOOLS does it by merging a second source over the router answer** (`{...router, ...its own /baseDeviceInfo}`; the fields it shows are `Nr_snr`, `nr_rsrq`, `Nr_pci`, `Nr_fcn`, `Nr_bands`, `Lte_*`; none of them is in its router key list). MatchiTOOL now does the same with Android telephony: the slow loop reads `dumpsys telephony.registry` whenever the router leaves a detail field empty for the radio in use. When the router gives every field, no dumpsys is run.
+- Cost control: the telephony read is at most every 30 s when cool, 60 s warm, 180 s hot (router-failure fallback keeps its 2 minutes).
+- The registered 5G cell (`CellInfoNr`) and 4G cell (`CellInfoLte`) are read separately, so on a 4G + 5G (NSA) link each box gets its own PCI, channel and band (n78 / B3 style). 5G values from telephony are only used when the router says 5G is active (or the router is down), so a stale NR entry cannot turn a 4G card into 5G.
+- Browser test extended (the screenshot case, 4G and 5G cells not mixed, no dumpsys when the router is complete, throttling cool and hot). The test uses AOSP-format sample lines; **not yet checked against the real F50 output**. If a field is still "-", open Live status raw output: the `telephony.registry:` part shows what the phone really prints.
+
+# MatchiTOOL (unreleased) - Live status: instant open (plan Phase 4)
+
+- The last router **radio values** are kept in `sessionStorage` (this tab only, gone when the tab closes) and painted the moment the card starts, so a reload shows signal and bars straight away. While only cached values are on screen the header says **"Last reading · N s ago"** and the pulse is grey; the first live read replaces them and the header turns **Live**.
+- The cache holds signal numbers only: network type, bars, RSSI, LTE / 5G RSRP, RSRQ, SINR, band, channel. No operator name, PCI, speeds, device count, data used, IP or IDs. An entry older than 10 minutes, or without a network type or bars, is ignored.
+- **"Connecting..."** is shown only when there is nothing cached. If the first router read fails, the cached values are dropped (the card never keeps old numbers while the router is down) and the AT / telephony fallback runs as before.
+- When the card becomes visible again (sign-in after a lost session, another tool window closed) both loops read at once instead of waiting out a full interval. The first router and root reads already ran at start (no 3 s wait), so the "0.5 s first read" in the plan needed no timer change.
+- Browser test extended (cached values before the router answers, Connecting without a cache, 10-minute expiry, junk cache, failing router, card shown again). Not tested on a real device yet.
+
+# MatchiTOOL (unreleased) - Live status: heat-aware polling (plan Phase 3)
+
+- One delay table, by heat level: **cool** router 3 s / root 15 s, **warm** 6 s / 30 s, **hot or critical** 15 s / 90 s. The thresholds that decide warm, hot and critical are unchanged. Before, warm only slowed the root read (120 s) and hot slowed it to 3 minutes.
+- The root loop is slowed when hot, not stopped: the temperatures come from that read, so without it the card could not see the device cool down. A failing loop still backs off (router up to 1 min, root 15 / 30 / 60 s) but never polls faster than its heat delay.
+- To try the slow-down on a cool phone, run `localStorage.setItem('liv_thermal_test','2')` in the browser console (0-3; `removeItem` to undo). It changes the polling speed only, not the temperatures shown.
+- `validate.sh` now checks the delay table instead of the old literal numbers. Browser test extended (warm, hot, critical, cooling down, forced level, hot plus failing router). Not tested on a real device.
+
 # MatchiTOOL (unreleased) - Live status: speed, devices and monthly data (plan Phase 2)
 
 - The Live device status card has a new row: **Download** and **Upload** speed, **Devices** on Wi-Fi, and **This month** (down + up, with the split). They come from the router keys `realtime_rx_thrpt`, `realtime_tx_thrpt`, `wifi_access_sta_num`, `monthly_rx_bytes`, `monthly_tx_bytes` (UFI-TOOLS fields), read by the same 3 s router loop, no extra root calls. Speeds are read as bytes per second and shown with 1024-based units (KB/s, MB/s); this unit is taken from UFI-TOOLS and still to be confirmed with a real download on the F50.

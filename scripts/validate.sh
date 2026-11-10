@@ -152,7 +152,7 @@ for marker in ('ip -4 route show default', 'ip -6 route show default', 'ping -c 
     assert marker in network, f'network diagnostics safety/check marker missing: {marker}'
 live = dict(tools)['Live_Status.js']
 assert 'atAt = 0, atCache = []' in live and 'Date.now() - atAt >= 60000' in live, 'modem AT cache missing'
-assert 'thermalLevel' in live and 'return 180000' in live and 'return 120000' in live and 'return 15000' in live and 'collectFast' in live and 'collectSlow' in live, 'thermal-aware fast/slow polling missing'
+assert 'thermalLevel' in live and 'collectFast' in live and 'collectSlow' in live and 'fast: [3000, 6000, 15000]' in live and 'slow: [15000, 30000, 90000]' in live, 'thermal-aware fast/slow polling missing (cool / warm / hot table)'
 for marker in ('/proc/stat', 'MemAvailable', '/proc/loadavg', '/proc/uptime', 'prevCpu'):
     assert marker in live, f'live status telemetry marker missing: {marker}'
 assert 'liv-heat critical' in live and 'not a substitute for the firmware' in live, 'thermal safety messaging missing'

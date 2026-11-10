@@ -124,7 +124,7 @@ The historical 1.1.1 note about opt-in LAN mode was superseded by later compatib
 
 
 ## Stability-first integration 1.2.0
-The Live device status panel (which also shows CPU, memory, load and uptime) only reads: it reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed or the browser tab is hidden, and reduces polling frequency at elevated readings. It never disables thermal services or changes GPU/charging controls.
+The Live device status panel (which also shows CPU, memory, load and uptime) only reads: it reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed, another tool window is open, or the browser tab is hidden. It reads the router every 3 s and the root shell (CPU, memory, temperatures) every 15 s, and slows both down when the device is warm (6 s / 30 s) or hot (15 s / 90 s). It never disables thermal services or changes GPU/charging controls.
 
 The one exception is the **CPU Governor** window, opened by tapping the CPU tile. It writes to `/sys/devices/system/cpu` only when you change something: core on/off, the mode (governor) per cluster and, in Manual mode, a locked speed. Changes last until restart unless you press **Save for boot**, which writes `/data/local/matchitool/boot.d/10-cpu.sh` (run by the host after `boot.sh`); **Remove from boot** deletes it. If a saved setting ever makes the device unusable, delete that file with adb or a root shell.
 
