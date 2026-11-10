@@ -1122,6 +1122,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   let sysPart = null;                                               // slow-loop input: parsed root shell output
   let atRaw = { cops: '', csq: '', cesq: '', cereg: '' };           // slow-loop input: modem AT fallback, only used when the router gives nothing
   let busyF = false, busyS = false, lastOk = 0, lastErr = '', last = null, timerF = null, timerS = null, tickTimer = null;
+  const hist = [];   // last 60 fast reads { rx, tx } in bytes/s, for the small speed graph (memory only, gone on reload)
   let failF = 0, failS = 0, fastTried = false;   // consecutive failed reads per loop (drive the back-off); fastTried = the router has been tried at least once
   const zteOk = () => has(zteData.network_type) || has(zteData.signalbar);
   // UFI-TOOLS merges a second source (its own host endpoint) over the router answer, because the router leaves RSRQ / SINR / PCI / channel empty on some firmware.
@@ -1154,7 +1155,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   async function collectFast() {
     try {
       const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
-      if (r.data && typeof r.data === 'object') { zteData = r.data; zteNote = ''; failF = 0; fastTried = true; cacheAt = 0; if (zteOk()) saveCache(zteData); last = build(); return true; }
+      if (r.data && typeof r.data === 'object') { zteData = r.data; zteNote = ''; failF = 0; fastTried = true; cacheAt = 0; { const rx = num(r.data.realtime_rx_thrpt), tx = num(r.data.realtime_tx_thrpt); if (rx !== undefined || tx !== undefined) { hist.push({ rx: rx || 0, tx: tx || 0 }); if (hist.length > 60) hist.shift(); } } if (zteOk()) saveCache(zteData); last = build(); return true; }
       throw new Error('No modem data');
     } catch (e) {
       failF++; zteData = {}; fastTried = true; cacheAt = 0;   // the cached values are dropped: the card must not keep showing old numbers when the router fails
@@ -1326,7 +1327,13 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (M.tx !== undefined) nt.push(tile(dot('#ffb020'), 'Upload', fmtSpeed(M.tx)));
     if (M.devs !== undefined) nt.push(tile(dot('#55b6ff'), 'Devices', String(M.devs), 'on Wi-Fi'));
     if (M.monthRx !== undefined && M.monthTx !== undefined) nt.push(tile(dot('#55b6ff'), 'This month', fmtBytes(M.monthRx + M.monthTx), '↓ ' + fmtBytes(M.monthRx) + ' · ↑ ' + fmtBytes(M.monthTx)));
-    const netRow = nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '';
+    const spark = () => {
+      const n = hist.length; if (n < 2) return '';
+      const mx = Math.max(1024, ...hist.map((h) => h.rx), ...hist.map((h) => h.tx)), X = (i) => (300 - (n - 1 - i) * (300 / 59)).toFixed(1), Y = (v) => (42 - (v / mx) * 38).toFixed(1);
+      const line = (k, c) => `<polyline fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${hist.map((h, i) => X(i) + ',' + Y(h[k])).join(' ')}"/>`;
+      return `<div class="liv-spark"><div class="liv-ts" style="display:flex;justify-content:space-between"><span>Speed · last ${n} reads</span><span>peak ${esc(fmtSpeed(mx))}</span></div><svg viewBox="0 0 300 44" preserveAspectRatio="none" width="100%" height="44" role="img" aria-label="Download and upload speed, recent readings">${line('rx', '#28d99a')}${line('tx', '#ffb020')}</svg></div>`;
+    };
+    const netRow = (nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '') + (nt.length ? spark() : '');
     const sys = `<div class="liv-tiles liv-t4">
       ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu + ' %' : '—', '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
@@ -1357,6 +1364,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 .lcpu-h{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:4px 0 6px}.lcpu-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .lcpu-core{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:7px 8px;border-radius:10px;background:#0a1626;border:1px solid var(--bd);color:inherit;font:inherit;cursor:pointer;text-align:left}.lcpu-core b{font-size:12px}.lcpu-core span{font-size:11px;color:var(--mut)}.lcpu-core.on{border-color:#1f4a7a}.lcpu-core.off{opacity:.55}
+.liv-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--mut);font-weight:650}.liv-chips{display:inline-flex;gap:4px}.liv-chip{font:inherit;font-weight:750;padding:2px 9px;border-radius:999px;border:1px solid var(--bd);background:#0a1626;color:var(--mut);cursor:pointer}.liv-chip[aria-pressed=true]{background:#168cff22;border-color:#168cff66;color:#55b6ff}.liv-bp{font:inherit;padding:1px 4px;border-radius:6px;border:1px solid var(--bd);background:#0a1626;color:inherit}.liv-spark{margin-top:6px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 2px}.liv-spark svg{display:block}
 .lcpu-bar{width:100%;height:4px;border-radius:99px;background:#16283f;overflow:hidden}.lcpu-bar i{display:block;height:100%;background:#55b6ff;border-radius:99px;transition:width .5s}
 .lcpu-ctl{display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.lcpu-ctl label{flex:1;min-width:130px;font-size:11px;font-weight:700;color:var(--mut);display:flex;flex-direction:column;gap:4px}.lcpu-ctl select{width:100%}
 .lcpu-note,.lcpu-boot{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}.lcpu-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.lcpu-actions button{flex:1}
@@ -1367,7 +1375,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   let inl = null;
   if (home) {
     inl = document.createElement('div'); inl.id = INL; inl.className = 'liv';
-    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><div class="liv-auto" title="Turn automatic live refresh on or off"><span class="liv-autolbl">Live refresh: On</span><button type="button" class="liv-sw" role="switch" aria-checked="true" aria-label="Automatic refresh"></button></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div>';
+    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><div class="liv-auto" title="Turn automatic live refresh on or off"><span class="liv-autolbl">Live refresh: On</span><button type="button" class="liv-sw" role="switch" aria-checked="true" aria-label="Automatic refresh"></button></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div><div class="liv-opts"><span>Refresh</span><span class="liv-chips"></span><label>Pause below <select class="liv-bp" aria-label="Pause live refresh when the battery is below"></select></label></div>';
     home.appendChild(inl);
   }
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
@@ -1388,18 +1396,19 @@ rm -f $P.g $P.4 $P.6 $P.d
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
     const cs = !lastOk && cacheAt ? Math.max(0, Math.round((Date.now() - cacheAt) / 1000)) : -1;   // showing the cached reading, the first live read is still on its way
-    const t = cs >= 0 ? 'Last reading · ' + cs + ' s ago' : (busyF || busyS) && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
-    const stale = s < 0 || s > (zteOk() ? fastDelay() : slowDelay()) / 1000 + 45;   // stale only when a poll is overdue, not merely between polls
+    const paused = batLow();
+    const t = paused ? 'Paused · battery ' + last.bat + '% (below ' + batPause + '%)' : cs >= 0 ? 'Last reading · ' + cs + ' s ago' : (busyF || busyS) && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
+    const stale = paused || s < 0 || s > (zteOk() ? fastDelay() : slowDelay()) / 1000 + 45;   // stale only when a poll is overdue, not merely between polls
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
-      if (w) w.textContent = cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
+      if (w) w.textContent = paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
       if (p) p.classList.toggle('off', stale || cs >= 0);
     }
   }
   // Each loop has its own busy flag, so a slow root call never blocks the fast router read.
   async function tickFast() {
-    if (busyF || !visible()) return;
+    if (busyF || !visible() || batLow()) return;
     busyF = true;
     const t0 = performance.now(); /* PHASE0-TIMING (temporary, remove in Phase 6) */
     try { const ok = await collectFast(); console.log('[live-phase0] fast ' + Math.round(performance.now() - t0) + ' ms ok=' + ok + ' failF=' + failF + ' delay=' + fastDelay() + ' ms'); /* PHASE0-TIMING */ if (ok) { lastOk = Date.now(); lastErr = ''; } else lastErr = 'Router unreachable'; paint(); }
@@ -1423,9 +1432,18 @@ rm -f $P.g $P.4 $P.6 $P.d
   // The level used for the delays. localStorage 'liv_thermal_test' = 0..3 forces a level so the slow-down can be tried on a cool phone
   // (it only changes the polling speed, not the temperatures shown); remove the key to go back to the measured level.
   const heatLevel = () => { try { const f = localStorage.getItem('liv_thermal_test'); if (/^[0-3]$/.test(f)) return Number(f); } catch (_) {  } return last && last.thermalLevel > 0 ? Math.min(last.thermalLevel, 3) : 0; };
+  // Phase 5 options (saved in this browser). Refresh speed: Fast 2 s / 10 s, Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
+  // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
+  const MODES = { fast: { fast: 2000, slow: 10000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
+  const BATPAUSE = [0, 10, 15, 20, 30];   // "pause when battery below X %" choices, 0 = off
+  let mode = 'normal', batPause = 0;
+  try { const m = localStorage.getItem('liv_mode'); if (MODES[m]) mode = m; const b = Number(localStorage.getItem('liv_batpause')); if (BATPAUSE.includes(b)) batPause = b; } catch (_) {  }
+  const modeDelay = (k) => { const h = Math.min(heatLevel(), 2), d = DELAY[k][h]; return h === 0 ? MODES[mode][k] : Math.max(d, mode === 'eco' ? MODES.eco[k] : 0); };
+  // Battery pause: below the chosen level and not charging, the router loop stops and the root loop only checks once a minute (it is the one that sees the charger being plugged in).
+  const batLow = () => batPause > 0 && !!last && last.bat !== undefined && !last.charging && last.bat < batPause;
   // A failing loop backs off (router 6 s ... 1 min, root 15 / 30 / 60 s) but is never faster than its heat delay.
-  const fastDelay = () => Math.max(DELAY.fast[Math.min(heatLevel(), 2)], failF > 0 ? Math.min(60000, 3000 * Math.pow(2, Math.min(failF, 5))) : 0);
-  const slowDelay = () => Math.max(DELAY.slow[Math.min(heatLevel(), 2)], failS > 0 ? Math.min(60000, 15000 * Math.pow(2, Math.min(failS - 1, 2))) : 0);
+  const fastDelay = () => Math.max(modeDelay('fast'), failF > 0 ? Math.min(60000, 3000 * Math.pow(2, Math.min(failF, 5))) : 0);
+  const slowDelay = () => Math.max(modeDelay('slow'), batLow() ? 60000 : 0, failS > 0 ? Math.min(60000, 15000 * Math.pow(2, Math.min(failS - 1, 2))) : 0);
   // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
   let auto = true;
   try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
@@ -1451,6 +1469,23 @@ rm -f $P.g $P.4 $P.6 $P.d
       armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);  // off: both loops only re-arm, they do not poll
       if (auto) { tickFast(); tickSlow(); }
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
+    };
+    // Phase 5 options: refresh speed chips and the battery pause choice
+    const chips = inl.querySelector('.liv-chips'), bp = inl.querySelector('.liv-bp');
+    chips.innerHTML = Object.keys(MODES).map((k) => `<button type="button" class="liv-chip" data-mode="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('');
+    bp.innerHTML = BATPAUSE.map((v) => `<option value="${v}">${v ? v + ' %' : 'Off'}</option>`).join('');
+    const syncOpts = () => { chips.querySelectorAll('.liv-chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode))); bp.value = String(batPause); };
+    syncOpts();
+    chips.onclick = (e) => {
+      const b = e.target.closest('.liv-chip'); if (!b || !MODES[b.dataset.mode]) return;
+      mode = b.dataset.mode; try { localStorage.setItem('liv_mode', mode); } catch (_) {  }
+      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);
+      createToast('Refresh: ' + mode, 'blue');
+    };
+    bp.onchange = () => {
+      batPause = Number(bp.value) || 0; try { localStorage.setItem('liv_batpause', String(batPause)); } catch (_) {  }
+      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);
+      if (auto && !batLow()) { tickFast(); } paint();
     };
   }
   if (loadCache()) paint();   // cached reading on screen straight away (labelled "Last reading"), then the first live read replaces it
