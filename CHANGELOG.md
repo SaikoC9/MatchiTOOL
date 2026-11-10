@@ -1,3 +1,36 @@
+# MatchiTOOL (unreleased) - heat: gentler UFI_DATA poller
+
+Reported: the ZTE F50 runs hot after the 1.4.0 update. Found by reading the code and the 1.3.9 log bundle (no on-device CPU or temperature figures yet):
+
+- UFI_DATA poller, while an enabled plugin reads UFI_DATA and the page is open: when the router did not return `lan_ipaddr` it started a root shell (`ip addr | awk`) after EVERY poll, forever. The browser test `scripts/phase0/test_ufi_poll_browser.js` counts 21 such shells in 2 minutes on the old page. Now at most 3 tries per start.
+- Poll interval 5 s -> 10 s (each round asks the router up to 3 times); while the page is hidden the loop only wakes every 60 s.
+- Not changed (needs a device test): the boot-capture script `matchi_logd.sh` copies kernel lines with a shell `while read` loop. Your kernel wrote 37 lines/s on average (up to 120/s), 76% of them sprd-wlan tracing, and the load grows with hotspot traffic.
+
+# MatchiTOOL (unreleased) - stability review (static; Kotlin still not compiled)
+
+- `/api/root_shell` default timeout is 30 s (cap stays 100 s, as UFI). Above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper, so a plugin that omits the timeout could have crowded them out.
+- `WebServer.serve`: an unexpected exception inside a route (not a deliberate IllegalArgument/IllegalState/IO/Update/JSON refusal) is now also written to the app log through `Quiet.note("WebServer.route", e)`. The reply is still 400 as before.
+- New browser test `scripts/phase0/test_plugin_upload_browser.js` (needs Playwright, not part of validate.sh) covers the non-ASCII and HTML-as-.js uploads.
+- Checked and left alone: bracket balance of every Kotlin file, root shell slots / timeouts / 1 MB output cap, request guards (Host header, hotspot-only, same-origin, login lockout), all 13 inline page scripts parse.
+
+# MatchiTOOL (unreleased) - Add plugin (.js) fixes seen on the F50
+
+- `ADGuardHome插件2.4.js: invalid plugin name`: the host stores only ASCII file names, but the single-file upload sent the file name as it was. A name with Chinese characters, spaces or brackets now becomes a safe stable name (stem + hash + .js); the original name stays as the title in the list.
+- `WiFi_v1.5.js: Unexpected token '<'`: that file is HTML saved as .js. A .js file that starts with `<` is now imported the way a .txt/.html UFI plugin is (script re-creation, head injection) instead of being syntax-checked as JavaScript.
+
+# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.6: reply shapes taken from UFI's real server source
+
+UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) replaced guesses from compiled strings. What changed:
+
+- `GET /api/AT`: reply is now `{"result":"<text>"}` (no `success`/`error` fields) with HTTP 500 `{"error":"..."}` on failure, and the text is normalised exactly as UFI does (`AtBatch.ufiText`: newlines removed, closing OK becomes " OK", leading comma dropped). A slot other than 0 or 1 is still refused (UFI passes any number on).
+- `/api/one_click_shell`: was wrongly a second root shell. UFI's is a GET with no body that drives the screen over adb to switch on its own root shell. Now GET only; the reply says whether root is available. The POST form is gone.
+- `/api/root_shell`: errors are HTTP 500 `{"error":"..."}`; default and maximum timeout are 100 s, as in UFI.
+- `/api/user_shell`: result is `{"done":true,"content":"<stdout>"}`.
+- `/api/set_cookie`: replies `{"result":true}`.
+- UFI plugin bundles: export now uses UFI's own block layout (newline after the START line, trimmed text, four newlines after END, whole text trimmed). This settles the "how blocks are joined" question without needing a real export-all file.
+- Tests: `AtBatchTest.ufiTextMatchesUfiServer` (Kotlin, not run here), `scripts/test_ufi_bundle.js` (UFI layout round trip). `validate.sh` passes. Kotlin still not compiled.
+- Known gaps left as they are: `/api/goform/*` only forwards the two get/set endpoints (UFI forwards any path as a raw proxy with Kano-Cookie headers); UFI's plugin store is an alist listing at its own server (`{download_url, res}`), not MatchiTOOL's index format; UFI treats a plugin as disabled when its text holds `[kano_disabled]` (written as a comment wrapper), MatchiTOOL does not read that flag.
+
 # MatchiTOOL (unreleased) - Log basket: review of steps 1 to 6
 
 - **Redaction fails closed in the basket page:** if the page's redaction function is missing while "Hide private data" is ticked, View and Copy now stop with a message instead of showing the original text. Unticking the box still gives the original on purpose.

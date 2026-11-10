@@ -25,8 +25,8 @@ ok(UFI_DEFAULT_FIELDS.every((f) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(f)), 'default
 
 eq([[1, 2], [3, 4], [5]], ufiChunks([1, 2, 3, 4, 5], 2), 'chunks');
 eq([], ufiChunks([], 3), 'no chunks');
-eq(5000, ufiNextDelay(0), 'normal delay');
-eq(10000, ufiNextDelay(1), 'delay doubles after a failure');
+eq(10000, ufiNextDelay(0), 'normal delay');
+eq(20000, ufiNextDelay(1), 'delay doubles after a failure');
 eq(60000, ufiNextDelay(9), 'delay is capped at 60 s');
 if (bad) { console.error(bad + ' failure(s)'); process.exit(1); }
 console.log('UFI_DATA field test passed');

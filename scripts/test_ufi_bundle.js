@@ -20,7 +20,11 @@ eq(2, blocks.length, 'two blocks');
 eq('Demo Plugin', blocks[0].title, 'title with space');
 eq('中文插件', blocks[1].title, 'non-Latin title');
 ok(blocks[0].content.startsWith('\n<meta') && blocks[0].content.endsWith('</script>\n'), 'inside text kept exactly');
-eq(text, ufiBuild(blocks), 'parse then build gives the same file');
+// UFI's real layout, read from its main.js: "\n" after the START line, "\n" before END, four newlines after END, whole text trimmed.
+const ufiFile = '<!-- [KANO_PLUGIN_START] Demo Plugin -->\n<script>a()</script>\n<!-- [KANO_PLUGIN_END] Demo Plugin -->\n\n\n\n<!-- [KANO_PLUGIN_START] B -->\n<style>x{}</style>\n<!-- [KANO_PLUGIN_END] B -->\n\n\n\n';
+eq(ufiFile.trim(), ufiBuild(ufiParse(ufiFile)), 'a real UFI file imports and exports back to the same text');
+eq(blocks.map(b => b.title), ufiParse(ufiBuild(blocks)).map(b => b.title), 'build then parse keeps the titles');
+eq(blocks.map(b => b.content.trim()), ufiParse(ufiBuild(blocks)).map(b => b.content.trim()), 'build then parse keeps the text');
 eq(0, ufiParse('no markers here').length, 'no markers');
 eq(0, ufiParse('<!-- [KANO_PLUGIN_START] A -->x<!-- [KANO_PLUGIN_END] B -->').length, 'end name must match start name');
 eq(2, ufiParse(ufiBuild(ufiParse(text))).length, 'second round trip');
