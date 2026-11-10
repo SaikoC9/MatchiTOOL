@@ -1099,6 +1099,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   let prevCpu = null;                // previous /proc/stat sample, for CPU %
   let lastCpu;                       // last measured CPU %, shown if a poll cannot be measured
   let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
+  let failStreak = 0;   // consecutive failed reads (drives the retry back-off)
 
   async function collect() {
     let zte = {}; const errs = []; let sh = '', tele = '', raw = { cops: '', csq: '', cesq: '', cereg: '' };
@@ -7406,6 +7407,32 @@ echo started`,15000);
   return {P,q,sleep,hr,prepare,run,runJob,showModal,closeModal,createModal,createFixedToast,requestInterval,upload,download,lanIp,validIp};
 })();
 /* ===== end UFI-TOOLS plugin host API ===== */
+
+/* ===== LAN-service links (AdGuard Home and similar) =====
+ * The console itself is served over HTTPS, so a plugin written for UFI-TOOLS (plain HTTP) that builds a link as
+ * location.protocol + '//' + location.hostname + ':3000' ends up at https://HOST:3000, where AdGuard Home's admin page only speaks
+ * plain HTTP: the browser shows ERR_SSL_PROTOCOL_ERROR. The fix lives here, so plugins stay unchanged:
+ *  - pluginLanFix(code) rewrites that link pattern (port 3000 only) to http:// when a plugin is loaded; the stored file is not touched;
+ *  - window.open is wrapped so an explicit https://<this host>:3000 is opened as http:// as well. */
+function pluginLanFix(code){
+  if(typeof code!=='string'||code.indexOf(':3000')<0)return code;
+  return code
+    .replace(/\$\{\s*(?:window\.)?location\.protocol\s*\}\/\/(\$\{\s*(?:window\.)?location\.hostname\s*\}):3000(?!\d)/g,'http://$1:3000')
+    .replace(/(?:window\.)?location\.protocol\s*\+\s*(['"])\/\/\1\s*\+\s*((?:window\.)?location\.hostname)\s*\+\s*(['"]):3000\3/g,'"http://"+$2+":3000"');
+}
+(function(){
+  if(typeof window==='undefined'||typeof window.open!=='function'||window.__matchiOpenFix)return;
+  window.__matchiOpenFix=true;
+  const orig=window.open;
+  window.open=function(u){
+    try{
+      const s=String(u==null?'':u),m=/^https:\/\/([^\/:?#]+):3000(?=[\/?#]|$)/i.exec(s);
+      if(m&&m[1].toLowerCase()===String(location.hostname).toLowerCase())arguments[0]='http://'+s.slice(8);
+    }catch(_){}
+    return orig.apply(this,arguments);
+  };
+})();
+
 /* @end-include web-src/plugin-host-api.js */
 /* UFIHOST-END */
 const KANO_baseURL='/api';                       // UFI plugins post uploads to `${KANO_baseURL}/upload_img`
@@ -7764,7 +7791,7 @@ function ufiInject(code,name){
     if(n.nodeType!==1)continue;
     if(n.tagName==='SCRIPT'){
       const sc=document.createElement('script');for(const a of n.attributes)sc.setAttribute(a.name,a.value);
-      sc.textContent=n.textContent+(sc.src?'':pluginSrcUrl(name));sc.dataset.plugin=name;if(sc.src)sc.async=false;
+      sc.textContent=(sc.src?n.textContent:pluginLanFix(n.textContent))+(sc.src?'':pluginSrcUrl(name));sc.dataset.plugin=name;if(sc.src)sc.async=false;
       sc.onerror=()=>createToast('Could not load plugin: '+name,'red');document.head.appendChild(sc);
     }else{const c=document.importNode(n,true);c.setAttribute('data-plugin',name);document.head.appendChild(c)}
   }
@@ -7889,7 +7916,7 @@ async function loadPlugins(){
     /* Bypass (F50) is built in since 1.2.17. A copy uploaded earlier is not loaded (it would add a second button and a second set of timers); delete it in Plugins. */
     if(/^Bypass.*\.js$/i.test(p.name)&&BUILTIN.has('Bypass.js')){oldBypass=true;continue}
     if(p.kind==='html'){try{ufiInject(p.code,p.name)}catch(e){createToast('Could not load plugin: '+(p.title||p.name),'red')}continue}
-    const s=document.createElement('script');s.textContent=p.code+pluginSrcUrl(p.name);s.dataset.plugin=p.name;s.onerror=()=>createToast('Could not load plugin: '+p.name,'red');document.head.appendChild(s)}
+    const s=document.createElement('script');s.textContent=pluginLanFix(p.code)+pluginSrcUrl(p.name);s.dataset.plugin=p.name;s.onerror=()=>createToast('Could not load plugin: '+p.name,'red');document.head.appendChild(s)}
   if(oldBypass)createToast('Bypass (F50) is built in now. The old uploaded Bypass plugin was not loaded; delete it in Plugins.','orange',9000);
 }
 document.getElementById('plugin_search').oninput=()=>renderPlugins(pluginCache);
