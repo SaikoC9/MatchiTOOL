@@ -36,7 +36,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - ZTE router API proxy for SMS and live signal information.
 - Boot receiver restarts the web host and runs the app-managed root startup script (when present); root access is separately authorized by `su`.
 
-The eight built-in tools (AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Screen Control, and Bypass) are embedded in `web/index.html` and load automatically.
+The seven built-in tools (AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, and Screen Control) are embedded in `web/index.html` and load automatically.
 Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
 plugins execute with the privileges of the host bridge and should be treated as trusted code.
 
@@ -77,7 +77,7 @@ The collector uses a low-priority single-thread writer so filesystem work does n
 4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
 5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
 
-The Bypass tool (firewall/TTL rules) is built in again since 1.2.17; it was removed in 1.2.12 and its boot entries from that time may still be in `/data/local/matchitool/boot.sh`. On boot, MatchiTOOL's receiver asks the already-authorized `su` manager to run that file if it exists, so those firewall/TTL rules keep applying. Edit or delete that file by hand (`su -c`) if you no longer want them. Running the file requires the root manager to retain MatchiTOOL's grant across reboot.
+The Bypass tool (firewall/TTL rules) is no longer part of MatchiTOOL. Boot entries it wrote earlier may still be in `/data/local/matchitool/boot.sh`, and MatchiTOOL's boot receiver still asks the already-authorized `su` manager to run that file if it exists, so those firewall/TTL rules keep applying until you remove them. Turn Bypass Off in the previous version before updating, or edit or delete that file by hand (`su -c`). Running the file requires the root manager to retain MatchiTOOL's grant across reboot.
 
 The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It serves HTTPS with a self-signed certificate (plain HTTP only as a fallback) and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep your admin password private and press Sign out on shared computers. Sessions end by themselves after 2 h idle or 12 h. Root commands additionally need a sign-in younger than 4 h. If the console may have been exposed to an untrusted network, change the admin password (this ends every session).
 
@@ -111,7 +111,7 @@ CPU architecture and runtime environment of the target device.
 
 - MatchiTOOL project code: MIT, see `LICENSE`.
 - UFI-TOOLS-derived components and notices: see `LICENSE-UFI-TOOLS` and the retained source/plugin headers.
-- The Bypass tool (a fork of a UFI-TOOLS plugin) was removed in 1.2.12 and is built in again since 1.2.17; its MIT license text is in `LICENSE-BYPASS`.
+- The Bypass tool (a fork of a UFI-TOOLS plugin) has been removed from the app; its MIT license text stays in `LICENSE-BYPASS` for the earlier releases.
 - Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
 
 Do not remove upstream copyright or license notices when modifying or redistributing derived components.

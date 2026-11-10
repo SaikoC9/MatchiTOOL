@@ -14,7 +14,7 @@ for i, js in enumerate(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', html, r
     path.write_text(js)
     subprocess.run(['node', '--check', str(path)], check=True)
 tools = re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">(.*?)</script>', html, re.S)
-assert len(tools) == 8, f'expected 8 embedded tools, found {len(tools)}'
+assert len(tools) == 7, f'expected 7 embedded tools, found {len(tools)}'
 for name, js in tools:
     path = Path('/tmp') / ('matchitool-tool-' + name)
     path.write_text(js)
@@ -158,13 +158,6 @@ for marker in ('/proc/stat', 'MemAvailable', '/proc/loadavg', '/proc/uptime', 'p
 assert 'liv-heat critical' in live and 'not a substitute for the firmware' in live, 'thermal safety messaging missing'
 assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and 'boot.d' in service, 'CPU Governor window or boot.d runner missing'
 assert "modal.closest('.modal-bg')" in live, 'CPU Governor shown() must check the .modal-bg wrapper (showModal puts the show class there, not on the inner card)'
-for needle in ('OFFF=$D/disabled', 'kill_watchers()', 'kill_nfqws_all()', 'off_exit()', 'enable) rm -f "$OFFF" ;;'):
-    assert html.count(needle) >= 1, 'Bypass off switch missing: ' + needle
-assert html.count('apply) rm -f "$OFFF"; kill_legacy; apply ;;') == 2, 'explicit apply must lift the off switch in both helpers'
-assert html.count('${LEGACY_SH}\nkill_legacy() { legacy_clean') == 2, 'both helpers must use the shared legacy cleanup'
-for needle in ('const LEGACY = [', 'legacy_scan()', 'legacy_clean()', 'legacy_proc_hit()', 'nfq_mine()', 'legacyScriptOf', 'qs_legacy', 'legacyClean', 'OLD LEFTOVERS', 'MATCHI_LEGACY_STUB'):
-    assert needle in html, 'legacy cleanup piece missing: ' + needle
-assert 'await stopHelper(SCRIPT);\n      await refresh(true);' in html and 'still enabled and will restore' not in html, 'Remove must also turn off boot auto-apply'
 assert "PAGE_VERSION='1.4.0'" in html and 'versionCode = 400' in gradle and 'versionName = "1.4.0"' in gradle, 'version metadata mismatch'
 assert '/api/root/status' in server, 'root status API missing'
 assert (root / 'docs/ROOT_INTEGRATION_1.1.52.md').is_file(), 'root integration notes missing'
@@ -238,8 +231,6 @@ assert all(r in server for r in ('"/api/root_shell"', '"/api/user_shell"', '"/ap
 assert server.count('rootGate(s) ?: run {') >= 3 and 'UserShell.run(ctx.filesDir' in server, 'user_shell must sit behind the root gate and run as the app user'
 assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text() and '"su"' not in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text(), 'user shell must not use su'
 assert 'UFIHOST-BEGIN' in html and 'async function runShellWithUser' in html and 'window.__matchiCompat=' in html, 'host UFI API missing'
-bypass = dict(tools)['Bypass.js']
-assert 'MatchiTOOL compatibility layer =====' not in bypass and 'window.__matchiCompat' in bypass and len(bypass.splitlines()) < 4300, 'Bypass must use the host compatibility layer, not its own copy'
 zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()
 assert all(r in server for r in ('"/api/goform/"', '"/api/proxy/"', '"/api/get_cookie"', '"/api/set_cookie"')), 'router API routes missing'
 assert 'GatewayProxy.goformPath(name)' in server and 'GatewayProxy.proxyPath(' in server, 'router routes must check the path with GatewayProxy'
@@ -252,13 +243,12 @@ assert 'if(UFIPOLL.busy||!UFIPOLL.fields||!TOKEN)return' in html and 'document.h
 print('MatchiTOOL 1.4.0 source validation passed: XML, web JavaScript, embedded tools, root lifecycle, LAN/API hardening, live device status, network diagnostics, and version metadata.')
 PY
 
-# Upgrade test for the old-leftovers cleanup (needs setsid, pgrep and node; skipped where they are missing).
+# Boot / log shell tests (need setsid, pgrep and node; skipped where they are missing).
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
-  bash "$(dirname "$0")/test_legacy_cleanup.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_boot_tasks.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_logd.sh" </dev/null || exit 1
 else
-  echo "skipped: legacy cleanup upgrade test (setsid, pgrep or node missing)"
+  echo "skipped: boot / log shell tests (setsid, pgrep or node missing)"
 fi
 
 # The page's redaction rules must give the same results as Redactor.kt (same cases as RedactorTest).
