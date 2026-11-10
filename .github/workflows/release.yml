@@ -1,0 +1,79 @@
+name: Publish APK to public releases repo
+# Source stays private. Only the signed APK is published, to a separate PUBLIC repo, so the device can download it (OTA).
+# Run manually: Actions > "Publish APK to public releases repo" > Run workflow.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Validate source
+        run: bash scripts/validate.sh
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.MATCHI_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::MATCHI_KEYSTORE_B64 secret is missing; refusing to publish an APK with a random key"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchitool-release.jks"
+          echo "MATCHI_KEYSTORE_FILE=$RUNNER_TEMP/matchitool-release.jks" >> "$GITHUB_ENV"
+      - name: Unit tests
+        run: |
+          G=gradle; [ -x ./gradlew ] && G=./gradlew
+          for i in 1 2 3; do
+            $G :app:testDebugUnitTest --stacktrace && break
+            [ "$i" = 3 ] && exit 1
+            echo "::warning::Gradle failed (attempt $i/3), retrying in 20s (likely a network timeout)"; sleep 20
+          done
+      - name: Build signed RELEASE APK
+        env:
+          MATCHI_KEYSTORE_PASSWORD: ${{ secrets.MATCHI_KEYSTORE_PASSWORD }}
+          MATCHI_KEY_ALIAS: matchitool
+          MATCHI_KEY_PASSWORD: ${{ secrets.MATCHI_KEYSTORE_PASSWORD }}
+        run: |
+          G=gradle; [ -x ./gradlew ] && G=./gradlew
+          for i in 1 2 3; do
+            $G :app:assembleRelease --stacktrace && break
+            [ "$i" = 3 ] && exit 1
+            echo "::warning::Gradle failed (attempt $i/3), retrying in 20s (likely a network timeout)"; sleep 20
+          done
+      - name: Refuse to publish a debuggable or unsigned APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          [ -f "$APK" ] || { echo "::error::$APK was not produced (unsigned release builds are named app-release-unsigned.apk)"; exit 1; }
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if "$BT/aapt2" dump badging "$APK" | grep -q "application-debuggable"; then
+            echo "::error::the release APK is debuggable; refusing to publish"; exit 1
+          fi
+          "$BT/apksigner" verify --print-certs "$APK"
+      - name: Publish to the public releases repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: ${{ vars.RELEASES_REPO }}
+        run: |
+          if [ -z "$RELEASES_REPO" ] || [ -z "$GH_TOKEN" ]; then echo "::error::Set repo variable RELEASES_REPO (owner/name) and secret RELEASES_TOKEN"; exit 1; fi
+          VER=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          cp app/build/outputs/apk/release/app-release.apk MatchiTOOL.apk
+          SHA=$(sha256sum MatchiTOOL.apk | cut -d' ' -f1)
+          echo "Version $VER" ; echo "SHA-256 $SHA"
+          NOTES="MatchiTOOL $VER
+          SHA-256: $SHA"
+          if gh release view "v$VER" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            gh release upload "v$VER" MatchiTOOL.apk --clobber --repo "$RELEASES_REPO"
+            gh release edit "v$VER" --notes "$NOTES" --latest --repo "$RELEASES_REPO"
+          else
+            gh release create "v$VER" MatchiTOOL.apk --title "MatchiTOOL $VER" --notes "$NOTES" --latest --repo "$RELEASES_REPO"
+          fi
+          echo "OTA link: https://github.com/$RELEASES_REPO/releases/latest/download/MatchiTOOL.apk"
