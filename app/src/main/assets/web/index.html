@@ -1424,7 +1424,9 @@ rm -f $P.g $P.4 $P.6 $P.d
     let modal = null, timer = null, busy = false, opBusy = false, st = null, seq = 0, stAt = 0;
     const $ = (id) => document.getElementById(id);
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const shown = () => !!(modal && modal.isConnected && modal.classList.contains('show'));
+    // createModal() returns the inner .modal card, but showModal() puts the "show" class on its .modal-bg wrapper: look at the wrapper,
+    // otherwise shown() is never true and the window never reads or paints anything.
+    const shown = () => !!(modal && modal.isConnected && ((modal.closest && modal.closest('.modal-bg')) || modal).classList.contains('show'));
     const stopTimer = () => { if (timer) { clearInterval(timer); timer = null; } };
     const run = async (cmd, ms) => {
       try { const r = await runShellWithRoot(cmd, ms || 20000); return { ok: !!(r && r.success), text: String((r && r.content) || '') }; }

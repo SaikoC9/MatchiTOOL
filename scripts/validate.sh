@@ -157,6 +157,7 @@ for marker in ('/proc/stat', 'MemAvailable', '/proc/loadavg', '/proc/uptime', 'p
     assert marker in live, f'live status telemetry marker missing: {marker}'
 assert 'liv-heat critical' in live and 'not a substitute for the firmware' in live, 'thermal safety messaging missing'
 assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and 'boot.d' in service, 'CPU Governor window or boot.d runner missing'
+assert "modal.closest('.modal-bg')" in live, 'CPU Governor shown() must check the .modal-bg wrapper (showModal puts the show class there, not on the inner card)'
 for needle in ('OFFF=$D/disabled', 'kill_watchers()', 'kill_nfqws_all()', 'off_exit()', 'enable) rm -f "$OFFF" ;;'):
     assert html.count(needle) >= 1, 'Bypass off switch missing: ' + needle
 assert html.count('apply) rm -f "$OFFF"; kill_legacy; apply ;;') == 2, 'explicit apply must lift the off switch in both helpers'
