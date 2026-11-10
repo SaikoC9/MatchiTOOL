@@ -68,4 +68,14 @@ class AtBatchTest {
         for (bad in listOf("2", "-1", "01", "abc", "0;id"))
             assertTrue("rejected: $bad", try { AtBatch.checkSlot(bad); false } catch (_: IllegalArgumentException) { true })
     }
+
+    // Expected values worked out from UFI-TOOLS' atModule.kt: newlines removed, closing "ok" becomes " OK", leading comma dropped.
+    @Test fun ufiTextMatchesUfiServer() {
+        assertEquals("+CSQ: 20,99 OK", AtBatch.ufiText("+CSQ: 20,99\nOK\n"))
+        assertEquals(" OK", AtBatch.ufiText("\nOK\n"))
+        assertEquals("+CFUN: 1 OK", AtBatch.ufiText("\r\n+CFUN: 1\r\nOK\r\n"))
+        assertEquals("ERROR", AtBatch.ufiText("ERROR\n"))
+        assertEquals("1,2 OK", AtBatch.ufiText(",1,2\nok"))
+        assertEquals("", AtBatch.ufiText(""))
+    }
 }

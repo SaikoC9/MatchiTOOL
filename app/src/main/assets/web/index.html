@@ -7429,10 +7429,11 @@ function ufiDataFields(codes){
   return [...found].filter((f)=>!UFI_DERIVED.has(f)).slice(0,UFI_MAX_FIELDS);
 }
 function ufiChunks(list,n){const out=[];for(let i=0;i<list.length;i+=n)out.push(list.slice(i,i+n));return out}
-/* Next wait in ms: 5 s while it works, doubling to 60 s while the router does not answer. */
-function ufiNextDelay(fails){return fails<=0?5000:Math.min(60000,5000*Math.pow(2,fails))}
+/* Next wait in ms: 10 s while it works, doubling to 60 s while the router does not answer. (Was 5 s; each round asks the router up to
+   3 times, and the router shares the small CPU with everything else, so a gentler rate keeps the device cooler.) */
+function ufiNextDelay(fails){return fails<=0?10000:Math.min(60000,10000*Math.pow(2,fails))}
 /* UFIDATA-END */
-const UFIPOLL={fields:null,timer:0,busy:false,fails:0};
+const UFIPOLL={fields:null,timer:0,busy:false,fails:0,lan:0};
 async function ufiPollOnce(){
   if(UFIPOLL.busy||!UFIPOLL.fields||!TOKEN)return;
   UFIPOLL.busy=true;let okAny=false;
@@ -7445,7 +7446,8 @@ async function ufiPollOnce(){
     UFIPOLL.fails=okAny?0:UFIPOLL.fails+1;
   }catch(_){UFIPOLL.fails++}
   finally{UFIPOLL.busy=false}
-  if(!window.UFI_DATA.lan_ipaddr)await ufiLanFallback();
+  /* The root-shell fallback starts a process each time, so it gets 3 tries per start, not one per poll for ever. */
+  if(!window.UFI_DATA.lan_ipaddr&&UFIPOLL.lan<3){UFIPOLL.lan++;await ufiLanFallback()}
 }
 /* Router API not answering: ask the bridge interface for the LAN address once per poll that has none. */
 async function ufiLanFallback(){
@@ -7457,7 +7459,7 @@ function ufiPollLoop(){
   const run=async()=>{
     if(!UFIPOLL.fields)return;
     if(!document.hidden)await ufiPollOnce();
-    UFIPOLL.timer=setTimeout(run,ufiNextDelay(UFIPOLL.fails));
+    UFIPOLL.timer=setTimeout(run,document.hidden?60000:ufiNextDelay(UFIPOLL.fails));
   };
   run();
 }
@@ -7465,7 +7467,7 @@ function ufiPollLoop(){
 function ufiDataStart(codes){
   UFIPOLL.fields=ufiDataFields(codes);
   if(!UFIPOLL.fields){clearTimeout(UFIPOLL.timer);UFIPOLL.timer=0;return}
-  UFIPOLL.fails=0;ufiPollLoop();
+  UFIPOLL.fails=0;UFIPOLL.lan=0;ufiPollLoop();
 }
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&UFIPOLL.fields&&!UFIPOLL.busy)ufiPollLoop()});
 function loadBuiltin(){
@@ -7476,11 +7478,13 @@ function loadBuiltin(){
 }
 /* UFIBUNDLE-BEGIN */
 /* UFI-TOOLS plugin bundles: one text file of <!-- [KANO_PLUGIN_START] name --> ... <!-- [KANO_PLUGIN_END] name --> blocks.
-   The regex is UFI's own. A block's inside text is kept byte for byte; the file name on the device is a safe form of the name. */
+   The regex is UFI's own. A block's inside text is kept as read (UFI itself trims it on export); the file name on the device is a safe form of the name. */
 const UFI_MARK=/<!--\s*\[KANO_PLUGIN_START\]\s*(.*?)\s*-->([\s\S]*?)<!--\s*\[KANO_PLUGIN_END\]\s*\1\s*-->/g;
 const UFI_BUNDLE_MAX=4*1024*1024,UFI_BLOCK_MAX=1024*1024,UFI_COUNT_MAX=50,UFI_STORE_MAX=5*1024*1024;
 function ufiParse(text){const out=[];UFI_MARK.lastIndex=0;let m;while((m=UFI_MARK.exec(String(text)))){out.push({title:m[1],content:m[2]})}UFI_MARK.lastIndex=0;return out}
-function ufiBuild(blocks){return blocks.map(b=>'<!-- [KANO_PLUGIN_START] '+b.title+' -->'+b.content+'<!-- [KANO_PLUGIN_END] '+b.title+' -->').join('\n')}
+/* UFI's own layout (main.js): START + name + " -->\n" + trimmed text + "\n" + END + " -->" + four newlines, blocks joined with nothing.
+   UFI trims every block when it reads it and trims the whole text when it saves, so the last block has no trailing newlines. */
+function ufiBuild(blocks){return blocks.map(b=>'<!-- [KANO_PLUGIN_START] '+b.title+' -->\n'+String(b.content).trim()+'\n<!-- [KANO_PLUGIN_END] '+b.title+' -->\n\n\n\n').join('').trim()}
 function ufiHash(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0}return (h>>>0).toString(16).padStart(8,'0')}
 function ufiFileName(title){const t=String(title);const stem=t.replace(/[^A-Za-z0-9._-]+/g,'_').replace(/\.\.+/g,'_').replace(/^[._-]+|[._-]+$/g,'').slice(0,50)||'plugin';return stem+'-'+ufiHash(t)+'.html'}
 function ufiBytes(s){return new TextEncoder().encode(String(s)).length}
@@ -7706,7 +7710,7 @@ async function pmMove(name,to){
 /* Import UFI-TOOLS blocks (a bundle .txt, or one loose .html/.txt without markers). */
 async function ufiImport(text,fileName,extra){
   let blocks=ufiParse(text);
-  if(!blocks.length&&String(text).trim())blocks=[{title:String(fileName||'plugin').replace(/\.(txt|html?)$/i,''),content:String(text)}];
+  if(!blocks.length&&String(text).trim())blocks=[{title:String(fileName||'plugin').replace(/\.(txt|html?|js)$/i,''),content:String(text)}];
   const bad=ufiCheck(blocks,pluginCache);if(bad)throw new Error(bad);
   const titles=blocks.map(b=>b.title);
   if(!(await askConfirm('Import '+blocks.length+' UFI-TOOLS plugin'+(blocks.length>1?'s':'')+'?\n\n\u2022 '+titles.slice(0,12).join('\n\u2022 ')+(titles.length>12?'\n\u2022 \u2026 and '+(titles.length-12)+' more':'')+(extra?'\n\n'+extra:'')+'\n\nMatching names will be replaced. Plugins can run any command as root. Continue only if you trust this file.','Import UFI plugins',true)))return false;
@@ -7849,12 +7853,23 @@ document.getElementById('plugfile').onchange=async(e)=>{
     if(/\.(txt|html?)$/i.test(f.name)){try{if(f.size>UFI_BUNDLE_MAX+4096)throw new Error('over the 4 MB UFI-TOOLS limit');if(await ufiImport(await f.text(),f.name))done++}catch(err){createToast(f.name+': '+err.message,'red')}continue}
     if(!f.name.toLowerCase().endsWith('.js')){createToast('Skipped '+f.name+': not a .js, .txt or .html file','red');continue}
     if(f.size>1024*1024){createToast(f.name+' exceeds the 1 MB limit','red');continue}
-    if(BUILTIN.has(f.name)){createToast('Cannot replace a built-in tool: '+f.name,'red');continue}
     try{
-      const code=await f.text();new Function(code);
-      const exists=pluginCache.some(p=>p.name===f.name);
+      const code=await f.text();
+      /* A file named .js that holds HTML (<script>, <style>, a panel) is a UFI-style plugin: import it the way a .txt is imported. */
+      if(/^\s*</.test(code)){if(f.size>UFI_BUNDLE_MAX+4096)throw new Error('over the 4 MB UFI-TOOLS limit');if(await ufiImport(code,f.name))done++;continue}
+      /* The host only stores plain ASCII file names. Any other name (Chinese, spaces, brackets) is turned into a safe, stable
+         name and the original name stays as the title, the same way UFI-TOOLS bundles are imported. */
+      const orig=f.name.replace(/\.js$/i,'');
+      let name=f.name;
+      if(!/^[A-Za-z0-9._-]{1,80}\.js$/.test(name)||name.includes('..')){
+        const stem=orig.replace(/[^A-Za-z0-9._-]+/g,'_').replace(/\.\.+/g,'_').replace(/^[._-]+|[._-]+$/g,'').slice(0,50)||'plugin';
+        name=stem+'-'+ufiHash(orig)+'.js';
+      }
+      if(BUILTIN.has(name)){createToast('Cannot replace a built-in tool: '+f.name,'red');continue}
+      new Function(code);
+      const exists=pluginCache.some(p=>p.name===name);
       if(!(await askConfirm(exists?'Replace '+f.name+'? Export the old source first if needed. A plugin can run any command as root, so keep only code you trust.':'Add '+f.name+'? A plugin can run any command as root. Add it only if you trust where it came from.',exists?'Replace plugin':'Add plugin',true)))continue;
-      await api('/api/plugins',{method:'POST',body:JSON.stringify({name:f.name,code})});done++;createToast('Uploaded '+f.name);
+      await api('/api/plugins',{method:'POST',body:JSON.stringify({name,code,title:orig})});done++;createToast('Uploaded '+f.name);
     }catch(err){createToast(f.name+': '+err.message,'red')}
   }
   e.target.value='';if(done){await refreshPluginList();setTimeout(()=>location.reload(),500)}

@@ -154,8 +154,10 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
     }
 
     /** UFI-TOOLS shell reply: {"result": ..., "error": ...}; the one that does not apply is JSON null. */
+    /** UFI's shell routes (read from its advancedToolsModule.kt): {"result":...} with 200, or {"error":"..."} with HTTP 500. */
     private fun ufiShellReply(result: Any?, error: String?): Response =
-        json(Response.Status.OK, JSONObject().put("result", result ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL))
+        if (error == null) json(Response.Status.OK, JSONObject().put("result", result ?: JSONObject.NULL))
+        else json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", error))
 
     /**
      * Parameters of a forwarded router request: the query string, plus for a POST the body (a JSON object, or a form when it
@@ -285,6 +287,9 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
         val pluginKind = PluginLog.kindOf(s.method.name, uri)
         val t0 = System.nanoTime()
         val resp = try { route(s, uri) } catch (e: Exception) {
+            // Deliberate refusals (IllegalArgument/IllegalState/IO/Update) are normal 400s; anything else is a bug worth a log line.
+            if (e !is IllegalArgumentException && e !is IllegalStateException && e !is java.io.IOException && e !is ApkUpdater.UpdateException && e !is org.json.JSONException)
+                Quiet.note("WebServer.route", e)
             json(Response.Status.BAD_REQUEST, JSONObject().put("error", e.message ?: "bad request"))
         }
         // Plugin-facing routes are logged (route kind, status, time; never commands, queries, cookies or bodies).
@@ -1023,19 +1028,25 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
         }
-        // UFI-TOOLS aliases. Request {"command", "timeout"}; reply {"result", "error"}. UFI's kano-t / kano-sign / authorization
-        // headers are never read, so they are ignored. root_shell and one_click_shell run as root (same gate, limits and path
-        // mapping as /api/shell); user_shell runs as the app's own user. UFI's one_click_shell shapes are not confirmed: it is
-        // treated as root_shell.
-        (uri == "/api/root_shell" || uri == "/api/one_click_shell") && s.method == Method.POST -> rootGate(s) ?: run {
+        // UFI-TOOLS aliases (shapes read from UFI's own server source, advancedToolsModule.kt). root_shell: request {"command","timeout"},
+        // reply {"result":"<text>"} or HTTP 500 {"error":"..."}; UFI's timeout cap is 100 s (kept). The default is 30 s, not UFI's 100 s: above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper. Same gate, limits and
+        // path mapping as /api/shell. UFI's kano-t / kano-sign / authorization headers are never read, so they are ignored.
+        uri == "/api/root_shell" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
             val command = req.optString("command")
             if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
                 throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
-            val t = req.optLong("timeout", 10000).coerceIn(1000, 120000)
-            auditShell(s.remoteIpAddress ?: "?", command, if (uri == "/api/root_shell") "root_shell" else "one_click_shell")
+            val t = req.optLong("timeout", 30000).coerceIn(1000, 100000)
+            auditShell(s.remoteIpAddress ?: "?", command, "root_shell")
             val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
             ufiShellReply(if (r.success) r.content else null, if (r.success) null else r.content.ifBlank { "command failed" })
+        }
+        // UFI's one_click_shell is a GET with no body: it drives the phone screen over adb to switch on UFI's own root shell. It is
+        // not a command runner. MatchiTOOL already runs commands as root, so there is nothing to switch on: the reply says whether
+        // root is available. (Before this it was wrongly treated as a second root_shell.)
+        uri == "/api/one_click_shell" && s.method == Method.GET -> run {
+            if (RootShell.status(ctx).granted) ufiShellReply("Root shell is already available (MatchiTOOL runs commands as root)", null)
+            else ufiShellReply(null, "Root access has not been granted to MatchiTOOL")
         }
         uri == "/api/user_shell" && s.method == Method.POST -> rootGate(s) ?: run {
             val req = body(s)
@@ -1044,8 +1055,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
                 throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
             auditShell(s.remoteIpAddress ?: "?", command, "user_shell")
             val r = UserShell.run(ctx.filesDir, command, 20000)
-            // UFI's own page reads this result as an object with a "content" text (see its upload rename code).
-            ufiShellReply(if (r.success) JSONObject().put("content", r.content) else null, if (r.success) null else r.content.ifBlank { "command failed" })
+            // UFI's reply: {"result":{"done":true,"content":"<stdout>"}}; any stderr output makes UFI answer an error instead.
+            ufiShellReply(if (r.success) JSONObject().put("done", true).put("content", r.content) else null, if (r.success) null else r.content.ifBlank { "command failed" })
         }
         // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
         uri == "/api/imei/apply" && s.method == Method.POST -> rootGate(s) ?: run {
@@ -1067,11 +1078,11 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
         }
-        // UFI-TOOLS route GET /api/AT?command=AT+CSQ&slot=0 (UFI's own tools and plugins call it; see ufi_req's help text).
-        // The reply shape of UFI's route could not be confirmed (its server code is compiled), so this sends both families
-        // of fields a plugin may read: {"success":true,"result":"<modem text>","error":null}, or on failure
-        // {"success":false,"result":null,"error":"<text>"}. Same gate as /api/at: pure read commands skip the sign-in age
-        // check, everything else (NV writes, AT+CFUN, AT^...) needs it. Writes are audited (hash and length only).
+        // UFI-TOOLS route GET /api/AT?command=AT+CSQ&slot=0 (UFI's own tools and plugins call it). Reply shape taken from UFI's
+        // server source (atModule.kt): {"result":"<modem text>"} on success, HTTP 500 {"error":"<text>"} on failure. The text is
+        // normalised the way UFI does it (AtBatch.ufiText). No "success" field: UFI's reply has none. Difference kept on purpose:
+        // a slot other than 0 or 1 is refused with 400 (UFI silently passes any number on). Same gate as /api/at: pure read
+        // commands skip the sign-in age check, everything else (NV writes, AT+CFUN, AT^...) needs it. Writes are audited.
         uri == "/api/AT" && s.method == Method.GET -> run {
             val cmd = AtBatch.checkCommand(s.parameters["command"]?.firstOrNull())
             val slot = AtBatch.checkSlot(s.parameters["slot"]?.firstOrNull())
@@ -1081,10 +1092,8 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val q = "'" + cmd.replace("'", "'\\''") + "'"
             val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
             val text = r.content.trim()
-            json(Response.Status.OK, JSONObject()
-                .put("success", r.success)
-                .put("result", if (r.success) text else JSONObject.NULL)
-                .put("error", if (r.success) JSONObject.NULL else text.ifBlank { "command failed" }))
+            if (r.success) json(Response.Status.OK, JSONObject().put("result", AtBatch.ufiText(text)))
+            else json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "AT command failed: " + text.ifBlank { "no output" }))
         }
         // Several AT commands in ONE root call: {"commands":["AT+CSQ","AT+COPS?"],"slot":0} -> {"results":["...","..."]}
         uri == "/api/at/batch" && s.method == Method.POST -> run {
@@ -1141,14 +1150,14 @@ class WebServer(private val ctx: Context, port: Int, bindAddress: String = "127.
             val r = ZteClient.proxy(ctx, s.method.name, path, p)
             harden(newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", r.body)).also { it.addHeader("X-Router-Status", r.code.toString()) }
         }
-        // Router session cookie. Root-gated: whoever holds it is signed in to the router. Reply shapes are not confirmed from UFI-TOOLS.
+        // Router session cookie. Root-gated: whoever holds it is signed in to the router. Shapes as in UFI's server: {"cookie":"..."} and {"result":true}.
         uri == "/api/get_cookie" && s.method == Method.GET -> rootGate(s) ?: json(Response.Status.OK, JSONObject().put("cookie", ZteClient.sessionCookie()))
         uri == "/api/set_cookie" && s.method == Method.POST -> rootGate(s) ?: run {
             val c = body(s).optString("cookie")
             if (!GatewayProxy.cookieOk(c)) throw IllegalArgumentException("cookie must be printable ASCII, at most 2 KB")
             auditShell(s.remoteIpAddress ?: "?", "set_cookie len=" + c.length, "set_cookie")
             ZteClient.setSessionCookie(c)
-            json(Response.Status.OK, JSONObject().put("result", "success").put("error", JSONObject.NULL))
+            json(Response.Status.OK, JSONObject().put("result", true))
         }
         uri == "/api/zte/page" && s.method == Method.POST ->
             json(Response.Status.OK, JSONObject().put("ok", true).put("text", ZteClient.fetchPage(ctx, body(s).optString("path"))))

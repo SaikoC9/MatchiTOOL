@@ -38,6 +38,18 @@ object AtBatch {
         else -> throw IllegalArgumentException("slot must be 0 or 1")
     }
 
+    /**
+     * The text UFI-TOOLS' own GET /api/AT puts in its reply (read from its atModule.kt): every CR and LF removed (lines are
+     * joined with no separator), leading blanks trimmed, a closing "ok" in any case replaced by " OK" after trimming the text
+     * before it, and a leading comma dropped. Plugins were written against this form, so it is copied as it is, quirks included.
+     */
+    fun ufiText(raw: String): String {
+        var res = raw.replace("\n", "").replace("\r", "").trimStart()
+        if (res.lowercase().endsWith("ok")) res = res.dropLast(2).trimEnd() + " OK"
+        if (res.startsWith(",")) res = res.removePrefix(",").trimStart()
+        return res
+    }
+
     /** One `sendat` call per command, each preceded by a marker line, and a final END marker. [commands] are already validated. */
     fun script(sendat: String, slot: Int, commands: List<String>, marker: String): String {
         val sb = StringBuilder()
