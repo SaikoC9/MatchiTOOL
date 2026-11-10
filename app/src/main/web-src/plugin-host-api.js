@@ -34,7 +34,7 @@ async function runShellWithUser(cmd){
 function createModal({name,noBlur,isMask,title,titleI18nKey='',maxWidth,content,contentStyle,showConfirm=true,confirmBtnText=ufiT('submit_btn'),closeBtnText=ufiT('close_btn'),onClose,onConfirm}){
   document.getElementById(name)?.remove();
   const bg=document.createElement('div');bg.className='modal-bg';bg.id=name;
-  const box=document.createElement('div');box.className='modal';box.style.maxWidth=maxWidth||'600px';
+  const box=document.createElement('div');box.className='modal modal-flex';box.style.maxWidth=maxWidth||'600px';
   box.innerHTML=`<h3 class="title"><span data-i18n="${titleI18nKey}"></span></h3><div class="content mbody" style="${contentStyle||''}"></div><div class="btn mfoot">${showConfirm?`<button id="${name}_confirm" type="button"></button>`:''}<button id="${name}_close" class="mclose" type="button"></button></div>`;
   box.querySelector('.title span').textContent=title==null?'':String(title);
   box.querySelector('.content').innerHTML=content||'';
