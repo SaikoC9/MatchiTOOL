@@ -1067,7 +1067,8 @@ rm -f $P.g $P.4 $P.6 $P.d
   const REG = { '0': 'Not registered', '1': 'Registered (home)', '2': 'Searching', '3': 'Denied', '4': 'Unknown', '5': 'Registered (roaming)' };
   const KEYS = ['network_type', 'network_provider', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band', 'wan_active_channel',
     'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g',
-    'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status'];   // last six: UFI-TOOLS fields (speed in bytes/s, monthly totals in bytes)
+    'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status',
+    'nr_rsrq', 'Nr_snr'];   // last two: the names UFI-TOOLS shows for 5G RSRQ / SINR (some firmware fills these when Z5g_rsrq / Z5g_SINR are empty)   // last six: UFI-TOOLS fields (speed in bytes/s, monthly totals in bytes)
 
   // ---- helpers -------------------------------------------------------------------------------------------
   const has = (v) => v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '—';
@@ -1127,14 +1128,14 @@ rm -f $P.g $P.4 $P.6 $P.d
   // Here the second source is Android telephony (dumpsys telephony.registry, read by the slow loop). radioGap() = the router left a detail field empty for the RAT in use.
   const radioGap = () => {
     const z = zteData, nr = has(z.Z5g_rsrp) || /5G|NR|ENDC|^SA$/i.test(String(z.network_type || '').trim()), lte = has(z.lte_rsrp) || /LTE|4G|ENDC|NSA/i.test(String(z.network_type || ''));
-    return (nr && !(has(z.Z5g_rsrq) && has(z.Z5g_SINR) && has(z.nr5g_pci) && has(z.nr5g_action_channel))) || (lte && !(has(z.lte_rsrq) && has(z.lte_snr) && has(z.lte_pci) && has(z.wan_active_channel)));
+    return (nr && !((has(z.Z5g_rsrq) || has(z.nr_rsrq)) && (has(z.Z5g_SINR) || has(z.Nr_snr)) && has(z.nr5g_pci) && has(z.nr5g_action_channel))) || (lte && !(has(z.lte_rsrq) && has(z.lte_snr) && has(z.lte_pci) && has(z.wan_active_channel)));
   };
   const TELE_MS = [30000, 60000, 180000];   // telephony re-read interval by heat level (cool / warm / hot); the dumpsys is the costly part, so it is slower than the slow loop itself
 
   // Instant open (Phase 4): the last router radio values are kept in sessionStorage (this tab only, gone when the tab closes) so a reload paints at once.
   // Signal numbers only: no operator name, PCI, speeds, device count, data used, IP or IDs. Values older than 10 minutes are ignored.
   const CACHE_KEY = 'liv_cache_v1', CACHE_MAX_MS = 10 * 60 * 1000;
-  const CACHE_FIELDS = ['network_type', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'wan_active_band', 'wan_active_channel', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_action_band', 'nr5g_action_channel'];
+  const CACHE_FIELDS = ['network_type', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'wan_active_band', 'wan_active_channel', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr_rsrq', 'Nr_snr', 'nr5g_action_band', 'nr5g_action_channel'];
   let cacheAt = 0;   // time of the cached reading while it is the only thing on the card; 0 once the first real router read has finished
   function saveCache(d) {
     try { const o = {}; for (const k of CACHE_FIELDS) if (has(d[k])) o[k] = String(d[k]).slice(0, 40); sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), d: o })); } catch (_) {  }
@@ -1187,7 +1188,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
     const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
     // CPU / memory / load / uptime / IPs (from /proc via the same root shell call)
-    const parseCpu = (a) => (a.length >= 4 && a.every(Number.isFinite)) ? { total: a.reduce((x, y) => x + y, 0), idle: a[3] + (a[4] || 0) } : null;
+    const parseCpu = (a) => (a.length >= 4 && a.every(Number.isFinite)) ? { total: a.slice(0, 8).reduce((x, y) => x + y, 0), idle: a[3] + (a[4] || 0) } : null;
     const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     const cpu0A = (grab(/^cpu0:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     let cpu;
@@ -1240,7 +1241,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 
     const lte = { rsrp: first(range(zte.lte_rsrp, -140, -40), tLteRsrp, cesqRsrp), rsrq: first(range(zte.lte_rsrq, -34, 3), tLteRsrq, cesqRsrq), sinr: first(range(zte.lte_snr, -23, 40), tLteSnr),
       band: pick(zte.wan_active_band, lteBand, nrB ? undefined : tBands), pci: pick(zte.lte_pci, ltePci, nrB ? undefined : tPci), chan: pick(zte.wan_active_channel, lteChan, nrB ? undefined : tChan) };
-    const nr = { rsrp: first(range(zte.Z5g_rsrp, -140, -40), tNrRsrp), rsrq: first(range(zte.Z5g_rsrq, -43, 20), tNrRsrq), sinr: first(range(zte.Z5g_SINR, -23, 40), tNrSinr),
+    const nr = { rsrp: first(range(zte.Z5g_rsrp, -140, -40), tNrRsrp), rsrq: first(range(zte.Z5g_rsrq, -43, 20), range(zte.nr_rsrq, -43, 20), tNrRsrq), sinr: first(range(zte.Z5g_SINR, -23, 40), range(zte.Nr_snr, -23, 40), tNrSinr),
       band: pick(zte.nr5g_action_band, nrBand), pci: pick(zte.nr5g_pci, nrPci), chan: pick(zte.nr5g_action_channel, nrChan) };
     const hasNr = nr.rsrp !== undefined || nr.sinr !== undefined || has(zte.nr5g_action_band) || /5G|NR|ENDC/i.test(String(zte.network_type || ''));
     const hasLte = lte.rsrp !== undefined || lte.sinr !== undefined || has(zte.wan_active_band) || /LTE|4G/i.test(String(zte.network_type || act || ''));
