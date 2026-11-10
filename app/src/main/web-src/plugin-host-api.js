@@ -279,3 +279,28 @@ echo started`,15000);
   return {P,q,sleep,hr,prepare,run,runJob,showModal,closeModal,createModal,createFixedToast,requestInterval,upload,download,lanIp,validIp};
 })();
 /* ===== end UFI-TOOLS plugin host API ===== */
+
+/* ===== LAN-service links (AdGuard Home and similar) =====
+ * The console itself is served over HTTPS, so a plugin written for UFI-TOOLS (plain HTTP) that builds a link as
+ * location.protocol + '//' + location.hostname + ':3000' ends up at https://HOST:3000, where AdGuard Home's admin page only speaks
+ * plain HTTP: the browser shows ERR_SSL_PROTOCOL_ERROR. The fix lives here, so plugins stay unchanged:
+ *  - pluginLanFix(code) rewrites that link pattern (port 3000 only) to http:// when a plugin is loaded; the stored file is not touched;
+ *  - window.open is wrapped so an explicit https://<this host>:3000 is opened as http:// as well. */
+function pluginLanFix(code){
+  if(typeof code!=='string'||code.indexOf(':3000')<0)return code;
+  return code
+    .replace(/\$\{\s*(?:window\.)?location\.protocol\s*\}\/\/(\$\{\s*(?:window\.)?location\.hostname\s*\}):3000(?!\d)/g,'http://$1:3000')
+    .replace(/(?:window\.)?location\.protocol\s*\+\s*(['"])\/\/\1\s*\+\s*((?:window\.)?location\.hostname)\s*\+\s*(['"]):3000\3/g,'"http://"+$2+":3000"');
+}
+(function(){
+  if(typeof window==='undefined'||typeof window.open!=='function'||window.__matchiOpenFix)return;
+  window.__matchiOpenFix=true;
+  const orig=window.open;
+  window.open=function(u){
+    try{
+      const s=String(u==null?'':u),m=/^https:\/\/([^\/:?#]+):3000(?=[\/?#]|$)/i.exec(s);
+      if(m&&m[1].toLowerCase()===String(location.hostname).toLowerCase())arguments[0]='http://'+s.slice(8);
+    }catch(_){}
+    return orig.apply(this,arguments);
+  };
+})();
