@@ -1,3 +1,19 @@
+# MatchiTOOL (unreleased) - AT & Radio: cell lock (plan Phase 3)
+
+- **"Cell lock" button** in AT & Radio opens a panel. It reads `neighbor_cell_info` and `locked_cell_info` only when opened or refreshed (never polled) and shows the locked cell and the neighbour list (band, EARFCN, PCI, RSRP, RSRQ, SINR). A firmware with neither key shows "not available"; Unlock still works.
+- **Lock:** a "Lock" button per neighbour, or by hand (PCI, EARFCN, 4G/5G). It sends `CELL_LOCK` with `pci`, `earfcn`, `rat` (12 = 4G, 16 = 5G) after a confirm that names the cell and warns that a wrong cell can give no or unstable signal. The neighbour list has no `rat` field: it is taken from a band written `n78` (5G) or `B3` (4G); a bare number makes you pick 4G or 5G yourself. PCI 0-1007, EARFCN up to 3279165 are checked before sending. After sending, the lock is read back.
+- **Unlock all cells** (`UNLOCK_ALL_CELL`) is always at the top of the panel, with a confirm.
+- **Auto-unlock (on by default, tick box):** 60 s after a lock the modem is asked `AT+CEREG?` / `AT+C5GREG?`; if neither says registered (1 or 5), or nothing answers, `UNLOCK_ALL_CELL` is sent once. A manual unlock or a newer lock cancels it. It runs once and never loops.
+- **Tests:** `scripts/test_at_radio.js` (in `validate.sh`) runs the real parsing helpers (band lists, cell lists, rat guess, cell validation). **Not yet checked on the F50.**
+
+# MatchiTOOL (unreleased) - AT & Radio: band lock (plan Phase 2)
+
+- **Band lock in AT & Radio:** LTE and 5G NR bands as tap chips, pre-ticked with what the router reports now (`lte_band_lock`, `nr_band_lock`, read on open and after a change only). "Lock ticked bands" sends `LTE_BAND_LOCK` / `NR_BAND_LOCK` (bare integers joined by `,`) after a confirm dialog that lists the bands. The section is hidden when the firmware reports neither key.
+- **Stricter than UFI-TOOLS:** every command sent must answer `success` (UFI accepts one), nothing is sent with zero bands ticked, a type with no tick is left unchanged (not sent as an empty string), and the bands are read back and compared.
+- **Way back:** "Unlock all" sends the full listed bands (LTE: built-in list plus anything already locked; NR: the modem's `AT+SP5GCMDS support_band` answer). "Restore original" sends back exactly the text the router reported the first time this browser read it (kept in `localStorage`, `matchi_band_orig`). "Re-apply network mode" re-sends the current network mode, because UFI says the lock is picked up after switching network mode.
+- **Not confirmed (Phase 0 table is still empty):** what the router calls "no lock", what its "Unlock bands" sends, and whether the LTE values are bare integers on the wire. That is why "Restore original" exists next to "Unlock all". **Not yet checked on the F50.**
+- Both copies changed (`plugins/AT_Radio.js` and the embedded copy in `index.html`). `validate.sh` passes.
+
 # MatchiTOOL (unreleased) - CPU %: UFI-TOOLS method (Live Status and CPU Governor)
 
 Read from the UFI-TOOLS 4.1.5 APK (`DeviceInfo.kt`: `readProcStat`, `calculateCpuUsage`, `getCpuUsageSnapshot`, `getCpuFreqJson`):
