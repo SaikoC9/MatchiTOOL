@@ -37,6 +37,13 @@ object Prefs {
         setPluginOrder(c, pluginOrder(c).filter { it != name })
         setPluginTitle(c, name, null)
     }
+    /** Network rules for plugins (see NetPolicy): strict mode on or off, and the hosts the person added to the allow-list. */
+    fun netStrict(c: Context): Boolean = sp(c).getBoolean("net_strict", true)
+    fun setNetStrict(c: Context, v: Boolean) { sp(c).edit().putBoolean("net_strict", v).apply() }
+    fun netHosts(c: Context): List<String> = NetPolicy.parse(sp(c).getString("net_hosts", null))
+    fun setNetHosts(c: Context, hosts: List<String>) {
+        sp(c).edit().putString("net_hosts", org.json.JSONArray(NetPolicy.cleanList(hosts)).toString()).apply()
+    }
     /** True once the root temp files that older versions left in /data/local/tmp have been deleted (see HostService.cleanOldTmpFiles). */
     fun oldTmpCleaned(c: Context): Boolean = sp(c).getBoolean("old_tmp_cleaned", false)
     fun setOldTmpCleaned(c: Context) { sp(c).edit().putBoolean("old_tmp_cleaned", true).apply() }

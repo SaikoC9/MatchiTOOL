@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_LOGD_VERSION=5
+# MATCHI_LOGD_VERSION=6
 # MatchiTOOL boot log capture. Installed by the app to /data/adb/service.d/ (Magisk runs it as root at boot).
 # Runs Android's own logcat (all buffers) and dmesg -w straight into size-capped rotating files, independent of the
 # app: if the app is killed, updated or crashes, capture goes on. Never filters or drops lines at capture time.
@@ -41,6 +41,19 @@ VER=$(sed -n 's/^# MATCHI_LOGD_VERSION=//p' "$SELF" 2>/dev/null | head -n 1)
 STARTED=$(date '+%F %T')
 LC_RESTARTS=0; DM_RESTARTS=0; LAST_RESTART=-
 LOW_SPACE=0
+# Real temperatures: the battery sensor on some F50 builds reads a fixed 750 / 25.0, so list every kernel thermal zone instead.
+# Output "type=raw" pairs (raw is the sysfs value, normally milli-degrees C), at most 16 zones.
+thermal_zones() {
+  tz_n=0
+  for tz in /sys/class/thermal/thermal_zone*; do
+    [ -r "$tz/temp" ] || continue
+    tz_n=$((tz_n+1)); [ "$tz_n" -gt 16 ] && break
+    tz_t=""; read -r tz_t < "$tz/type" 2>/dev/null
+    tz_v=""; read -r tz_v < "$tz/temp" 2>/dev/null
+    printf '%s=%s ' "${tz_t:-${tz##*/}}" "${tz_v:-?}"
+  done
+  echo
+}
 note "capture started (script v${VER:-?}, pid $$, ${FILES} x ${FILE_KB} KB per source)"
 
 # Context header: what the device looked like when capture began.
@@ -57,6 +70,16 @@ note "capture started (script v${VER:-?}, pid $$, ${FILES} x ${FILE_KB} KB per s
   head -n 3 /proc/meminfo 2>/dev/null
   echo "--- network ---"
   ip -o addr 2>/dev/null | head -n 20
+  echo "--- thermal zones (type=raw) ---"
+  thermal_zones
+  # Names only (never file contents): what could start apps or scripts at boot, and whether an old UFI-TOOLS launcher is around.
+  echo "--- boot scripts (names only) ---"
+  ls -1 /data/adb/service.d /data/adb/post-fs-data.d 2>/dev/null | head -n 40
+  [ -e /sdcard/ufi_tools_boot.sh ] && echo "present: /sdcard/ufi_tools_boot.sh"
+  echo "--- files naming minikano / ufi_tools ---"
+  grep -rIlsiE 'minikano|ufi_tools' /data/adb/service.d /data/adb/post-fs-data.d /data/adb/modules /data/local/tmp 2>/dev/null | head -n 20
+  echo "--- running: minikano / ufi_tools ---"
+  ps -A -o PID,ARGS 2>/dev/null | grep -iE '[m]inikano|[u]fi_tools' | cut -c1-160 | head -n 10
 } > "$L/context.txt" 2>/dev/null
 
 kids=""
@@ -246,6 +269,7 @@ while :; do
     echo "logcat_restarts=$(cat "$L/.lcr" 2>/dev/null || echo 0)"; echo "dmesg_restarts=$(cat "$L/.dmr" 2>/dev/null || echo 0)"
     echo "last_restart=$(cat "$L/.lastrestart" 2>/dev/null || echo -)"
     echo "used_kb=$used"; echo "free_mb=$fm"; echo "file_kb=$FILE_KB"; echo "files=$FILES"; echo "retain_days=$RETAIN_DAYS"
+    echo "thermal=$(thermal_zones)"
   } > "$L/status.tmp" 2>/dev/null && mv "$L/status.tmp" "$L/status"
   sleep "$TICK" & wait $!     # wait is interrupted by TERM at once; a plain sleep would delay the trap by up to $TICK
 done

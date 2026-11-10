@@ -692,6 +692,7 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     </label>
     <div class="pm-backup"><button type="button" id="plugin_export">Export all</button><button type="button" id="plugin_import">Import backup</button><input id="plugin_backup_file" type="file" accept=".json,application/json" style="display:none"></div>
     <div class="pm-backup"><button type="button" id="plugin_store_open">Plugin store…</button></div>
+    <div class="pm-backup"><button type="button" id="plugin_net">Network rules…</button></div>
     <div class="pm-backup"><button type="button" id="plugin_ufi_export">Export UFI .txt</button><button type="button" id="plugin_ufi_import">Import UFI .txt</button><input id="plugin_ufi_file" type="file" accept=".txt,.html,text/plain" style="display:none"></div>
     <div class="pm-warn"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg><span>Plugins can run any command as root through this console. Install only code you trust.</span></div>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -7031,6 +7032,35 @@ async function insecureOk(){
   if(!api._insP)api._insP=Promise.resolve().then(()=>confirm('This console is open over plain HTTP, NOT encrypted. The commands you run as root and your session token can be read by anyone on this network.\n\nRun root commands anyway?'));
   return api._insP;
 }
+/* @include web-src/plugin-trace.js */
+/* Plugin trace (1.4.1): every root command or upload a plugin sends carries the plugin's file name in the header x-matchi-plugin, so the
+   host can remember what that plugin wrote and erase it when the plugin is deleted. The name comes from the plugin script's own stack
+   frame ("matchi-plugin/NAME", set by pluginSrcUrl), so it needs no change in the plugin and also covers plugins that call fetch() directly.
+   Calls the page makes for itself have no plugin frame and carry no header. Best effort: a call made from a place that has lost the
+   plugin frame (some old browsers, code run through eval of a string) is not attributed. */
+function pluginFromStack(stack){const m=/matchi-plugin\/([A-Za-z0-9._-]{1,80}\.(?:js|html))/.exec(String(stack||''));return m?m[1]:null}
+function pluginTraceInit(url,init,stack){
+  const path=String(url||'').replace(/^https?:\/\/[^/]+/,'');
+  if(!/^\/api\/(shell|root_shell|user_shell|upload|upload_img)(\?|$)/.test(path))return init;
+  const name=pluginFromStack(stack);if(!name)return init;
+  const out=Object.assign({},init||{});const h=new Headers(out.headers||{});
+  if(!h.has('x-matchi-plugin'))h.set('x-matchi-plugin',name);
+  out.headers=h;return out;
+}
+(function(){
+  if(typeof window==='undefined'||typeof window.fetch!=='function'||window.__matchiTraceFetch)return;
+  const orig=window.fetch;window.__matchiTraceFetch=true;
+  window.fetch=function(input,init){
+    try{
+      const url=typeof input==='string'?input:(input&&input.url)||'';
+      /* a Request object keeps its own headers: only string URLs are traced */
+      if(typeof input==='string'){const next=pluginTraceInit(url,init,new Error().stack);if(next!==init&&next!==undefined)init=next}
+    }catch(_){}
+    return orig.call(this,input,init);
+  };
+})();
+
+/* @end-include web-src/plugin-trace.js */
 async function api(path,opt={},_retried){
   const headers={...(opt.headers||{}),'x-token':TOKEN};
   /* Over plain HTTP (HTTPS could not start) root commands cross the network unencrypted: ask once per page load, shared by all callers; a "no" is remembered until the page is reloaded, so pollers do not bring the dialog back every few seconds. */
@@ -7055,6 +7085,16 @@ async function api(path,opt={},_retried){
       if(await insecureOk())return api(path,{...opt,headers:{...(opt.headers||{}),'x-insecure-ok':'1'}},true);
       throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
     }
+    /* Plugin guard (1.4.2): the host found clearly malicious code in a plugin. Show what it found and install only if the person insists. */
+    if(r.status===409&&data.code==='risky'&&path==='/api/plugins'){
+      let again=false;try{again=!!JSON.parse(opt.body||'{}').force}catch(_){}
+      const lines=(data.findings||[]).map(f=>'\u2022 '+(f.level==='block'?'DANGER: ':'')+f.message).join('\n');
+      if(!again&&await askConfirm('This plugin has risky code:\n'+lines+'\n\nInstall it anyway? Only do this if you wrote it or fully trust its author.','Install anyway',true)){
+        let o={};try{o=JSON.parse(opt.body||'{}')}catch(_){}
+        return api(path,{...opt,body:JSON.stringify({...o,force:true})},true);
+      }
+      throw new Error('Install cancelled: this plugin has risky code');
+    }
     if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
     else if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
     const message=r.status===401?(data.error||'Invalid password'):r.status===429?(data.error||'Too many attempts. Wait a minute and retry.'):(data.error||data.message||`Request failed (${r.status})`);
@@ -7063,6 +7103,7 @@ async function api(path,opt={},_retried){
   return data;
 }
 /* UFIHOST-BEGIN */
+/* @include web-src/plugin-host-api.js */
 /* ===== UFI-TOOLS plugin host API (Phase 2) =====================================================
  * Helpers that UFI-TOOLS plugins call as globals. Signatures and return values follow UFI-TOOLS 4.1.5
  * (utils.js, MIT, Copyright (c) 2025 Minikano; see LICENSE-UFI-TOOLS). Where MatchiTOOL differs on purpose, the comment says so.
@@ -7344,6 +7385,7 @@ echo started`,15000);
   return {P,q,sleep,hr,prepare,run,runJob,showModal,closeModal,createModal,createFixedToast,requestInterval,upload,download,lanIp,validIp};
 })();
 /* ===== end UFI-TOOLS plugin host API ===== */
+/* @end-include web-src/plugin-host-api.js */
 /* UFIHOST-END */
 const KANO_baseURL='/api';                       // UFI plugins post uploads to `${KANO_baseURL}/upload_img`
 const common_headers={get 'x-token'(){return TOKEN}};
@@ -7508,6 +7550,7 @@ function ufiCheck(blocks,existing){
 /* One block per plugin; a .js plugin is wrapped in <script> so UFI-TOOLS can read it. */
 function ufiExportBlocks(list){return list.map(p=>p.kind==='html'?{title:p.title,content:p.code}:{title:p.title||p.name.replace(/\.js$/i,''),content:'<script>\n'+p.code+'\n<\/script>\n'})}
 /* UFIBUNDLE-END */
+/* @include web-src/plugin-store-pure.js */
 /* UFISTORE-BEGIN */
 /* Plugin store, pure parts (no DOM): URL rules, index parsing, search and paging, SHA-256 and the "what will this plugin do" scan. */
 const STORE_INDEX_MAX=1024*1024,STORE_FILE_MAX=4*1024*1024+4096,STORE_MAX_ITEMS=500,STORE_PER_PAGE=8;
@@ -7529,8 +7572,9 @@ function sha256Pure(u8){
   return Array.from(H).map(x=>(x>>>0).toString(16).padStart(8,'0')).join('');
 }
 /* SHA-256 of the text's UTF-8 bytes. crypto.subtle only exists on https or localhost, and the console is plain http on the LAN, so there is a pure fallback. */
-async function storeSha256(text){
-  const u8=new TextEncoder().encode(String(text));
+async function storeSha256(text){return storeSha256Bytes(new TextEncoder().encode(String(text)))}
+/* Same, over the exact downloaded bytes (what an index hash is computed from; a BOM or odd bytes would change a hash taken over decoded text). */
+async function storeSha256Bytes(u8){
   try{if(typeof crypto!=='undefined'&&crypto.subtle){const h=new Uint8Array(await crypto.subtle.digest('SHA-256',u8));return Array.from(h).map(x=>x.toString(16).padStart(2,'0')).join('')}}catch(_){}
   return sha256Pure(u8);
 }
@@ -7543,13 +7587,16 @@ function storeUrlOk(raw,base){
   if(!h||h==='localhost'||/^[0-9.]+$/.test(h)||h.includes(':')||h.startsWith('[')||!h.includes('.')||/\.(local|lan|internal|localhost|home|intranet)$/.test(h))return null;
   return u.href;
 }
+const STORE_UFI_SOURCE='https://raw.githubusercontent.com/BearHero520/UFI-TOOLS-PLUGINS/main/store.json';
 const storeClean=(v,n)=>String(v==null?'':v).replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,n);
 /* Index: a JSON array, or {plugins:[...]}. Entry: {name, url, description?, author?, version?, sha256?, size?}. Relative urls resolve against the index url. Bad entries are skipped and counted. */
 function storeParseIndex(text,baseUrl){
   if(String(text).length>STORE_INDEX_MAX)return {items:[],skipped:0,error:'The index is over 1 MB'};
   let data;try{data=JSON.parse(String(text))}catch(_){return {items:[],skipped:0,error:'The index is not valid JSON'}}
+  const ufi=data&&typeof data==='object'&&!Array.isArray(data)?((data.res&&data.res.data&&data.res.data.content)||(data.data&&data.data.content)||data.content||null):null;
+  if(Array.isArray(ufi))return storeParseUfi(data,ufi,baseUrl);
   const arr=Array.isArray(data)?data:(data&&Array.isArray(data.plugins)?data.plugins:null);
-  if(!arr)return {items:[],skipped:0,error:'The index must be a JSON array or {"plugins":[...]}'};
+  if(!arr)return {items:[],skipped:0,error:'The index must be a JSON array, {"plugins":[...]} or a UFI-TOOLS store index'};
   const items=[];let skipped=0;
   for(const e of arr.slice(0,STORE_MAX_ITEMS)){
     if(!e||typeof e!=='object'){skipped++;continue}
@@ -7560,6 +7607,28 @@ function storeParseIndex(text,baseUrl){
   }
   if(arr.length>STORE_MAX_ITEMS)skipped+=arr.length-STORE_MAX_ITEMS;
   return {items,skipped,error:''};
+}
+/* UFI-TOOLS store index: {download_url, res:{data:{content:[{name,size,is_dir,hash_info:{md5,sha256}}]}}} (also {data:{content}} or {content}).
+   A file lives at download_url + "/" + name. Only plain-text plugins (.js, and .txt/.html UFI bundles) can be installed here: folders,
+   archives (.zip, .tar.gz) and binaries need UFI-TOOLS' own installer and are counted in `unsupported`, not listed. md5 is ignored; sha256 is checked. */
+function storeParseUfi(data,content,baseUrl){
+  const root=storeUrlOk(data.download_url||data.downloadUrl||'',baseUrl);
+  if(!root)return {items:[],skipped:0,unsupported:0,error:'The UFI-TOOLS index has no usable download_url (https address with a domain name needed)'};
+  const items=[];let skipped=0,unsupported=0;
+  for(const e of content.slice(0,STORE_MAX_ITEMS)){
+    if(!e||typeof e!=='object'){skipped++;continue}
+    if(e.is_dir===true){unsupported++;continue}
+    const file=storeClean(e.name,160);
+    if(!file||file.includes('..')||file.startsWith('/')){skipped++;continue}
+    if(!/\.(js|txt|html?)$/i.test(file)){unsupported++;continue}
+    const url=storeUrlOk(root.replace(/\/+$/,'')+'/'+file.split('/').map(encodeURIComponent).join('/'));
+    const h=e.hash_info&&e.hash_info.sha256!=null?String(e.hash_info.sha256).trim().toLowerCase():'';
+    if(!url||(h&&!/^[0-9a-f]{64}$/.test(h))){skipped++;continue}
+    const size=Number(e.size);
+    items.push({name:storeClean(file.replace(/\.(js|txt|html?)$/i,''),80)||file.slice(0,80),url,sha256:h,description:'',author:'',version:'',size:Number.isFinite(size)&&size>0?Math.floor(size):0,source:'ufi'});
+  }
+  if(content.length>STORE_MAX_ITEMS)skipped+=content.length-STORE_MAX_ITEMS;
+  return {items,skipped,unsupported,error:''};
 }
 function storeFilter(items,query,page,per){
   per=per||STORE_PER_PAGE;const q=String(query||'').trim().toLowerCase();
@@ -7578,7 +7647,42 @@ function plugScan(code){
   const hosts=uniq([...s.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map(m=>m[1].toLowerCase())).slice(0,8);
   return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts};
 }
-function storeSummary(item,sha,scan,replaces){
+/* Routes the host really serves (kept in step with WebServer.kt by scripts/test_ufi_store.js). A plugin that calls any other /api path gets a 404. */
+const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/data","/api/plugins/delete","/api/plugins/order","/api/plugins/scan","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
+const MATCHI_ROUTE_PREFIXES=["/api/goform/","/api/logs/session/","/api/proxy/","/api/uploads/"];
+/* Files MatchiTOOL ships under UFI's files folder; any other UFI file a plugin names is missing. Tools UFI ships that MatchiTOOL does not: */
+const MATCHI_BUNDLED_FILES=new Set(['curl','jq','sendat','sha256','zreq']);
+const MATCHI_MISSING_TOOLS=['socat','ttyd','iperf3','imei_reader','ufi_req'];
+/* Optional header in a plugin's first 40 lines (same style as @matchi-data / @matchi-localstorage):
+     // @matchi-name Signal meter      // @matchi-version 1.2      // @matchi-author me
+     // @matchi-description One line   // @matchi-requires root, curl, jq
+   All fields are optional; values are cut to a safe length and control characters removed. */
+function plugMeta(code){
+  const m={name:'',version:'',author:'',description:'',requires:[]};
+  const lines=String(code).split('\n',40);
+  for(const ln of lines){
+    const g=/^\s*(?:\/\/|\*|\/\*+)?\s*@matchi-(name|version|author|description|requires)\s+(.+?)\s*(?:\*\/)?\s*$/.exec(ln);if(!g)continue;
+    const v=storeClean(g[2],g[1]==='description'?200:60);if(!v)continue;
+    if(g[1]==='requires')m.requires=v.split(/[\s,;]+/).filter(x=>/^[A-Za-z0-9][A-Za-z0-9_.-]{0,23}$/.test(x)).slice(0,8);
+    else if(!m[g[1]])m[g[1]]=v;
+  }
+  return m;
+}
+/* Static compatibility check of a plugin's source (a hint, like plugScan). Lists what the plugin needs that MatchiTOOL does not provide. */
+function plugCompat(code){
+  const s=String(code),sc=plugScan(s),issues=[];
+  const routes=sc.endpoints.filter(e=>e!=='/api'&&!MATCHI_ROUTES.has(e)&&!MATCHI_ROUTE_PREFIXES.some(p=>(e+'/').startsWith(p)));
+  if(routes.length)issues.push('calls routes MatchiTOOL does not have (they answer 404): '+routes.join(', '));
+  const defines=(n)=>new RegExp('(function\\s+'+n+'\\b|(?:const|let|var)\\s+'+n+'\\b|window\\.'+n+'\\s*=)').test(s);
+  const globals=['getCookie','setCookie'].filter(g=>new RegExp('(^|[^A-Za-z0-9_$.])'+g+'\\s*\\(').test(s)&&!defines(g));
+  if(globals.length)issues.push('uses '+globals.join(', ')+', which the page does not define');
+  const tools=MATCHI_MISSING_TOOLS.filter(t=>new RegExp('(^|[^A-Za-z0-9_-])'+t+'([^A-Za-z0-9_]|$)').test(s));
+  if(tools.length)issues.push('names tools MatchiTOOL does not ship: '+tools.join(', '));
+  const files=[...new Set([...s.matchAll(/\/data\/data\/com\.minikano\.f50_sms\/files\/([A-Za-z0-9._-]+)/g)].map(x=>x[1]))].filter(f=>!MATCHI_BUNDLED_FILES.has(f)&&!/\.(sh|json|txt|log|conf|pid)$/i.test(f));
+  if(files.length)issues.push('expects UFI-TOOLS files that are not shipped: '+files.slice(0,6).join(', '));
+  return {issues,ok:issues.length===0};
+}
+function storeSummary(item,sha,scan,replaces,compat){
   const L=[];
   L.push(item.name+(item.version?' '+item.version:'')+(item.author?' by '+item.author:''));
   L.push('SHA-256 (of the file you downloaded):\n'+sha);
@@ -7588,11 +7692,13 @@ function storeSummary(item,sha,scan,replaces){
   if(scan.risky.length)L.push('Careful: it '+scan.risky.join('; ')+'.');
   if(scan.endpoints.length)L.push('MatchiTOOL routes it calls: '+scan.endpoints.join(', ')+'.');
   if(scan.hosts.length)L.push('Web hosts it mentions: '+scan.hosts.join(', ')+'.');
+  if(compat)L.push(compat.ok?'Compatibility check: no known problems.':'Compatibility: this plugin '+compat.issues.join('; ')+'. It may not work here.');
   L.push('This list comes from a text search of the source; a plugin can build commands while it runs.');
   if(replaces.length)L.push('It will REPLACE: '+replaces.join(', ')+'.');
   return L.join('\n');
 }
 /* UFISTORE-END */
+/* @end-include web-src/plugin-store-pure.js */
 /* Run a UFI block: <script> nodes are re-created so they execute; <style>, <meta> and the rest are appended to the head in saved order. */
 function ufiInject(code,name){
   const doc=new DOMParser().parseFromString('<!doctype html><html><head>'+code+'</head><body></body></html>','text/html');
@@ -7622,8 +7728,10 @@ function renderPlugins(list){
     const row=document.createElement('div');row.className='pm-item'+(p.enabled?'':' off');
     const ic=document.createElement('div');ic.className='pm-glyph';ic.textContent=p.kind==='html'?'UFI':'JS';
     const wrap=document.createElement('div');wrap.className='pm-name';
-    const n=document.createElement('div');n.className='pm-n';n.textContent=p.kind==='html'?(p.title||p.name):p.name.replace(/\.js$/i,'');
-    const meta=document.createElement('div');meta.className='pm-m';meta.textContent=`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB · ${p.enabled?'On':'Off'}`;wrap.append(n,meta);
+    const pmeta=plugMeta(p.code||'');
+    const n=document.createElement('div');n.className='pm-n';n.textContent=p.kind==='html'?(p.title||p.name):(pmeta.name||p.name.replace(/\.js$/i,''));
+    const meta=document.createElement('div');meta.className='pm-m';meta.textContent=[pmeta.version?'v'+pmeta.version:'',pmeta.author,`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB`,p.risk==='block'?'\u26A0 risky code':p.risk==='warn'?'review code':'',p.enabled?'On':'Off'].filter(Boolean).join(' · ');
+    if(pmeta.description||pmeta.requires.length)meta.title=[pmeta.description,pmeta.requires.length?'Needs: '+pmeta.requires.join(', '):''].filter(Boolean).join(' \u2014 ');wrap.append(n,meta);
     const t=document.createElement('button');t.type='button';t.className='pm-sw';t.setAttribute('role','switch');t.setAttribute('aria-checked',p.enabled?'true':'false');t.setAttribute('aria-label',(p.enabled?'Disable ':'Enable ')+p.name);t.innerHTML='<i></i>';
     t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});await refreshPluginList();location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
     const acts=document.createElement('div');acts.className='pm-acts';
@@ -7631,17 +7739,22 @@ function renderPlugins(list){
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
     d.onclick=async()=>{
       let info=null;try{info=await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}
-      const lsKeys=pluginLsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
+      const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
       let msg='Delete '+p.name+'? Export a backup first if you may need it again.';
-      if(present.length||lsKeys.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(lsKeys.length)msg+='\n\u2022 '+lsKeys.length+' saved browser setting'+(lsKeys.length>1?'s':'')}
+      const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
+      if(present.length||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
+      if(fx.length)msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.'
       if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased (not allowed): '+info.rejected.map(r=>r.path).join(', ');
       if(!(await askConfirm(msg,'Delete',true)))return;
       d.disabled=true;
       try{
         const r=await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name,erase:true})});
         for(const k of lsKeys){try{localStorage.removeItem(k)}catch(_){}}
+        for(const k of ssKeys){try{sessionStorage.removeItem(k)}catch(_){}}
+        try{const pre=pluginLsPrefixes(p);if(window.indexedDB&&indexedDB.databases){for(const db of await indexedDB.databases()){if(db.name&&pluginKeyMine(db.name,pre))indexedDB.deleteDatabase(db.name)}}}catch(_){}
+        try{const pre=pluginLsPrefixes(p);if(window.caches){for(const k of await caches.keys()){if(pluginKeyMine(k,pre))await caches.delete(k)}}}catch(_){}
         const failed=r&&r.erase&&r.erase.success===false;
-        createToast(failed?'Deleted '+p.name+', but some data could not be erased':'Deleted '+p.name+(present.length||lsKeys.length?' and its data':''),failed?'orange':undefined);
+        createToast(failed?'Deleted '+p.name+', but some data could not be erased':'Deleted '+p.name+(present.length||lsKeys.length||ssKeys.length||ups.length?' and its data':''),failed?'orange':undefined);
         await refreshPluginList();
       }catch(e){d.disabled=false;createToast(e.message,'red')}
     };
@@ -7660,7 +7773,7 @@ function renderPlugins(list){
    The prefix must start with the plugin's own name (letters/digits, case-insensitive) and can never reach MatchiTOOL's own keys. */
 function pluginNorm(x){return String(x).toLowerCase().replace(/[^a-z0-9]+/g,'_')}
 function pluginLsPrefixes(p){
-  const slug=pluginNorm(String(p.name||'').replace(/\.js$/i,''));const out=[];
+  const full=String(p.name||'').replace(/\.(js|html|txt)$/i,'');const slug=pluginNorm(full);const out=[];
   if(slug.length<3)return out;
   for(const line of String(p.code||'').split('\n').slice(0,400)){
     const g=/^\s*\/\/\s*@matchi-localstorage\s+(\S+)\s*$/.exec(line);if(!g)continue;
@@ -7668,13 +7781,40 @@ function pluginLsPrefixes(p){
     if(np.length<4||!np.startsWith(slug)||'matchi_token'.startsWith(np)||np.startsWith('matchi_')||np.startsWith('liv_'))continue;
     out.push(g[1].toLowerCase());
   }
+  /* Implicit prefix (1.4.1): the plugin's own name, so its saved settings go with it even without a header line. */
+  if(!/^(matchi|liv)_/.test(slug+'_')&&slug.length>=4&&!'matchi_'.startsWith(slug)&&!out.includes(slug))out.push(slug);
+  /* UFI-TOOLS .html blocks end in -1a2b3c: the keys they saved use the name without that hash. */
+  const bare=pluginNorm(full.replace(/-[0-9a-f]{6}$/i,''));
+  if(bare!==slug&&!/^(matchi|liv)_/.test(bare+'_')&&bare.length>=4&&!'matchi_'.startsWith(bare)&&!out.includes(bare))out.push(bare);
   return out;
 }
+function pluginKeyMine(k,pre){const nk=pluginNorm(k);if(nk.startsWith('matchi_')||nk.startsWith('liv_'))return false;return pre.some(x=>nk.startsWith(pluginNorm(x)))}
 function pluginLsKeys(p){
   const pre=pluginLsPrefixes(p);const keys=[];if(!pre.length)return keys;
-  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&pre.some(x=>k.toLowerCase().startsWith(x)))keys.push(k)}}catch(_){}
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&pluginKeyMine(k,pre))keys.push(k)}}catch(_){}
   return keys;
 }
+function pluginSsKeys(p){
+  const pre=pluginLsPrefixes(p);const keys=[];if(!pre.length)return keys;
+  try{for(let i=0;i<sessionStorage.length;i++){const k=sessionStorage.key(i);if(k&&k!=='matchi_token'&&pluginKeyMine(k,pre))keys.push(k)}}catch(_){}
+  return keys;
+}
+/* Network rules (1.4.2): which hosts plugins may contact. Changing them asks for the sign-in password, so a plugin cannot do it for you. */
+(function(){const b=document.getElementById('plugin_net');if(!b)return;
+b.addEventListener('click',async()=>{
+  try{
+    const cur=await api('/api/security/net');
+    const v=prompt('Extra hosts plugins may contact, separated by commas (example: api.example.com, *.mycdn.net).\nType OPEN to switch the filter off, or STRICT to switch it on.\n\nAlways allowed: '+(cur.defaults||[]).join(', ')+'\nFilter is now: '+(cur.strict?'STRICT':'OPEN'),(cur.extra||[]).join(', '));
+    if(v===null)return;
+    const t=v.trim(),body={};
+    if(/^open$/i.test(t))body.strict=false;else if(/^strict$/i.test(t))body.strict=true;else body.hosts=t?t.split(',').map(x=>x.trim()).filter(Boolean):[];
+    const pw=prompt('Enter your sign-in password to confirm');if(pw===null||pw==='')return;
+    body.password=pw;
+    const r=await api('/api/security/net',{method:'POST',body:JSON.stringify(body)});
+    createToast(r.rejected&&r.rejected.length?'Saved. Not accepted: '+r.rejected.join(', '):'Saved. Reloading\u2026',r.rejected&&r.rejected.length?'orange':undefined);
+    setTimeout(()=>location.reload(),900);
+  }catch(e){createToast(e.message,'red')}
+});})();
 async function refreshPluginList(){
   const list=await api('/api/plugins');if(!Array.isArray(list))throw new Error('The plugin list returned an unexpected response');
   for(const p of list.filter(p=>BUILTIN.has(p.name))){try{await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}}
@@ -7713,6 +7853,8 @@ async function ufiImport(text,fileName,extra){
   if(!blocks.length&&String(text).trim())blocks=[{title:String(fileName||'plugin').replace(/\.(txt|html?|js)$/i,''),content:String(text)}];
   const bad=ufiCheck(blocks,pluginCache);if(bad)throw new Error(bad);
   const titles=blocks.map(b=>b.title);
+  const cx=blocks.flatMap(b=>{const c=plugCompat(b.content);return c.ok?[]:['\u2022 '+b.title+': '+c.issues.join('; ')]}).slice(0,8);
+  if(cx.length)extra=(extra?extra+'\n\n':'')+'Compatibility (static check, may not work here):\n'+cx.join('\n');
   if(!(await askConfirm('Import '+blocks.length+' UFI-TOOLS plugin'+(blocks.length>1?'s':'')+'?\n\n\u2022 '+titles.slice(0,12).join('\n\u2022 ')+(titles.length>12?'\n\u2022 \u2026 and '+(titles.length-12)+' more':'')+(extra?'\n\n'+extra:'')+'\n\nMatching names will be replaced. Plugins can run any command as root. Continue only if you trust this file.','Import UFI plugins',true)))return false;
   const done=[];
   try{for(const b of blocks){const name=ufiFileName(b.title);
@@ -7734,30 +7876,33 @@ document.getElementById('plugin_ufi_file').onchange=async(e)=>{
   try{if(f.size>UFI_BUNDLE_MAX+4096)throw new Error('File is over the 4 MB UFI-TOOLS limit');await ufiImport(await f.text(),f.name)}
   catch(err){createToast('Import failed: '+err.message,'red')}finally{e.target.value=''}
 };
+/* @include web-src/plugin-store-ui.js */
 /* ===== Plugin store (browser-side fetch: the app itself still makes no network request for this) ===== */
 const STORE_KEY='matchi_store_url';
 function storeSavedUrl(){try{return localStorage.getItem(STORE_KEY)||''}catch(_){return ''}}
 function storeSaveUrl(u){try{localStorage.setItem(STORE_KEY,u)}catch(_){}}
 /* Reads a response as text and stops at max bytes, so a huge or endless file cannot fill the page's memory. */
-async function storeFetchText(url,max){
+async function storeFetchText(url,max){return new TextDecoder('utf-8').decode(await storeFetchBytes(url,max))}
+async function storeFetchBytes(url,max){
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
   try{
     const r=await fetch(url,{credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store',redirect:'follow',signal:ctl.signal});
     if(!r.ok)throw new Error('HTTP '+r.status);
     if(r.url&&!storeUrlOk(r.url))throw new Error('The server redirected to an address the store does not allow');
     const rd=r.body&&r.body.getReader?r.body.getReader():null;
-    if(!rd){const t=await r.text();if(t.length>max)throw new Error('File is too large');return t}
+    if(!rd){const t=new Uint8Array(await r.arrayBuffer());if(t.length>max)throw new Error('File is too large');return t}
     const parts=[];let n=0;
     for(;;){const {done,value}=await rd.read();if(done)break;n+=value.length;if(n>max){try{await rd.cancel()}catch(_){}throw new Error('File is over '+(max/1048576).toFixed(0)+' MB')}parts.push(value)}
     const all=new Uint8Array(n);let o=0;for(const p of parts){all.set(p,o);o+=p.length}
-    return new TextDecoder('utf-8').decode(all);
+    return all;
   }catch(e){throw new Error(e&&e.name==='AbortError'?'Timed out after 20 s':(e&&e.message)||String(e))}
   finally{clearTimeout(timer)}
 }
 /* Download, check the SHA-256 against the index, show it with the scan, then install after an explicit confirm. */
 async function storeInstall(item){
-  const text=await storeFetchText(item.url,STORE_FILE_MAX);
-  const sha=await storeSha256(text);
+  const bytes=await storeFetchBytes(item.url,STORE_FILE_MAX);
+  const sha=await storeSha256Bytes(bytes);   // over the raw bytes, like the index hash
+  const text=new TextDecoder('utf-8').decode(bytes);
   if(item.sha256&&item.sha256!==sha)throw new Error('SHA-256 mismatch: the store lists '+item.sha256.slice(0,16)+'\u2026 but the file is '+sha.slice(0,16)+'\u2026. Nothing was installed.');
   const scan=plugScan(text),blocks=ufiParse(text);
   const isJs=!blocks.length&&/\.js(\?|#|$)/i.test(item.url);
@@ -7768,18 +7913,19 @@ async function storeInstall(item){
     if(ufiBytes(text)>UFI_BLOCK_MAX)throw new Error('Plugin is over the 1 MB limit');
     try{new Function(text)}catch(e){throw new Error('The file is not valid JavaScript: '+e.message)}
     const replaces=pluginCache.some(p=>p.name===name)?[name]:[];
-    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces)+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
+    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces,plugCompat(text))+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
     await api('/api/plugins',{method:'POST',body:JSON.stringify({name,code:text,title:item.name})});
     await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name,enabled:true})});
     await refreshPluginList();createToast('Installed '+item.name);setTimeout(()=>location.reload(),500);return true;
   }
   const ptitles=(blocks.length?blocks.map(b=>b.title):[String(item.name)]),replaces=ptitles.map(t=>ufiFileName(t)).filter(n=>pluginCache.some(p=>p.name===n));
-  return ufiImport(text,item.name+'.txt',storeSummary(item,sha,scan,replaces));
+  return ufiImport(text,item.name+'.txt',storeSummary(item,sha,scan,replaces,plugCompat(text)));
 }
 const nameRxStore=/^[A-Za-z0-9._-]{1,80}\.js$/;
 function storeOpen(){
   const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='2500';
   bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" style="max-width:460px;width:94vw"><div class="mhead"><b>Plugin store</b></div><div class="mbody" style="display:flex;flex-direction:column;gap:8px">'
+   +'<select id="st_src" aria-label="Store source" style="min-height:0;height:34px"><option value="">Custom address</option><option value="ufi">UFI-TOOLS plugins (community mirror)</option></select>'
    +'<div style="display:flex;gap:6px"><input id="st_url" type="url" inputmode="url" placeholder="https://example.com/index.json" autocomplete="off" style="flex:1;min-width:0"><button type="button" id="st_load" style="min-height:0;height:34px">Load</button></div>'
    +'<div class="pm-sub" id="st_note">Enter the address of a store index (JSON). Only https addresses with a domain name are accepted. Nothing is installed without a confirm.</div>'
    +'<input id="st_q" type="search" placeholder="Search" autocomplete="off" style="display:none"><div id="st_list" style="display:flex;flex-direction:column;gap:6px;max-height:48vh;overflow:auto"></div>'
@@ -7790,6 +7936,8 @@ function storeOpen(){
   const key=(e)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close()}};
   document.addEventListener('keydown',key,true);
   bg.querySelector('.ccancel').onclick=close;bg.addEventListener('mousedown',(e)=>{if(e.target===bg)close()});
+  const src=$('st_src');
+  src.onchange=()=>{if(src.value==='ufi'){$('st_url').value=STORE_UFI_SOURCE;load()}else{$('st_url').focus()}};
   const note=(t,red)=>{$('st_note').textContent=t;$('st_note').style.color=red?'#e05a70':''};
   function draw(){
     const f=storeFilter(items,$('st_q').value,page);page=f.page;const box=$('st_list');box.textContent='';
@@ -7797,7 +7945,7 @@ function storeOpen(){
       const row=document.createElement('div');row.style.cssText='border:1px solid rgba(128,128,128,.3);border-radius:10px;padding:8px;display:flex;gap:8px;align-items:center';
       const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
       const t=document.createElement('div');t.style.fontWeight='600';t.textContent=it.name+(it.version?' '+it.version:'');
-      const d=document.createElement('div');d.className='pm-sub';d.textContent=[it.author,it.description].filter(Boolean).join(' \u00b7 ')+(it.sha256?'':' \u00b7 no SHA-256 listed');
+      const d=document.createElement('div');d.className='pm-sub';d.textContent=[it.author,it.description,it.size?(it.size/1024).toFixed(1)+' KB':''].filter(Boolean).join(' \u00b7 ')+(it.sha256?'':' \u00b7 no SHA-256 listed');
       info.append(t,d);
       const b=document.createElement('button');b.type='button';b.textContent=pluginCache.some(p=>p.title===it.name||p.name===it.name+'.js')?'Reinstall':'Install';b.style.cssText='min-height:0;height:32px;flex:none';
       b.onclick=async()=>{b.disabled=true;try{await storeInstall(it)}catch(e){createToast('Install failed: '+e.message,'red',7000)}finally{b.disabled=false}};
@@ -7811,8 +7959,8 @@ function storeOpen(){
     $('st_load').disabled=true;note('Loading\u2026');
     try{const r=storeParseIndex(await storeFetchText(url,STORE_INDEX_MAX+1),url);
       if(r.error)throw new Error(r.error);
-      items=r.items;page=1;storeSaveUrl(url);$('st_q').style.display=items.length?'':'none';
-      note(items.length+' plugin'+(items.length===1?'':'s')+(r.skipped?' ('+r.skipped+' invalid entr'+(r.skipped===1?'y':'ies')+' skipped)':'')+'. Each install shows the file\'s SHA-256 first.');draw()}
+      items=r.items;page=1;storeSaveUrl(url);src.value=url===STORE_UFI_SOURCE?'ufi':'';$('st_q').style.display=items.length?'':'none';
+      note(items.length+' plugin'+(items.length===1?'':'s')+(r.skipped?' ('+r.skipped+' invalid entr'+(r.skipped===1?'y':'ies')+' skipped)':'')+(r.unsupported?' ('+r.unsupported+' archive'+(r.unsupported===1?'':'s')+'/folder'+(r.unsupported===1?'':'s')+' hidden: they need the UFI-TOOLS app)':'')+'. Each install shows the file\'s SHA-256 first.');draw()}
     catch(e){items=[];draw();note('Could not load the index: '+e.message,true)}
     finally{$('st_load').disabled=false}
   }
@@ -7821,6 +7969,7 @@ function storeOpen(){
   document.body.appendChild(bg);$('st_url').value=storeSavedUrl();if($('st_url').value)load();else $('st_url').focus();
 }
 document.getElementById('plugin_store_open').onclick=storeOpen;
+/* @end-include web-src/plugin-store-ui.js */
 document.getElementById('plugin_refresh').onclick=async()=>{try{await refreshPluginList();createToast('Plugin list refreshed')}catch(e){createToast(e.message,'red')}};
 document.getElementById('plugin_export').onclick=async()=>{try{const list=await refreshPluginList();downloadText('MatchiTOOL_plugins_backup.json',JSON.stringify({format:'MatchiTOOL.plugins.v1',exportedAt:new Date().toISOString(),plugins:list.map(p=>({name:p.name,code:p.code,enabled:p.enabled}))},null,2));createToast('Plugin backup exported')}catch(e){createToast(e.message,'red')}};
 document.getElementById('plugin_import').onclick=()=>document.getElementById('plugin_backup_file').click();

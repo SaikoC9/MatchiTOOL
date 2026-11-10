@@ -40,6 +40,32 @@ class PluginDataTest {
         assertNull(checkPluginDataPath("/data/local/matchitool/plugin_data/foo/cache", "foo.js"))
     }
 
+    @Test fun foldersNamedAfterThePluginAreErasedWithoutAHeader() {
+        assertEquals(listOf("/data/local/Signal_Meter", "/data/local/tmp/Signal_Meter", "/sdcard/Signal_Meter"), implicitPluginPaths("Signal_Meter.js"))
+        for (p in implicitPluginPaths("Signal_Meter.js")) assertNull(p, checkPluginDataPath(p, "Signal_Meter.js"))
+        assertEquals(emptyList<String>(), implicitPluginPaths("a.js"))
+        assertEquals(emptyList<String>(), implicitPluginPaths("a b.js"))
+        // A plugin named like a protected folder is refused by checkPluginDataPath, so that folder is never erased.
+        assertNotNull(checkPluginDataPath("/sdcard/Download", "Download.js"))
+    }
+
+    @Test fun looseFilesNamedAfterThePluginAreErased() {
+        val files = implicitPluginFiles("Signal_Meter.js")
+        assertEquals(27, files.size)
+        for (e in listOf("txt", "js", "html")) for (d in listOf("/data/local", "/data/local/tmp", "/sdcard"))
+            org.junit.Assert.assertTrue(files.contains("$d/Signal_Meter.$e"))
+        for (p in files) assertNull(p, checkPluginDataPath(p, "Signal_Meter.js"))
+        assertEquals(emptyList<String>(), implicitPluginFiles("a.js"))
+        assertEquals(emptyList<String>(), implicitPluginFiles(".hidden.js"))
+    }
+
+    @Test fun hashedUfiBlockNamesAlsoMatchTheNameWithoutTheHash() {
+        assertEquals(listOf("Signal_Meter-1f2e3d", "Signal_Meter"), pluginBaseNames("Signal_Meter-1f2e3d.html"))
+        assertEquals(listOf("Signal_Meter"), pluginBaseNames("Signal_Meter.txt"))
+        assertEquals("/sdcard/Signal_Meter", implicitPluginPaths("Signal_Meter-1f2e3d.html")[5])
+        assertEquals("/data/local/matchitool/plugin_data/Signal_Meter-1f2e3d", pluginDataDir("Signal_Meter-1f2e3d.html"))
+    }
+
     @Test fun listsParentFoldersToCheckForSymlinks() {
         assertEquals(listOf("/data/local/tmp"), symlinkAncestors("/data/local/tmp/myplug"))
         assertEquals(emptyList<String>(), symlinkAncestors("/data/local/myplug"))
