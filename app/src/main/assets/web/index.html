@@ -1075,6 +1075,12 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
   }
   const bandsMsg = (l, n) => (l.length ? l.map((x) => (n ? 'n' : 'B') + x).join(' ') : 'none');
   const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // The router may drop bands the modem does not support (for example n6), so a read-back that is a non-empty subset of what was sent counts as applied.
+  // ok = applied; dropped = bands that were sent but not reported back.
+  const bandsCheck = (read, want) => {
+    const r = read || [], dropped = want.filter((x) => !r.includes(x));
+    return { ok: r.length > 0 && r.every((x) => want.includes(x)), dropped };
+  };
   // Sends only the types that are given (each a comma string). Both must answer success; the first failure stops the rest.
   async function sendBands(parts) {
     const sent = [];
@@ -1085,19 +1091,24 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
   }
   async function applyBandChange(title, detail, parts, expect) {
     if (radioBusy) return;
-    if (!(await askConfirm(title + '\n\n' + detail + '\n\nWrong bands can leave the phone without signal. To go back use \"Restore original\" or \"Unlock all\" here.', 'Apply', true))) return;
+    if (!(await askConfirm(title + '\n\n' + detail + '\n\nWrong bands can leave the phone without signal. After saving, the modem radio is restarted (signal drops for about 30 s) so the lock takes effect. To go back use \"Restore original\" or \"Unlock all\" here.', 'Apply', true))) return;
     setRadioBusy(true);
     try {
       log('> ' + parts.map((p) => p[0] + ' ' + p[2]).join(' + '));
       const sent = await sendBands(parts);
       log('Router answered success: ' + sent.join(', '));
       let b = null; try { b = await readBands(); } catch (_) { /* shown below */ }
-      const bad = [];
-      if (b && expect.lte !== undefined && !sameList(b.lte || [], expect.lte)) bad.push('LTE reports ' + bandsMsg(b.lte || [], false));
-      if (b && expect.nr !== undefined && !sameList(b.nr || [], expect.nr)) bad.push('5G NR reports ' + bandsMsg(b.nr || [], true));
+      const bad = [], notes = [];
+      if (b && expect.lte !== undefined) { const c = bandsCheck(b.lte, expect.lte); if (!c.ok) bad.push('LTE reports ' + bandsMsg(b.lte || [], false)); else if (c.dropped.length) notes.push('LTE ' + bandsMsg(c.dropped, false) + ' not supported, dropped by the router'); }
+      if (b && expect.nr !== undefined) { const c = bandsCheck(b.nr, expect.nr); if (!c.ok) bad.push('5G NR reports ' + bandsMsg(b.nr || [], true)); else if (c.dropped.length) notes.push('5G NR ' + bandsMsg(c.dropped, true) + ' not supported, dropped by the router'); }
+      if (notes.length) log('Note: ' + notes.join('; ') + '.');
       if (!b) log('Could not read the bands back. Open this window again to check.');
       else if (bad.length) { log('Router accepted the change but ' + bad.join('; ') + '. Open this window again to check.'); createToast('Sent, but the router does not report the new bands yet', 'red'); }
-      else { log('Router now reports the new band lock. Use \"Re-apply network mode\" to make the modem use it.'); createToast('Band lock saved', 'green'); }
+      else {
+        log('Router now reports the new band lock. The modem only uses it after a radio restart, doing that now.');
+        createToast('Band lock saved, restarting radio', 'green');
+        await radioCycle(true);
+      }
     } catch (err) { log('Band lock failed: ' + err.message); createToast(err.message, 'red'); }
     setRadioBusy(false);
     refreshBands(false);
@@ -1227,6 +1238,24 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
   }
 
   // AT+SFUN=4 turns the radio off, AT+SFUN=5 turns it back on. If the second step fails the radio would stay off, so it is retried.
+  // radioCycle is also used after a band lock (UFI-TOOLS does the same: the lock is only picked up after the radio is cycled). Uses the SIM slot picked above.
+  async function radioCycle(quiet) {
+    try {
+      log('> Radio restart (AT+SFUN=4, then AT+SFUN=5)');
+      const off = tidy(await at('AT+SFUN=4')); log(off || '(no output)');
+      if (!off.includes('OK')) { log('Radio-off step failed. The lock is saved but not active yet: use \"Restart modem\".'); createToast('Radio restart failed, lock not active yet', 'red'); return false; }
+      await sleep(2000);
+      let back = false, last = '';
+      for (let i = 0; i < 3 && !back; i++) {
+        if (i) await sleep(2500);
+        try { last = tidy(await at('AT+SFUN=5')); back = last.includes('OK'); } catch (e) { last = e.message; }
+        log(last || '(no output)');
+      }
+      if (back) { log('Radio is back on. Registration can take about 30 s, then check Live Status.'); createToast('Radio restarted', 'green'); }
+      else { log('WARNING: the radio may still be OFF. Run AT+SFUN=5 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=5', 'red'); }
+      return back;
+    } catch (err) { log('Radio restart failed: ' + err.message + '. If the radio is off, run AT+SFUN=5.'); createToast(err.message, 'red'); return false; }
+  }
   async function rebootModem() {
     if (radioBusy) return;
     const ok = await askConfirm('Restart the modem?\n\nSignal will drop for about 30 seconds. SMS and data stop until it is back.', 'Restart modem', true);
