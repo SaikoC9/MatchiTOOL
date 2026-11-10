@@ -2417,7 +2417,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   async function apiDelete(m) {
     const notes = [];
     // 1) the router. A delete is safe to repeat, so it is tried up to three ways: as is, after a fresh login, and after a
-    // fresh login with the upper-case AD token. Every attempt is checked against the router's own list, because some
+    // fresh login with the older MD5 AD token (SHA-256 is the normal form, as in UFI-TOOLS). Every attempt is checked against the router's own list, because some
     // firmware deletes the message and still answers with an empty body. (It used to try once and then skip the router
     // for an hour, which left messages that only the router holds impossible to delete.)
     for (let level = 0; level <= 2; level++) {
