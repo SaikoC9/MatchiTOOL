@@ -723,7 +723,8 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
 <script type="text/plain" class="webtool" data-name="AT_Radio.js">
 /*
  * AT & Radio - MatchiTOOL plugin
- * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list.
+ * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
+ * network mode, performance mode, modem restart (formats: docs/AT_RADIO_FORMATS.md).
  * AT commands are sent with the sendat binary from UFI-TOOLS, bundled with MatchiTOOL.
  */
 (() => {
@@ -871,8 +872,35 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
 
   const PRESETS = [
     ['Signal quality', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
-    ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
+    ['IMEI', 'AT+CGSN'], ['IMSI', 'AT+CIMI'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
+    ['QoS', 'AT+CGEQOSRDP=1'],
   ];
+
+  // ---- Router radio settings (goform through the /api/zte proxy). Read on open and after a change only, never polled. ----
+  // Values from UFI-TOOLS 4.1.5 (docs/AT_RADIO_FORMATS.md). Key and parameter names are the router's own.
+  const NET_MODES = [
+    ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
+  ];
+  const netLabel = (v) => (NET_MODES.find((m) => m[0] === v) || [v, v])[1];
+  const clean = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+  async function zte(op, params) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: 0 }) });
+    if (r.error) throw new Error(r.error);
+    return r.data;
+  }
+  // One read for both keys. A key the firmware does not know comes back empty: that means "hide the control", never "show 0".
+  async function readRadio() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'net_select,BearerPreference,performance_mode' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    return { net: clean(d.net_select) || clean(d.BearerPreference), perf: clean(d.performance_mode) };
+  }
+  async function setRouter(params) {
+    const d = await zte('set', params);
+    const res = d && typeof d === 'object' ? d.result : d;
+    if (String(res).trim() !== 'success') throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : String(res).slice(0, 80)) + ')');
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let radioBusy = false;
 
   // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
   const tidy = (t) => String(t || '').replace(/\r/g, '').replace(/([^\n])(OK|ERROR|\+CME ERROR:[^\n]*|\+CMS ERROR:[^\n]*)\s*$/, '$1\n$2').replace(/\n{2,}/g, '\n').trim();
@@ -927,6 +955,86 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     try { log(tidy(await at(cmd)) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
 
+  function setRadioBusy(on) {
+    radioBusy = on;
+    for (const id of ['matchi_nm', 'matchi_pm', 'matchi_reboot']) { const el = document.getElementById(id); if (el) el.disabled = on; }
+  }
+  // Show what the router reports. Unknown value (other firmware) is shown as-is in its own option, never mapped to a guess.
+  async function refreshRadio() {
+    const nmRow = document.getElementById('matchi_nm_row'), pmRow = document.getElementById('matchi_pm_row');
+    if (!nmRow || !pmRow) return;
+    let st;
+    try { st = await readRadio(); }
+    catch (e) { nmRow.style.display = pmRow.style.display = 'none'; log('Router settings not available: ' + e.message); return; }
+    const nm = document.getElementById('matchi_nm'), pm = document.getElementById('matchi_pm');
+    if (!nm || !pm) return;
+    if (st.net) {
+      nm.querySelectorAll('option[data-extra]').forEach((o) => o.remove());
+      if (!NET_MODES.some((m) => m[0] === st.net)) { const o = document.createElement('option'); o.value = st.net; o.dataset.extra = '1'; o.textContent = 'Current: ' + st.net; nm.appendChild(o); }
+      nm.value = st.net; nm.dataset.cur = st.net; nmRow.style.display = 'flex';
+    } else nmRow.style.display = 'none';
+    if (st.perf === '0' || st.perf === '1') { pm.checked = st.perf === '1'; pm.dataset.cur = st.perf; pmRow.style.display = ''; }
+    else pmRow.style.display = 'none';
+  }
+  async function changeNetMode(e) {
+    const nm = e.target, prev = nm.dataset.cur || '', next = nm.value;
+    if (radioBusy || !next || next === prev) return;
+    const ok = await askConfirm('Change network mode from "' + netLabel(prev) + '" to "' + netLabel(next) + '"?\n\n' +
+      (next === 'Only_5G' || next === 'Only_LTE' ? 'The phone may lose signal if this network is not available here. ' : '') + 'To go back, choose "Auto 5G/4G/3G".', 'Change');
+    if (!ok) { nm.value = prev; return; }
+    setRadioBusy(true);
+    try {
+      log('> Network mode: ' + netLabel(prev) + ' -> ' + netLabel(next));
+      await setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });
+      let st = null;
+      try { st = await readRadio(); } catch (_) { /* shown below */ }
+      if (st && st.net === next) { log('Router now reports: ' + netLabel(next)); createToast('Network mode: ' + netLabel(next), 'green'); }
+      else { log('Router accepted the change but reports ' + (st && st.net ? netLabel(st.net) : 'nothing') + '. It may need a moment; open this window again to check.'); createToast('Sent, but the router does not report the new mode yet', 'red'); }
+    } catch (err) { log('Network mode failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    refreshRadio();
+  }
+  async function changePerf(e) {
+    const pm = e.target, prev = pm.dataset.cur || '', next = pm.checked ? '1' : '0';
+    if (radioBusy || next === prev) return;
+    const ok = await askConfirm((pm.checked ? 'Turn performance mode ON?' : 'Turn performance mode OFF?') + '\n\nThe router saves it now, but it only takes effect after the router is rebooted. Nothing changes until then.', pm.checked ? 'Turn on' : 'Turn off');
+    if (!ok) { pm.checked = prev === '1'; return; }
+    setRadioBusy(true);
+    try {
+      log('> Performance mode ' + (pm.checked ? 'on' : 'off') + ' (effective after reboot)');
+      await setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next });
+      let st = null;
+      try { st = await readRadio(); } catch (_) { /* shown below */ }
+      if (st && st.perf === next) log('Router now reports performance mode ' + (next === '1' ? 'on' : 'off') + '. Reboot the router to apply it.');
+      else log('Router accepted the change but reports ' + (st && st.perf ? st.perf : 'nothing') + '. Reboot the router, then open this window again to check.');
+      createToast('Saved. Effective after reboot', 'green');
+    } catch (err) { log('Performance mode failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    refreshRadio();
+  }
+  // AT+SFUN=4 turns the radio off, AT+SFUN=5 turns it back on. If the second step fails the radio would stay off, so it is retried.
+  async function rebootModem() {
+    if (radioBusy) return;
+    const ok = await askConfirm('Restart the modem?\n\nSignal will drop for about 30 seconds. SMS and data stop until it is back.', 'Restart modem', true);
+    if (!ok) return;
+    setRadioBusy(true);
+    try {
+      log('> Modem restart (AT+SFUN=4, then AT+SFUN=5)');
+      const off = tidy(await at('AT+SFUN=4')); log(off || '(no output)');
+      if (!off.includes('OK')) { log('Radio-off step failed. Nothing was changed.'); createToast('Modem restart failed, nothing changed', 'red'); return; }
+      await sleep(2000);
+      let back = false, last = '';
+      for (let i = 0; i < 3 && !back; i++) {
+        if (i) await sleep(2500);
+        try { last = tidy(await at('AT+SFUN=5')); back = last.includes('OK'); } catch (e) { last = e.message; }
+        log(last || '(no output)');
+      }
+      if (back) { log('Radio is back on. Registration can take about 30 s.'); createToast('Modem restarted', 'green'); }
+      else { log('WARNING: the radio may still be OFF. Run AT+SFUN=5 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=5', 'red'); }
+    } catch (err) { log('Modem restart failed: ' + err.message + '. If the radio is off, run AT+SFUN=5.'); createToast(err.message, 'red'); }
+    finally { setRadioBusy(false); }
+  }
+
   let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
   async function refreshSwitches() {
     const gen = ++swGen, items = [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]];
@@ -961,12 +1069,16 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
       name: MODAL, title: 'AT & Radio', maxWidth: '560px', showConfirm: false, onClose: () => true,
       content:
         '<div style="display:flex;gap:8px;margin-bottom:8px"><select id="matchi_at_slot"><option value="0">SIM slot 0</option><option value="1">SIM slot 1</option></select></div>' +
+        '<div id="matchi_nm_row" style="display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><label for="matchi_nm">Network mode</label>' +
+        '<select id="matchi_nm">' + NET_MODES.map((m) => `<option value="${esc(m[0])}">${esc(m[1])}</option>`).join('') + '</select></div>' +
+        '<div class="at-tg" id="matchi_pm_row" style="display:none"><label><input type="checkbox" id="matchi_pm"> Performance mode <small>(effective after reboot)</small></label></div>' +
+        '<div style="font-size:11.5px;opacity:.7;margin-bottom:8px">Network mode and performance mode apply to the whole router, not to the SIM slot above.</div>' +
         '<div class="at-tg">' +
         '<label><input type="checkbox" id="matchi_volte" disabled> VoLTE</label>' +
         '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
+        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
         '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
@@ -1002,8 +1114,12 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
         refreshSwitches();
       };
     }
+    document.getElementById('matchi_nm').onchange = changeNetMode;
+    document.getElementById('matchi_pm').onchange = changePerf;
+    document.getElementById('matchi_reboot').onclick = rebootModem;
     document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); };
     refreshSwitches();
+    refreshRadio();
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;

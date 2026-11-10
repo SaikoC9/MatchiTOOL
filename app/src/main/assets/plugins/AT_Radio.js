@@ -1,6 +1,7 @@
 /*
  * AT & Radio - MatchiTOOL plugin
- * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list.
+ * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
+ * network mode, performance mode, modem restart (formats: docs/AT_RADIO_FORMATS.md).
  * AT commands are sent with the sendat binary from UFI-TOOLS, bundled with MatchiTOOL.
  */
 (() => {
@@ -22,10 +23,161 @@
   const setVoLTE = async (on) => (await at('AT+CAVIMS=' + (on ? 1 : 0))).includes('OK');
   const setVoNR = async (on) => (await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0))).includes('OK');
 
+  // ---- IMEI ---------------------------------------------------------------------------------------------
+  // Unisoc modems write the IMEI with AT+SPIMEI=<slot>,"<imei>". Safety rules built into this flow:
+  //  1. The current IMEI must be readable first; otherwise nothing is written (there would be no way back).
+  //  2. The current IMEI is backed up on the router itself (/data/local/matchitool/imei_backup.txt, append-only,
+  //     survives clearing the browser) and in this browser, BEFORE anything is written.
+  //  3. Only a valid 15-digit IMEI (Luhn check digit) is accepted; obvious junk (all one digit) is refused.
+  //  4. The confirmation shows current -> new. The modem is NOT restarted automatically: after the write the IMEI is read
+  //     back, and a restart is a separate question you can decline.
+  // Changing an IMEI is restricted or illegal in some countries: use it only to restore your own device's IMEI or where
+  // the law allows it. Write down the IMEI printed on the router's label as well.
+  const BACKUP = '/data/local/matchitool/imei_backup.txt';
+  const luhnOk = (d) => {
+    if (!/^\d{15}$/.test(d)) return false;
+    let sum = 0;
+    for (let i = 0; i < 15; i++) { let n = +d[14 - i]; if (i % 2) { n *= 2; if (n > 9) n -= 9; } sum += n; }
+    return sum % 10 === 0;
+  };
+  const luhnDigit = (d14) => { for (let c = 0; c < 10; c++) if (luhnOk(d14 + c)) return String(c); return '0'; };
+  const IMEI_RX = /(?<!\d)\d{15}(?!\d)/;
+  // Reads the IMEI the modem reports. Right after a modem restart (Apply saved IMEI, Change IMEI) the modem does not
+  // answer for ~30 s, and one AT form may be refused while another works, so several forms are tried, then Android's
+  // own phone service as a last resort. Returns '' only when nothing answered.
+  async function readImei() {
+    for (const c of ['AT+CGSN', 'AT+CGSN=1', 'AT+GSN']) {
+      try { const m = String(await at(c)).match(IMEI_RX); if (m) return m[0]; } catch (_) {}
+    }
+    try {
+      // service call iphonesubinfo prints the answer as a Parcel: the digits sit between quotes, separated by dots.
+      const out = await sh('for C in 1 2; do if [ $C = 1 ]; then service call iphonesubinfo 1 s16 com.android.shell; else service call iphonesubinfo 2 i32 ' + slot() + ' s16 com.android.shell; fi; done 2>&1');
+      const txt = (out.match(/'([^']*)'/g) || []).map((s) => s.slice(1, -1).replace(/[^0-9]/g, '')).join(' ');
+      const m = txt.match(IMEI_RX); if (m) return m[0];
+    } catch (_) {}
+    return '';
+  }
+  const origKey = () => 'matchi_orig_imei_' + slot();
+  async function sh(cmd) {
+    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: 15000 }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.content || '');
+  }
+  // Appends "<time> slot <n> <imei>" on the router. Digits only, so nothing needs shell quoting. Returns true when the line is there.
+  async function backupImei(v) {
+    const line = new Date().toISOString().replace(/[^0-9T:-]/g, '') + ' slot ' + slot() + ' ' + v;
+    const out = await sh('mkdir -p /data/local/matchitool && echo "' + line + '" >> ' + BACKUP + ' && grep -c " ' + v + '$" ' + BACKUP);
+    return /^\d+$/.test(out.trim().split('\n').pop());
+  }
+  // The earliest IMEI recorded for this slot (router file first, then this browser).
+  async function firstSeen() {
+    try {
+      const out = await sh('grep " slot ' + slot() + ' " ' + BACKUP + ' 2>/dev/null | head -n 1');
+      const m = out.match(/slot \d (\d{15})/); if (m) return m[1];
+    } catch (_) {}
+    try { return localStorage.getItem(origKey()) || ''; } catch (_) { return ''; }
+  }
+  // Remember the chosen IMEI on the router: the keeper (runs at every boot, also "Apply saved IMEI now") writes it again
+  // whenever the firmware puts the factory IMEI back. Digits only, so nothing needs shell quoting.
+  const TARGET = '/data/local/matchitool/imei_target.txt', TRIES = '/data/local/matchitool/imei_tries.txt';
+  async function saveTarget(v) {
+    const sl = slot();
+    const out = await sh('mkdir -p /data/local/matchitool && { grep -v "^' + sl + ' " ' + TARGET + ' 2>/dev/null; echo "' + sl + ' ' + v + '"; } > ' + TARGET + '.n && mv -f ' + TARGET + '.n ' + TARGET +
+      ' && { grep -v "^' + sl + ' " ' + TRIES + ' > ' + TRIES + '.n 2>/dev/null; mv -f ' + TRIES + '.n ' + TRIES + '; } ; grep -c "^' + sl + ' ' + v + '$" ' + TARGET);
+    return /^1$/.test(out.trim().split('\n').pop());
+  }
+  async function savedTarget() {
+    try { const m = (await sh('grep "^' + slot() + ' " ' + TARGET + ' 2>/dev/null | head -n 1')).match(/^\d (\d{15})/m); return m ? m[1] : ''; } catch (_) { return ''; }
+  }
+  async function applySaved() {
+    const r = await api('/api/imei/apply', { method: 'POST', body: JSON.stringify({ force: true }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.result || '');
+  }
+  let imeiGen = 0;   // a newer showImei() call (slot change, button press) cancels the older one's retries
+  async function showImei(tries) {
+    const gen = ++imeiGen, max = tries == null ? 12 : tries;
+    for (let n = 0; ; n++) {
+      const cur = document.getElementById('matchi_imei_cur'); if (!cur || gen !== imeiGen) return;   // window closed / superseded
+      try {
+        const v = await readImei();
+        if (gen !== imeiGen) return;
+        const sv = document.getElementById('matchi_imei_saved');
+        let t = ''; try { t = await savedTarget(); } catch (_) {}
+        if (!v && n < max) {
+          // The modem is usually just restarting: say so and ask again every 4 s instead of showing "unknown".
+          cur.textContent = 'reading… (modem not answering yet)';
+          if (sv) sv.textContent = t ? 'Kept after reboot: ' + t : 'Not saved for reboot yet.';
+          await new Promise((r) => setTimeout(r, 4000)); continue;
+        }
+        cur.textContent = v || 'unreadable (the modem did not answer; press IMEI above to try again)';
+        if (sv) sv.textContent = !t ? 'Not saved for reboot yet.'
+          : 'Kept after reboot: ' + t + (!v ? '' : v === t ? '  (active: the modem reports it)' : '  (the modem reports a different IMEI: press Apply saved IMEI now)');
+        if (v) {
+          try { if (!localStorage.getItem(origKey())) localStorage.setItem(origKey(), v); } catch (_) {}
+          try { if (!(await firstSeen())) await backupImei(v); } catch (_) {}   // first time this slot is seen: keep it
+        }
+        return;
+      } catch (e) { cur.textContent = 'unreadable (' + e.message + ')'; return; }
+    }
+  }
+  async function writeImei(imei) {
+    if (/^\d{14}$/.test(imei)) imei += luhnDigit(imei);   // 14 digits: the check digit is added for you
+    if (!luhnOk(imei)) throw new Error('IMEI must be 15 digits with a valid check digit');
+    if (/^(\d)\1{14}$/.test(imei)) throw new Error('That IMEI is not valid');
+    const before = await readImei();
+    if (!before) throw new Error('The current IMEI could not be read, so nothing was changed (no way to go back)');
+    if (before === imei) throw new Error('That is already the current IMEI');
+    if (!(await askConfirm('Change the IMEI of SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '?\n\nThe current IMEI is saved on the router first. Changing an IMEI is restricted or illegal in some countries; only use your own device\'s IMEI or where the law allows it.', 'Change IMEI', true))) return false;
+    if (!(await backupImei(before))) throw new Error('Could not save a backup of the current IMEI on the router, so nothing was changed');
+    log('Backup saved: ' + before + ' (' + BACKUP + ')');
+    log('> AT+SPIMEI=' + slot() + ',"' + imei + '"');
+    const r = await at('AT+SPIMEI=' + slot() + ',"' + imei + '"');
+    log(r || '(no output)');
+    if (/ERROR/i.test(r) || !/OK/i.test(r)) throw new Error('Modem did not accept the IMEI change (' + (r.trim() || 'no reply') + '). Nothing was changed.');
+    try { log((await saveTarget(imei)) ? 'Saved for every boot: the IMEI is written again if the firmware restores the old one.' : 'Could not save the IMEI for reboot (the change may be lost at the next boot).'); }
+    catch (e) { log('Saving for reboot failed: ' + e.message); }
+    let now = ''; try { now = await readImei(); } catch (_) {}
+    log('IMEI now reads: ' + (now || 'unknown') + (now === imei ? '' : ' (may only change after a modem restart)'));
+    if (await askConfirm('The IMEI was written. Restart the modem now so it takes effect? (Mobile data drops for about 30 seconds.)', 'Restart modem', false)) {
+      log('> AT+CFUN=1,1');
+      try { log(await at('AT+CFUN=1,1') || '(no output)'); } catch (e) { log('Restart: ' + e.message); }
+      createToast('Modem restarting. Reopen this window in about 30 seconds to check the IMEI.', 'green');
+    } else createToast('IMEI written. Restart the modem or the router for it to take effect.', 'green');
+    return true;
+  }
+
   const PRESETS = [
     ['Signal quality', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
-    ['IMEI', 'AT+CGSN'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'ATI'],
+    ['IMEI', 'AT+CGSN'], ['IMSI', 'AT+CIMI'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
+    ['QoS', 'AT+CGEQOSRDP=1'],
   ];
+
+  // ---- Router radio settings (goform through the /api/zte proxy). Read on open and after a change only, never polled. ----
+  // Values from UFI-TOOLS 4.1.5 (docs/AT_RADIO_FORMATS.md). Key and parameter names are the router's own.
+  const NET_MODES = [
+    ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
+  ];
+  const netLabel = (v) => (NET_MODES.find((m) => m[0] === v) || [v, v])[1];
+  const clean = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+  async function zte(op, params) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: 0 }) });
+    if (r.error) throw new Error(r.error);
+    return r.data;
+  }
+  // One read for both keys. A key the firmware does not know comes back empty: that means "hide the control", never "show 0".
+  async function readRadio() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'net_select,BearerPreference,performance_mode' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    return { net: clean(d.net_select) || clean(d.BearerPreference), perf: clean(d.performance_mode) };
+  }
+  async function setRouter(params) {
+    const d = await zte('set', params);
+    const res = d && typeof d === 'object' ? d.result : d;
+    if (String(res).trim() !== 'success') throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : String(res).slice(0, 80)) + ')');
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let radioBusy = false;
 
   // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
   const tidy = (t) => String(t || '').replace(/\r/g, '').replace(/([^\n])(OK|ERROR|\+CME ERROR:[^\n]*|\+CMS ERROR:[^\n]*)\s*$/, '$1\n$2').replace(/\n{2,}/g, '\n').trim();
@@ -72,35 +224,158 @@
   async function run(cmd) {
     cmd = (cmd || '').trim(); if (!cmd) return;
     if (cmd === '@signal') return signal();
+    if (cmd.includes('|')) {   // preset made of several commands: run each, keep going when one is not supported
+      for (const c of cmd.split('|')) { log('> ' + c); try { log(tidy(await at(c)) || '(no output)'); } catch (e) { log('Error: ' + e.message); } }
+      return;
+    }
     log('> ' + cmd);
     try { log(tidy(await at(cmd)) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
 
+  function setRadioBusy(on) {
+    radioBusy = on;
+    for (const id of ['matchi_nm', 'matchi_pm', 'matchi_reboot']) { const el = document.getElementById(id); if (el) el.disabled = on; }
+  }
+  // Show what the router reports. Unknown value (other firmware) is shown as-is in its own option, never mapped to a guess.
+  async function refreshRadio() {
+    const nmRow = document.getElementById('matchi_nm_row'), pmRow = document.getElementById('matchi_pm_row');
+    if (!nmRow || !pmRow) return;
+    let st;
+    try { st = await readRadio(); }
+    catch (e) { nmRow.style.display = pmRow.style.display = 'none'; log('Router settings not available: ' + e.message); return; }
+    const nm = document.getElementById('matchi_nm'), pm = document.getElementById('matchi_pm');
+    if (!nm || !pm) return;
+    if (st.net) {
+      nm.querySelectorAll('option[data-extra]').forEach((o) => o.remove());
+      if (!NET_MODES.some((m) => m[0] === st.net)) { const o = document.createElement('option'); o.value = st.net; o.dataset.extra = '1'; o.textContent = 'Current: ' + st.net; nm.appendChild(o); }
+      nm.value = st.net; nm.dataset.cur = st.net; nmRow.style.display = 'flex';
+    } else nmRow.style.display = 'none';
+    if (st.perf === '0' || st.perf === '1') { pm.checked = st.perf === '1'; pm.dataset.cur = st.perf; pmRow.style.display = ''; }
+    else pmRow.style.display = 'none';
+  }
+  async function changeNetMode(e) {
+    const nm = e.target, prev = nm.dataset.cur || '', next = nm.value;
+    if (radioBusy || !next || next === prev) return;
+    const ok = await askConfirm('Change network mode from "' + netLabel(prev) + '" to "' + netLabel(next) + '"?\n\n' +
+      (next === 'Only_5G' || next === 'Only_LTE' ? 'The phone may lose signal if this network is not available here. ' : '') + 'To go back, choose "Auto 5G/4G/3G".', 'Change');
+    if (!ok) { nm.value = prev; return; }
+    setRadioBusy(true);
+    try {
+      log('> Network mode: ' + netLabel(prev) + ' -> ' + netLabel(next));
+      await setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });
+      let st = null;
+      try { st = await readRadio(); } catch (_) { /* shown below */ }
+      if (st && st.net === next) { log('Router now reports: ' + netLabel(next)); createToast('Network mode: ' + netLabel(next), 'green'); }
+      else { log('Router accepted the change but reports ' + (st && st.net ? netLabel(st.net) : 'nothing') + '. It may need a moment; open this window again to check.'); createToast('Sent, but the router does not report the new mode yet', 'red'); }
+    } catch (err) { log('Network mode failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    refreshRadio();
+  }
+  async function changePerf(e) {
+    const pm = e.target, prev = pm.dataset.cur || '', next = pm.checked ? '1' : '0';
+    if (radioBusy || next === prev) return;
+    const ok = await askConfirm((pm.checked ? 'Turn performance mode ON?' : 'Turn performance mode OFF?') + '\n\nThe router saves it now, but it only takes effect after the router is rebooted. Nothing changes until then.', pm.checked ? 'Turn on' : 'Turn off');
+    if (!ok) { pm.checked = prev === '1'; return; }
+    setRadioBusy(true);
+    try {
+      log('> Performance mode ' + (pm.checked ? 'on' : 'off') + ' (effective after reboot)');
+      await setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next });
+      let st = null;
+      try { st = await readRadio(); } catch (_) { /* shown below */ }
+      if (st && st.perf === next) log('Router now reports performance mode ' + (next === '1' ? 'on' : 'off') + '. Reboot the router to apply it.');
+      else log('Router accepted the change but reports ' + (st && st.perf ? st.perf : 'nothing') + '. Reboot the router, then open this window again to check.');
+      createToast('Saved. Effective after reboot', 'green');
+    } catch (err) { log('Performance mode failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    refreshRadio();
+  }
+  // AT+SFUN=4 turns the radio off, AT+SFUN=5 turns it back on. If the second step fails the radio would stay off, so it is retried.
+  async function rebootModem() {
+    if (radioBusy) return;
+    const ok = await askConfirm('Restart the modem?\n\nSignal will drop for about 30 seconds. SMS and data stop until it is back.', 'Restart modem', true);
+    if (!ok) return;
+    setRadioBusy(true);
+    try {
+      log('> Modem restart (AT+SFUN=4, then AT+SFUN=5)');
+      const off = tidy(await at('AT+SFUN=4')); log(off || '(no output)');
+      if (!off.includes('OK')) { log('Radio-off step failed. Nothing was changed.'); createToast('Modem restart failed, nothing changed', 'red'); return; }
+      await sleep(2000);
+      let back = false, last = '';
+      for (let i = 0; i < 3 && !back; i++) {
+        if (i) await sleep(2500);
+        try { last = tidy(await at('AT+SFUN=5')); back = last.includes('OK'); } catch (e) { last = e.message; }
+        log(last || '(no output)');
+      }
+      if (back) { log('Radio is back on. Registration can take about 30 s.'); createToast('Modem restarted', 'green'); }
+      else { log('WARNING: the radio may still be OFF. Run AT+SFUN=5 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=5', 'red'); }
+    } catch (err) { log('Modem restart failed: ' + err.message + '. If the radio is off, run AT+SFUN=5.'); createToast(err.message, 'red'); }
+    finally { setRadioBusy(false); }
+  }
+
+  let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
   async function refreshSwitches() {
-    for (const [id, getter] of [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]]) {
+    const gen = ++swGen, items = [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]];
+    for (const [id] of items) { const e0 = document.getElementById(id); if (e0) e0.disabled = true; }
+    for (const [id, getter] of items) {
       const el = document.getElementById(id); if (!el) continue;
-      try { el.checked = await getter(); el.disabled = false; } catch (e) { el.disabled = true; log(id + ': ' + e.message); }
+      try { const v = await getter(); if (gen !== swGen) return; el.checked = v; el.disabled = false; }
+      catch (e) { if (gen !== swGen) return; el.disabled = true; log(id + ': ' + e.message); }
     }
   }
 
+  // Compact look for this window only: small switches in one row, smaller buttons / inputs / output box.
+  function atStyle() {
+    if (document.getElementById('matchi_at_css')) return;
+    const st = document.createElement('style'); st.id = 'matchi_at_css';
+    st.textContent = `
+#matchi_at_modal .modal{padding:12px}
+#matchi_at_modal .at-tg{display:flex;gap:14px;align-items:center;margin:0 0 8px}
+#matchi_at_modal .at-tg label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:1;cursor:pointer}
+#matchi_at_modal input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:30px;height:17px;min-height:0;padding:0;margin:0;border:0;border-radius:9px;background-color:rgba(255,255,255,.22);background-image:radial-gradient(circle,#fff 6px,transparent 6.5px);background-size:17px 17px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .18s,background-color .18s;cursor:pointer}
+#matchi_at_modal input[type=checkbox]:checked{background-color:rgba(100,230,164,.75);background-position:100% 50%}
+#matchi_at_modal input[type=checkbox]:disabled{opacity:.45;cursor:default}
+#matchi_at_modal select{min-height:28px;padding:2px 6px;font-size:12px;border-radius:7px}
+#matchi_at_modal button{min-height:28px;padding:3px 9px;font-size:12px;border-radius:7px}
+#matchi_at_modal input[type=text],#matchi_at_modal input:not([type]),#matchi_at_modal input[inputmode]{min-height:30px;padding:4px 9px;font-size:12.5px}
+#matchi_at_out{height:150px!important;padding:8px!important;font-size:11px;line-height:1.45;margin-top:8px!important}`;
+    document.head.appendChild(st);
+  }
   function open() {
+    atStyle();
     createModal({
       name: MODAL, title: 'AT & Radio', maxWidth: '560px', showConfirm: false, onClose: () => true,
       content:
         '<div style="display:flex;gap:8px;margin-bottom:8px"><select id="matchi_at_slot"><option value="0">SIM slot 0</option><option value="1">SIM slot 1</option></select></div>' +
-        '<div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">' +
-        '<label><input type="checkbox" id="matchi_volte" disabled style="width:auto"> VoLTE</label>' +
-        '<label><input type="checkbox" id="matchi_vonr" disabled style="width:auto"> VoNR</label></div>' +
+        '<div id="matchi_nm_row" style="display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><label for="matchi_nm">Network mode</label>' +
+        '<select id="matchi_nm">' + NET_MODES.map((m) => `<option value="${esc(m[0])}">${esc(m[1])}</option>`).join('') + '</select></div>' +
+        '<div class="at-tg" id="matchi_pm_row" style="display:none"><label><input type="checkbox" id="matchi_pm"> Performance mode <small>(effective after reboot)</small></label></div>' +
+        '<div style="font-size:11.5px;opacity:.7;margin-bottom:8px">Network mode and performance mode apply to the whole router, not to the SIM slot above.</div>' +
+        '<div class="at-tg">' +
+        '<label><input type="checkbox" id="matchi_volte" disabled> VoLTE</label>' +
+        '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_bands">NR bands</button></div>' +
-        '<input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
+        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
+        '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
     showModal(MODAL);
     const root = document.getElementById(MODAL);
     root.querySelectorAll('[data-at]').forEach((b) => (b.onclick = () => run(b.dataset.at)));
-    document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { run(e.target.value); e.target.value = ''; } };
+    // Enter and the Apply button do the same thing: send what is in the box.
+    const applyBox = () => {
+      const i = document.getElementById('matchi_at_in'); if (!i) return;
+      const v = i.value.trim(); if (!v) return;
+      if (/AT\+SPIMEI\s*=\s*\d+\s*,\s*"NEW"/i.test(v)) { log('Replace NEW with the 15-digit IMEI first, then press Apply.'); i.focus(); return; }   // never send the placeholder
+      i.value = ''; run(v);
+    };
+    document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); applyBox(); } };
+    document.getElementById('matchi_apply').onclick = applyBox;
+    document.getElementById('matchi_chg').onclick = () => {   // only shows the command in the box; nothing is sent until you press Enter
+      const i = document.getElementById('matchi_at_in'); if (!i) return;
+      i.value = 'AT+SPIMEI=' + slot() + ',"NEW"'; i.focus();
+      const p = i.value.indexOf('NEW'); try { i.setSelectionRange(p, p + 3); } catch (_) { /* not fatal */ }
+    };
     document.getElementById('matchi_bands').onclick = async () => {
       try {
         const f = fields(await at('AT+SP5GCMDS="get nr support_band"')).slice(1).map((x) => parseInt(x.replace(/\\/g, ''), 10)).filter((x) => !isNaN(x));
@@ -110,16 +385,22 @@
     for (const [id, setter, name] of [['matchi_volte', setVoLTE, 'VoLTE'], ['matchi_vonr', setVoNR, 'VoNR']]) {
       document.getElementById(id).onchange = async (e) => {
         const on = e.target.checked;
+        for (const x of ['matchi_volte', 'matchi_vonr']) { const c = document.getElementById(x); if (c) c.disabled = true; }   // one modem write at a time
         try { const ok = await setter(on); createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed', ok ? 'green' : 'red'); }
         catch (err) { createToast(err.message, 'red'); }
         refreshSwitches();
       };
     }
-    document.getElementById('matchi_at_slot').onchange = refreshSwitches;
+    document.getElementById('matchi_nm').onchange = changeNetMode;
+    document.getElementById('matchi_pm').onchange = changePerf;
+    document.getElementById('matchi_reboot').onclick = rebootModem;
+    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); };
     refreshSwitches();
+    refreshRadio();
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
   const b = document.createElement('button');
   b.id = BTN_ID; b.textContent = 'AT & Radio'; b.onclick = open; host.appendChild(b);
 })();
+
