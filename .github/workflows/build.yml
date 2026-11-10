@@ -55,3 +55,9 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/*.apk
+      # publish-release.yml downloads exactly this name from this run; it must hold only the signed release APK.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MatchiTOOL-release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
