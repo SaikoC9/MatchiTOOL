@@ -47,6 +47,8 @@ sleep 5
 [ -s "$L/dmesg.log" ] && ok "dmesg.log is being written" || bad "dmesg.log missing"
 [ -f "$L/context.txt" ] && grep -q 'build=fake/fp' "$L/context.txt" && ok "context header written" || bad "context header missing"
 grep -q '^state=running' "$L/status" 2>/dev/null && ok "status file says running" || bad "status missing/not running"
+grep -q "^--- thermal zones" "$L/context.txt" && grep -q "^--- boot scripts" "$L/context.txt" && grep -q "^--- running: minikano" "$L/context.txt" && ok "context lists thermal zones and boot scripts" || bad "context thermal/boot-script sections missing"
+grep -q "^thermal=" "$L/status" 2>/dev/null && ok "status carries thermal line" || bad "status thermal line missing"
 grep -q 'logcat exited rc=7' "$L/events.log" && ok "crashed logcat restart noted in events.log" || bad "no restart note"
 grep -q 'GAP' "$L/logcat.gaps" && ok "gap marker written" || bad "gap marker missing"
 grep -q '^logcat_restarts=1' "$L/status" && ok "restart counter in status" || bad "restart counter wrong"

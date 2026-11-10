@@ -20,6 +20,19 @@ Example: `{"plugins":[{"name":"Signal meter","url":"signal.js","sha256":"<hex>",
 
 Make the hash with `sha256sum signal.js`.
 
+## UFI-TOOLS stores (read natively)
+
+The store also reads the index format of UFI-TOOLS' own plugin store and of the self-hosted "custom plugin source" stores built for it:
+
+```
+{"download_url": "https://host/path", "res": {"data": {"content": [
+  {"name": "plugin.txt", "size": 3907, "is_dir": false, "hash_info": {"md5": "...", "sha256": "..."}} ]}}}
+```
+
+(`{"data":{"content":[...]}}` and `{"content":[...]}` work too.) A file is downloaded from `download_url/name`. `hash_info.sha256` is checked against the downloaded bytes; `md5` is ignored. Only `.js` plugins and `.txt` / `.html` UFI bundles are listed. Folders and archives (`.zip`, `.tar.gz`, binaries such as `kano_ssh.zip`) need UFI-TOOLS' own installer, so they are hidden and counted in the note under the address box.
+
+The store window has a **UFI-TOOLS plugins (community mirror)** source that fills in `https://raw.githubusercontent.com/BearHero520/UFI-TOOLS-PLUGINS/main/store.json`. UFI-TOOLS' original store server is no longer online; this is a community snapshot of its plugin files (Aug 2025, pinned to one commit), not an official MatchiTOOL or UFI-TOOLS address. Nothing is fetched until you pick it, and every install still shows the SHA-256 and the scan before you confirm. Plugins in it were written for UFI-TOOLS and some call UFI-only routes; they run here as far as MatchiTOOL provides those routes (see the README).
+
 ## What is refused
 
 Index and plugin URLs must be `https://` with a domain name: no IP addresses, `localhost`, `.local`/`.lan`/`.internal`/`.home` names, no `user:password@`. A redirect to such an address is refused too. Downloads stop at 1 MB (index) and about 4 MB (plugin), after 20 s. Requests carry no cookies and no referrer.
@@ -32,4 +45,4 @@ Installing needs the same fresh sign-in as every other plugin upload (the server
 
 ## Not included
 
-No default store address is built in: UFI-TOOLS' own store address and reply shape were not confirmed (`/plugins_store` is only a route name seen in its code), so this store reads the format above, not UFI's.
+No store is loaded by default. The UFI source is a convenience button, not a built-in trusted source. Its address and the UFI index shape above come from the community mirror's `store.json` (83 entries); the old official UFI-TOOLS server address could not be confirmed.

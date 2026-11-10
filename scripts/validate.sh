@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+node "$ROOT/scripts/build-web.js" --check   # index.html must match app/src/main/web-src/ (edit web-src/, then run scripts/build-web.js)
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
 import re, subprocess, sys, xml.etree.ElementTree as ET
@@ -266,6 +267,7 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_ufi_host.js" || exit 1
   node "$(dirname "$0")/test_ufi_data.js" || exit 1
   node "$(dirname "$0")/test_ufi_store.js" || exit 1
+  node "$(dirname "$0")/test_plugin_trace.js" || exit 1
   node "$(dirname "$0")/test_log_basket.js" || exit 1
   node "$(dirname "$0")/test_phase0.js" || exit 1
 fi

@@ -1,3 +1,26 @@
+# MatchiTOOL (unreleased) - plugins are erased completely on delete
+
+- **Deleting a plugin now cleans up after it without header lines.** Folders named after the plugin in `/data/local`, `/data/local/tmp` and `/sdcard`, and saved browser settings (local and session storage) starting with the plugin's name, are erased with it and listed in the Delete dialog first. Same strict path checks as before. New test in `PluginDataTest`. Not tested on a real device.
+
+- **Plugins are traced while they run, so Delete can erase what they wrote.** The page tags root commands and uploads with the plugin that sent them (`x-matchi-plugin`, from the plugin's own stack frame); the host keeps a ledger per plugin (`filesDir/plugin_trace/`): paths its commands write to, uploaded files, and side effects that cannot be undone (firewall, properties, background processes, boot lines). Delete erases the ledger's paths (strict `checkPluginDataPath`, listed in the dialog), its uploads, empty parent folders, and also its IndexedDB / Cache Storage entries named after it. New `PluginTrace.kt`, `PluginTraceTest`, `scripts/test_plugin_trace.js`. Not tested on a real device; the Kotlin was not compiled here.
+
+
+## Earlier: plugin code split into web-src
+
+- Plugin host API, store logic and store window now live in `app/src/main/web-src/*.js` and are inlined into the single shipped `index.html` by `scripts/build-web.js`. Page behaviour is unchanged (page without the 6 marker lines is byte-identical to before). `validate.sh` runs `build-web.js --check`, so CI fails if the two drift. See `docs/WEB_SOURCE.md`.
+
+# MatchiTOOL (unreleased) - plugin compatibility report and plugin header
+
+- Confirm dialogs for store installs and `.txt`/`.html` imports now include a static compatibility check (routes MatchiTOOL does not serve, undefined `getCookie`/`setCookie`, UFI tools and files that are not shipped). Known gap it reports: `/api/get_custom_head` and `/api/set_custom_head` (UFI) are not implemented here.
+- Optional plugin header `@matchi-name / -version / -author / -description / -requires`, shown in the Plugins list.
+- `MATCHI_ROUTES` in the page is verified against `WebServer.kt` in both directions (`scripts/test_ufi_store.js`); new browser smoke test `scripts/phase0/test_store_browser.js`.
+
+# MatchiTOOL (unreleased) - plugin store reads UFI-TOOLS stores; capture shows real temperatures
+
+- Plugin store: reads the UFI-TOOLS index format (`download_url` + `res.data.content[]` with `hash_info.sha256`), checks the SHA-256 over the raw downloaded bytes (a BOM or odd bytes no longer change it), and has a **UFI-TOOLS plugins (community mirror)** source button. Archives and folders (which need the UFI-TOOLS app) are hidden and counted; file size is shown. Tests: `scripts/test_ufi_store.js`.
+- Boot capture `matchi_logd.sh` v6: `context.txt` lists every kernel thermal zone (the F50 battery sensor reads a fixed 750 / 25.0), names of boot scripts and of files or processes naming `minikano` / `ufi_tools` (an old UFI-TOOLS launcher was starting the missing app every 30 s as root); `status` carries a `thermal=` line.
+- CI: longer Gradle HTTP timeouts and retries, and a 3-try retry around the Gradle steps in both workflows (dl.google.com "Read timed out").
+
 # MatchiTOOL (unreleased) - heat: gentler UFI_DATA poller
 
 Reported: the ZTE F50 runs hot after the 1.4.0 update. Found by reading the code and the 1.3.9 log bundle (no on-device CPU or temperature figures yet):

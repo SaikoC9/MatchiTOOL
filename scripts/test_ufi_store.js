@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const html = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/web/index.html'), 'utf8');
 const a = html.indexOf('/* UFISTORE-BEGIN */'), b = html.indexOf('/* UFISTORE-END */');
 if (a < 0 || b < 0) { console.error('UFISTORE markers missing in index.html'); process.exit(1); }
-const api = new Function(html.slice(a, b) + '\nreturn {sha256Pure,storeSha256,storeUrlOk,storeParseIndex,storeFilter,plugScan,storeSummary};')();
+const api = new Function(html.slice(a, b) + '\nreturn {sha256Pure,storeSha256,storeSha256Bytes,storeUrlOk,storeParseIndex,storeFilter,plugScan,storeSummary,STORE_UFI_SOURCE,plugMeta,plugCompat,MATCHI_ROUTES,MATCHI_ROUTE_PREFIXES};')();
 let bad = 0;
 const eq = (want, got, n) => { if (JSON.stringify(want) !== JSON.stringify(got)) { bad++; console.error('FAIL', n, JSON.stringify(want), '!=', JSON.stringify(got)); } };
 const ok = (c, n) => { if (!c) { bad++; console.error('FAIL', n); } };
@@ -41,6 +41,71 @@ eq(ref(Buffer.from('abc')), api.sha256Pure(new TextEncoder().encode('abc')), 'sh
   eq('A B', api.storeParseIndex('[{"name":"A\\u0000\\nB","url":"https://example.com/a.js"}]').items[0].name.replace(/\s+/g, ' '), 'control characters removed');
   const many = JSON.stringify(Array.from({ length: 600 }, (_, i) => ({ name: 'p' + i, url: 'https://example.com/' + i + '.js' })));
   r = api.storeParseIndex(many); eq(500, r.items.length, 'item cap'); eq(100, r.skipped, 'over-cap counted');
+
+
+  // Raw bytes: a BOM or invalid UTF-8 must not change the hash the index is checked against.
+  const bom = Uint8Array.from([0xEF, 0xBB, 0xBF, 0x61, 0x0D, 0x0A, 0xFF]);
+  eq(ref(bom), await api.storeSha256Bytes(bom), 'sha256 over raw bytes');
+
+  // UFI-TOOLS index (shape of the community mirror's store.json): {download_url, res:{data:{content:[...]}}}
+  const h64 = 'f36c8d307c46ed77272b9f1a210266b26722f8d618f268165885c8ba122d8641';
+  const ufi = { download_url: 'https://raw.githubusercontent.com/o/r/2b31582/ufi-tools-plugins/', res: { code: 200, message: 'success', data: { total: 9, content: [
+    { name: '(可多卡)字母卡简洁进度条版.txt', size: 3907, is_dir: false, modified: '2025-08-09T15:30:58+08:00', hash_info: { md5: 'x', sha256: h64.toUpperCase() }, type: 0 },
+    { name: 'tool one.js', size: 10, is_dir: false, hash_info: { md5: 'x' }, type: 0 },
+    { name: 'kano_ssh.zip', size: 5, is_dir: false, hash_info: { sha256: h64 } },
+    { name: 'ddns-go', size: 0, is_dir: true },
+    { name: 'big.tar.gz', size: 5, is_dir: false },
+    { name: '../evil.js', size: 1, is_dir: false },
+    { name: 'badhash.txt', size: 1, is_dir: false, hash_info: { sha256: 'nothex' } },
+    { name: 'sub/dir.html', size: 1, is_dir: false },
+    'junk' ] } } };
+  r = api.storeParseIndex(JSON.stringify(ufi));
+  eq('', r.error, 'ufi index parses');
+  eq(['(可多卡)字母卡简洁进度条版', 'tool one', 'sub/dir'], r.items.map(i => i.name), 'ufi: only .js/.txt/.html listed, extension stripped');
+  eq('https://raw.githubusercontent.com/o/r/2b31582/ufi-tools-plugins/(%E5%8F%AF%E5%A4%9A%E5%8D%A1)%E5%AD%97%E6%AF%8D%E5%8D%A1%E7%AE%80%E6%B4%81%E8%BF%9B%E5%BA%A6%E6%9D%A1%E7%89%88.txt', r.items[0].url, 'ufi: url = download_url + encoded name');
+  eq(h64, r.items[0].sha256, 'ufi: sha256 lower-cased'); eq('', r.items[1].sha256, 'ufi: no sha256 is allowed (shown as unverified)');
+  eq('https://raw.githubusercontent.com/o/r/2b31582/ufi-tools-plugins/tool%20one.js', r.items[1].url, 'ufi: space encoded');
+  eq('https://raw.githubusercontent.com/o/r/2b31582/ufi-tools-plugins/sub/dir.html', r.items[2].url, 'ufi: path separators kept');
+  eq(3, r.unsupported, 'ufi: zip, folder and tar.gz counted as unsupported'); eq(3, r.skipped, 'ufi: traversal, bad hash and junk skipped');
+  eq(3907, r.items[0].size, 'ufi: size kept');
+  ok(api.storeParseIndex(JSON.stringify({ res: { data: { content: [{ name: 'a.js' }] } } })).error.includes('download_url'), 'ufi: missing download_url is an error');
+  ok(api.storeParseIndex(JSON.stringify({ download_url: 'http://example.com/x', content: [{ name: 'a.js' }] })).error.includes('download_url'), 'ufi: http download_url refused');
+  ok(api.storeParseIndex(JSON.stringify({ download_url: 'https://192.168.0.1/x', content: [{ name: 'a.js' }] })).error.includes('download_url'), 'ufi: LAN download_url refused');
+  eq(1, api.storeParseIndex(JSON.stringify({ download_url: 'https://example.com/p', data: { content: [{ name: 'a.js' }] } })).items.length, 'ufi: {data:{content}} variant');
+  eq(1, api.storeParseIndex(JSON.stringify({ download_url: 'https://example.com/p', content: [{ name: 'a.js' }] })).items.length, 'ufi: {content} variant');
+  eq('https://raw.githubusercontent.com/BearHero520/UFI-TOOLS-PLUGINS/main/store.json', api.STORE_UFI_SOURCE, 'preset points at the community mirror');
+  ok(api.storeUrlOk(api.STORE_UFI_SOURCE) === api.STORE_UFI_SOURCE, 'preset passes the https/domain rules');
+
+
+  // Route list in the page vs the routes WebServer.kt really serves (both directions, so neither side can drift).
+  const kt = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/java/com/matchi/tool/WebServer.kt'), 'utf8');
+  const ktExact = new Set([...kt.matchAll(/uri == "(\/api\/[A-Za-z0-9_\/]+)"/g)].map(m => m[1]));
+  const ktPref = new Set([...kt.matchAll(/uri\.startsWith\("(\/api\/[A-Za-z0-9_\/]+)"/g)].map(m => m[1]));
+  eq([...ktExact].sort(), [...api.MATCHI_ROUTES].sort(), 'page route list matches WebServer.kt (exact routes)');
+  eq([...ktPref].sort(), [...api.MATCHI_ROUTE_PREFIXES].sort(), 'page route list matches WebServer.kt (prefix routes)');
+
+  // Plugin metadata header
+  let m = api.plugMeta('// @matchi-name Signal meter\n// @matchi-version 1.2\n/* @matchi-author me */\n * @matchi-description Shows\u0000 signal\n// @matchi-requires root, curl; jq\nconsole.log(1)');
+  eq(['Signal meter', '1.2', 'me', 'Shows  signal'.replace(/\s+/g, ' '), ['root', 'curl', 'jq']], [m.name, m.version, m.author, m.description.replace(/\s+/g, ' '), m.requires], 'meta header parsed');
+  m = api.plugMeta('x\n'.repeat(50) + '// @matchi-name Late'); eq('', m.name, 'meta only read from the first 40 lines');
+  m = api.plugMeta('// @matchi-name A\n// @matchi-name B'); eq('A', m.name, 'first value wins');
+  m = api.plugMeta('// @matchi-requires $(rm -rf /), ok'); eq(['ok'], m.requires, 'requires keeps only safe words');
+  eq(['', '', '', '', []], [api.plugMeta('plain').name, api.plugMeta('').version, '', '', api.plugMeta('plain').requires], 'no header, no meta');
+
+  // Compatibility report
+  let c = api.plugCompat("fetch('/api/goform/goform_get_cmd_process'); fetch('/api/root_shell'); fetch('/api/uploads/x.bin'); fetch('/api/logs/session/abc')");
+  ok(c.ok && c.issues.length === 0, 'compat: known routes, including prefix routes, are fine');
+  c = api.plugCompat("fetch('/api/get_custom_head'); fetch('/api/set_custom_head'); fetch('/api/nothing_here')");
+  ok(!c.ok && /get_custom_head/.test(c.issues[0]) && /nothing_here/.test(c.issues[0]), 'compat: unknown routes listed');
+  c = api.plugCompat('const v = getCookie("a"); setCookie("b", 1)'); ok(c.issues.some(i => /getCookie, setCookie/.test(i)), 'compat: undefined cookie helpers flagged');
+  c = api.plugCompat('function getCookie(n){return 1}; getCookie("a")'); ok(c.ok, 'compat: a helper the plugin defines itself is fine');
+  c = api.plugCompat('runShellWithRoot("socat TCP-LISTEN:1 - ; ttyd -p 2; curl x; jq y")'); ok(c.issues.length === 1 && /socat, ttyd/.test(c.issues[0]) && !/curl|jq/.test(c.issues[0]), 'compat: only tools that are not shipped');
+  c = api.plugCompat('runShellWithRoot("ls /data/adb/service.d")'); ok(c.ok, 'compat: /data/adb paths are not an adb tool');
+  c = api.plugCompat("sh('/data/data/com.minikano.f50_sms/files/curl'); sh('/data/data/com.minikano.f50_sms/files/frpc'); sh('/data/data/com.minikano.f50_sms/files/x.json')");
+  ok(c.issues.length === 1 && /frpc/.test(c.issues[0]) && !/curl|x\.json/.test(c.issues[0]), 'compat: only UFI files that are not shipped');
+  const sm2 = api.storeSummary({ name: 'N', sha256: '' }, 'f'.repeat(64), api.plugScan('x'), [], api.plugCompat("fetch('/api/get_custom_head')"));
+  ok(sm2.includes('Compatibility: this plugin calls routes'), 'summary shows compat issues');
+  ok(api.storeSummary({ name: 'N', sha256: '' }, 'f'.repeat(64), api.plugScan('x'), [], api.plugCompat('x')).includes('no known problems'), 'summary shows a clean compat check');
 
   // Search and paging
   const items = Array.from({ length: 20 }, (_, i) => ({ name: 'Plugin' + i, description: i % 2 ? 'signal meter' : 'tool', author: 'x' }));
