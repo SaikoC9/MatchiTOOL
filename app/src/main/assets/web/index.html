@@ -385,6 +385,11 @@ main{max-width:1600px!important;padding:14px 24px 44px!important;gap:12px!import
 #home .actions-buttons{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:5px!important}
 #home .actions-buttons button{min-height:28px!important;padding:3px 6px!important;font-size:clamp(10.5px,.85vw,12px)!important;line-height:1.15!important;border-radius:7px!important;display:flex!important;align-items:center;justify-content:center;text-align:center;white-space:normal}
 #home .liv{margin-top:0!important;border-top:0!important;padding-top:0!important;border-left:1px solid var(--bd);padding-left:20px}
+/* Place the two columns explicitly: the empty .functions-container (a plugin hook) used to take the right-hand grid cell, which pushed the live status under the buttons and left the right side blank. */
+#home>.actions-buttons{grid-column:1;grid-row:1}
+#home>.liv{grid-column:2;grid-row:1 / span 3}
+#home>:not(.actions-buttons):not(.liv){grid-column:1}
+#home>.functions-container:empty{display:none}
 #home .liv-head{margin-bottom:10px!important}
 #home .liv-hero{padding:12px 18px!important;gap:16px!important;border-radius:12px!important}
 #home .liv-dbm{font-size:26px!important}#home .liv-op{font-size:18px!important}#home .liv-q{font-size:12px!important}
