@@ -21,7 +21,7 @@ async function scenario(name, run, opts = {}) {
     if (u.pathname === '/') return r.fulfill({ contentType: 'text/html', body: html });
     const j = (o, status = 200) => r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(o) });
     if (u.pathname === '/api/zte') { st.zte++; if (st.zteDelay) await new Promise((res) => setTimeout(res, st.zteDelay)); return st.zteFail ? j({ error: 'down' }, 500) : j({ success: true, data: { signalbar: '4', network_type: 'LTE', lte_rsrp: st.rsrp, ...st.extra } }); }
-    if (u.pathname === '/api/shell') { st.shell++; const wantTele = /dumpsys telephony/.test(req.postData() || ''); if (wantTele) st.tele++; return j({ success: true, content: SHELL.replace('soc-thermal=45000', 'soc-thermal=' + st.zone) + (wantTele ? 'TELEPHONY\\n' + TELE : '') }); }
+    if (u.pathname === '/api/shell') { st.shell++; const wantTele = /dumpsys telephony/.test(req.postData() || ''); if (wantTele) st.tele++; return j({ success: true, content: SHELL.replace('soc-thermal=45000', 'soc-thermal=' + st.zone).replace('level: 50', 'level: ' + (st.bat === undefined ? 50 : st.bat)).replace('status: 3', 'status: ' + (st.status || 3)) + (wantTele ? 'TELEPHONY\\n' + TELE : '') }); }
     if (u.pathname === '/api/at/batch') { st.at++; return j({ results: ['', '', '', ''] }); }
     if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
     if (u.pathname === '/api/plugins') return j([]);
@@ -209,6 +209,60 @@ async function scenario(name, run, opts = {}) {
     const t0 = st.tele; await run1(360);
     ok(st.tele - t0 <= 3, `hot: telephony about every 3 minutes at most: ${st.tele - t0} reads in 360 s`);
   }, { extra: { network_type: 'ENDC', Z5g_rsrp: '-106' } });
+
+  // ---- Phase 5: refresh speed, battery pause, speed graph -------------------------------------------------------
+  await scenario('phase 5: Fast and Eco cadence, saved choice', async ({ page, st, run1 }) => {
+    await run1(3);
+    await page.locator('#liv_inline .liv-chip[data-mode="fast"]').click(); await page.waitForTimeout(100);
+    let z = st.zte, s = st.shell; await run1(40);
+    ok(st.zte - z >= 17 && st.zte - z <= 22, `Fast: router about every 2 s (${st.zte - z} reads in 40 s)`);
+    ok(st.shell - s >= 3 && st.shell - s <= 5, `Fast: root about every 10 s (${st.shell - s} reads in 40 s)`);
+    ok(await page.evaluate(() => localStorage.getItem('liv_mode')) === 'fast', 'the choice is saved in localStorage');
+    await page.locator('#liv_inline .liv-chip[data-mode="eco"]').click(); await page.waitForTimeout(100);
+    z = st.zte; s = st.shell; await run1(90);
+    ok(st.zte - z >= 9 && st.zte - z <= 12, `Eco: router about every 9 s (${st.zte - z} reads in 90 s)`);
+    ok(st.shell - s >= 1 && st.shell - s <= 3, `Eco: root about every 45 s (${st.shell - s} reads in 90 s)`);
+    ok(await page.locator('#liv_inline .liv-chip[data-mode="eco"]').getAttribute('aria-pressed') === 'true', 'Eco chip is shown as selected');
+  });
+  await scenario('phase 5: Fast never speeds up a hot phone', async ({ page, st, run1 }) => {
+    await page.evaluate(() => localStorage.setItem('liv_thermal_test', '2'));
+    await page.locator('#liv_inline .liv-chip[data-mode="fast"]').click(); await page.waitForTimeout(100); await run1(20);
+    const z = st.zte; await run1(60);
+    ok(st.zte - z <= 5, `hot + Fast: router still about every 15 s (${st.zte - z} reads in 60 s)`);
+  });
+  await scenario('phase 5: pause below battery level, resume on charge', async ({ page, st, run1 }) => {
+    st.bat = 10; await run1(20);
+    await page.locator('#liv_inline .liv-bp').selectOption('15'); await page.waitForTimeout(100); await run1(20);
+    const z = st.zte, s = st.shell; await run1(120);
+    ok(st.zte === z, `below 15 % on battery: the router loop stops (+${st.zte - z})`);
+    ok(st.shell - s >= 1 && st.shell - s <= 3, `the root loop only checks about once a minute (+${st.shell - s} in 120 s)`);
+    ok(await page.locator('#liv_inline .liv-when').innerText().then((t) => /Paused/.test(t) && /10%/.test(t)), 'header says Paused with the battery level');
+    st.status = 2; await run1(70);
+    ok(st.zte > z, 'plugging in the charger resumes the router loop');
+    ok(await page.locator('#liv_inline .liv-when').innerText().then((t) => !/Paused/.test(t)), 'the Paused label is gone');
+    st.status = 3; st.bat = 40; await run1(70); const z2 = st.zte; await run1(10);
+    ok(st.zte > z2, 'battery above the limit keeps polling');
+  });
+  await scenario('phase 5: pause is off by default', async ({ page, st, run1 }) => {
+    st.bat = 5; await run1(30);
+    const z = st.zte; await run1(30);
+    ok(st.zte - z >= 8, `battery pause Off: low battery does not stop polling (+${st.zte - z})`);
+    ok(await page.locator('#liv_inline .liv-bp').inputValue() === '0', 'select shows Off');
+  });
+  await scenario('phase 5: speed graph', async ({ page, st, run1 }) => {
+    await run1(2);
+    ok(await page.locator('#liv_inline .liv-spark').count() === 0, 'no graph until there are 2 readings');
+    await run1(40);
+    ok(await page.locator('#liv_inline .liv-spark polyline').count() === 2, 'graph has a download and an upload line');
+    ok(await page.locator('#liv_inline .liv-spark').innerText().then((t) => /last \d+ reads/.test(t) && /peak 2\.00 KB\/s/.test(t)), 'caption shows the number of reads and the peak');
+    await run1(300);
+    ok(await page.locator('#liv_inline .liv-spark').innerText().then((t) => /last 60 reads/.test(t)), 'keeps the last 60 reads only');
+  }, { extra: { realtime_rx_thrpt: '2048', realtime_tx_thrpt: '1024' } });
+  await scenario('phase 5: no graph when the router has no speed keys', async ({ page, st, run1 }) => {
+    await run1(30);
+    ok(await page.locator('#liv_inline .liv-spark').count() === 0, 'no graph without realtime_rx_thrpt / realtime_tx_thrpt');
+  });
+
 
   console.log(fails ? `\n${fails} FAILED` : '\nall passed'); process.exit(fails ? 1 : 0);
 })();

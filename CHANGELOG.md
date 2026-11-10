@@ -1,3 +1,10 @@
+# MatchiTOOL (unreleased) - Live status: optional extras (plan Phase 5)
+
+- **Refresh speed: Fast / Normal / Eco** (chips under the card, saved in `localStorage` as `liv_mode`). Router loop / root loop: Fast 2 s / 10 s, Normal 3 s / 15 s (default, unchanged), Eco 9 s / 45 s. Fast only applies while the phone is cool: when warm or hot the heat table still sets the pace, so Fast cannot push a hot phone harder. Eco is kept when warm or hot. Failure back-off still wins over all of them.
+- **Speed graph:** download and upload lines for the last 60 fast reads (memory only, gone on reload), with the peak shown. It appears after 2 readings and only when the router returns the speed keys.
+- **Pause below battery level:** Off (default) / 10 / 15 / 20 / 30 % (`liv_batpause`). Below the level and not charging, the router loop stops and the root loop checks once a minute, so plugging in the charger resumes everything. The header says "Paused - battery N% (below X%)".
+- Browser test extended (cadence of each mode, Fast on a hot phone, pause and resume, pause off by default, graph, no graph without speed keys). **Not yet checked on the F50**, and the new row was not looked at on the real card.
+
 # MatchiTOOL (unreleased) - Live status: CPU % and 5G RSRQ fixes
 
 - **CPU %:** the total from `/proc/stat` also counted the `guest` and `guest_nice` columns, which the kernel already includes in `user` / `nice`. That inflated the total and pulled the percentage down (6 % shown with a load of 8.3). Only the first 8 counters are used now.
