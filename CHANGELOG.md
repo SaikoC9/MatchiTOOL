@@ -1,3 +1,17 @@
+# MatchiTOOL (unreleased) - Live status: speed, devices and monthly data (plan Phase 2)
+
+- The Live device status card has a new row: **Download** and **Upload** speed, **Devices** on Wi-Fi, and **This month** (down + up, with the split). They come from the router keys `realtime_rx_thrpt`, `realtime_tx_thrpt`, `wifi_access_sta_num`, `monthly_rx_bytes`, `monthly_tx_bytes` (UFI-TOOLS fields), read by the same 3 s router loop, no extra root calls. Speeds are read as bytes per second and shown with 1024-based units (KB/s, MB/s); this unit is taken from UFI-TOOLS and still to be confirmed with a real download on the F50.
+- A tile is hidden when the router does not return its key (empty, missing, negative or not a number); a real 0 still shows as 0 B/s. "This month" needs both monthly keys.
+- `ppp_status` is requested too: anything other than connected shows a small "Data off" / "Data ..." badge next to the network type.
+- Browser test `scripts/phase0/test_live_loops_browser.js` now also covers the formatting and the hide rules. Not tested on a real device.
+
+# MatchiTOOL (unreleased) - Live status: router and root reads run as two loops (plan Phase 1)
+
+- The Live device status card reads the router every 3 s (no root) and the root shell (battery, temperatures, CPU, memory, uptime) every 15 s, each on its own timer with its own back-off. Slower when the phone is warm or hot; the router loop backs off to 1 min when the router fails and the card falls back to the modem AT / telephony path.
+- A hidden browser tab no longer polls (before, both loops kept running in a background tab). The first root read is no longer repeated 3 s after the start.
+- New browser test `scripts/phase0/test_live_loops_browser.js` (needs Playwright, not part of validate.sh): cadence, merge, Live refresh off, another window open, hidden tab, router failure and recovery.
+- Temporary `PHASE0-TIMING` console lines (read times and temperatures) are still in the page for the on-device baseline; they are removed in Phase 6. Not tested on a real device.
+
 # SMS delete / send: router "set" token is SHA-256 (as in UFI-TOOLS 4.1.5)
 
 - Read from the UFI-TOOLS 4.1.5 APK (`requests.js`, `processAD`): AD = SHA256(SHA256(wa_inner_version + cr_version) + RD), upper-case hex. MatchiTOOL built it with MD5, so the router answered every "set" (SMS delete, SMS send, settings) with an empty body and did nothing.

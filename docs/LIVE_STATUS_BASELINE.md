@@ -3,25 +3,24 @@
 Written from the code in `app/src/main/assets/web/index.html` (Live device status block, version 1.4.0) and from the UFI-TOOLS 4.1.5 APK.
 The "Measure on the phone" section is empty on purpose: it needs the real F50.
 
-## 1. The plan's "today" section is out of date
+## 1. Which code is the baseline
 
-`LIVE_STATUS_UFI_PLAN.txt` says MatchiTOOL has one slow poll (60/120/180 s) that does the router GET and the root call together.
-The 1.4.0 code is already further along:
+The zip you attached (1.4.0) is the OLD poll, exactly as `LIVE_STATUS_UFI_PLAN.txt` describes it:
+one `collect()` (router GET plus root shell together), one `tick()`, `arm(3000)`, then `nextDelay()` of 60 s cool, 120 s warm, 180 s hot.
+That is the Phase 0 reference for "before": first read at 3 s, one update per minute when cool.
 
-| Plan item | State in the code now |
-|---|---|
-| Phase 1: split `collect()` into fast and slow | Done. `collectFast()` (router GET only) and `collectSlow()` (root shell). `collect()` no longer exists. |
-| Phase 1: one shared `last`, each loop updates its own fields | Done. `zteData` (fast) and `sysPart`/`atRaw` (slow) are merged by `build()` into `last`. |
-| Phase 1: fast 3 s, slow 15 s | Done (`fastDelay()` 3000 ms, `slowDelay()` 15000 ms when cool). |
-| Phase 1: fast loop back-off 3, 6 ... 60 s | Done. `3000 * 2^min(failF,5)`, capped at 60 s. Slow loop backs off 15/30/60 s. |
-| Phase 1: one chain per loop | Done. `armF()/armS()` with `genF/genS`. |
-| Phase 1: pause on hidden tab / other window | Done. `visible()` uses `otherOpen()`. The `visibilitychange` handler re-polls on return. |
-| Phase 3: heat-aware delays | Partly. fast: 3 s cool/warm, 15 s hot. slow: 15 s cool, 120 s warm, 180 s hot. Plan wants warm 6 s / 30 s and hot 15 s / 90 s. |
-| Phase 3: pause slow loop when hot | Not done. Slow loop still runs every 180 s when hot. |
-| Phase 4: first read at ~0.5 s, sessionStorage cache | Not done. `armF(3000); armS(3000)` plus an immediate `tickFast().then(() => tickSlow())`. |
-| Phase 2: speed / devices / monthly rows | Not done. `KEYS` has 18 keys, none of the new ones. |
+The working folder this session started from was already ahead of that zip: it had the Phase 1 split (`collectFast()` / `collectSlow()`, two loops, 3 s / 15 s) and a matching `validate.sh` check. Sections 2 and 3 below describe that split code, because it is what the next phases build on.
+Phase 1 was then verified and fixed (hidden tab, early second root read); see CHANGELOG.
 
-So the real starting point for Phase 1 is "verify and finish", not "build". Phases 2, 3 (remainder), 4, 5, 6 are still open.
+| Plan item | Old zip | Working folder after Phase 1 |
+|---|---|---|
+| Split into fast (router) and slow (root) loops | no | yes |
+| Fast 3 s, slow 15 s | no (one poll, 60 s) | yes |
+| Back-off 3, 6 ... 60 s on router failure | no | yes |
+| Never poll while the tab is hidden | no | yes (fixed in Phase 1) |
+| Heat-aware delays (Phase 3) | 60/120/180 s | partly: fast 3 s / 15 s hot, slow 15 s / 120 s warm / 180 s hot |
+| Instant open, cache (Phase 4) | no | no |
+| Speed / devices / monthly rows (Phase 2) | no | no |
 
 ## 2. What the card shows now
 
