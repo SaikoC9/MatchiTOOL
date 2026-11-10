@@ -1,7 +1,7 @@
 /*
  * AT & Radio - MatchiTOOL plugin
  * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
- * network mode, performance mode, modem restart (formats: docs/AT_RADIO_FORMATS.md).
+ * network mode, performance mode, band lock, cell lock, modem restart (formats: docs/AT_RADIO_FORMATS.md).
  * AT commands are sent with the sendat binary from UFI-TOOLS, bundled with MatchiTOOL.
  */
 (() => {
@@ -234,7 +234,8 @@
 
   function setRadioBusy(on) {
     radioBusy = on;
-    for (const id of ['matchi_nm', 'matchi_pm', 'matchi_reboot']) { const el = document.getElementById(id); if (el) el.disabled = on; }
+    for (const id of ['matchi_nm', 'matchi_pm', 'matchi_reboot', ...bandBtns]) { const el = document.getElementById(id); if (el) el.disabled = on; }
+    document.querySelectorAll('#matchi_cell_panel button.at-cl').forEach((el) => { el.disabled = on; });
   }
   // Show what the router reports. Unknown value (other firmware) is shown as-is in its own option, never mapped to a guess.
   async function refreshRadio() {
@@ -289,6 +290,219 @@
     setRadioBusy(false);
     refreshRadio();
   }
+  // ---- Band lock (Phase 2). Formats: docs/AT_RADIO_FORMATS.md. Read on open and after a change only, never polled. ----
+  // LTE_BAND_LOCK / lte_band_lock and NR_BAND_LOCK / nr_band_lock take bare integers joined by ",". Unlike UFI (which sends both
+  // and calls one "success" enough), BOTH sent commands must answer "success", and nothing is sent with zero bands ticked.
+  const LTE_BANDS = [1, 2, 3, 4, 5, 7, 8, 12, 13, 17, 18, 19, 20, 25, 26, 28, 34, 38, 39, 40, 41, 42, 43];
+  const BAND_ORIG = 'matchi_band_orig';
+  // "1,3,n28" -> [1,3,28]. null = key not reported at all (hide); '' / "all" / junk -> [] (nothing parsed; raw text is kept for display).
+  const parseBands = (v) => {
+    if (v === undefined || v === null) return null;
+    const out = String(v).split(',').map((x) => parseInt(String(x).trim().replace(/^n/i, ''), 10)).filter((n) => n > 0 && n < 1000);
+    return [...new Set(out)].sort((a, b) => a - b);
+  };
+  const bandText = (l) => l.join(',');
+  const bandState = { lte: [], nr: [], lteRaw: '', nrRaw: '', lteSup: [], nrSup: [], haveLte: false, haveNr: false, sel: { lte: new Set(), nr: new Set() } };
+  async function readBands() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'lte_band_lock,nr_band_lock' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    return { lteRaw: d.lte_band_lock, nrRaw: d.nr_band_lock, lte: parseBands(d.lte_band_lock), nr: parseBands(d.nr_band_lock) };
+  }
+  async function readNrSupported() {
+    try { return fields(await at('AT+SP5GCMDS="get nr support_band"')).slice(1).map((x) => parseInt(x.replace(/\\/g, ''), 10)).filter((x) => !isNaN(x)); }
+    catch (_) { return []; }
+  }
+  const bandBtns = ['matchi_band_lock', 'matchi_band_unlock', 'matchi_band_restore', 'matchi_band_reapply'];
+  function paintBands() {
+    const box = document.getElementById('matchi_band_row'); if (!box) return;
+    const mk = (type, list, label) => {
+      const g = document.getElementById('matchi_band_' + type); if (!g) return;
+      g.style.display = list.length ? '' : 'none';
+      g.querySelector('.at-bl').textContent = label;
+      g.querySelector('.at-bc').innerHTML = list.map((b) => `<button type="button" class="at-bd${bandState.sel[type].has(b) ? ' on' : ''}" data-bt="${type}" data-b="${b}">${type === 'nr' ? 'n' : 'B'}${b}</button>`).join('');
+    };
+    mk('lte', bandState.lteSup, 'LTE bands (locked now: ' + (bandState.haveLte ? (bandState.lte.length ? bandText(bandState.lte) : (bandState.lteRaw.trim() || 'none reported')) : 'not reported') + ')');
+    mk('nr', bandState.nrSup, '5G NR bands (locked now: ' + (bandState.haveNr ? (bandState.nr.length ? bandText(bandState.nr) : (bandState.nrRaw.trim() || 'none reported')) : 'not reported') + ')');
+    const rs = document.getElementById('matchi_band_restore'); if (rs) rs.style.display = bandOrig() ? '' : 'none';
+  }
+  const bandOrig = () => { try { return JSON.parse(localStorage.getItem(BAND_ORIG) || 'null'); } catch (_) { return null; } };
+  // The very first lock state seen on this router is kept in this browser, so "Restore original" can send back exactly what the router reported.
+  function rememberOrig(b) {
+    try { if (!localStorage.getItem(BAND_ORIG)) localStorage.setItem(BAND_ORIG, JSON.stringify({ lte: b.lteRaw == null ? null : String(b.lteRaw), nr: b.nrRaw == null ? null : String(b.nrRaw) })); } catch (_) { /* not fatal */ }
+  }
+  async function refreshBands(keepSel) {
+    const row = document.getElementById('matchi_band_row'); if (!row) return;
+    let b;
+    try { b = await readBands(); } catch (e) { row.style.display = 'none'; log('Band lock not available: ' + e.message); return; }
+    if (!document.getElementById('matchi_band_row')) return;
+    if (b.lte === null && b.nr === null) { row.style.display = 'none'; log('Band lock: this firmware does not report lte_band_lock / nr_band_lock, so the control is hidden.'); return; }
+    bandState.haveLte = b.lte !== null; bandState.haveNr = b.nr !== null;
+    bandState.lte = b.lte || []; bandState.nr = b.nr || [];
+    bandState.lteRaw = b.lteRaw == null ? '' : String(b.lteRaw); bandState.nrRaw = b.nrRaw == null ? '' : String(b.nrRaw);
+    // A changed list also covers bands the router reports as locked but that are not in the built-in list.
+    bandState.lteSup = bandState.haveLte ? [...new Set([...LTE_BANDS, ...bandState.lte])].sort((x, y) => x - y) : [];
+    if (bandState.haveNr) {
+      const sup = bandState.nrSup.length ? bandState.nrSup : await readNrSupported();
+      bandState.nrSup = [...new Set([...sup, ...bandState.nr])].sort((x, y) => x - y);
+    } else bandState.nrSup = [];
+    if (!keepSel) { bandState.sel.lte = new Set(bandState.lte); bandState.sel.nr = new Set(bandState.nr); }
+    rememberOrig(b);
+    row.style.display = '';
+    paintBands();
+  }
+  const bandsMsg = (l, n) => (l.length ? l.map((x) => (n ? 'n' : 'B') + x).join(' ') : 'none');
+  const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // Sends only the types that are given (each a comma string). Both must answer success; the first failure stops the rest.
+  async function sendBands(parts) {
+    const sent = [];
+    for (const [goformId, param, value] of parts) {
+      await setRouter({ goformId, [param]: value }); sent.push(goformId);
+    }
+    return sent;
+  }
+  async function applyBandChange(title, detail, parts, expect) {
+    if (radioBusy) return;
+    if (!(await askConfirm(title + '\n\n' + detail + '\n\nWrong bands can leave the phone without signal. To go back use \"Restore original\" or \"Unlock all\" here.', 'Apply', true))) return;
+    setRadioBusy(true);
+    try {
+      log('> ' + parts.map((p) => p[0] + ' ' + p[2]).join(' + '));
+      const sent = await sendBands(parts);
+      log('Router answered success: ' + sent.join(', '));
+      let b = null; try { b = await readBands(); } catch (_) { /* shown below */ }
+      const bad = [];
+      if (b && expect.lte !== undefined && !sameList(b.lte || [], expect.lte)) bad.push('LTE reports ' + bandsMsg(b.lte || [], false));
+      if (b && expect.nr !== undefined && !sameList(b.nr || [], expect.nr)) bad.push('5G NR reports ' + bandsMsg(b.nr || [], true));
+      if (!b) log('Could not read the bands back. Open this window again to check.');
+      else if (bad.length) { log('Router accepted the change but ' + bad.join('; ') + '. Open this window again to check.'); createToast('Sent, but the router does not report the new bands yet', 'red'); }
+      else { log('Router now reports the new band lock. Use \"Re-apply network mode\" to make the modem use it.'); createToast('Band lock saved', 'green'); }
+    } catch (err) { log('Band lock failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    refreshBands(false);
+  }
+  async function lockBands() {
+    const l = [...bandState.sel.lte].sort((a, b) => a - b), n = [...bandState.sel.nr].sort((a, b) => a - b);
+    if (!l.length && !n.length) { createToast('Tick at least one band first', 'red'); log('Band lock: nothing ticked, nothing sent. Use \"Unlock all\" to remove a lock.'); return; }
+    const parts = [], expect = {}, lines = [];
+    if (l.length) { parts.push(['LTE_BAND_LOCK', 'lte_band_lock', bandText(l)]); expect.lte = l; lines.push('LTE: ' + bandsMsg(l, false)); }
+    if (n.length) { parts.push(['NR_BAND_LOCK', 'nr_band_lock', bandText(n)]); expect.nr = n; lines.push('5G NR: ' + bandsMsg(n, true)); }
+    await applyBandChange('Lock these bands?', lines.join('\n') + (l.length && n.length ? '' : '\n(The other type is left unchanged.)'), parts, expect);
+  }
+  async function unlockBands() {
+    const parts = [], expect = {}, lines = [];
+    if (bandState.haveLte && bandState.lteSup.length) { parts.push(['LTE_BAND_LOCK', 'lte_band_lock', bandText(bandState.lteSup)]); expect.lte = bandState.lteSup; lines.push('LTE: ' + bandsMsg(bandState.lteSup, false)); }
+    if (bandState.haveNr && bandState.nrSup.length) { parts.push(['NR_BAND_LOCK', 'nr_band_lock', bandText(bandState.nrSup)]); expect.nr = bandState.nrSup; lines.push('5G NR: ' + bandsMsg(bandState.nrSup, true)); }
+    if (!parts.length) { createToast('No band list to unlock with', 'red'); return; }
+    await applyBandChange('Unlock all: allow every listed band?', lines.join('\n') + '\n\nThis sends the full list shown above. The router may report a different list for \"no lock\"; \"Restore original\" sends back exactly what it reported when this tool first read it.', parts, expect);
+  }
+  async function restoreBands() {
+    const o = bandOrig(); if (!o) return;
+    const parts = [], expect = {}, lines = [];
+    if (o.lte !== null && bandState.haveLte) { parts.push(['LTE_BAND_LOCK', 'lte_band_lock', o.lte]); const e = parseBands(o.lte); if (e && e.length) expect.lte = e; lines.push('LTE: ' + (o.lte.trim() || '(empty)')); }
+    if (o.nr !== null && bandState.haveNr) { parts.push(['NR_BAND_LOCK', 'nr_band_lock', o.nr]); const e = parseBands(o.nr); if (e && e.length) expect.nr = e; lines.push('5G NR: ' + (o.nr.trim() || '(empty)')); }
+    if (!parts.length) { createToast('Nothing to restore', 'red'); return; }
+    await applyBandChange('Restore the original band lock?', 'As first reported by the router:\n' + lines.join('\n'), parts, expect);
+  }
+  async function reapplyNetMode() {
+    if (radioBusy) return;
+    const nm = document.getElementById('matchi_nm'), cur = nm && nm.dataset.cur;
+    if (!cur) { createToast('Network mode is not known, so it cannot be re-applied', 'red'); return; }
+    if (!(await askConfirm('Re-apply network mode \"' + netLabel(cur) + '\" so the modem picks up the band lock?\n\nSignal may drop for a few seconds.', 'Re-apply'))) return;
+    setRadioBusy(true);
+    try { log('> Re-apply network mode ' + netLabel(cur)); await setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: cur }); log('Router accepted it.'); createToast('Network mode re-applied', 'green'); }
+    catch (err) { log('Re-apply failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+  }
+
+  // ---- Cell lock (Phase 3, highest risk). Formats: docs/AT_RADIO_FORMATS.md. Read only when the "Cell lock" button is pressed or refreshed. ----
+  // CELL_LOCK takes pci, earfcn, rat (12 = 4G, 16 = 5G); UNLOCK_ALL_CELL takes nothing. neighbor_cell_info / locked_cell_info are lists.
+  const toList = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) { try { const j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (_) { return []; } }
+    return [];
+  };
+  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // same as UFI: 12 is 4G, anything else is shown as 5G
+  // The neighbour list has no rat field. Only a band written as "n78" / "B3" decides it; a bare number does not, and then the user picks.
+  const guessRat = (band) => { const b = String(band == null ? '' : band).trim(); return /^n/i.test(b) ? '16' : /^b/i.test(b) ? '12' : ''; };
+  const cellOk = (pci, earfcn, rat) => /^\d{1,4}$/.test(pci) && +pci <= 1007 && /^\d{1,7}$/.test(earfcn) && +earfcn <= 3279165 && (rat === '12' || rat === '16');
+  const cellState = { nb: [], locked: [] };
+  let cellGen = 0;   // a newer lock or an unlock cancels a pending auto-unlock check
+  const cellKeep = () => { try { return localStorage.getItem('matchi_cell_auto') !== '0'; } catch (_) { return true; } };
+  async function readCells() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'neighbor_cell_info,locked_cell_info' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    if (d.neighbor_cell_info === undefined && d.locked_cell_info === undefined) throw new Error('this firmware reports neither neighbor_cell_info nor locked_cell_info');
+    return { nb: toList(d.neighbor_cell_info), locked: toList(d.locked_cell_info) };
+  }
+  // Registered = the modem reports status 1 (home) or 5 (roaming) on LTE or 5G. When nothing answers, it counts as not registered (unlocking is the safe side).
+  async function isRegistered() {
+    for (const c of ['AT+CEREG?', 'AT+C5GREG?']) {
+      try { const m = tidy(await at(c)).match(/\+C(?:5G|E)REG:\s*\d+\s*,\s*(\d+)/); if (m && (m[1] === '1' || m[1] === '5')) return true; } catch (_) { /* try the next */ }
+    }
+    return false;
+  }
+  function paintCells() {
+    const pn = document.getElementById('matchi_cell_list'); if (!pn) return;
+    const cell = (c) => c == null || c === '' ? '-' : esc(c);
+    const lk = cellState.locked.length ? cellState.locked.map((c) => `<div>${esc(ratLabel(c.rat))} · EARFCN ${cell(c.earfcn)} · PCI ${cell(c.pci)}</div>`).join('') : '<div>No locked cell</div>';
+    const nb = cellState.nb.length ? cellState.nb.map((c, i) => `<div class="at-cr"><span>${cell(c.band)} · EARFCN ${cell(c.earfcn)} · PCI ${cell(c.pci)} · RSRP ${cell(c.rsrp)} · RSRQ ${cell(c.rsrq)} · SINR ${cell(c.sinr)}</span><button type="button" class="at-cl" data-ci="${i}">Lock</button></div>`).join('') : '<div>No neighbor cells</div>';
+    pn.innerHTML = '<div class="at-bl">Locked now</div>' + lk + '<div class="at-bl" style="margin-top:6px">Neighbor cells</div>' + nb;
+  }
+  async function refreshCells() {
+    const pn = document.getElementById('matchi_cell_list'); if (!pn) return;
+    pn.textContent = 'reading…';
+    try { const c = await readCells(); cellState.nb = c.nb; cellState.locked = c.locked; paintCells(); }
+    catch (e) { pn.textContent = 'Cell info not available: ' + e.message + '. Unlock all still works.'; log('Cell info not available: ' + e.message); }
+  }
+  async function lockCell(pci, earfcn, rat) {
+    if (radioBusy) return;
+    if (!cellOk(pci, earfcn, rat)) { createToast('PCI, EARFCN or type is not valid', 'red'); return; }
+    const ok = await askConfirm('Lock to this cell?\n\n' + ratLabel(rat) + ' · EARFCN ' + earfcn + ' · PCI ' + pci +
+      '\n\nWARNING: a wrong cell can leave the phone with no signal or an unstable one. \"Unlock all cells\" stays on this screen. ' +
+      (cellKeep() ? 'If the modem is not registered 60 seconds after the lock, the lock is removed automatically.' : 'Automatic unlock is OFF: you must unlock by hand.'), 'Lock cell', true);
+    if (!ok) return;
+    setRadioBusy(true);
+    let sent = false;
+    try {
+      log('> CELL_LOCK ' + ratLabel(rat) + ' earfcn=' + earfcn + ' pci=' + pci);
+      await setRouter({ goformId: 'CELL_LOCK', pci, earfcn, rat }); sent = true;
+      let c = null; try { c = await readCells(); } catch (_) { /* shown below */ }
+      if (c) { cellState.nb = c.nb; cellState.locked = c.locked; paintCells(); }
+      const hit = c && c.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
+      if (hit) { log('Router now reports the locked cell.'); createToast('Cell locked', 'green'); }
+      else { log('Router accepted the lock but does not list it (yet). Check Signal quality, and unlock if the signal is gone.'); createToast('Sent, but the router does not list the lock yet', 'red'); }
+    } catch (err) { log('Cell lock failed: ' + err.message); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+    if (sent && cellKeep()) cellWatch();
+  }
+  async function unlockCells(auto) {
+    if (radioBusy && !auto) return;
+    if (!auto && !(await askConfirm('Unlock all cells?\n\nThe modem may re-register for a few seconds.', 'Unlock all'))) return;
+    cellGen++;   // cancel a pending auto-unlock check
+    setRadioBusy(true);
+    try {
+      log('> UNLOCK_ALL_CELL' + (auto ? ' (automatic)' : ''));
+      await setRouter({ goformId: 'UNLOCK_ALL_CELL' });
+      let c = null; try { c = await readCells(); } catch (_) { /* shown below */ }
+      if (c) { cellState.nb = c.nb; cellState.locked = c.locked; paintCells(); }
+      if (c && !c.locked.length) log('Router reports no locked cell.'); else log('Router accepted the unlock but still lists a locked cell, or could not be read. Press Refresh.');
+      createToast('Cells unlocked', 'green');
+    } catch (err) { log('Unlock failed: ' + err.message + '. Try again, or restart the modem.'); createToast(err.message, 'red'); }
+    setRadioBusy(false);
+  }
+  // One check 60 s after a lock: not registered -> the lock is removed. Cancelled by an unlock or a newer lock. Never repeats.
+  async function cellWatch() {
+    const gen = ++cellGen;
+    log('Auto-unlock check in 60 s (switch it off with the tick box if you do not want it).');
+    for (let t = 0; t < 12; t++) { await sleep(5000); if (gen !== cellGen) return; }
+    if (!cellKeep()) { log('Auto-unlock is off: the cell lock stays.'); return; }
+    let reg = false; try { reg = await isRegistered(); } catch (_) { /* counts as not registered */ }
+    if (gen !== cellGen) return;
+    if (reg) { log('Modem is registered 60 s after the lock: the lock stays. Unlock all cells to remove it.'); return; }
+    log('Not registered 60 s after the lock: removing the lock.');
+    for (let i = 0; i < 10 && radioBusy; i++) await sleep(1000);
+    await unlockCells(true);
+  }
+
   // AT+SFUN=4 turns the radio off, AT+SFUN=5 turns it back on. If the second step fails the radio would stay off, so it is retried.
   async function rebootModem() {
     if (radioBusy) return;
@@ -337,6 +551,13 @@
 #matchi_at_modal select{min-height:28px;padding:2px 6px;font-size:12px;border-radius:7px}
 #matchi_at_modal button{min-height:28px;padding:3px 9px;font-size:12px;border-radius:7px}
 #matchi_at_modal input[type=text],#matchi_at_modal input:not([type]),#matchi_at_modal input[inputmode]{min-height:30px;padding:4px 9px;font-size:12.5px}
+#matchi_at_modal .at-bc{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 8px}
+#matchi_at_modal .at-bd{min-height:24px;padding:2px 7px;font-size:11.5px;opacity:.6}
+#matchi_at_modal .at-bd.on{opacity:1;background:rgba(100,230,164,.35)}
+#matchi_at_modal .at-bl{font-size:12px;opacity:.85}
+#matchi_at_modal .at-cr{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:2px 0;font-size:11.5px}
+#matchi_at_modal #matchi_cell_panel{border:1px solid var(--bd);border-radius:8px;padding:8px;margin-bottom:8px;font-size:11.5px}
+#matchi_at_modal #matchi_cell_panel input{width:70px;min-width:0}
 #matchi_at_out{height:150px!important;padding:8px!important;font-size:11px;line-height:1.45;margin-top:8px!important}`;
     document.head.appendChild(st);
   }
@@ -349,13 +570,21 @@
         '<div id="matchi_nm_row" style="display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><label for="matchi_nm">Network mode</label>' +
         '<select id="matchi_nm">' + NET_MODES.map((m) => `<option value="${esc(m[0])}">${esc(m[1])}</option>`).join('') + '</select></div>' +
         '<div class="at-tg" id="matchi_pm_row" style="display:none"><label><input type="checkbox" id="matchi_pm"> Performance mode <small>(effective after reboot)</small></label></div>' +
+        '<div id="matchi_band_row" style="display:none;margin-bottom:8px">' +
+        '<div id="matchi_band_lte" style="display:none"><div class="at-bl"></div><div class="at-bc"></div></div>' +
+        '<div id="matchi_band_nr" style="display:none"><div class="at-bl"></div><div class="at-bc"></div></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px"><button type="button" id="matchi_band_lock">Lock ticked bands</button><button type="button" id="matchi_band_unlock">Unlock all</button><button type="button" id="matchi_band_restore" style="display:none">Restore original</button><button type="button" id="matchi_band_reapply">Re-apply network mode</button></div></div>' +
         '<div style="font-size:11.5px;opacity:.7;margin-bottom:8px">Network mode and performance mode apply to the whole router, not to the SIM slot above.</div>' +
+        '<div id="matchi_cell_panel" style="display:none"><div style="color:#ff9a9a;margin-bottom:6px">Warning: locking the wrong cell can leave the phone with no signal or an unstable one.</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"><button type="button" class="at-cl" id="matchi_cell_unlock">Unlock all cells</button><button type="button" class="at-cl" id="matchi_cell_refresh">Refresh</button><label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="matchi_cell_auto"> Auto-unlock if not registered after 60 s</label></div>' +
+        '<div id="matchi_cell_list"></div>' +
+        '<div class="at-bl" style="margin-top:6px">Lock by hand</div><div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><input id="matchi_cell_pci" inputmode="numeric" placeholder="PCI"><input id="matchi_cell_earfcn" inputmode="numeric" placeholder="EARFCN"><select id="matchi_cell_rat"><option value="">Type…</option><option value="12">4G</option><option value="16">5G</option></select><button type="button" class="at-cl" id="matchi_cell_manual">Lock</button></div></div>' +
         '<div class="at-tg">' +
         '<label><input type="checkbox" id="matchi_volte" disabled> VoLTE</label>' +
         '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
+        '<button type="button" id="matchi_cell_btn">Cell lock</button><button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
         '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
@@ -393,10 +622,40 @@
     }
     document.getElementById('matchi_nm').onchange = changeNetMode;
     document.getElementById('matchi_pm').onchange = changePerf;
+    document.getElementById('matchi_band_row').onclick = (e) => {
+      const t = e.target.closest && e.target.closest('.at-bd'); if (!t || radioBusy) return;
+      const set = bandState.sel[t.dataset.bt], b = +t.dataset.b;
+      if (set.has(b)) set.delete(b); else set.add(b);
+      t.classList.toggle('on', set.has(b));
+    };
+    document.getElementById('matchi_band_lock').onclick = lockBands;
+    document.getElementById('matchi_band_unlock').onclick = unlockBands;
+    document.getElementById('matchi_band_restore').onclick = restoreBands;
+    document.getElementById('matchi_band_reapply').onclick = reapplyNetMode;
+    document.getElementById('matchi_cell_btn').onclick = () => {
+      const pn = document.getElementById('matchi_cell_panel'); const show = pn.style.display === 'none'; pn.style.display = show ? '' : 'none';
+      if (show) refreshCells();
+    };
+    const auto = document.getElementById('matchi_cell_auto'); auto.checked = cellKeep();
+    auto.onchange = () => { try { localStorage.setItem('matchi_cell_auto', auto.checked ? '1' : '0'); } catch (_) { /* not fatal */ } };
+    document.getElementById('matchi_cell_refresh').onclick = refreshCells;
+    document.getElementById('matchi_cell_unlock').onclick = () => unlockCells(false);
+    document.getElementById('matchi_cell_manual').onclick = () => {
+      const g = (id) => document.getElementById(id).value.trim();
+      lockCell(g('matchi_cell_pci'), g('matchi_cell_earfcn'), g('matchi_cell_rat'));
+    };
+    document.getElementById('matchi_cell_list').onclick = (e) => {
+      const t = e.target.closest && e.target.closest('[data-ci]'); if (!t) return;
+      const c = cellState.nb[+t.dataset.ci]; if (!c) return;
+      const rat = guessRat(c.band) || document.getElementById('matchi_cell_rat').value;
+      if (!rat) { createToast('Choose 4G or 5G in the box below first (the band name does not say)', 'red'); return; }
+      lockCell(String(c.pci), String(c.earfcn), rat);
+    };
     document.getElementById('matchi_reboot').onclick = rebootModem;
-    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); };
+    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); bandState.nrSup = []; refreshBands(false); };
     refreshSwitches();
     refreshRadio();
+    refreshBands(false);
   }
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
