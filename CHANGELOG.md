@@ -2,7 +2,8 @@
 
 - **CPU %:** the total from `/proc/stat` also counted the `guest` and `guest_nice` columns, which the kernel already includes in `user` / `nice`. That inflated the total and pulled the percentage down (6 % shown with a load of 8.3). Only the first 8 counters are used now.
 - **5G RSRQ / SINR:** the router is now also asked for `nr_rsrq` and `Nr_snr` (the names UFI-TOOLS shows) and they are used when `Z5g_rsrq` / `Z5g_SINR` are empty, before the Android telephony fallback.
-- **Not confirmed on the F50:** the UFI-TOOLS APK does not show where `nr_rsrq` comes from (it is not in its router key list or its Java code). If RSRQ is still "-", open Live status raw output and check whether `nr_rsrq` and the `telephony.registry` lines (`ssRsrq` / `csiRsrq`) hold a value.
+- **5G RSRQ - real cause found (F50 B09 screenshot):** `dumpsys telephony.registry` lists several `CellSignalStrengthNr` entries. The first one has `ssRsrq = 2147483647` (unavailable), a later one has `ssRsrq = -11`. The parser only looked at the first match, so RSRQ stayed "-". It now reads every entry and takes the first usable RSRQ, preferring the entry whose RSRP equals the one on the card. The telephony grep also keeps every `CellSignalStrengthNr` line (head 40).
+- **Not confirmed:** the router keys `nr_rsrq` / `Nr_snr` added above are still a guess; the F50 answer for them was not seen. Checked only with the pasted dumpsys sample (node), not on the phone.
 
 # MatchiTOOL (unreleased) - Live status: 5G / 4G detail filled from Android telephony (fix)
 
