@@ -1170,7 +1170,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo|CellSignalStrengthNr" | head -40' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
@@ -1223,12 +1223,22 @@ rm -f $P.g $P.4 $P.6 $P.d
     const cesqRsrq = e && Number(e[5]) <= 34 ? -19.5 + 0.5 * Number(e[5]) : undefined;
     const cesqRsrp = e && Number(e[6]) <= 97 ? -140 + Number(e[6]) : undefined;
     const regStat = grab(/\+CEREG:\s*\d+,(\d)/, raw.cereg);
+    // telephony.registry can list several CellSignalStrengthNr entries (one per phone / slot / last-known). Only some carry ssRsrq, the others say 2147483647 (unavailable),
+    // so the first match is not enough: look at every entry and take the first usable RSRQ, preferring an entry whose RSRP equals the one on screen.
+    const nrRsrqFrom = (t, refRsrp) => {
+      const blocks = String(t).split('CellSignalStrengthNr').slice(1);
+      const val = (b, k) => range(grab(new RegExp('\\b' + k + '\\s*=\\s*(-?\\d+)'), b), -43, 20);
+      const rsrpOf = (b) => first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, b), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, b), -140, -40));
+      const withQ = blocks.map((b) => ({ q: first(val(b, 'ssRsrq'), val(b, 'csiRsrq')), r: rsrpOf(b) })).filter((x) => x.q !== undefined);
+      const same = refRsrp !== undefined ? withQ.find((x) => x.r === refRsrp) : undefined;
+      return (same || withQ[0] || {}).q;
+    };
     // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
     const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
     const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
     // 5G values from telephony are only trusted when the router says 5G is in use (or the router is down): the registry can keep a stale NR entry on a 4G-only link
     const nrOn = !zOk || has(zte.Z5g_rsrp) || /5G|NR|ENDC|^SA$/i.test(String(zte.network_type || '').trim()), teleNr = nrOn ? tele : '';
-    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, teleNr), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, teleNr), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, teleNr), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, teleNr), -43, 20));
+    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, teleNr), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, teleNr), -23, 40)), tNrRsrq = nrRsrqFrom(teleNr, first(range(zte.Z5g_rsrp, -140, -40), tNrRsrp));
     // Cells: the registered CellInfoNr / CellInfoLte block of telephony.registry (else the first one), so a 5G + 4G (NSA) link gets the right PCI / channel / band for each radio.
     const cellBlk = (kind) => { const parts = tele.split('CellInfo' + kind + ':'); parts.shift(); const p = parts.find((x) => /mRegistered\s*=\s*YES/i.test(x.split(/CellInfo(?:Nr|Lte|Gsm|Wcdma|Tdscdma|Cdma):/)[0].slice(0, 300))) || parts[0]; return p ? p.split(/CellInfo(?:Nr|Lte|Gsm|Wcdma|Tdscdma|Cdma):/)[0] : ''; };
     const nrB = nrOn ? cellBlk('Nr') : '', lteB = cellBlk('Lte');
