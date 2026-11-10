@@ -1,3 +1,9 @@
+# MatchiTOOL (unreleased) - Live status: CPU % and 5G RSRQ fixes
+
+- **CPU %:** the total from `/proc/stat` also counted the `guest` and `guest_nice` columns, which the kernel already includes in `user` / `nice`. That inflated the total and pulled the percentage down (6 % shown with a load of 8.3). Only the first 8 counters are used now.
+- **5G RSRQ / SINR:** the router is now also asked for `nr_rsrq` and `Nr_snr` (the names UFI-TOOLS shows) and they are used when `Z5g_rsrq` / `Z5g_SINR` are empty, before the Android telephony fallback.
+- **Not confirmed on the F50:** the UFI-TOOLS APK does not show where `nr_rsrq` comes from (it is not in its router key list or its Java code). If RSRQ is still "-", open Live status raw output and check whether `nr_rsrq` and the `telephony.registry` lines (`ssRsrq` / `csiRsrq`) hold a value.
+
 # MatchiTOOL (unreleased) - Live status: 5G / 4G detail filled from Android telephony (fix)
 
 - **Bug:** on the F50 the 5G box showed RSRP but RSRQ, SINR, PCI and Ch were all "-". The router keys for those (`Z5g_rsrq`, `Z5g_SINR`, `nr5g_pci`, `nr5g_action_channel`, and the 4G twins) come back empty on this firmware, and the Android telephony read (which has them) only ran when the router API failed.
