@@ -1,3 +1,24 @@
+# MatchiTOOL (unreleased) - CPU %: UFI-TOOLS method (Live Status and CPU Governor)
+
+Read from the UFI-TOOLS 4.1.5 APK (`DeviceInfo.kt`: `readProcStat`, `calculateCpuUsage`, `getCpuUsageSnapshot`, `getCpuFreqJson`):
+UFI keeps `/proc/stat` per core (`cpu`, `cpu0` ...), takes two reads a short delay apart, computes busy = 1 - idle / total with idle = idle + iowait,
+formats it with one decimal (`%.1f`) and the page shows it with two. It never shows speed / max speed as a percentage.
+
+- **Live Status CPU %:** the two `/proc/stat` reads now happen inside one root call, 0.8 s apart, instead of comparing against the read of the previous poll 15 s earlier. That old window also counted this app's own polling (root shell, dumpsys, router calls), which put a floor of 1 % or more under a quiet phone. The value is shown with one decimal (`0.4 %`), the tile shows the per-core values under it, and the old way (previous poll) is only a fallback when the pair is missing. The root read takes about 0.8 s longer (idle sleep, no CPU use), so the Phase 0 `collectSlow` time baseline is that much higher.
+- **CPU Governor window:** each core tile now shows its real usage (`1.4 %`) and the bar is the usage. Before, the bar was current speed / max speed, which is always full in Performance mode, so it looked like 100 % load. The MHz text is unchanged. The first read after opening shows no usage yet (it needs two reads, 3 s apart).
+- **Tests:** `scripts/test_live_cpu.js` (in `validate.sh`) runs the real `parseSys()` on known `/proc/stat` numbers: 3 busy of 800 ticks gives 0.4, idle + iowait counted as idle, guest columns ignored, 100 / 0 limits, no movement gives no value, old output form still works. **Not yet checked on the F50**; the browser test could not be run here (Playwright not installed).
+
+# MatchiTOOL (unreleased) - Live status: tests (plan Phase 6, first part)
+
+- **New `scripts/test_live_poll.js`** (runs in `validate.sh`): cuts the real interval code out of `index.html` and checks cool / warm / hot / critical delays, Fast / Normal / Eco, Fast never pushing a warm or hot phone harder, the router and root back-off (6 s ... 60 s, never faster than the heat delay), the battery pause (below the level and not charging only), saved choices and the `liv_thermal_test` override. A deliberately broken table makes it fail, so it does test the page code.
+- Not done yet: removing the `PHASE0-TIMING` console lines (kept so the phone baseline can still be measured), the version bump, and the 30-minute check on the F50.
+
+# MatchiTOOL (unreleased) - AT & Radio: Signal quality on 5G
+
+- **Signal quality button:** `AT+CSQ` only measures 2G/3G/4G, so on 5G (for example NR n78) the modem answers `+CSQ: 99,99` ("unknown"). The button now runs `AT+CSQ` and `AT+CESQ`, says in words what a 99 means, and then reads the router's 5G and LTE values (RSRP, RSRQ, SINR, PCI, band, channel). Plain `AT+CSQ` typed by hand still works and still answers 99,99 on 5G; that is the modem, not a bug.
+- **Glued `OK`:** `sendat` prints the closing `OK` / `ERROR` with no line break (`+CSQ: 99,99OK`). Every console reply now puts it on its own line and drops blank lines.
+- Both copies changed (`index.html` built-in and `plugins/AT_Radio.js`). **Not yet checked on the F50.**
+
 # MatchiTOOL (unreleased) - Live status: optional extras (plan Phase 5)
 
 - **Refresh speed: Fast / Normal / Eco** (chips under the card, saved in `localStorage` as `liv_mode`). Router loop / root loop: Fast 2 s / 10 s, Normal 3 s / 15 s (default, unchanged), Eco 9 s / 45 s. Fast only applies while the phone is cool: when warm or hot the heat table still sets the pace, so Fast cannot push a hot phone harder. Eco is kept when warm or hot. Failure back-off still wins over all of them.

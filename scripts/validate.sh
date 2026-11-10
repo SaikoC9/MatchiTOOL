@@ -260,6 +260,8 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_ufi_store.js" || exit 1
   node "$(dirname "$0")/test_plugin_trace.js" || exit 1
   node "$(dirname "$0")/test_log_basket.js" || exit 1
+  node "$(dirname "$0")/test_live_poll.js" || exit 1
+  node "$(dirname "$0")/test_live_cpu.js" || exit 1
   node "$(dirname "$0")/test_phase0.js" || exit 1
 fi
 
