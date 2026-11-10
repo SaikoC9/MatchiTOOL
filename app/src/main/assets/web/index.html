@@ -870,10 +870,14 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     try { log(await at(cmd) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
   }
 
+  let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
   async function refreshSwitches() {
-    for (const [id, getter] of [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]]) {
+    const gen = ++swGen, items = [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]];
+    for (const [id] of items) { const e0 = document.getElementById(id); if (e0) e0.disabled = true; }
+    for (const [id, getter] of items) {
       const el = document.getElementById(id); if (!el) continue;
-      try { el.checked = await getter(); el.disabled = false; } catch (e) { el.disabled = true; log(id + ': ' + e.message); }
+      try { const v = await getter(); if (gen !== swGen) return; el.checked = v; el.disabled = false; }
+      catch (e) { if (gen !== swGen) return; el.disabled = true; log(id + ': ' + e.message); }
     }
   }
 
@@ -935,6 +939,7 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     for (const [id, setter, name] of [['matchi_volte', setVoLTE, 'VoLTE'], ['matchi_vonr', setVoNR, 'VoNR']]) {
       document.getElementById(id).onchange = async (e) => {
         const on = e.target.checked;
+        for (const x of ['matchi_volte', 'matchi_vonr']) { const c = document.getElementById(x); if (c) c.disabled = true; }   // one modem write at a time
         try { const ok = await setter(on); createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed', ok ? 'green' : 'red'); }
         catch (err) { createToast(err.message, 'red'); }
         refreshSwitches();
@@ -999,8 +1004,10 @@ rm -f $P.g $P.4 $P.6 $P.d
     ];
     return tests.map(([k,v])=>'<tr><td style="padding:6px 8px 6px 0;vertical-align:top;border-bottom:1px solid var(--bd);opacity:.75">'+esc(k)+'</td><td style="padding:6px 0;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid var(--bd)">'+esc(v||'Not reported')+'</td></tr>').join('');
   }
+  let running=false;
   async function run(){
-    const box=document.getElementById('matchi_network_diag_body');if(!box)return;
+    const box=document.getElementById('matchi_network_diag_body');if(!box||running)return;
+    running=true;const rb=document.getElementById('matchi_network_diag_run');if(rb)rb.disabled=true;
     box.textContent='Running short connectivity checks…';
     try{
       const r=await runShellWithRoot(SCRIPT,22000);
@@ -1009,6 +1016,7 @@ rm -f $P.g $P.4 $P.6 $P.d
         '<p class="mut" style="margin-top:10px">Read-only checks. Ping failures can mean ICMP is filtered; they do not prove the internet is down. No routes, DNS settings, firewall rules, or modem settings were changed.</p>'+
         '<p class="mut">Completed '+new Date().toLocaleTimeString()+'</p>';
     }catch(e){box.textContent='Network diagnostics failed: '+e.message;}
+    finally{running=false;const rb2=document.getElementById('matchi_network_diag_run');if(rb2)rb2.disabled=false;}
   }
   function open(){
     createModal({name:MODAL,title:'Advanced Network Diagnostics',maxWidth:'560px',showConfirm:false,onClose:()=>true,
@@ -1284,14 +1292,14 @@ rm -f $P.g $P.4 $P.6 $P.d
   async function tick() {
     if (busy || !visible()) return;
     busy = true;
-    try { last = await collect(); lastOk = Date.now(); lastErr = ''; paint(); }
-    catch (e) { lastErr = 'Could not read device: ' + e.message; when(); }
+    try { last = await collect(); lastOk = Date.now(); lastErr = ''; failStreak = 0; paint(); }
+    catch (e) { failStreak++; lastErr = 'Could not read device: ' + e.message; when(); }
     finally { busy = false; }
   }
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
   // not a substitute for the firmware's thermal protection.
   const nextDelay = () => {
-    if (!last) return 3000;                         // first read / retry after a failed read
+    if (!last) return Math.min(60000, 3000 * Math.pow(2, Math.min(failStreak, 5)));   // first read / retry after a failed read: 3 s, then backing off to 1 min (root not granted must not be hammered)
     if (last.thermalLevel >= 2) return 180000;      // hot or critical: every 3 minutes
     if (last.thermalLevel === 1) return 120000;     // warm: every 2 minutes
     return 60000;                                   // cool: every minute
@@ -1300,8 +1308,12 @@ rm -f $P.g $P.4 $P.6 $P.d
   let auto = true;
   try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
   const syncAuto = () => { const b = inl && inl.querySelector('.liv-sw'); if (b) b.setAttribute('aria-checked', String(auto)); const l = inl && inl.querySelector('.liv-autolbl'); if (l) l.textContent = 'Live refresh: ' + (auto ? 'On' : 'Off'); };
-  const loop = async () => { if (auto) await tick(); timer = setTimeout(loop, nextDelay()); };
-  timer = setTimeout(loop, 3000); tickTimer = setInterval(when, 1000);
+  // One poll chain only: arm() cancels the pending timer and retires a chain that is still inside tick(), so toggling the switch
+  // while a read is running can no longer leave two chains polling the root shell.
+  let loopGen = 0;
+  const arm = (ms) => { clearTimeout(timer); const g = ++loopGen; timer = setTimeout(() => loop(g), ms); };
+  const loop = async (g) => { if (auto) await tick(); if (g !== loopGen) return; timer = setTimeout(() => loop(g), nextDelay()); };
+  arm(3000); tickTimer = setInterval(when, 1000);
   document.addEventListener('visibilitychange', () => { if (auto && !document.hidden && (!lastOk || Date.now() - lastOk > 8000)) tick(); });
   if (inl) {
     syncAuto();
@@ -1309,8 +1321,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       auto = !auto;
       try { localStorage.setItem('liv_auto', auto ? '1' : '0'); } catch (_) {  }
       syncAuto();
-      clearTimeout(timer);
-      timer = setTimeout(loop, auto ? nextDelay() : 60000);  // off: loop only re-arms, it does not poll
+      arm(auto ? nextDelay() : 60000);  // off: loop only re-arms, it does not poll
       if (auto) tick();
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
@@ -1977,8 +1988,8 @@ rm -rf "${DEVICE_TMP_DIR}"
     };
   };
 
-  const stopTargets = async () => {
-    const res = await runRoot(buildStopScript(), 10000);
+  const stopTargets = async (count) => {
+    const res = await runRoot(buildStopScript(), Math.min(100000, Math.max(10000, 5000 + 1500 * (Number(count) || 0))));
     if (!res.ok) return { ok: false, message: 'Failed to stop apps' };
     const line = parseTaggedLine(res.text, 'STOP');
     if (!line) return { ok: false, message: 'Failed to stop apps' };
@@ -2032,7 +2043,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     await runRoot('test -f "' + DEVICE_PKG_FILE + '" && echo ready', 2000);
 
     showProgress(`Found ${collect.pkgCount} targets, stopping apps...`, 54);
-    const stop = await stopTargets();
+    const stop = await stopTargets(collect.pkgCount);
     if (!stop.ok) return stop;
 
     showProgress('Running system-level memory trim...', 66);
@@ -2585,13 +2596,16 @@ rm -rf "${DEVICE_TMP_DIR}"
   const setHidden = (a) => { try { localStorage.setItem(HIDKEY, JSON.stringify(a.slice(-200))); } catch (_) {} };
   // (A debug scan that searched /data as root for the message text and logged fragments of it to a file was removed: it kept SMS content in a long-lived file.)
 
+  let loadSeq = 0;   // only the newest load paints: an older, slower read must not bring a deleted message back
   async function load(silent) {
     const box = el('matchi_sms_list'); if (!box) return [];
+    const my = ++loadSeq;
     if (!silent) box.textContent = 'Loading…';
     try {
       const hid = new Set(getHidden());
       const all = await fetchAll();
       const list = all.filter((m) => !hid.has(hk(m)));
+      if (my !== loadSeq) return list;
       const hb = el('matchi_sms_hid');
       if (hb) { const n = all.length - list.length; hb.style.display = n ? '' : 'none'; hb.textContent = 'Show ' + n + ' hidden message' + (n === 1 ? '' : 's'); }
       if (!list.length) { box.innerHTML = '<div class="mut">No messages.</div>'; return list; }
@@ -2635,7 +2649,7 @@ rm -rf "${DEVICE_TMP_DIR}"
       // Read Android's SMS store now, in the background, so the first Delete does not have to wait for it.
       if (!atMode) providerList(0).catch(() => {});
       return list;
-    } catch (e) { box.textContent = 'Error: ' + e.message; return []; }
+    } catch (e) { if (my === loadSeq) box.textContent = 'Error: ' + e.message; return []; }
   }
 
   async function send() {
