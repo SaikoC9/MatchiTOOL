@@ -111,7 +111,6 @@ CPU architecture and runtime environment of the target device.
 
 - MatchiTOOL project code: MIT, see `LICENSE`.
 - UFI-TOOLS-derived components and notices: see `LICENSE-UFI-TOOLS` and the retained source/plugin headers.
-- The Bypass tool (a fork of a UFI-TOOLS plugin) has been removed from the app; its MIT license text stays in `LICENSE-BYPASS` for the earlier releases.
 - Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
 
 Do not remove upstream copyright or license notices when modifying or redistributing derived components.

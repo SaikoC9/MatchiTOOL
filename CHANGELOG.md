@@ -1,3 +1,12 @@
+# MatchiTOOL (unreleased) - Bypass (F50) removed
+
+- **The bundled Bypass (F50) plugin is gone** (`assets/plugins/Bypass_v65_13.js`), with its `LICENSE-BYPASS` and the page rules that treated its dialog as a special case. The dialog and switch fixes stay for every plugin. Boot lines and firewall rules an earlier install wrote stay on the router until removed by hand (README, "Bypass tool" note).
+
+# MatchiTOOL (unreleased) - plugin dialogs: no strip on the right, round switches
+
+- **The dim layer behind a plugin dialog now always covers the whole window.** The Bypass dialog sets `#kano_bypass_modal{width:94vw!important}`; in MatchiTOOL that id is on the full-screen layer, so it ended 6% short and the right side (Live status, Reboot) stayed bright. A rule in the page (`style#dialog-fixes`) keeps any `.modal-bg` at full window size.
+- **Switches inside dialogs (Bypass: Block QUIC, Auto-apply at boot) are full pills again.** The general dialog-button rules gave them a minimum height and a 7 px corner, which made them boxy. Only the page changed; the Bypass plugin file is untouched. Not tested on a real device.
+
 # MatchiTOOL (unreleased) - plugins are erased completely on delete
 
 - **Deleting a plugin now cleans up after it without header lines.** Folders named after the plugin in `/data/local`, `/data/local/tmp` and `/sdcard`, and saved browser settings (local and session storage) starting with the plugin's name, are erased with it and listed in the Delete dialog first. Same strict path checks as before. New test in `PluginDataTest`. Not tested on a real device.
