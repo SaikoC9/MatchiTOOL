@@ -65,8 +65,8 @@ function storeOpen(){
     for(const it of f.rows){
       const row=document.createElement('div');row.style.cssText='border:1px solid rgba(128,128,128,.3);border-radius:10px;padding:8px;display:flex;gap:8px;align-items:center';
       const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
-      const t=document.createElement('div');t.style.fontWeight='600';t.textContent=it.name+(it.version?' '+it.version:'');
-      const d=document.createElement('div');d.className='pm-sub';d.textContent=[it.author,it.description,it.size?(it.size/1024).toFixed(1)+' KB':''].filter(Boolean).join(' \u00b7 ')+(it.sha256?'':' \u00b7 no SHA-256 listed');
+      const t=document.createElement('div');t.style.fontWeight='600';const en=storeEnglish(it.name);t.textContent=en+(it.version?' '+it.version:'');if(en!==it.name)t.title=it.name;
+      const d=document.createElement('div');d.className='pm-sub';d.textContent=[it.author,storeEnglish(it.description),it.size?(it.size/1024).toFixed(1)+' KB':''].filter(Boolean).join(' \u00b7 ')+(it.sha256?'':' \u00b7 no SHA-256 listed');
       info.append(t,d);
       const b=document.createElement('button');b.type='button';b.textContent=pluginCache.some(p=>p.title===it.name||p.name===it.name+'.js')?'Reinstall':'Install';b.style.cssText='min-height:0;height:32px;flex:none';
       b.onclick=async()=>{b.disabled=true;try{await storeInstall(it)}catch(e){createToast('Install failed: '+e.message,'red',7000)}finally{b.disabled=false}};

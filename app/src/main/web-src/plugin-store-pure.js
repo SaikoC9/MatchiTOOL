@@ -77,9 +77,46 @@ function storeParseUfi(data,content,baseUrl){
   if(content.length>STORE_MAX_ITEMS)skipped+=content.length-STORE_MAX_ITEMS;
   return {items,skipped,unsupported,error:''};
 }
+/* Display only: shows Chinese plugin names and descriptions in English. It never changes item.name (that is the file name used to install,
+   replace and delete). Phrases are matched longest first; words not in the list stay as they are. Offline on purpose: the page may not send plugin names anywhere. */
+const STORE_ZH=new Map([
+  ['可多卡','Multi-SIM'],['多卡','multi-SIM'],['双卡','dual-SIM'],['单卡','single-SIM'],['字母卡','Letter card'],['小鲸卡','Xiaojing card'],['小鲸','Xiaojing'],
+  ['卡片','card'],['简洁','simple'],['简约','minimal'],['进度条','progress bar'],['后台','backend'],['本地代理','local proxy'],['流量','data'],['新','New '],
+  ['版本','version'],['增强版','enhanced edition'],['精简版','lite edition'],['完整版','full edition'],['经典版','classic edition'],['版','edition'],
+  ['一键解控','one-click unlock'],['一键','one-click'],['解控','unlock'],['解锁','unlock'],['插件','plugin'],['工具箱','toolbox'],['工具','tool'],
+  ['管理器','manager'],['管理','management'],['控制','control'],['设置','settings'],['高级','advanced'],['增强','enhanced'],['优化','optimization'],['加速','boost'],
+  ['修复','fix'],['清理','cleanup'],['内存','memory'],['存储','storage'],['日志','log'],['备份','backup'],['恢复','restore'],['升级','upgrade'],['更新','update'],
+  ['下载','download'],['上传','upload'],['文件','file'],['代理','proxy'],['内网穿透','intranet tunnel'],['穿透','tunnel'],['远程','remote'],['组网','networking'],
+  ['去广告','ad blocking'],['广告','ads'],['拦截','blocking'],['防火墙','firewall'],['路由器','router'],['路由','router'],['热点','hotspot'],['无线','wireless'],
+  ['设备','device'],['连接数','connections'],['连接','connection'],['限速','speed limit'],['限制','limit'],['套餐','plan'],['剩余','remaining'],['已用','used'],['总量','total'],
+  ['短信转发','SMS forwarding'],['短信','SMS'],['转发','forwarding'],['统计','statistics'],['监控','monitor'],['温度','temperature'],['温控','thermal control'],
+  ['电池','battery'],['电量','battery level'],['充电','charging'],['省电','power saving'],['风扇','fan'],['散热','cooling'],['信号','signal'],['锁频','band lock'],
+  ['锁定','lock'],['频段','band'],['小区','cell'],['网络','network'],['网速','network speed'],['测速','speed test'],['速度','speed'],['重启','reboot'],['定时','scheduled'],
+  ['自动','auto'],['开机','startup'],['启动','start'],['关机','shutdown'],['屏幕','screen'],['主题','theme'],['美化','styling'],['皮肤','skin'],['背景','background'],
+  ['壁纸','wallpaper'],['状态','status'],['显示','display'],['悬浮窗','floating window'],['悬浮','floating'],['面板','panel'],['仪表盘','dashboard'],['首页','home page'],
+  ['中国移动','China Mobile'],['中国联通','China Unicom'],['中国电信','China Telecom'],['中国广电','China Broadcasting'],['移动','Mobile'],['联通','Unicom'],['电信','Telecom'],
+  ['广电','Broadcasting'],['运营商','carrier'],['漫游','roaming'],['手机号','phone number'],['号码','number'],['微信','WeChat'],['钉钉','DingTalk'],['邮件','email'],
+  ['推送','push'],['通知','notification'],['告警','alert'],['测试','test'],['实验','experimental'],['中文','Chinese'],['汉化','localization'],['时间','time'],['天气','weather'],
+  ['网页','web page'],['终端','terminal'],['脚本','script'],['命令','command'],['权限','permissions'],['密码','password'],['登录','login'],['隐藏','hide'],
+]);
+const STORE_ZH_MAX=Math.max(...[...STORE_ZH.keys()].map(k=>k.length));
+const STORE_ZH_PUNCT={'（':'(','）':')','【':'[','】':']','：':': ','，':', ','、':', ','；':'; ','！':'!','？':'?','。':'. '};
+function storeEnglish(text){
+  const s=String(text==null?'':text);
+  if(!/[\u3000-\u9fff\uff00-\uffef]/.test(s))return s;
+  let out='';
+  for(let i=0;i<s.length;){
+    let hit=null,len=0;
+    for(let n=Math.min(STORE_ZH_MAX,s.length-i);n>0;n--){const w=STORE_ZH.get(s.substr(i,n));if(w!==undefined){hit=w;len=n;break}}
+    if(hit!==null){out+=' '+hit+' ';i+=len}
+    else{const c=s[i];out+=Object.prototype.hasOwnProperty.call(STORE_ZH_PUNCT,c)?STORE_ZH_PUNCT[c]:c;i++}
+  }
+  out=out.replace(/\(\s+/g,'(').replace(/\s+\)/g,')').replace(/\s+([,:;.!?])/g,'$1').replace(/([)\]])(?=[^\s,:;.!?)\]])/g,'$1 ').replace(/\s{2,}/g,' ').trim();
+  return out.replace(/(^|[(\[]|[)\]] )([a-z])/g,(m,a,b)=>a+b.toUpperCase());
+}
 function storeFilter(items,query,page,per){
   per=per||STORE_PER_PAGE;const q=String(query||'').trim().toLowerCase();
-  const all=q?items.filter(i=>(i.name+' '+i.description+' '+i.author).toLowerCase().includes(q)):items;
+  const all=q?items.filter(i=>(i.name+' '+i.description+' '+i.author+' '+storeEnglish(i.name+' '+i.description)).toLowerCase().includes(q)):items;
   const pages=Math.max(1,Math.ceil(all.length/per)),p=Math.min(Math.max(1,page|0||1),pages);
   return {rows:all.slice((p-1)*per,p*per),page:p,pages,total:all.length};
 }

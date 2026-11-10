@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const html = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/web/index.html'), 'utf8');
 const a = html.indexOf('/* UFISTORE-BEGIN */'), b = html.indexOf('/* UFISTORE-END */');
 if (a < 0 || b < 0) { console.error('UFISTORE markers missing in index.html'); process.exit(1); }
-const api = new Function(html.slice(a, b) + '\nreturn {sha256Pure,storeSha256,storeSha256Bytes,storeUrlOk,storeParseIndex,storeFilter,plugScan,storeSummary,STORE_UFI_SOURCE,plugMeta,plugCompat,MATCHI_ROUTES,MATCHI_ROUTE_PREFIXES};')();
+const api = new Function(html.slice(a, b) + '\nreturn {sha256Pure,storeSha256,storeSha256Bytes,storeUrlOk,storeParseIndex,storeFilter,storeEnglish,plugScan,storeSummary,STORE_UFI_SOURCE,plugMeta,plugCompat,MATCHI_ROUTES,MATCHI_ROUTE_PREFIXES};')();
 let bad = 0;
 const eq = (want, got, n) => { if (JSON.stringify(want) !== JSON.stringify(got)) { bad++; console.error('FAIL', n, JSON.stringify(want), '!=', JSON.stringify(got)); } };
 const ok = (c, n) => { if (!c) { bad++; console.error('FAIL', n); } };
@@ -126,6 +126,18 @@ eq(ref(Buffer.from('abc')), api.sha256Pure(new TextEncoder().encode('abc')), 'sh
   ok(api.plugScan('x = jqx + curlish').tools.length === 0, 'tool names match whole words only');
   const sm = api.storeSummary({ name: 'N', version: '2', author: 'me', sha256: '' }, 'f'.repeat(64), api.plugScan('runShellWithRoot("x")'), ['N.js']);
   ok(sm.includes('NO SHA-256') && sm.includes('ROOT') && sm.includes('REPLACE: N.js') && sm.includes('f'.repeat(64)), 'summary text');
+  // storeEnglish: display-only English for Chinese plugin names (the real names from the community mirror).
+  eq('(Multi-SIM) Letter card simple progress bar edition', api.storeEnglish('(可多卡)字母卡简洁进度条版'), 'english: letter card');
+  eq('(Multi-SIM) Xiaojing card simple progress bar edition', api.storeEnglish('(可多卡)小鲸卡简洁进度条版'), 'english: xiaojing card');
+  eq('(Multi-SIM) New Xiaojing backend card simple progress bar edition', api.storeEnglish('(可多卡)新小鲸后台卡片简洁进度条版'), 'english: new backend card');
+  eq('3M one-click unlock', api.storeEnglish('3M一键解控'), 'english: keeps Latin and digits');
+  eq('ADGuardHome plugin 1.2', api.storeEnglish('ADGuardHome插件1.2'), 'english: spacing around Latin and numbers');
+  eq('(Local proxy edition) 字母哥 data card', api.storeEnglish('（本地代理版）字母哥流量卡片'), 'english: full-width brackets, unknown words stay');
+  eq('Plain English plugin', api.storeEnglish('Plain English plugin'), 'english: English passes through unchanged');
+  eq('', api.storeEnglish(null), 'english: null is safe'); eq('', api.storeEnglish(undefined), 'english: undefined is safe');
+  const zhItems = [{ name: '3M一键解控', description: '', author: '' }, { name: 'other', description: '', author: '' }];
+  eq(1, api.storeFilter(zhItems, 'unlock', 1).total, 'search finds the English text'); eq(1, api.storeFilter(zhItems, '一键', 1).total, 'search still finds the original');
+  eq('3M一键解控', zhItems[0].name, 'english: item names are never changed');
   if (bad) { console.error(bad + ' store test(s) failed'); process.exit(1); }
   console.log('ufi store tests passed');
 })();
