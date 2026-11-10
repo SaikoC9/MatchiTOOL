@@ -65,6 +65,8 @@ android {
 dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     testImplementation("junit:junit:4.13.2")
+    // android.jar only has stubs for org.json, which throw in JVM unit tests; NetPolicy.parse needs the real parser.
+    testImplementation("org.json:json:20231013")
 }
 
 // Clear message instead of an obscure signing error: only when a signing task is part of this build.
