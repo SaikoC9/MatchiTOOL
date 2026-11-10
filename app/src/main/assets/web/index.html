@@ -1123,15 +1123,40 @@ rm -f $P.g $P.4 $P.6 $P.d
   let busyF = false, busyS = false, lastOk = 0, lastErr = '', last = null, timerF = null, timerS = null, tickTimer = null;
   let failF = 0, failS = 0, fastTried = false;   // consecutive failed reads per loop (drive the back-off); fastTried = the router has been tried at least once
   const zteOk = () => has(zteData.network_type) || has(zteData.signalbar);
+  // UFI-TOOLS merges a second source (its own host endpoint) over the router answer, because the router leaves RSRQ / SINR / PCI / channel empty on some firmware.
+  // Here the second source is Android telephony (dumpsys telephony.registry, read by the slow loop). radioGap() = the router left a detail field empty for the RAT in use.
+  const radioGap = () => {
+    const z = zteData, nr = has(z.Z5g_rsrp) || /5G|NR|ENDC|^SA$/i.test(String(z.network_type || '').trim()), lte = has(z.lte_rsrp) || /LTE|4G|ENDC|NSA/i.test(String(z.network_type || ''));
+    return (nr && !(has(z.Z5g_rsrq) && has(z.Z5g_SINR) && has(z.nr5g_pci) && has(z.nr5g_action_channel))) || (lte && !(has(z.lte_rsrq) && has(z.lte_snr) && has(z.lte_pci) && has(z.wan_active_channel)));
+  };
+  const TELE_MS = [30000, 60000, 180000];   // telephony re-read interval by heat level (cool / warm / hot); the dumpsys is the costly part, so it is slower than the slow loop itself
+
+  // Instant open (Phase 4): the last router radio values are kept in sessionStorage (this tab only, gone when the tab closes) so a reload paints at once.
+  // Signal numbers only: no operator name, PCI, speeds, device count, data used, IP or IDs. Values older than 10 minutes are ignored.
+  const CACHE_KEY = 'liv_cache_v1', CACHE_MAX_MS = 10 * 60 * 1000;
+  const CACHE_FIELDS = ['network_type', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'wan_active_band', 'wan_active_channel', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_action_band', 'nr5g_action_channel'];
+  let cacheAt = 0;   // time of the cached reading while it is the only thing on the card; 0 once the first real router read has finished
+  function saveCache(d) {
+    try { const o = {}; for (const k of CACHE_FIELDS) if (has(d[k])) o[k] = String(d[k]).slice(0, 40); sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), d: o })); } catch (_) {  }
+  }
+  function loadCache() {
+    try {
+      const c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (!c || typeof c.t !== 'number' || !c.d || typeof c.d !== 'object' || Date.now() - c.t > CACHE_MAX_MS || c.t > Date.now() + 60000) return false;
+      const o = {}; for (const k of CACHE_FIELDS) if (typeof c.d[k] === 'string' && has(c.d[k])) o[k] = c.d[k];
+      if (!has(o.network_type) && !has(o.signalbar)) return false;   // nothing usable: show "Connecting…" instead
+      zteData = o; cacheAt = c.t; last = build(); return true;
+    } catch (_) { return false; }
+  }
 
   // FAST: one router GET. No root, no shell. A failure clears the router values so the slow loop switches to the AT / telephony fallback.
   async function collectFast() {
     try {
       const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
-      if (r.data && typeof r.data === 'object') { zteData = r.data; zteNote = ''; failF = 0; fastTried = true; last = build(); return true; }
+      if (r.data && typeof r.data === 'object') { zteData = r.data; zteNote = ''; failF = 0; fastTried = true; cacheAt = 0; if (zteOk()) saveCache(zteData); last = build(); return true; }
       throw new Error('No modem data');
     } catch (e) {
-      failF++; zteData = {}; fastTried = true;
+      failF++; zteData = {}; fastTried = true; cacheAt = 0;   // the cached values are dropped: the card must not keep showing old numbers when the router fails
       zteNote = 'Router web API unreachable - using the modem and Android telephony instead (router retried with back-off, up to every minute).';
       last = build(); return false;
     }
@@ -1144,7 +1169,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (needFallback && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
@@ -1200,15 +1225,23 @@ rm -f $P.g $P.4 $P.6 $P.d
     // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
     const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
     const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
-    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, tele), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, tele), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, tele), -43, 20));
+    // 5G values from telephony are only trusted when the router says 5G is in use (or the router is down): the registry can keep a stale NR entry on a 4G-only link
+    const nrOn = !zOk || has(zte.Z5g_rsrp) || /5G|NR|ENDC|^SA$/i.test(String(zte.network_type || '').trim()), teleNr = nrOn ? tele : '';
+    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, teleNr), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, teleNr), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, teleNr), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, teleNr), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, teleNr), -43, 20));
+    // Cells: the registered CellInfoNr / CellInfoLte block of telephony.registry (else the first one), so a 5G + 4G (NSA) link gets the right PCI / channel / band for each radio.
+    const cellBlk = (kind) => { const parts = tele.split('CellInfo' + kind + ':'); parts.shift(); const p = parts.find((x) => /mRegistered\s*=\s*YES/i.test(x.split(/CellInfo(?:Nr|Lte|Gsm|Wcdma|Tdscdma|Cdma):/)[0].slice(0, 300))) || parts[0]; return p ? p.split(/CellInfo(?:Nr|Lte|Gsm|Wcdma|Tdscdma|Cdma):/)[0] : ''; };
+    const nrB = nrOn ? cellBlk('Nr') : '', lteB = cellBlk('Lte');
+    const bandOf = (b, pre) => { const m = /\bmBands\s*=\s*\[\s*(\d+)/i.exec(b); return m ? pre + m[1] : undefined; };
     const tBands = grab(/\bbands\s*=\s*\[([^\]]*)\]/i, tele), tPci = grab(/\bmPci\s*=\s*(\d+)/, tele), tChan = grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i, tele);
+    const nrPci = grab(/\bmPci\s*=\s*(\d+)/, nrB), nrChan = grab(/\bmNrArfcn\s*=\s*(\d+)/i, nrB), nrBand = bandOf(nrB, 'n');
+    const ltePci = grab(/\bmPci\s*=\s*(\d+)/, lteB), lteChan = grab(/\bmEarfcn\s*=\s*(\d+)/i, lteB), lteBand = bandOf(lteB, 'B');
     const tLevel = range(grab(/CellSignalStrength(?:Nr|Lte)[^\n]*?\blevel\s*=\s*(\d)/, tele), 0, 4);
     // battery / thermal
 
     const lte = { rsrp: first(range(zte.lte_rsrp, -140, -40), tLteRsrp, cesqRsrp), rsrq: first(range(zte.lte_rsrq, -34, 3), tLteRsrq, cesqRsrq), sinr: first(range(zte.lte_snr, -23, 40), tLteSnr),
-      band: pick(zte.wan_active_band, tBands), pci: pick(zte.lte_pci, tPci), chan: pick(zte.wan_active_channel, tChan) };
+      band: pick(zte.wan_active_band, lteBand, nrB ? undefined : tBands), pci: pick(zte.lte_pci, ltePci, nrB ? undefined : tPci), chan: pick(zte.wan_active_channel, lteChan, nrB ? undefined : tChan) };
     const nr = { rsrp: first(range(zte.Z5g_rsrp, -140, -40), tNrRsrp), rsrq: first(range(zte.Z5g_rsrq, -43, 20), tNrRsrq), sinr: first(range(zte.Z5g_SINR, -23, 40), tNrSinr),
-      band: pick(zte.nr5g_action_band), pci: pick(zte.nr5g_pci), chan: pick(zte.nr5g_action_channel) };
+      band: pick(zte.nr5g_action_band, nrBand), pci: pick(zte.nr5g_pci, nrPci), chan: pick(zte.nr5g_action_channel, nrChan) };
     const hasNr = nr.rsrp !== undefined || nr.sinr !== undefined || has(zte.nr5g_action_band) || /5G|NR|ENDC/i.test(String(zte.network_type || ''));
     const hasLte = lte.rsrp !== undefined || lte.sinr !== undefined || has(zte.wan_active_band) || /LTE|4G/i.test(String(zte.network_type || act || ''));
 
@@ -1343,13 +1376,14 @@ rm -f $P.g $P.4 $P.6 $P.d
   }
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
-    const t = (busyF || busyS) && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
+    const cs = !lastOk && cacheAt ? Math.max(0, Math.round((Date.now() - cacheAt) / 1000)) : -1;   // showing the cached reading, the first live read is still on its way
+    const t = cs >= 0 ? 'Last reading · ' + cs + ' s ago' : (busyF || busyS) && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
     const stale = s < 0 || s > (zteOk() ? fastDelay() : slowDelay()) / 1000 + 45;   // stale only when a poll is overdue, not merely between polls
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
-      if (w) w.textContent = stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
-      if (p) p.classList.toggle('off', stale);
+      if (w) w.textContent = cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
+      if (p) p.classList.toggle('off', stale || cs >= 0);
     }
   }
   // Each loop has its own busy flag, so a slow root call never blocks the fast router read.
@@ -1371,18 +1405,16 @@ rm -f $P.g $P.4 $P.6 $P.d
     finally { busyS = false; }
   }
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
-  // not a substitute for the firmware's thermal protection. (Phase 3 will refine these numbers.)
-  const fastDelay = () => {
-    if (failF > 0) return Math.min(60000, 3000 * Math.pow(2, Math.min(failF, 5)));   // router failing: 6 s, 12 s ... back off to 1 min (a failing fast loop must not keep the router login locked)
-    if (last && last.thermalLevel >= 2) return 15000;                                   // hot or critical: router read only every 15 s
-    return 3000;                                                                        // cool or warm: every 3 s (router GET only, no root)
-  };
-  const slowDelay = () => {
-    if (failS > 0) return Math.min(60000, 15000 * Math.pow(2, Math.min(failS - 1, 2)));  // root not granted / shell failing: 15 s, 30 s, 60 s (do not hammer the root manager)
-    if (last && last.thermalLevel >= 2) return 180000;      // hot or critical: every 3 minutes
-    if (last && last.thermalLevel === 1) return 120000;     // warm: every 2 minutes
-    return 15000;                                           // cool: every 15 s (CPU, memory, temperatures)
-  };
+  // not a substitute for the firmware's thermal protection.
+  // One table, indexed by heat: 0 cool, 1 warm, 2 hot or critical. The thresholds that set thermalLevel are unchanged (see build()).
+  // The slow loop is slowed down when hot, never stopped: the temperatures come from its root read, so without it the card could not see the phone cool down.
+  const DELAY = { fast: [3000, 6000, 15000], slow: [15000, 30000, 90000] };
+  // The level used for the delays. localStorage 'liv_thermal_test' = 0..3 forces a level so the slow-down can be tried on a cool phone
+  // (it only changes the polling speed, not the temperatures shown); remove the key to go back to the measured level.
+  const heatLevel = () => { try { const f = localStorage.getItem('liv_thermal_test'); if (/^[0-3]$/.test(f)) return Number(f); } catch (_) {  } return last && last.thermalLevel > 0 ? Math.min(last.thermalLevel, 3) : 0; };
+  // A failing loop backs off (router 6 s ... 1 min, root 15 / 30 / 60 s) but is never faster than its heat delay.
+  const fastDelay = () => Math.max(DELAY.fast[Math.min(heatLevel(), 2)], failF > 0 ? Math.min(60000, 3000 * Math.pow(2, Math.min(failF, 5))) : 0);
+  const slowDelay = () => Math.max(DELAY.slow[Math.min(heatLevel(), 2)], failS > 0 ? Math.min(60000, 15000 * Math.pow(2, Math.min(failS - 1, 2))) : 0);
   // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
   let auto = true;
   try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
@@ -1394,7 +1426,10 @@ rm -f $P.g $P.4 $P.6 $P.d
   const armS = (ms) => { clearTimeout(timerS); const g = ++genS; timerS = setTimeout(() => loopS(g), ms); };
   const loopF = async (g) => { if (auto) await tickFast(); if (g !== genF) return; timerF = setTimeout(() => loopF(g), auto ? fastDelay() : 60000); };
   const loopS = async (g) => { let w; if (auto) w = await tickSlow(); if (g !== genS) return; timerS = setTimeout(() => loopS(g), w === 'wait' ? 500 : auto ? slowDelay() : 60000); };
-  armF(fastDelay()); armS(slowDelay()); tickTimer = setInterval(when, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
+  armF(fastDelay()); armS(slowDelay()); 
+  // If the card was hidden (signed out, other window) and shows again, read at once instead of waiting out a full interval.
+  let wasVis = false;
+  tickTimer = setInterval(() => { const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
   document.addEventListener('visibilitychange', () => { if (auto && !document.hidden) { if (!lastOk || Date.now() - lastOk > 8000) tickFast(); tickSlow(); } });
   if (inl) {
     syncAuto();
@@ -1407,6 +1442,8 @@ rm -f $P.g $P.4 $P.6 $P.d
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
   }
+  if (loadCache()) paint();   // cached reading on screen straight away (labelled "Last reading"), then the first live read replaces it
+  wasVis = !!visible();
   tickFast().then(() => tickSlow());
 
   // ---- CPU Governor window (tap the CPU tile) ------------------------------------------------------------
