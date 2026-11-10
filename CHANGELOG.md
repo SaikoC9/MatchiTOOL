@@ -1,3 +1,10 @@
+# SMS delete / send: router "set" token is SHA-256 (as in UFI-TOOLS 4.1.5)
+
+- Read from the UFI-TOOLS 4.1.5 APK (`requests.js`, `processAD`): AD = SHA256(SHA256(wa_inner_version + cr_version) + RD), upper-case hex. MatchiTOOL built it with MD5, so the router answered every "set" (SMS delete, SMS send, settings) with an empty body and did nothing.
+- `ZteClient.adToken` now uses SHA-256 first; the old MD5 form is only the last retry (retry 2). The router "set" error text shows `AD ok/sha256` or `AD ok/md5`.
+- SMS delete tries the router up to three times (normal, fresh login, fresh login + MD5) and checks the router's list after each try, and no longer skips the router for an hour after one empty reply.
+- Dialogs made with `createModal` keep their footer below a scrolling content area; footers with two or more buttons are one row (fixes the floating Refresh Status / Close in the AdGuard Home dialog).
+
 # MatchiTOOL (unreleased) - Bypass (F50) removed
 
 - **The bundled Bypass (F50) plugin is gone** (`assets/plugins/Bypass_v65_13.js`), with its `LICENSE-BYPASS` and the page rules that treated its dialog as a special case. The dialog and switch fixes stay for every plugin. Boot lines and firewall rules an earlier install wrote stay on the router until removed by hand (README, "Bypass tool" note).
