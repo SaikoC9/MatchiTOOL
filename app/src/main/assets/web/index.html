@@ -1049,7 +1049,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 <script type="text/plain" class="webtool" data-name="Live_Status.js">
 /*
  * Live Status - MatchiTOOL dashboard (read-only, except the CPU Governor window opened from the CPU tile): signal, operator, battery, temperatures, CPU, memory, load and uptime.
- * Shown permanently at the bottom of the Control Center card and refreshed automatically every 30 s (60 s when hot)
+ * Shown permanently at the bottom of the Control Center card. Two loops: FAST = router GET only, every 3 s; SLOW = root shell (battery, CPU, memory, temperatures), every 15 s; both back off when warm or failing
  * (paused while the tab is hidden or another tool window is open). There is no separate Live Status button.
  * Sources, merged in this order of preference:
  *   1. Router web API (/api/zte) - skipped for 3 minutes after a connection failure
@@ -1111,45 +1111,50 @@ rm -f $P.g $P.4 $P.6 $P.d
   let atAt = 0, atCache = [];       // modem AT polling is cached to avoid waking the modem too often
   let prevCpu = null;                // previous /proc/stat sample, for CPU %
   let lastCpu;                       // last measured CPU %, shown if a poll cannot be measured
-  let zteSkipUntil = 0, zteNote = '', busy = false, lastOk = 0, lastErr = '', last = null, timer = null, tickTimer = null;
-  let failStreak = 0;   // consecutive failed reads (drives the retry back-off)
+  // Two loops share one `last` object. FAST = router GET only (no root). SLOW = root shell call (battery, CPU, memory, temperatures, uptime).
+  // Each loop stores only its own inputs (zteData / sysPart / atRaw) and then build() merges everything into `last`.
+  let zteData = {}, zteNote = '';                                   // fast-loop input: router values (empty while the router API fails)
+  let sysPart = null;                                               // slow-loop input: parsed root shell output
+  let atRaw = { cops: '', csq: '', cesq: '', cereg: '' };           // slow-loop input: modem AT fallback, only used when the router gives nothing
+  let busyF = false, busyS = false, lastOk = 0, lastErr = '', last = null, timerF = null, timerS = null, tickTimer = null;
+  let failF = 0, failS = 0, fastTried = false;   // consecutive failed reads per loop (drive the back-off); fastTried = the router has been tried at least once
+  const zteOk = () => has(zteData.network_type) || has(zteData.signalbar);
 
-  async function collect() {
-    let zte = {}; const errs = []; let sh = '', tele = '', raw = { cops: '', csq: '', cesq: '', cereg: '' };
-    if (Date.now() >= zteSkipUntil) {
-      try {
-        const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
-        if (r.data && typeof r.data === 'object') { zte = r.data; zteNote = ''; } else throw new Error('No modem data');
-      } catch (e) { zteSkipUntil = Date.now() + 180000; zteNote = 'Router web API unreachable - using the modem and Android telephony instead (retried every 3 minutes).'; }
+  // FAST: one router GET. No root, no shell. A failure clears the router values so the slow loop switches to the AT / telephony fallback.
+  async function collectFast() {
+    try {
+      const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: KEYS.join(',') } }) });
+      if (r.data && typeof r.data === 'object') { zteData = r.data; zteNote = ''; failF = 0; fastTried = true; last = build(); return true; }
+      throw new Error('No modem data');
+    } catch (e) {
+      failF++; zteData = {}; fastTried = true;
+      zteNote = 'Router web API unreachable - using the modem and Android telephony instead (router retried with back-off, up to every minute).';
+      last = build(); return false;
     }
-    const zteOk = has(zte.network_type) || has(zte.signalbar);
+  }
+
+  // SLOW: the root shell call (battery, thermal zones, CPU, memory, load, uptime) plus the telephony / AT fallback when the router gives nothing.
+  async function collectSlow() {
+    const errs = []; let sh = '';
+    const needFallback = !zteOk();
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (!zteOk && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + (prevCpu ? '' : 'read c < /proc/stat; echo "cpu0: $c"; sleep 0.4; ') + 'read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (needFallback && Date.now() - teleAt > 120000 ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo" | head -30' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
-        tele = teleCache;
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
     })();
-    const atP = (async () => { if (zteOk) return; let a = atCache; if (!a.length || Date.now() - atAt >= 60000) { a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); atCache = a || []; atAt = Date.now(); } raw.cops = a[0] || ''; raw.csq = a[1] || ''; raw.cesq = a[2] || ''; raw.cereg = a[3] || ''; })();
+    const atP = (async () => { if (!needFallback) return; let a = atCache; if (!a.length || Date.now() - atAt >= 60000) { a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); atCache = a || []; atAt = Date.now(); } atRaw = { cops: a[0] || '', csq: a[1] || '', cesq: a[2] || '', cereg: a[3] || '' }; })();
     await Promise.all([shellP, atP]);
+    sysPart = parseSys(sh, errs);
+    last = build();
+    return sh !== '';
+  }
 
-    const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
-    const plmn = cm ? cm[1] : undefined, act = cm ? ACT[cm[2]] : undefined;
-    const q = raw.csq.match(/\+CSQ:\s*(\d+),/), csqN = q ? Number(q[1]) : NaN;
-    const csqDbm = csqN >= 0 && csqN <= 31 ? -113 + 2 * csqN : undefined;
-    const e = raw.cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
-    const cesqRsrq = e && Number(e[5]) <= 34 ? -19.5 + 0.5 * Number(e[5]) : undefined;
-    const cesqRsrp = e && Number(e[6]) <= 97 ? -140 + Number(e[6]) : undefined;
-    const regStat = grab(/\+CEREG:\s*\d+,(\d)/, raw.cereg);
-    // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
-    const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
-    const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
-    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, tele), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, tele), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, tele), -43, 20));
-    const tBands = grab(/\bbands\s*=\s*\[([^\]]*)\]/i, tele), tPci = grab(/\bmPci\s*=\s*(\d+)/, tele), tChan = grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i, tele);
-    const tLevel = range(grab(/CellSignalStrength(?:Nr|Lte)[^\n]*?\blevel\s*=\s*(\d)/, tele), 0, 4);
-    // battery / thermal
+  // Parse the root shell output (battery / thermal / CPU / memory / load / uptime). The CPU % needs the previous sample, so this runs once per slow read.
+  function parseSys(sh, errs) {
+
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
     const zones = [...sh.matchAll(/^Z:([^=\n]*)=(-?\d+)\s*$/gm)].map((m) => ({ t: m[1].trim(), v: Number(m[2]) > 1000 ? Number(m[2]) / 1000 : Number(m[2]) })).filter((z) => z.v > 0 && z.v < 150);
     // CPU / memory / load / uptime / IPs (from /proc via the same root shell call)
@@ -1170,7 +1175,31 @@ rm -f $P.g $P.4 $P.6 $P.d
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
+    return { bat, st, temp, zones, cpu, mem, load, upSec, errs };
+  }
+
+  // Merge the router values (fast loop) with the root shell values (slow loop) into one `last` object.
+  function build() {
+    const zte = zteData, S = sysPart || { zones: [], errs: [] }, tele = teleCache, zOk = zteOk();
+    const raw = zOk ? { cops: '', csq: '', cesq: '', cereg: '' } : atRaw;
+    const { bat, st, temp, zones, cpu, mem, load, upSec } = S, errs = S.errs;
     const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
+
+    const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
+    const plmn = cm ? cm[1] : undefined, act = cm ? ACT[cm[2]] : undefined;
+    const q = raw.csq.match(/\+CSQ:\s*(\d+),/), csqN = q ? Number(q[1]) : NaN;
+    const csqDbm = csqN >= 0 && csqN <= 31 ? -113 + 2 * csqN : undefined;
+    const e = raw.cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
+    const cesqRsrq = e && Number(e[5]) <= 34 ? -19.5 + 0.5 * Number(e[5]) : undefined;
+    const cesqRsrp = e && Number(e[6]) <= 97 ? -140 + Number(e[6]) : undefined;
+    const regStat = grab(/\+CEREG:\s*\d+,(\d)/, raw.cereg);
+    // Android telephony (2147483647 / out-of-range values are "unavailable" and filtered by range())
+    const tLte = (k) => range(grab(new RegExp('CellSignalStrengthLte[^\\n]*?\\b' + k + '\\s*=\\s*(-?\\d+)'), tele), -200, 200);
+    const tLteRsrp = range(tLte('rsrp'), -140, -40), tLteRsrq = range(tLte('rsrq'), -34, 3), tLteSnr = range(tLte('rssnr'), -23, 40);
+    const tNrRsrp = first(range(grab(/\bssRsrp\s*=\s*(-?\d+)/, tele), -140, -40), range(grab(/\bcsiRsrp\s*=\s*(-?\d+)/, tele), -140, -40)), tNrSinr = first(range(grab(/\bssSinr\s*=\s*(-?\d+)/, tele), -23, 40), range(grab(/\bcsiSinr\s*=\s*(-?\d+)/, tele), -23, 40)), tNrRsrq = first(range(grab(/\bssRsrq\s*=\s*(-?\d+)/, tele), -43, 20), range(grab(/\bcsiRsrq\s*=\s*(-?\d+)/, tele), -43, 20));
+    const tBands = grab(/\bbands\s*=\s*\[([^\]]*)\]/i, tele), tPci = grab(/\bmPci\s*=\s*(\d+)/, tele), tChan = grab(/\bm(?:Nr)?(?:Arfcn|Earfcn)\s*=\s*(\d+)/i, tele);
+    const tLevel = range(grab(/CellSignalStrength(?:Nr|Lte)[^\n]*?\blevel\s*=\s*(\d)/, tele), 0, 4);
+    // battery / thermal
 
     const lte = { rsrp: first(range(zte.lte_rsrp, -140, -40), tLteRsrp, cesqRsrp), rsrq: first(range(zte.lte_rsrq, -34, 3), tLteRsrq, cesqRsrq), sinr: first(range(zte.lte_snr, -23, 40), tLteSnr),
       band: pick(zte.wan_active_band, tBands), pci: pick(zte.lte_pci, tPci), chan: pick(zte.wan_active_channel, tChan) };
@@ -1299,8 +1328,8 @@ rm -f $P.g $P.4 $P.6 $P.d
   }
   function when() {
     const s = lastOk ? Math.max(0, Math.round((Date.now() - lastOk) / 1000)) : -1;
-    const t = busy && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
-    const stale = s < 0 || s > nextDelay() / 1000 + 45;   // stale only when a poll is overdue, not merely between slow polls
+    const t = (busyF || busyS) && !lastOk ? 'Connecting…' : s < 0 ? (lastErr || 'Waiting for data') : s < 3 ? 'Live · just now' : 'Live · updated ' + s + ' s ago';
+    const stale = s < 0 || s > (zteOk() ? fastDelay() : slowDelay()) / 1000 + 45;   // stale only when a poll is overdue, not merely between polls
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
@@ -1308,44 +1337,62 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (p) p.classList.toggle('off', stale);
     }
   }
-  async function tick() {
-    if (busy || !visible()) return;
-    busy = true;
-    try { last = await collect(); lastOk = Date.now(); lastErr = ''; failStreak = 0; paint(); }
-    catch (e) { failStreak++; lastErr = 'Could not read device: ' + e.message; when(); }
-    finally { busy = false; }
+  // Each loop has its own busy flag, so a slow root call never blocks the fast router read.
+  async function tickFast() {
+    if (busyF || !visible()) return;
+    busyF = true;
+    const t0 = performance.now(); /* PHASE0-TIMING (temporary, remove in Phase 6) */
+    try { const ok = await collectFast(); console.log('[live-phase0] fast ' + Math.round(performance.now() - t0) + ' ms ok=' + ok + ' failF=' + failF + ' delay=' + fastDelay() + ' ms'); /* PHASE0-TIMING */ if (ok) { lastOk = Date.now(); lastErr = ''; } else lastErr = 'Router unreachable'; paint(); }
+    catch (e) { failF++; lastErr = 'Could not read router: ' + e.message; when(); }
+    finally { busyF = false; }
+  }
+  async function tickSlow() {
+    if (busyS || !visible()) return;
+    if (!fastTried) return 'wait';   // let the first router read finish, so the telephony / AT fallback is only used when the router really gives nothing
+    busyS = true;
+    const t0 = performance.now(); /* PHASE0-TIMING (temporary, remove in Phase 6) */
+    try { const ok = await collectSlow(); console.log('[live-phase0] slow ' + Math.round(performance.now() - t0) + ' ms ok=' + ok + ' failS=' + failS + ' delay=' + slowDelay() + ' ms thermal=' + (last && last.thermalLevel) + ' bat=' + (last && last.batTemp) + ' sys=' + (last && last.sysMax) + ' modem=' + (last && last.modemTemp)); /* PHASE0-TIMING */ if (ok) { failS = 0; if (!zteOk()) lastOk = Date.now(); lastErr = ''; } else failS++; paint(); }
+    catch (e) { failS++; lastErr = 'Could not read device: ' + e.message; when(); }
+    finally { busyS = false; }
   }
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
-  // not a substitute for the firmware's thermal protection.
-  const nextDelay = () => {
-    if (!last) return Math.min(60000, 3000 * Math.pow(2, Math.min(failStreak, 5)));   // first read / retry after a failed read: 3 s, then backing off to 1 min (root not granted must not be hammered)
-    if (last.thermalLevel >= 2) return 180000;      // hot or critical: every 3 minutes
-    if (last.thermalLevel === 1) return 120000;     // warm: every 2 minutes
-    return 60000;                                   // cool: every minute
+  // not a substitute for the firmware's thermal protection. (Phase 3 will refine these numbers.)
+  const fastDelay = () => {
+    if (failF > 0) return Math.min(60000, 3000 * Math.pow(2, Math.min(failF, 5)));   // router failing: 6 s, 12 s ... back off to 1 min (a failing fast loop must not keep the router login locked)
+    if (last && last.thermalLevel >= 2) return 15000;                                   // hot or critical: router read only every 15 s
+    return 3000;                                                                        // cool or warm: every 3 s (router GET only, no root)
+  };
+  const slowDelay = () => {
+    if (failS > 0) return Math.min(60000, 15000 * Math.pow(2, Math.min(failS - 1, 2)));  // root not granted / shell failing: 15 s, 30 s, 60 s (do not hammer the root manager)
+    if (last && last.thermalLevel >= 2) return 180000;      // hot or critical: every 3 minutes
+    if (last && last.thermalLevel === 1) return 120000;     // warm: every 2 minutes
+    return 15000;                                           // cool: every 15 s (CPU, memory, temperatures)
   };
   // Automatic refresh switch (saved in this browser; on by default). Off = the status is read once and then only when the switch is turned on.
   let auto = true;
   try { auto = localStorage.getItem('liv_auto') !== '0'; } catch (_) {  }
   const syncAuto = () => { const b = inl && inl.querySelector('.liv-sw'); if (b) b.setAttribute('aria-checked', String(auto)); const l = inl && inl.querySelector('.liv-autolbl'); if (l) l.textContent = 'Live refresh: ' + (auto ? 'On' : 'Off'); };
-  // One poll chain only: arm() cancels the pending timer and retires a chain that is still inside tick(), so toggling the switch
-  // while a read is running can no longer leave two chains polling the root shell.
-  let loopGen = 0;
-  const arm = (ms) => { clearTimeout(timer); const g = ++loopGen; timer = setTimeout(() => loop(g), ms); };
-  const loop = async (g) => { if (auto) await tick(); if (g !== loopGen) return; timer = setTimeout(() => loop(g), nextDelay()); };
-  arm(3000); tickTimer = setInterval(when, 1000);
-  document.addEventListener('visibilitychange', () => { if (auto && !document.hidden && (!lastOk || Date.now() - lastOk > 8000)) tick(); });
+  // One chain per loop: armF()/armS() cancel the pending timer and retire a chain that is still inside its tick, so toggling the switch
+  // while a read is running can no longer leave two chains polling the router or the root shell.
+  let genF = 0, genS = 0;
+  const armF = (ms) => { clearTimeout(timerF); const g = ++genF; timerF = setTimeout(() => loopF(g), ms); };
+  const armS = (ms) => { clearTimeout(timerS); const g = ++genS; timerS = setTimeout(() => loopS(g), ms); };
+  const loopF = async (g) => { if (auto) await tickFast(); if (g !== genF) return; timerF = setTimeout(() => loopF(g), auto ? fastDelay() : 60000); };
+  const loopS = async (g) => { let w; if (auto) w = await tickSlow(); if (g !== genS) return; timerS = setTimeout(() => loopS(g), w === 'wait' ? 500 : auto ? slowDelay() : 60000); };
+  armF(3000); armS(3000); tickTimer = setInterval(when, 1000);
+  document.addEventListener('visibilitychange', () => { if (auto && !document.hidden) { if (!lastOk || Date.now() - lastOk > 8000) tickFast(); tickSlow(); } });
   if (inl) {
     syncAuto();
     inl.querySelector('.liv-auto').onclick = () => {
       auto = !auto;
       try { localStorage.setItem('liv_auto', auto ? '1' : '0'); } catch (_) {  }
       syncAuto();
-      arm(auto ? nextDelay() : 60000);  // off: loop only re-arms, it does not poll
-      if (auto) tick();
+      armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);  // off: both loops only re-arm, they do not poll
+      if (auto) { tickFast(); tickSlow(); }
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
   }
-  tick();
+  tickFast().then(() => tickSlow());
 
   // ---- CPU Governor window (tap the CPU tile) ------------------------------------------------------------
   // The only part of Live status that writes to the device. It talks to /sys/devices/system/cpu through the root
