@@ -547,6 +547,13 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 #login{max-width:440px;padding:24px!important}
 .lg-title{font-size:19px;letter-spacing:-.02em}
 </style>
+<style id="dialog-fixes">
+/* Dialogs. (1) A plugin may size its dialog by id, e.g. #kano_bypass_modal{width:94vw!important}. In MatchiTOOL that id sits on the full-screen dim layer,
+   so the layer stopped short and left an undimmed strip down the right side. The layer always covers the whole window; :not(#x) lifts this rule above an id rule.
+   (2) Switches inside dialogs stay full pills: the generic dialog-button rules (min-height, 7px radius, padding) made them look boxy. */
+.modal-bg[id]:not(#matchi-layer){left:0!important;top:0!important;width:100vw!important;max-width:none!important;height:100vh!important;height:100dvh!important;box-sizing:border-box}
+.modal-bg .modal button[role=switch],.modal-bg .modal button.bp-switch{min-height:0!important;padding:0!important;border-radius:999px!important}
+</style>
 <style>
 /* Dropdown lists: the native list used the light system colours on the dark page (white/grey, unreadable). */
 select{color-scheme:dark}
