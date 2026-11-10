@@ -1066,13 +1066,17 @@ rm -f $P.g $P.4 $P.6 $P.d
   const PLMN = { '51502': 'Globe', '51503': 'Smart', '51566': 'DITO' };
   const REG = { '0': 'Not registered', '1': 'Registered (home)', '2': 'Searching', '3': 'Denied', '4': 'Unknown', '5': 'Registered (roaming)' };
   const KEYS = ['network_type', 'network_provider', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band', 'wan_active_channel',
-    'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g'];
+    'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g',
+    'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status'];   // last six: UFI-TOOLS fields (speed in bytes/s, monthly totals in bytes)
 
   // ---- helpers -------------------------------------------------------------------------------------------
   const has = (v) => v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '—';
   const pick = (...v) => { const x = v.find(has); return x === undefined ? '—' : x; };
   const range = (v, lo, hi) => { if (!has(v)) return undefined; const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : undefined; };
   const first = (...v) => v.find((x) => x !== undefined);
+  const num = (v) => { if (!has(v)) return undefined; const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : undefined; };   // non-negative number, or undefined when missing / not a number
+  const fmtBytes = (n) => { if (n === undefined) return '—'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i === 0 || n >= 100 ? Math.round(n) : n >= 10 ? n.toFixed(1) : n.toFixed(2)) + ' ' + u[i]; };
+  const fmtSpeed = (n) => (n === undefined ? '—' : fmtBytes(n) + '/s');
   const grab = (re, t) => { const m = String(t).match(re); return m ? m[1] : undefined; };
   const atBatch = async (cmds) => { try { const r = await api('/api/at/batch', { method: 'POST', body: JSON.stringify({ commands: cmds, slot: 0 }) }); return (r.results || []).map((x) => String(x || '')); } catch (e) { return cmds.map(() => ''); } };
   const atRun = async (c) => { try { const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command: c, slot: 0 }) }); return String(r.result || ''); } catch (e) { return ''; } };
@@ -1231,6 +1235,9 @@ rm -f $P.g $P.4 $P.6 $P.d
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
       batTemp, sysMax, modemTemp, thermalLevel, cpu, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
+      // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
+      rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
+      ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
       rawText: [zteNote || 'Router web API: used', 'AT+COPS?: ' + raw.cops.trim(), 'AT+CSQ: ' + raw.csq.trim(), 'AT+CESQ: ' + raw.cesq.trim(), 'AT+CEREG?: ' + raw.cereg.trim(), '', 'telephony.registry:', tele.trim() || '(no output)'].join('\n'),
       source: zteNote ? 'modem AT + Android telephony' : 'router API + modem',
     };
@@ -1260,7 +1267,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const hero = `<div class="liv-hero">
       <div class="liv-sig">${sigIcon(M.bars, 52)}<div><div class="liv-dbm" style="color:${col}">${M.prim !== undefined ? fmt(M.prim) + '<small> dBm</small>' : '—'}</div>
         <div class="liv-q" style="color:${col}">${M.bars === undefined ? 'No data' : BARTXT[M.bars]}${M.prim !== undefined ? ' · ' + M.primLabel : ''}</div></div></div>
-      <div><div class="liv-op">${esc(M.op)}</div><div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="liv-badge">${esc(M.net)}</span><span class="mut" style="font-size:12px">${esc(M.reg)}</span></div></div>
+      <div><div class="liv-op">${esc(M.op)}</div><div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="liv-badge">${esc(M.net)}</span><span class="mut" style="font-size:12px">${esc(M.reg)}</span>${M.ppp && M.ppp !== 'ppp_connected' ? `<span class="liv-badge" style="background:#ffb02022;border-color:#ffb02066;color:#ffb020">${esc(M.ppp === 'ppp_disconnected' ? 'Data off' : M.ppp.replace(/^ppp_/, 'Data ' ))}</span>` : ''}</div></div>
       <div class="liv-bat">${battIcon(M.bat, M.charging)}<div><div class="liv-dbm" style="font-size:22px">${M.bat !== undefined ? M.bat + '%' : '—'}</div><div class="mut" style="font-size:12px">${esc(M.chargeTxt || 'Battery')}</div></div></div></div>`;
     const boxes = [];
     if (M.hasNr) boxes.push(radioBox('5G NR', M.nr));
@@ -1269,6 +1276,13 @@ rm -f $P.g $P.4 $P.6 $P.d
       ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
       ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
+    // Speed / devices / month rows: a tile appears only when the router returned its key (never a made-up 0).
+    const nt = [];
+    if (M.rx !== undefined) nt.push(tile(dot('#28d99a'), 'Download', fmtSpeed(M.rx)));
+    if (M.tx !== undefined) nt.push(tile(dot('#ffb020'), 'Upload', fmtSpeed(M.tx)));
+    if (M.devs !== undefined) nt.push(tile(dot('#55b6ff'), 'Devices', String(M.devs), 'on Wi-Fi'));
+    if (M.monthRx !== undefined && M.monthTx !== undefined) nt.push(tile(dot('#55b6ff'), 'This month', fmtBytes(M.monthRx + M.monthTx), '↓ ' + fmtBytes(M.monthRx) + ' · ↑ ' + fmtBytes(M.monthTx)));
+    const netRow = nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '';
     const sys = `<div class="liv-tiles liv-t4">
       ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu + ' %' : '—', '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
@@ -1277,7 +1291,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
       : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
       : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
-    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + tiles + sys + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
   // ---- page + popup --------------------------------------------------------------------------------------
@@ -1295,6 +1309,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 .liv-kv{margin-left:auto;font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap}.liv-kv b{color:var(--fg)}
 .liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}.liv-heat{margin-top:8px;padding:7px 10px;border-radius:9px;font-size:11px;font-weight:750}.liv-heat.warm{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24}.liv-heat.hot{background:#f9731618;border:1px solid #f9731655;color:#fb923c}.liv-heat.critical{background:#ef444418;border:1px solid #ef444466;color:#f87171}
 .liv-tl{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.2}.liv-tv{font-size:14px;font-weight:800;line-height:1.2}.liv-ts{font-size:10px;color:var(--mut)}.liv-foot{margin-top:8px;font-size:11px;color:var(--mut)}
+.liv-tn .liv-ts{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 .lcpu-h{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:4px 0 6px}.lcpu-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .lcpu-core{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:7px 8px;border-radius:10px;background:#0a1626;border:1px solid var(--bd);color:inherit;font:inherit;cursor:pointer;text-align:left}.lcpu-core b{font-size:12px}.lcpu-core span{font-size:11px;color:var(--mut)}.lcpu-core.on{border-color:#1f4a7a}.lcpu-core.off{opacity:.55}
@@ -1314,7 +1329,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
   // pause the polling while another tool window (SMS, ...) is open so it does not compete for the root shell
   const otherOpen = () => [...document.querySelectorAll('.modal-bg.show')].some((m) => m.id !== ID);
-  const visible = () => !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());
+  const visible = () => !document.hidden && !otherOpen() && ((inl && inl.offsetParent !== null) || modalRoot());   // a hidden browser tab never polls
 
   function paint() {
     const html = render(last);
@@ -1379,7 +1394,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const armS = (ms) => { clearTimeout(timerS); const g = ++genS; timerS = setTimeout(() => loopS(g), ms); };
   const loopF = async (g) => { if (auto) await tickFast(); if (g !== genF) return; timerF = setTimeout(() => loopF(g), auto ? fastDelay() : 60000); };
   const loopS = async (g) => { let w; if (auto) w = await tickSlow(); if (g !== genS) return; timerS = setTimeout(() => loopS(g), w === 'wait' ? 500 : auto ? slowDelay() : 60000); };
-  armF(3000); armS(3000); tickTimer = setInterval(when, 1000);
+  armF(fastDelay()); armS(slowDelay()); tickTimer = setInterval(when, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
   document.addEventListener('visibilitychange', () => { if (auto && !document.hidden) { if (!lastOk || Date.now() - lastOk > 8000) tickFast(); tickSlow(); } });
   if (inl) {
     syncAuto();
