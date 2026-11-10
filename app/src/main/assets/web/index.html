@@ -425,23 +425,23 @@ header #logoutbtn,header .hd-reboot{flex:none}
 @media(max-width:340px){header{flex-wrap:wrap!important;row-gap:6px!important}}
 </style>
 <style id="ui-unify">
-/* 1.2.26 one look everywhere: the Bypass style (soft cards, flat rounded buttons, round switches, even footer buttons) for every dialog,
-   popup and card. The Bypass dialog keeps its own rules (it is excluded below); only colours, borders and radii change here, never layouts or sizes. */
-.modal-bg:not([id=kano_bypass_modal]) .modal{border-radius:16px;border-color:rgba(255,255,255,.09);box-sizing:border-box;overflow-x:hidden}
-.modal-bg:not([id=kano_bypass_modal]) .modal h3{font-weight:800;letter-spacing:.2px}
-.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose),.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn),.card.pop button:not([class]){background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:10px!important;font-weight:650;box-shadow:none}
-@media(hover:hover){.modal-bg:not([id=kano_bypass_modal]) .modal :is(button:not([class]),.mclose):not(:disabled):hover,.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn):not(:disabled):hover{background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.2)!important;transform:none;box-shadow:none}}
-.modal-bg:not([id=kano_bypass_modal]) .modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea),.card :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea){background:rgba(0,0,0,.25)!important;border:1px solid rgba(255,255,255,.2)!important;border-radius:10px!important;color:inherit}
-.modal-bg:not([id=kano_bypass_modal]) .modal :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus,.card :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus{outline:none;border-color:rgba(80,160,255,.7)!important;box-shadow:0 0 0 3px rgba(80,160,255,.18)}
-.modal-bg:not([id=kano_bypass_modal]) .modal input[type=checkbox],.card input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:32px!important;min-width:32px;height:18px!important;min-height:0!important;padding:0!important;border:0!important;border-radius:9px!important;background-color:rgba(255,255,255,.25)!important;background-image:radial-gradient(circle,#fff 7px,transparent 7.5px);background-size:18px 18px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .2s cubic-bezier(.4,0,.2,1),background-color .2s;cursor:pointer}
-.modal-bg:not([id=kano_bypass_modal]) .modal input[type=checkbox]:checked,.card input[type=checkbox]:checked{background-color:rgba(100,230,164,.75)!important;background-position:100% 50%}
-.modal-bg:not([id=kano_bypass_modal]) .modal pre,.card pre{background:rgba(0,0,0,.3)!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:12px!important}
-.modal-bg:not([id=kano_bypass_modal]) .modal details,.card.pop details{border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.04);padding:7px 10px;margin:6px 0}
-.modal-bg:not([id=kano_bypass_modal]) .modal details>summary,.card.pop details>summary{cursor:pointer;font-weight:700;list-style-position:inside}
+/* 1.2.26 one look everywhere: soft cards, flat rounded buttons, round switches, even footer buttons for every dialog,
+   popup and card. Only colours, borders and radii change here, never layouts or sizes. */
+.modal-bg .modal{border-radius:16px;border-color:rgba(255,255,255,.09);box-sizing:border-box;overflow-x:hidden}
+.modal-bg .modal h3{font-weight:800;letter-spacing:.2px}
+.modal-bg .modal :is(button:not([class]),.mclose),.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn),.card.pop button:not([class]){background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.14)!important;border-radius:10px!important;font-weight:650;box-shadow:none}
+@media(hover:hover){.modal-bg .modal :is(button:not([class]),.mclose):not(:disabled):hover,.card :is(button:not([class]),.mclose,.matchi-memory-clean-btn):not(:disabled):hover{background:rgba(255,255,255,.14)!important;border-color:rgba(255,255,255,.2)!important;transform:none;box-shadow:none}}
+.modal-bg .modal :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea),.card :is(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea){background:rgba(0,0,0,.25)!important;border:1px solid rgba(255,255,255,.2)!important;border-radius:10px!important;color:inherit}
+.modal-bg .modal :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus,.card :is(input:not([type=checkbox]):not([type=radio]),select,textarea):focus{outline:none;border-color:rgba(80,160,255,.7)!important;box-shadow:0 0 0 3px rgba(80,160,255,.18)}
+.modal-bg .modal input[type=checkbox],.card input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:32px!important;min-width:32px;height:18px!important;min-height:0!important;padding:0!important;border:0!important;border-radius:9px!important;background-color:rgba(255,255,255,.25)!important;background-image:radial-gradient(circle,#fff 7px,transparent 7.5px);background-size:18px 18px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .2s cubic-bezier(.4,0,.2,1),background-color .2s;cursor:pointer}
+.modal-bg .modal input[type=checkbox]:checked,.card input[type=checkbox]:checked{background-color:rgba(100,230,164,.75)!important;background-position:100% 50%}
+.modal-bg .modal pre,.card pre{background:rgba(0,0,0,.3)!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:12px!important}
+.modal-bg .modal details,.card.pop details{border:1px solid rgba(255,255,255,.09);border-radius:14px;background:rgba(255,255,255,.04);padding:7px 10px;margin:6px 0}
+.modal-bg .modal details>summary,.card.pop details>summary{cursor:pointer;font-weight:700;list-style-position:inside}
 .card{border-color:rgba(255,255,255,.09)}
-.modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
-.modal-bg:not([id=kano_bypass_modal]) .modal .mfoot button{width:100%;min-width:0;text-align:center}
-@media(min-width:701px){.modal-bg:not([id=kano_bypass_modal]) .modal .mfoot{grid-template-columns:minmax(0,220px);justify-content:end}}
+.modal-bg .modal .mfoot{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.modal-bg .modal .mfoot button{width:100%;min-width:0;text-align:center}
+@media(min-width:701px){.modal-bg .modal .mfoot{grid-template-columns:minmax(0,220px);justify-content:end}}
 /* toasts: flat dark panel with a thin even border in the message colour (no tint, no side bar, no shadow) */
 .toast{--tc:100,230,164;background:#101b2e;border:1px solid rgba(var(--tc),.45);color:var(--fg);font-weight:600;border-radius:12px;box-shadow:none}
 .toast[data-k=red]{--tc:255,138,138}
@@ -548,11 +548,11 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 .lg-title{font-size:19px;letter-spacing:-.02em}
 </style>
 <style id="dialog-fixes">
-/* Dialogs. (1) A plugin may size its dialog by id, e.g. #kano_bypass_modal{width:94vw!important}. In MatchiTOOL that id sits on the full-screen dim layer,
+/* Dialogs. (1) A plugin may size its dialog by id, e.g. #my_dialog{width:94vw!important}. In MatchiTOOL that id sits on the full-screen dim layer,
    so the layer stopped short and left an undimmed strip down the right side. The layer always covers the whole window; :not(#x) lifts this rule above an id rule.
    (2) Switches inside dialogs stay full pills: the generic dialog-button rules (min-height, 7px radius, padding) made them look boxy. */
 .modal-bg[id]:not(#matchi-layer){left:0!important;top:0!important;width:100vw!important;max-width:none!important;height:100vh!important;height:100dvh!important;box-sizing:border-box}
-.modal-bg .modal button[role=switch],.modal-bg .modal button.bp-switch{min-height:0!important;padding:0!important;border-radius:999px!important}
+.modal-bg .modal button[role=switch]{min-height:0!important;padding:0!important;border-radius:999px!important}
 </style>
 <style>
 /* Dropdown lists: the native list used the light system colours on the dark page (white/grey, unreadable). */
