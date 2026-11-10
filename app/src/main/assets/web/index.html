@@ -442,6 +442,12 @@ header #logoutbtn,header .hd-reboot{flex:none}
 .modal-bg .modal .mfoot{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .modal-bg .modal .mfoot button{width:100%;min-width:0;text-align:center}
 @media(min-width:701px){.modal-bg .modal .mfoot{grid-template-columns:minmax(0,220px);justify-content:end}}
+.modal-bg .modal.modal-flex{display:flex;flex-direction:column;overflow:hidden}
+.modal-bg .modal.modal-flex>.title{flex:0 0 auto}
+.modal-bg .modal.modal-flex>.mbody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden}
+.modal-bg .modal.modal-flex>.mfoot{position:static;bottom:auto;flex:0 0 auto}
+.modal-bg .modal .mfoot:has(>button+button){grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
+@media(min-width:701px){.modal-bg .modal .mfoot:has(>button+button){grid-auto-columns:minmax(0,200px)}}
 /* toasts: flat dark panel with a thin even border in the message colour (no tint, no side bar, no shadow) */
 .toast{--tc:100,230,164;background:#101b2e;border:1px solid rgba(var(--tc),.45);color:var(--fg);font-weight:600;border-radius:12px;box-shadow:none}
 .toast[data-k=red]{--tc:255,138,138}
@@ -2410,15 +2416,20 @@ rm -rf "${DEVICE_TMP_DIR}"
   const NOTDELETED = 'NOTDELETED';
   async function apiDelete(m) {
     const notes = [];
-    // 1) the router, once: when it is not known to ignore "set" calls.
-    if (!routerSetDead()) {
+    // 1) the router. A delete is safe to repeat, so it is tried up to three ways: as is, after a fresh login, and after a
+    // fresh login with the upper-case AD token. Every attempt is checked against the router's own list, because some
+    // firmware deletes the message and still answers with an empty body. (It used to try once and then skip the router
+    // for an hour, which left messages that only the router holds impossible to delete.)
+    for (let level = 0; level <= 2; level++) {
       try {
-        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: String(m.id) + ';', notCallback: 'true' }, 0);
+        const d = await zte('set', { goformId: 'DELETE_SMS', msg_id: String(m.id) + ';', notCallback: 'true' }, level);
         const res = d && typeof d === 'object' ? String(d.result ?? '') : String(d ?? '');
-        notes.push((res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
-        if (!res) markRouterDead();
-        else if (!(/fail|error/i.test(res) && !/success/i.test(res)) && !(await apiList()).some((x) => String(x.id) === String(m.id))) return 'router';
-      } catch (e) { notes.push(e.message); }
+        notes.push('try ' + (level + 1) + ': ' + (res || 'empty reply') + (lastInfo ? ' [' + lastInfo + ']' : ''));
+        if (!(await apiList()).some((x) => String(x.id) === String(m.id))) {
+          routerDeadAt = 0; try { localStorage.removeItem(DEADKEY); } catch (_) {}
+          return 'router';
+        }
+      } catch (e) { notes.push('try ' + (level + 1) + ': ' + e.message); if (UNREACH.test(e.message)) break; }
     }
     // 2) Android's SMS store and the modem storage looked up at the same time (they are independent).
     const [pr, mr] = await Promise.allSettled([providerList(), atFetch(true)]);
@@ -3230,7 +3241,7 @@ async function runShellWithUser(cmd){
 function createModal({name,noBlur,isMask,title,titleI18nKey='',maxWidth,content,contentStyle,showConfirm=true,confirmBtnText=ufiT('submit_btn'),closeBtnText=ufiT('close_btn'),onClose,onConfirm}){
   document.getElementById(name)?.remove();
   const bg=document.createElement('div');bg.className='modal-bg';bg.id=name;
-  const box=document.createElement('div');box.className='modal';box.style.maxWidth=maxWidth||'600px';
+  const box=document.createElement('div');box.className='modal modal-flex';box.style.maxWidth=maxWidth||'600px';
   box.innerHTML=`<h3 class="title"><span data-i18n="${titleI18nKey}"></span></h3><div class="content mbody" style="${contentStyle||''}"></div><div class="btn mfoot">${showConfirm?`<button id="${name}_confirm" type="button"></button>`:''}<button id="${name}_close" class="mclose" type="button"></button></div>`;
   box.querySelector('.title span').textContent=title==null?'':String(title);
   box.querySelector('.content').innerHTML=content||'';
@@ -4180,7 +4191,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.4.0';
+const PAGE_VERSION='1.4.1';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
