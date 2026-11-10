@@ -1,3 +1,10 @@
+# MatchiTOOL (unreleased) - AT & Radio: band lock now restarts the radio (found on the F50)
+
+- **Problem:** after "Lock ticked bands" the router reported the new lock (NR n41) but the dashboard still showed n78 (and the same on 4G). Read from the UFI-TOOLS 4.1.5 APK: after `LTE_BAND_LOCK` / `NR_BAND_LOCK` it cycles the modem radio with `AT+SFUN=4` / `AT+SFUN=5` through its AT helper; saving the lock alone does not move the modem. "Re-apply network mode" was not enough.
+- **Fix:** after a verified lock / unlock / restore, MatchiTOOL now restarts the radio itself (`AT+SFUN=4`, then `AT+SFUN=5` with retry, same code as "Restart modem"). The confirm dialog says so (signal drops about 30 s). The radio is restarted on the SIM slot picked at the top of the window only; UFI cycles slots 0 and 1.
+- **False warning fixed:** "Unlock all" sent `1,5,6,8,28,41,78` and the router reported `n1 n5 n8 n28 n41 n78` (n6 not supported); that was shown as a mismatch. A read-back that is a non-empty subset of what was sent now counts as applied, and the log says which band the router dropped. A different or empty list is still reported as a mismatch.
+- Test added in `scripts/test_at_radio.js`. **Not yet checked on the F50.**
+
 # MatchiTOOL (unreleased) - AT & Radio: cell lock (plan Phase 3)
 
 - **"Cell lock" button** in AT & Radio opens a panel. It reads `neighbor_cell_info` and `locked_cell_info` only when opened or refreshed (never polled) and shows the locked cell and the neighbour list (band, EARFCN, PCI, RSRP, RSRQ, SINR). A firmware with neither key shows "not available"; Unlock still works.
