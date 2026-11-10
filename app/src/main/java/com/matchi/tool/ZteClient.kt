@@ -198,29 +198,30 @@ object ZteClient {
 
     /**
      * Newer ZTE firmware (F50 included) answers every "set" that lacks a valid AD token with an empty body or
-     * {"result":"failure"} and does nothing: SMS delete / send, settings. The router's own web page computes
-     * AD = md5(md5(wa_inner_version + cr_version) + RD), where RD is a fresh value for every request.
+     * {"result":"failure"} and does nothing: SMS delete / send, settings. UFI-TOOLS 4.1.5 (read from its APK) builds it as
+     *   AD = SHA256( SHA256(wa_inner_version + cr_version) + RD )   (upper-case hex both times),
+     * where RD is a fresh value for every request. Older firmware used MD5 instead: [legacyMd5] = md5(md5(wa_inner_version +
+     * cr_version) + RD), lower case. The SHA-256 form is tried first; the MD5 form is the last retry (see [callLocked]).
      */
-    private fun adToken(ctx: Context, upper: Boolean = false): String? = try {
+    private fun adToken(ctx: Context, legacyMd5: Boolean = false): String? = try {
         val v = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "wa_inner_version,cr_version", "multi_data" to "1")).body)
         val rd = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "RD")).body).optString("RD")
-        if (rd.isEmpty() || (v.optString("wa_inner_version") + v.optString("cr_version")).isEmpty()) null else {
-            val inner = md5Hex(v.optString("wa_inner_version") + v.optString("cr_version"))
-            // Some firmware builds expect the hex digest in upper case; the retry path tries that form.
-            if (upper) md5Hex(inner + rd).uppercase() else md5Hex(inner + rd)
-        }
+        val ver = v.optString("wa_inner_version") + v.optString("cr_version")
+        if (rd.isEmpty() || ver.isEmpty()) null
+        else if (legacyMd5) md5Hex(md5Hex(ver) + rd)
+        else sha256Upper(sha256Upper(ver) + rd)
     } catch (e: java.io.IOException) { throw e } catch (_: Exception) { null }
 
-    private fun send(ctx: Context, op: String, params: Map<String, String>, upper: Boolean = false): Resp =
+    private fun send(ctx: Context, op: String, params: Map<String, String>, legacyMd5: Boolean = false): Resp =
         if (op == "get") http(ctx, "GET", GET_PATH, params + ("isTest" to "false"))
         else {
             val p = LinkedHashMap<String, String>()
             p["isTest"] = "false"          // same field order as the router's own page: isTest, goformId, ..., AD
             p.putAll(params.filterKeys { it != "isTest" })
-            val ad = adToken(ctx, upper)
+            val ad = adToken(ctx, legacyMd5)
             ad?.let { p["AD"] = it }
             val r = http(ctx, "POST", SET_PATH, p)
-            lastInfo = "AD " + (if (ad != null) (if (upper) "ok/upper" else "ok") else "missing") + ", session " + (if (cookie.isNotEmpty()) "yes" else "no") +
+            lastInfo = "AD " + (if (ad != null) (if (legacyMd5) "ok/md5" else "ok/sha256") else "missing") + ", session " + (if (cookie.isNotEmpty()) "yes" else "no") +
                 ", HTTP " + r.code + ", reply " + (if (r.body.isBlank()) "empty" else r.body.trim().take(60))
             r
         }
@@ -299,7 +300,7 @@ object ZteClient {
 
     /**
      * [retry] is used by the SMS tool for an idempotent "set" (delete) that the router answered with an empty body:
-     * 1 = throw the cached session away and sign in again first, 2 = the same plus the upper-case AD token form.
+     * 1 = throw the cached session away and sign in again first, 2 = the same plus the older MD5 AD token form.
      */
     private fun callLocked(ctx: Context, op: String, params: Map<String, String>, retry: Int = 0): String {
         if (retry >= 1) { cookie = ""; lastLoginFail = 0L }
@@ -309,12 +310,12 @@ object ZteClient {
         val hasPass = Prefs.ztePass(ctx).isNotEmpty()
         if (hasPass && cookie.isNotEmpty() && System.currentTimeMillis() - lastUse > IDLE_RELOGIN_MS) cookie = ""
         if (cookie.isEmpty() && hasPass) login(ctx)?.let { throw IllegalStateException(it) }
-        val upper = retry >= 2
-        var r = send(ctx, op, params, upper)
+        val legacyMd5 = retry >= 2
+        var r = send(ctx, op, params, legacyMd5)
         // Retry once after logging in. Only for reads (or an explicit 401/403): a failed "set" must never be repeated blindly.
         if ((op == "get" && looksUnauthorized(r)) || r.code == 401 || r.code == 403) {
             login(ctx)?.let { throw IllegalStateException(it) }
-            r = send(ctx, op, params, upper)
+            r = send(ctx, op, params, legacyMd5)
         }
         if (r.code >= 400) throw IllegalStateException("Router returned HTTP ${r.code}")
         lastUse = System.currentTimeMillis()
