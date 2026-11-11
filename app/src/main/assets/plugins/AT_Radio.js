@@ -58,8 +58,8 @@
     return '';
   }
   const origKey = () => 'matchi_orig_imei_' + slot();
-  async function sh(cmd) {
-    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: 15000 }) });
+  async function sh(cmd, timeout) {
+    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: timeout || 15000 }) });
     if (r.error) throw new Error(r.error);
     return String(r.content || '');
   }
@@ -516,43 +516,78 @@
 
   // Radio restart, copied from UFI-TOOLS 4.1.5 (its code is obfuscated; the order was read from the real call sites):
   //   AT+SFUN=5 on SIM slot 0, then slot 1 (radio OFF), then AT+SFUN=4 on slot 0, then slot 1 (radio ON), 100 ms apart.
-  // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF
-  // and left it there. A slot that does not exist answers ERROR and is skipped; the ON steps always run once OFF was sent.
+  // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF and left it there.
+  // The whole sequence runs ON the device in ONE root call. Found on the F50: while the radio is off the browser loses the host for a few
+  // seconds, so a step sent from the page ("slot 0 on") never arrived and the radio stayed off. On the device nothing depends on the page.
+  // A slot that did not switch off is sent the "on" command once (as UFI does); a slot that did is retried for about 16 s.
   async function atSlot(command, sl) {
     const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command, slot: sl }) });
     if (r.error) throw new Error(r.error);
     return r.result || '';
   }
+  const CYCLE_SH = [
+    'SA=/data/data/com.matchi.tool/files/sendat',
+    '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',
+    'tx() { "$SA" -n "$1" -c "$2" 2>&1 | tr "\\n\\r" "  "; }',
+    'o0=$(tx 0 AT+SFUN=5); echo "OFF0:$o0"',
+    'o1=$(tx 1 AT+SFUN=5); echo "OFF1:$o1"',
+    'sleep 0.1',
+    'for s in 0 1; do',
+    '  eval "o=\\$o$s"; n=1; case "$o" in *OK*) n=8;; esac',
+    '  i=0; ok=0; r=',
+    '  while [ $i -lt $n ]; do r=$(tx $s AT+SFUN=4); case "$r" in *OK*) ok=1; break;; esac; i=$((i+1)); [ $i -lt $n ] && sleep 2; done',
+    '  echo "ON$s:$ok:$r"',
+    'done',
+  ].join('\n');
   async function radioCycle(quiet) {
-    let offSent = false;
-    try {
-      log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does)');
-      const res = { off: [false, false], on: [false, false] };
-      for (const sl of [0, 1]) {
-        try { const o = tidy(await atSlot('AT+SFUN=5', sl)); offSent = true; res.off[sl] = o.includes('OK'); log('slot ' + sl + ' off: ' + (o || '(no output)')); }
-        catch (e) { log('slot ' + sl + ' off: ' + e.message); }
-        await sleep(100);
-      }
-      if (!res.off[0] && !res.off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); createToast('Radio restart failed, nothing changed', 'red'); return false; }
-      await sleep(100);
-      for (const sl of [0, 1]) {
-        if (!res.off[sl]) continue;   // that slot was never switched off
-        let last = '';
-        for (let i = 0; i < 3 && !res.on[sl]; i++) {
-          if (i) await sleep(2500);
-          try { last = tidy(await atSlot('AT+SFUN=4', sl)); res.on[sl] = last.includes('OK'); } catch (e) { last = e.message; }
-        }
-        log('slot ' + sl + ' on: ' + (last || '(no output)'));
-        await sleep(100);
-      }
-      const bad = [0, 1].filter((sl) => res.off[sl] && !res.on[sl]);
+    log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does; runs on the device)');
+    let text = '', lost = false;
+    try { text = await sh(CYCLE_SH, 60000); }
+    catch (e) { lost = true; log('The page lost the host while the radio was off (' + e.message + '). The restart keeps going on the device; waiting for the host to come back...'); }
+    const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
+    if (!lost) {
+      if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); createToast('Radio restart failed, nothing changed', 'red'); return false; }
+      for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
+      const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
+      if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); createToast('Radio restart failed, nothing changed', 'red'); return false; }
+      const bad = [0, 1].filter((sl) => off[sl] && !/^1:/.test(get('ON' + sl)));
       if (!bad.length) { log('Radio is back on. Registration can take about 30 s, then check Live Status.'); createToast('Radio restarted', 'green'); return true; }
-      log('WARNING: the radio may still be OFF on slot ' + bad.join(', ') + '. Run AT+SFUN=4 here now (with that slot picked), or reboot the device.');
-      createToast('Radio may still be off: run AT+SFUN=4', 'red'); return false;
-    } catch (err) {
-      log('Radio restart failed: ' + err.message + (offSent ? '. If the radio is off, run AT+SFUN=4.' : ''));
-      createToast(err.message, 'red'); return false;
+      lost = true;   // an "on" step did not get OK: fall through to the check below
+      log('Slot ' + bad.join(', ') + ' did not confirm "on". Checking again...');
     }
+    // The host (or the modem) is away for a short while. Wait until an AT read answers, then send "on" once more: it is harmless when the radio is already on.
+    let up = false;
+    for (let i = 0; i < 30 && !up; i++) {
+      await sleep(3000);
+      try { await atSlot('AT+CSQ', 0); up = true; } catch (_) { /* still away */ }
+    }
+    if (!up) { log('WARNING: the host or the modem did not answer for 90 s. The radio may still be OFF. When this window works again run AT+SFUN=4 (slot 0, then slot 1), or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=4', 'red'); return false; }
+    let ok0 = false;
+    for (const sl of [0, 1]) {
+      let last = '';
+      for (let i = 0; i < 3; i++) { try { last = tidy(await atSlot('AT+SFUN=4', sl)); if (last.includes('OK')) break; } catch (e) { last = e.message; } await sleep(2000); }
+      log('slot ' + sl + ' on (again): ' + (last || '(no output)'));
+      if (sl === 0) ok0 = last.includes('OK');
+    }
+    if (ok0) { log('Radio is on. Registration can take about 30 s, then check Live Status.'); createToast('Radio restarted', 'green'); return true; }
+    log('WARNING: the radio may still be OFF on slot 0. Run AT+SFUN=4 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=4', 'red'); return false;
+  }
+
+  // Read-only snapshot for support: radio state per SIM slot, registration, and what the router reports for bands / mode / serving cell.
+  // Nothing is written. The text is shown here and copied to the clipboard when the browser allows it.
+  async function radioReport() {
+    if (radioBusy) return;
+    log('> Radio report (read only)');
+    const out = [];
+    const tryAt = async (c, sl) => { try { out.push(c + (sl === undefined ? '' : '  [slot ' + sl + ']') + '\n' + (tidy(sl === undefined ? await at(c) : await atSlot(c, sl)) || '(no output)')); } catch (e) { out.push(c + '\nError: ' + e.message); } };
+    await tryAt('AT+SFUN?', 0); await tryAt('AT+SFUN?', 1);
+    for (const c of ['AT+CEREG?', 'AT+C5GREG?', 'AT+COPS?', 'AT+SP5GCMDS="get nr support_band"']) await tryAt(c);
+    const keys = 'lte_band_lock,nr_band_lock,net_select,BearerPreference,performance_mode,network_type,nr5g_action_band,nr5g_action_channel,nr5g_pci,wan_active_band,wan_active_channel,lte_pci,locked_cell_info';
+    try { out.push('router (' + keys.split(',').length + ' keys)\n' + JSON.stringify(await zte('get', { multi_data: '1', cmd: keys }), null, 1)); } catch (e) { out.push('router\nError: ' + e.message); }
+    const text = out.join('\n\n');
+    log(text);
+    try { await navigator.clipboard.writeText(text); createToast('Radio report copied', 'green'); }
+    catch (_) { createToast('Radio report is in the window: select it and copy', 'green'); }
   }
   async function rebootModem() {
     if (radioBusy) return;
@@ -620,7 +655,7 @@
         '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
         PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_cell_btn">Cell lock</button><button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
+        '<button type="button" id="matchi_cell_btn">Cell lock</button><button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_report">Radio report</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
         '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
         '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
     });
@@ -664,6 +699,7 @@
       if (set.has(b)) set.delete(b); else set.add(b);
       t.classList.toggle('on', set.has(b));
     };
+    document.getElementById('matchi_report').onclick = radioReport;
     document.getElementById('matchi_band_lock').onclick = lockBands;
     document.getElementById('matchi_band_unlock').onclick = unlockBands;
     document.getElementById('matchi_band_restore').onclick = restoreBands;
