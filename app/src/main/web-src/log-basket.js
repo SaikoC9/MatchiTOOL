@@ -60,7 +60,7 @@ $('lbdelete').onclick=async()=>{
  const p=picked();if(!p.length){createToast('Pick a row first','orange');return}
  const ok=p.filter(r=>r.canDelete),skip=p.length-ok.length;
  if(!ok.length){createToast('These cannot be deleted here (the active session and the live boot files are kept)','orange');return}
- const au=ok.some(r=>r.type==='audit');if(!confirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':'')))return;
+ const au=ok.some(r=>r.type==='audit');if(!(await askConfirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':''),'Delete',true)))return;
  try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent=''}
  catch(e){createToast('Delete failed: '+(e.message||e),'red')}
  load();

@@ -59,6 +59,7 @@
     'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
     'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
     'Add plugin (.js or UFI-TOOLS .txt)':'Magdagdag ng plugin (.js o UFI-TOOLS .txt)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
+    'Cancel':'Kanselahin','Confirm':'Kumpirmahin','Next':'Susunod','Notice':'Paunawa','Network rules':'Mga network rule','Root over HTTP':'Root sa HTTP','Allow':'Payagan','Block':'I-block','Continue':'Magpatuloy',
     'Plugin store…':'Plugin store…','Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…','Export UFI .txt':'I-export ang UFI .txt','Import UFI .txt':'I-import ang UFI .txt',
     'Plugins can run any command as root through this console. Install only code you trust.':'Ang mga plugin ay maaaring magpatakbo ng anumang command bilang root sa console na ito. Mag-install lang ng code na pinagkakatiwalaan mo.'
   }};

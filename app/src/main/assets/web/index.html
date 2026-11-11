@@ -600,6 +600,16 @@ html body .popfoot:not(#_):not(#__),html body .modal-bg:not(#_):not(#__) .modal 
 html body .popx:not(#_):not(#__),html body .modal-bg:not(#_):not(#__) .modal .mclose,html body .modal-bg:not(#_):not(#__) .modal .ccancel,html body .card.pop:not(#_):not(#__) .popfoot .popx{box-sizing:border-box!important;width:88px!important;min-width:88px!important;max-width:88px!important;flex:0 0 88px!important;height:30px!important;min-height:30px!important;padding:0 8px!important;margin:0 0 0 auto!important;font-size:12.5px!important;line-height:1!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:8px!important}
 html body .popfoot:not(#_):not(#__) button:not(.popx),html body .modal-bg:not(#_):not(#__) .modal .mfoot button:not(.mclose){box-sizing:border-box!important;width:auto!important;min-width:88px!important;max-width:none!important;flex:0 0 auto!important;height:30px!important;min-height:30px!important;padding:0 12px!important;margin:0!important;font-size:12.5px!important;line-height:1!important;white-space:nowrap;border-radius:8px!important}
 html body .popfoot:not(#_):not(#__) .popx,html body .modal-bg:not(#_):not(#__) .modal .mfoot .mclose:only-child{margin-left:auto!important}
+/* Every popup looks like the AT & Radio window: solid panel, small bold title with no divider, thin line above the footer, neutral Close button.
+   The built-in cards (.card.pop) are brought to the same look as the createModal windows (.modal). */
+html body .card.pop.open:not(#_):not(#__){background:#101a2b!important;border:1px solid rgba(255,255,255,.09)!important;border-radius:16px!important;padding:13px 20px 0!important;box-shadow:0 8px 24px rgba(0,0,0,.2)!important;font-size:13px!important;line-height:1.4!important}
+html body .card.pop.open:not(#_):not(#__)>.mut:first-child,html body .card.pop.open:not(#_):not(#__) .pm-title,html body .card.pop.open:not(#_):not(#__)>h1,html body .card.pop.open:not(#_):not(#__)>h2,html body .card.pop.open:not(#_):not(#__)>h3{font-size:13.5px!important;font-weight:800!important;letter-spacing:.2px!important;text-transform:none!important;color:var(--fg)!important;margin:0 0 5px!important;padding:0!important;border:0!important;line-height:1.3!important}
+html body .card.pop.open:not(#_):not(#__) .popfoot{position:sticky!important;bottom:0!important;background:#101a2b!important;border-top:1px solid rgba(139,170,211,.16)!important;margin:8px -20px 0!important;padding:5px 20px!important;border-radius:0 0 16px 16px!important}
+html body .popx:not(#_):not(#__),html body .card.pop .popfoot button:not(#_):not(#__){background:rgba(255,255,255,.08)!important;border:1px solid rgba(255,255,255,.14)!important;box-shadow:none!important;color:var(--fg)!important;font-weight:650!important}
+@media(max-width:640px){
+html body .card.pop.open:not(#_):not(#__){padding:12px 14px 0!important}
+html body .card.pop.open:not(#_):not(#__) .popfoot{margin:8px -14px 0!important;padding:5px 14px!important}
+}
 </style>
 </head>
 <body>
@@ -3449,21 +3459,39 @@ function createToast(msg,color,ms,fn){
   setTimeout(()=>{t.remove();if(typeof fn==='function'){try{fn()}catch(_){}}},TOAST_MS);
 }
 /* In-page confirm dialog (replaces the browser's "192.168.0.1:2334 says" box). Resolves true / false. */
-function askConfirm(message,okText,danger){
+/* In-page dialogs (replace the browser's own confirm / prompt / alert boxes). They are built like every createModal window: title, text, a thin line, then
+   Cancel and OK at the bottom right. askConfirm(message, okText, danger) -> true / false. askText({title,message,value,password,multiline,okText}) -> text or null.
+   askNotice(message, title) -> resolves when closed. */
+function askDialog(o){
   return new Promise(resolve=>{
     const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='3000';
-    bg.innerHTML='<div class="modal" role="alertdialog" aria-modal="true" style="max-width:380px"><div class="mbody" style="line-height:1.5;font-size:15px"></div><div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px"><button type="button" class="ccancel">Cancel</button><button type="button" class="cok"></button></div></div>';
-    bg.querySelector('.mbody').textContent=message;bg.querySelector('.mbody').style.whiteSpace='pre-line';
-    const ok=bg.querySelector('.cok');ok.textContent=okText||'OK';
-    ok.style.cssText=danger?'background:linear-gradient(180deg,#c43850,#992a3d);border-color:#e05a70':'background:linear-gradient(180deg,#1d7be0,#1560b8);border-color:#3b95f5';
-    const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(false)}};
+    const box=document.createElement('div');box.className='modal modal-flex';box.setAttribute('role','alertdialog');box.setAttribute('aria-modal','true');box.style.maxWidth=o.maxWidth||'420px';
+    const h=document.createElement('h3');h.className='title';const hs=document.createElement('span');hs.textContent=o.title||'Confirm';h.appendChild(hs);
+    const body=document.createElement('div');body.className='content mbody';body.style.cssText='white-space:pre-line;line-height:1.5';body.textContent=o.message||'';
+    let inp=null;
+    if(o.input){inp=document.createElement(o.multiline?'textarea':'input');if(!o.multiline)inp.type=o.password?'password':'text';else inp.rows=3;
+      inp.value=o.value||'';inp.autocomplete=o.password?'current-password':'off';inp.spellcheck=false;inp.style.cssText='width:100%;box-sizing:border-box;margin-top:8px;white-space:normal';body.appendChild(inp)}
+    const foot=document.createElement('div');foot.className='btn mfoot';
+    let cancel=null;
+    if(!o.noCancel){cancel=document.createElement('button');cancel.type='button';cancel.className='mclose ccancel';cancel.textContent='Cancel';foot.appendChild(cancel)}
+    const ok=document.createElement('button');ok.type='button';ok.className='cok';ok.textContent=o.okText||'OK';
+    if(o.noCancel){ok.className='mclose cok'}
+    else if(o.danger)ok.style.cssText='background:rgba(255,100,124,.16)!important;border:1px solid rgba(255,100,124,.5)!important;color:#ffd5dc!important';
+    else ok.style.cssText='background:rgba(22,140,255,.2)!important;border:1px solid rgba(85,182,255,.5)!important';
+    foot.appendChild(ok);box.append(h,body,foot);bg.appendChild(box);
+    const val=()=>inp?inp.value:true;
+    const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(o.noCancel?true:(o.input?null:false))}else if(e.key==='Enter'&&inp&&!o.multiline){e.preventDefault();e.stopPropagation();done(val())}};
     const done=v=>{document.removeEventListener('keydown',key,true);bg.remove();resolve(v)};
     document.addEventListener('keydown',key,true);
-    bg.querySelector('.ccancel').onclick=()=>done(false);ok.onclick=()=>done(true);
-    bg.addEventListener('mousedown',e=>{if(e.target===bg)done(false)});
-    document.body.appendChild(bg);ok.focus();
+    if(cancel)cancel.onclick=()=>done(o.input?null:false);
+    ok.onclick=()=>done(o.noCancel?true:val());
+    bg.addEventListener('mousedown',e=>{if(e.target===bg&&!o.noCancel)done(o.input?null:false)});
+    document.body.appendChild(bg);(inp||ok).focus();
   });
 }
+function askConfirm(message,okText,danger){return askDialog({title:'Confirm',message,okText,danger})}
+function askText(o){return askDialog(Object.assign({input:true,okText:'OK'},o||{}))}
+function askNotice(message,title){return askDialog({title:title||'Notice',message,okText:'OK',noCancel:true})}
 document.addEventListener('click',async(e)=>{
   if(!e.target||e.target.id!=='rebootbtn')return;
   if(!(await askConfirm('Reboot the device now?','Reboot',true)))return;
@@ -3488,7 +3516,7 @@ function setHostStatus(online,label){const el=document.getElementById('hoststatu
 function insecurePage(){try{const h=location.hostname;return location.protocol==='http:'&&h!=='localhost'&&h!=='[::1]'&&!/^127\./.test(h)}catch(_){return false}}
 async function insecureOk(){
   /* Shared by every caller: one question per page load; a "no" is remembered until reload so pollers never bring the dialog back. */
-  if(!api._insP)api._insP=Promise.resolve().then(()=>confirm('This console is open over plain HTTP, NOT encrypted. The commands you run as root and your session token can be read by anyone on this network.\n\nRun root commands anyway?'));
+  if(!api._insP)api._insP=Promise.resolve().then(()=>askConfirm('This console is open over plain HTTP, NOT encrypted. The commands you run as root and your session token can be read by anyone on this network.\n\nRun root commands anyway?','Continue',true));
   return api._insP;
 }
 /* @include web-src/plugin-trace.js */
@@ -4678,7 +4706,7 @@ window.login=async function login(){return {ok:true,host:'matchitool'}};
 async function postData(_login,data){
   const o=data||{};
   if(String(o.goformId||'').toUpperCase()==='ENABLE_PIN'&&!postData._pinOk){
-    if(!confirm('A plugin wants to send a SIM PIN command (ENABLE_PIN) to the router.\n\nOn a SIM that is not the kind the plugin was written for, a wrong value counts as a failed PIN attempt and can lock the SIM.\n\nSend it anyway?'))throw new Error('Cancelled: SIM PIN command not sent');
+    if(!(await askConfirm('A plugin wants to send a SIM PIN command (ENABLE_PIN) to the router.\n\nOn a SIM that is not the kind the plugin was written for, a wrong value counts as a failed PIN attempt and can lock the SIM.\n\nSend it anyway?','Send it anyway',true)))throw new Error('Cancelled: SIM PIN command not sent');
     postData._pinOk=true;
   }
   const body=new URLSearchParams();for(const k of Object.keys(o))body.set(k,String(o[k]));
@@ -5078,14 +5106,14 @@ function pluginSsKeys(p){
 b.addEventListener('click',async()=>{
   try{
     const cur=await api('/api/security/net');
-    const v=prompt('Extra hosts plugins may contact, separated by commas (example: api.example.com, *.mycdn.net).\nType OPEN to switch the filter off, or STRICT to switch it on.\n\nAlways allowed: '+(cur.defaults||[]).join(', ')+'\nFilter is now: '+(cur.strict?'STRICT':'OPEN'),(cur.extra||[]).join(', '));
+    const v=await askText({title:'Network rules',multiline:true,okText:'Next',maxWidth:'480px',message:'Extra hosts plugins may contact, separated by commas (example: api.example.com, *.mycdn.net).\nType OPEN to switch the filter off, or STRICT to switch it on.\n\nAlways allowed: '+(cur.defaults||[]).join(', ')+'\nFilter is now: '+(cur.strict?'STRICT':'OPEN'),value:(cur.extra||[]).join(', ')});
     if(v===null)return;
     const t=v.trim(),body={};
     if(/^open$/i.test(t))body.strict=false;else if(/^strict$/i.test(t))body.strict=true;else body.hosts=t?t.split(',').map(x=>x.trim()).filter(Boolean):[];
-    const pw=prompt('Enter your sign-in password to confirm');if(pw===null||pw==='')return;
+    const pw=await askText({title:'Confirm',message:'Enter your sign-in password to confirm',password:true,okText:'Confirm'});if(pw===null||pw==='')return;
     body.password=pw;
     const r=await api('/api/security/net',{method:'POST',body:JSON.stringify(body)});
-    createToast(r.rejected&&r.rejected.length?'Saved. Not accepted: '+r.rejected.join(', '):'Saved. Reloading\u2026',r.rejected&&r.rejected.length?'orange':undefined);
+    createToast(r.rejected&&r.rejected.length?'Saved. Not accepted: '+r.rejected.join(', '):'Saved. Reloading…',r.rejected&&r.rejected.length?'orange':undefined);
     setTimeout(()=>location.reload(),900);
   }catch(e){createToast(e.message,'red')}
 });})();
@@ -5094,10 +5122,10 @@ b.addEventListener('click',async()=>{
 b.addEventListener('click',async()=>{
   try{
     const cur=await api('/api/security/http');
-    if(cur.tls){alert('The console is served over HTTPS, so root actions are always allowed. This switch only matters when HTTPS could not start.');return}
+    if(cur.tls){await askNotice('The console is served over HTTPS, so root actions are always allowed. This switch only matters when HTTPS could not start.','Root over HTTP');return}
     const want=!cur.allowRootOverHttp;
-    if(!confirm(want?'Allow root actions over plain HTTP?\n\nCommands, your sign-in and your session token cross the network unencrypted and can be read by anyone on this network.':'Block root actions over plain HTTP again?'))return;
-    const pw=prompt('Enter your sign-in password to confirm');if(pw===null||pw==='')return;
+    if(!(await askDialog({title:'Root over HTTP',message:want?'Allow root actions over plain HTTP?\n\nCommands, your sign-in and your session token cross the network unencrypted and can be read by anyone on this network.':'Block root actions over plain HTTP again?',okText:want?'Allow':'Block',danger:want})))return;
+    const pw=await askText({title:'Confirm',message:'Enter your sign-in password to confirm',password:true,okText:'Confirm'});if(pw===null||pw==='')return;
     await api('/api/security/http',{method:'POST',body:JSON.stringify({allow:want,password:pw})});
     createToast(want?'Root over HTTP is ON':'Root over HTTP is OFF',want?'orange':undefined);
   }catch(e){createToast(e.message,'red')}
@@ -6249,8 +6277,8 @@ function redactText(text){const counts={};const out=String(text).split('\n').map
 function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{text:String(text),total:0};return redactText(text)}
  window.__lcRedact=redactText;
  /* ---- buttons ---- */
- $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){alert('Could not start logging: '+e.message)}};
- $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){alert('Could not stop logging: '+e.message)}};
+ $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){askNotice('Could not start logging: '+e.message)}};
+ $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){askNotice('Could not stop logging: '+e.message)}};
  function saveBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
  function exportLogs(ext){const r=maybeRedact(rows.filter(makeFilter()).map(lineOf).join('\n'));const text=r.text;if(r.total)createToast('Private data hidden in '+r.total+' line(s)');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
  async function downloadZip(path,btn){
@@ -6260,24 +6288,24 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
    if(!r.ok){let m='Request failed ('+r.status+')';try{m=(await r.json()).error||m}catch(e){}throw new Error(m)}
    const cd=r.headers.get('content-disposition')||'', nm=(cd.match(/filename="([^"]+)"/)||[])[1]||'matchitool_logs.zip';
    saveBlob(await r.blob(),nm);
-  }catch(e){alert('Download failed: '+e.message)}
+  }catch(e){askNotice('Download failed: '+e.message)}
   finally{btn.disabled=false;btn.textContent=old}
  }
  const redactQ=()=>'&redact='+($('lcredact').checked?'1':'0');
- const confirmRaw=()=>$('lcredact').checked||confirm('Private data (SMS text, phone numbers, IMEI, passwords, tokens) will NOT be hidden in this zip. Continue?');
- $('lcexportall').onclick=()=>{if(confirmRaw())downloadZip('/api/logs/export?kind=all'+redactQ(),$('lcexportall'))};
- $('lcreport').onclick=()=>{if(confirmRaw())downloadZip('/api/logs/export?kind=report'+redactQ(),$('lcreport'))};
- $('lcbundle').onclick=()=>{if(confirmRaw())downloadZip('/api/logs/export?kind=bundle'+redactQ(),$('lcbundle'))};
+ const confirmRaw=async()=>$('lcredact').checked||(await askConfirm('Private data (SMS text, phone numbers, IMEI, passwords, tokens) will NOT be hidden in this zip. Continue?','Continue'));
+ $('lcexportall').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=all'+redactQ(),$('lcexportall'))};
+ $('lcreport').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=report'+redactQ(),$('lcreport'))};
+ $('lcbundle').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=bundle'+redactQ(),$('lcbundle'))};
  ['lclevel','lcsource','lcfunction','lcsearch','lcregex','lcfrom','lcuntil','lcgroup','lcbm'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>render(true),150)}));
  ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
  $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
- $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const rv=maybeRedact($('lcout').innerText);const text=rv.text;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log'+(rv.total?' (private data hidden in '+rv.total+' line(s))':''))}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);alert('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
- $('lcdelete').onclick=async()=>{if(!historyMode||!confirm('Delete '+historyMode+' (.log and .txt) permanently?'))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){alert('Could not delete: '+e.message)}};
+ $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const rv=maybeRedact($('lcout').innerText);const text=rv.text;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log'+(rv.total?' (private data hidden in '+rv.total+' line(s))':''))}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);askNotice('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
+ $('lcdelete').onclick=async()=>{if(!historyMode||!(await askConfirm('Delete '+historyMode+' (.log and .txt) permanently?','Delete',true)))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){askNotice('Could not delete: '+e.message)}};
 
  /* ---- search across every saved session ---- */
  $('lcsearchall').onclick=async()=>{
   const q=$('lcsearch').value.trim(), level=$('lclevel').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value);
-  if(!q&&level==='ALL'&&!from&&!until){alert('Type a keyword or regex, pick a level, or set a time range to search all saved sessions.');return}
+  if(!q&&level==='ALL'&&!from&&!until){askNotice('Type a keyword or regex, pick a level, or set a time range to search all saved sessions.');return}
   $('lcout').textContent='Searching all saved sessions…';
   try{
    const p=new URLSearchParams({q,regex:$('lcregex').checked?'1':'0',level:level==='ALL'?'':level,from,until,limit:'500'});
@@ -6347,7 +6375,7 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
 
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
- $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value,keepAll:$('lcdevkeepall').checked})});createToast('Device capture settings saved');await loadDevice()}catch(e){alert('Could not save device capture: '+e.message)}};
+ $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value,keepAll:$('lcdevkeepall').checked})});createToast('Device capture settings saved');await loadDevice()}catch(e){askNotice('Could not save device capture: '+e.message)}};
 
 
  /* ---- boot files: grouped and sorted the same way in every dropdown ---- */
@@ -6362,7 +6390,7 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  const bootLabel=f=>{const k=bootKind(f.name),r=bootRot(f.name);const tag=k===2?(bootInfo[f.name]||''):(r===0?'current':'older #'+r);return f.name+(tag?' \u2014 '+tag:'')+' \u00b7 '+bootSize(f.size)+(f.modified?' \u00b7 '+bootShort(f.modified):'')};
  const bootGroups=['Logcat (all buffers, newest first)','Kernel (dmesg, newest first)','Info and events'];
  function bootOptions(files,prefix,pre){pre=pre||'';const out=[];[0,1,2].forEach(k=>{const g=bootSort(files.filter(f=>bootKind(f.name)===k));if(g.length)out.push('<optgroup label="'+pre+bootGroups[k]+'">'+g.map(f=>'<option value="'+prefix+esc(f.name)+'">'+esc(bootLabel(f))+'</option>').join('')+'</optgroup>')});return out.join('')}
- async function copyText(text,what){const r=maybeRedact(text);text=r.text;if(r.total)what+=' (private data hidden in '+r.total+' line(s))';try{await navigator.clipboard.writeText(text);createToast('Copied '+what)}catch(e){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();if(ok)createToast('Copied '+what);else alert('Automatic copy is not available here. Select the text and use your browser Copy command.')}}
+ async function copyText(text,what){const r=maybeRedact(text);text=r.text;if(r.total)what+=' (private data hidden in '+r.total+' line(s))';try{await navigator.clipboard.writeText(text);createToast('Copied '+what)}catch(e){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}ta.remove();if(ok)createToast('Copied '+what);else askNotice('Automatic copy is not available here. Select the text and use your browser Copy command.')}}
  async function bootWholeFile(file,progress){let start=1,total=1,parts=[];while(start<=total){const d=await api('/api/logs/boot/read?file='+encodeURIComponent(file)+'&start='+start+'&limit='+BOOT_MAXPAGE);total=d.total;parts.push((d.lines||[]).join('\n'));start=d.end+1;if(!(d.lines||[]).length)break;if(progress)progress(Math.min(start-1,total),total)}return parts.join('\n')}
  /* ---- boot capture (Magisk script) ---- */
  const BOOT_PAGE=300; let bootStart=1,bootTotal=0,bootFiles=[];
@@ -6391,10 +6419,10 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  $('lcbootgo').onclick=()=>{const v=$('lcbootjump').value.trim();if(v)bootRead(1,v)};
  $('lcbootcopy').onclick=async()=>{const f=$('lcbootfile').value;if(!f){createToast('No file selected');return}
   if(!$('lcbootcopyall').checked){await copyText($('lcbootout').textContent,'this page');return}
-  const pos=$('lcbootpos'),keep=pos.textContent;try{const t=await bootWholeFile(f,(a,b)=>{pos.textContent='Reading '+bootNum(a)+' of '+bootNum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,f+' ('+bootNum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;alert('Copy failed: '+e.message)}};
- $('lcvcopyall').onclick=async()=>{if(!vFile)return;const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;alert('Copy failed: '+e.message)}};
- $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Working (about 10 s, includes a test that a test line reaches the log)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200,retainDays:Math.max(0,+$('lcbootdays').value||0)})});createToast(d.selftest?'Boot capture is on; self-test passed':'Boot capture is on; self-test not confirmed yet');await loadBoot()}catch(e){alert('Could not turn on boot capture: '+e.message);loadBoot()}};
- $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!confirm(purge?'Turn off boot capture AND delete all captured files?':'Turn off boot capture? (captured files are kept)'))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture turned off');await loadBoot()}catch(e){alert('Could not turn off boot capture: '+e.message)}};
+  const pos=$('lcbootpos'),keep=pos.textContent;try{const t=await bootWholeFile(f,(a,b)=>{pos.textContent='Reading '+bootNum(a)+' of '+bootNum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,f+' ('+bootNum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;askNotice('Copy failed: '+e.message)}};
+ $('lcvcopyall').onclick=async()=>{if(!vFile)return;const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;askNotice('Copy failed: '+e.message)}};
+ $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Working (about 10 s, includes a test that a test line reaches the log)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200,retainDays:Math.max(0,+$('lcbootdays').value||0)})});createToast(d.selftest?'Boot capture is on; self-test passed':'Boot capture is on; self-test not confirmed yet');await loadBoot()}catch(e){askNotice('Could not turn on boot capture: '+e.message);loadBoot()}};
+ $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!(await askConfirm(purge?'Turn off boot capture AND delete all captured files?':'Turn off boot capture? (captured files are kept)','Continue')))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture turned off');await loadBoot()}catch(e){askNotice('Could not turn off boot capture: '+e.message)}};
 
  setInterval(()=>{if(panelOpen()&&!document.hidden&&!historyMode)loadCounters()},5000);
  const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();loadCounters();}};
@@ -6471,7 +6499,7 @@ $('lbdelete').onclick=async()=>{
  const p=picked();if(!p.length){createToast('Pick a row first','orange');return}
  const ok=p.filter(r=>r.canDelete),skip=p.length-ok.length;
  if(!ok.length){createToast('These cannot be deleted here (the active session and the live boot files are kept)','orange');return}
- const au=ok.some(r=>r.type==='audit');if(!confirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':'')))return;
+ const au=ok.some(r=>r.type==='audit');if(!(await askConfirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':''),'Delete',true)))return;
  try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent=''}
  catch(e){createToast('Delete failed: '+(e.message||e),'red')}
  load();
@@ -6661,6 +6689,7 @@ window.lbOpen=load;
     'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
     'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
     'Add plugin (.js or UFI-TOOLS .txt)':'Magdagdag ng plugin (.js o UFI-TOOLS .txt)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
+    'Cancel':'Kanselahin','Confirm':'Kumpirmahin','Next':'Susunod','Notice':'Paunawa','Network rules':'Mga network rule','Root over HTTP':'Root sa HTTP','Allow':'Payagan','Block':'I-block','Continue':'Magpatuloy',
     'Plugin store…':'Plugin store…','Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…','Export UFI .txt':'I-export ang UFI .txt','Import UFI .txt':'I-import ang UFI .txt',
     'Plugins can run any command as root through this console. Install only code you trust.':'Ang mga plugin ay maaaring magpatakbo ng anumang command bilang root sa console na ito. Mag-install lang ng code na pinagkakatiwalaan mo.'
   }};

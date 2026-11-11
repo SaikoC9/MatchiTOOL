@@ -32,7 +32,7 @@ function env() {
   };
   const ctx = { document: { getElementById: el, querySelectorAll: sel => sel.includes('lbchips') ? chipBtns : ticked.map(id => ({ dataset: { id } })) }, window: win,
     navigator: { clipboard: { writeText: async t => { st.clip = t; } } }, createToast: m => toasts.push(m),
-    confirm: t => { st.confirm = t; return true; }, api, console };
+    askConfirm: async t => { st.confirm = t; return true; }, api, console };
   vm.runInNewContext(code, ctx);
   return { el, win, calls, toasts, st, chipBtns, tick: ids => { ticked = ids; } };
 }

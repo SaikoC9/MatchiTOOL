@@ -8,7 +8,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1100, height: 900 } });
   await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); } catch (_) {} });
   const page = await ctx.newPage(); const seen = [], dialogs = []; let acceptDialog = true;
-  page.on('dialog', (d) => { dialogs.push(d.message().slice(0, 40)); acceptDialog ? d.accept() : d.dismiss(); });
+  // The page asks with its own in-page dialog (askConfirm), not the browser's: answer it by clicking OK or Cancel.
+  await page.exposeFunction('__asked', (m) => { dialogs.push(m.slice(0, 40)); return acceptDialog; });
+  await ctx.addInitScript(() => { new MutationObserver(() => { const ok = document.querySelector('.modal-bg [role=alertdialog] .cok'); if (!ok || ok.dataset.seen) return; ok.dataset.seen = '1'; const m = ok.closest('[role=alertdialog]').querySelector('.mbody').textContent; window.__asked(m).then((a) => (a ? ok : ok.parentNode.querySelector('.ccancel')).click()); }).observe(document, { childList: true, subtree: true }); });
   await page.route('**/*', async (r) => {
     const req = r.request(), u = new URL(req.url()); if (u.hostname !== 'localhost') return r.abort();
     if (u.pathname === '/') return r.fulfill({ contentType: 'text/html', body: html });
