@@ -39,5 +39,12 @@ const sys = (A, B, extra = '') => 'BATTERY\nlevel: 50\ntemperature: 300\nstatus:
   const r = make()(sys('', '', old), []);
   ok(r.cpu === 20, 'old form: 20 busy of 100 = 20 (got ' + r.cpu + ')');
 }
+// 6. per-core speed lines "F:<core> <online> <cur kHz> <max kHz>" (UFI "CPU Frequency"); an offline core stays in the list with on=false
+{
+  const f = 'F:1 0 0 1800000\nF:0 1 936000 1800000\nF:2 1 614000 2000000\ngarbage\n';
+  const r = make()(sys('Acpu  0 0 0 0 0 0 0 0\n', 'Bcpu  1 0 0 9 0 0 0 0\n', f), []);
+  ok(r.freqs.length === 3 && r.freqs[0].id === 0 && r.freqs[0].on && r.freqs[0].cur === 936000 && r.freqs[1].on === false && r.freqs[2].max === 2000000, 'per core speed ' + JSON.stringify(r.freqs));
+  ok(make()(sys('', ''), []).freqs.length === 0, 'no F: lines gives an empty list');
+}
 if (bad) { console.error(bad + ' live cpu check(s) failed'); process.exit(1); }
 console.log('live cpu tests passed');

@@ -1,3 +1,9 @@
+# MatchiTOOL (unreleased) - Dashboard: Core usage + CPU frequency cards (UFI-TOOLS style)
+
+- **Core usage:** one bar per core (0-100 %) with the number under it, from the same two `/proc/stat` reads as the CPU tile. An offline core is dimmed and shows a dash; cores that are switched off (the F50 outside performance mode keeps cores 4-7 off) are still drawn, so there are always as many bars as cores.
+- **CPU frequency (MHz):** one cell per core with the current speed and a fill bar against its maximum. An offline core shows 0, as in UFI-TOOLS. The core list comes from `/sys/devices/system/cpu/possible`, so cores 4-7 still show (as 0) when the F50 is not in performance mode, even if the kernel removes their folders. Read in the same root call as the other slow values (`scaling_cur_freq`, `cpuinfo_max_freq`, `online`), no extra call. Tapping the card opens the CPU Governor.
+- Test added in `scripts/test_live_cpu.js` (`F:` lines). **Not yet checked on the F50.**
+
 # MatchiTOOL (unreleased) - AT & Radio: radio restart had on/off reversed (fix)
 
 - **Problem:** after a network-mode change or band lock, the dashboard could not be reached and showed 4G only, which UFI-TOOLS never does. Cause: the radio restart sent `AT+SFUN=4` first and `AT+SFUN=5` second, believing 4 = off and 5 = on. UFI-TOOLS' real order (decoded from its code, the helper is not a no-op as the old notes said) is `AT+SFUN=5` (radio off), then `AT+SFUN=4` (radio on). So the old "restart" left the radio off.
