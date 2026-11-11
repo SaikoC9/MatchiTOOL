@@ -1,3 +1,8 @@
+# MatchiTOOL (unreleased) - Dashboard: core cards smaller, no overlap on phones
+
+- Core usage and CPU frequency now sit in a two-column grid (each card can shrink), so they no longer overlap on a phone.
+- CPU frequency shows only the numbers, in small chips like UFI-TOOLS (offline cores dim, 0). Core usage bars are smaller and have no number under them (the CPU tile still lists them; hover a bar for the value).
+
 # MatchiTOOL (unreleased) - AT & Radio: radio restart runs on the device (found on the F50)
 
 - **Problem (from the F50 log):** `slot 0 off: OK`, `slot 1 off: OK`, then `slot 0 on: Cannot reach MatchiTOOL host`. While the radio is off the page loses the host for a few seconds, so the "on" step sent from the page never arrived and slot 0 was left off. This is also why the dashboard could not be reached after a band lock.
