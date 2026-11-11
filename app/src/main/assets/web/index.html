@@ -1620,7 +1620,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const shellP = (async () => {
       try {
         const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ timeout: 12000, cmd:
-          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + 'cs() { while read l; do case "$l" in cpu*) echo "$1$l";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.8; cs B; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo|CellSignalStrengthNr" | head -40' : 'true') }) });
+          'echo BATTERY; B=/sys/class/power_supply/battery; read c < $B/capacity; read t < $B/temp; read u < $B/status; echo "level: $c"; echo "temperature: $t"; case "$u" in Charging) echo "status: 2";; Discharging) echo "status: 3";; "Not charging") echo "status: 4";; Full) echo "status: 5";; *) echo "status: 1";; esac; echo THERMAL; for z in /sys/class/thermal/thermal_zone*; do read v < "$z/temp" 2>/dev/null || continue; read n < "$z/type" 2>/dev/null; echo "Z:$n=$v"; done; echo SYS; ' + 'cs() { while read l; do case "$l" in cpu*) echo "$1$l";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.8; cs B; fr() { S=/sys/devices/system/cpu; p=7; [ -r $S/possible ] && read p < $S/possible; mx=${p##*[-,]}; case $mx in \"\"|*[!0-9]*) mx=7;; esac; [ $mx -gt 15 ] && mx=15; n=0; while [ $n -le $mx ]; do d=$S/cpu$n; o=1; f=0; m=0; if [ ! -d $d ]; then o=0; else [ -r $d/online ] && read o < $d/online; [ -r $d/cpufreq/cpuinfo_max_freq ] && read m < $d/cpufreq/cpuinfo_max_freq; if [ \"$o\" = 1 ] && [ -r $d/cpufreq/scaling_cur_freq ]; then read f < $d/cpufreq/scaling_cur_freq; fi; fi; echo \"F:$n $o $f $m\"; n=$((n+1)); done; }; fr; read c < /proc/stat; echo "cpu: $c"; read l1 l2 l3 x < /proc/loadavg; echo "load: $l1 $l2 $l3"; read up x < /proc/uptime; echo "up: $up"; mt=0; ma=0; while read k v w; do case $k in MemTotal:) mt=$v;; MemAvailable:) ma=$v;; esac; done < /proc/meminfo; echo "mem: $mt $ma"; ' + (((needFallback && Date.now() - teleAt > 120000) || (!needFallback && radioGap() && Date.now() - teleAt > TELE_MS[Math.min(heatLevel(), 2)] - 2000)) ? 'echo TELEPHONY; dumpsys telephony.registry 2>/dev/null | grep -E "mSignalStrength|mServiceState|mCellIdentity|mCellInfo|CellSignalStrengthNr" | head -40' : 'true') }) });
         sh = String(r.content || '');
         if (sh.includes('TELEPHONY')) { teleCache = sh.split('TELEPHONY')[1] || ''; teleAt = Date.now(); }
       } catch (e) { errs.push('Shell unavailable: ' + e.message); }
@@ -1663,14 +1663,16 @@ rm -f $P.g $P.4 $P.6 $P.d
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
-    return { bat, st, temp, zones, cpu, cores, mem, load, upSec, errs };
+    // Per-core speed (UFI-TOOLS "CPU Frequency"): "F:<core> <online 0/1> <cur kHz> <max kHz>". An offline core shows 0.
+    const freqs = [...sh.matchAll(/^F:(\d+) ([01]) (\d+) (\d+)\s*$/gm)].map((m) => ({ id: Number(m[1]), on: m[2] === '1', cur: Number(m[3]), max: Number(m[4]) })).sort((a, b) => a.id - b.id);
+    return { bat, st, temp, zones, cpu, cores, freqs, mem, load, upSec, errs };
   }
 
   // Merge the router values (fast loop) with the root shell values (slow loop) into one `last` object.
   function build() {
     const zte = zteData, S = sysPart || { zones: [], errs: [] }, tele = teleCache, zOk = zteOk();
     const raw = zOk ? { cops: '', csq: '', cesq: '', cereg: '' } : atRaw;
-    const { bat, st, temp, zones, cpu, cores, mem, load, upSec } = S, errs = S.errs;
+    const { bat, st, temp, zones, cpu, cores, freqs, mem, load, upSec } = S, errs = S.errs;
     const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -1736,7 +1738,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     return {
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
-      batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
+      batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, freqs, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
       // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
       rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
       ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
@@ -1796,10 +1798,28 @@ rm -f $P.g $P.4 $P.6 $P.d
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
       ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>`;
+    // UFI-TOOLS "Core Usage" (one bar per core) and "CPU Frequency" (MHz per core, offline core = 0). Tap the speed card for the CPU Governor.
+    const coreCards = (() => {
+      const fr = M.freqs || [], have = new Map((M.cores || []).map((c) => [c.id, c]));
+      // Cores that are switched off (the F50 outside performance mode keeps cores 4-7 off) are missing from /proc/stat: still draw them, as an empty bar.
+      for (const f of fr) if (!have.has(f.id)) have.set(f.id, { id: f.id, pct: undefined });
+      const cs = [...have.values()].sort((a, b) => a.id - b.id);
+      if (!cs.length && !fr.length) return '';
+      const isOn = (id) => { const f = fr.find((x) => x.id === id); return !f || f.on; };
+      const usage = cs.length ? `<div class="liv-cc"><div class="liv-cct">Core usage</div><div class="liv-cbars" role="img" aria-label="CPU usage per core">${cs.map((c) => {
+        const on = isOn(c.id), p = on && c.pct !== undefined ? Math.max(0, Math.min(100, c.pct)) : 0;
+        return `<div class="liv-cb${on ? '' : ' off'}" title="Core ${c.id}: ${on ? (c.pct === undefined ? 'no reading' : Math.round(c.pct) + ' %') : 'offline'}"><div class="liv-cbt"><i style="height:${Math.max(p, 4)}%"></i></div><span>${on && c.pct !== undefined ? Math.round(p) : '–'}</span></div>`;
+      }).join('')}</div></div>` : '';
+      const freq = fr.length ? `<div class="liv-cc" data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"><div class="liv-cct">CPU frequency (MHz)</div><div class="liv-cf">${fr.map((f) => {
+        const mhz = f.on ? Math.round(f.cur / 1000) : 0, mx = Math.round(f.max / 1000), p = f.on && f.max > 0 ? Math.min(100, Math.round(100 * f.cur / f.max)) : 0;
+        return `<div class="liv-cfi${f.on ? '' : ' off'}" title="Core ${f.id}: ${f.on ? mhz + ' of ' + mx + ' MHz' : 'offline'}"><b>${mhz}</b><div class="liv-bar"><i style="width:${p}%;background:#55b6ff"></i></div></div>`;
+      }).join('')}</div></div>` : '';
+      return `<div class="liv-tiles liv-cards">${usage}${freq}</div>`;
+    })();
     const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
       : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
       : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
-    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + coreCards + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
   // ---- page + popup --------------------------------------------------------------------------------------
@@ -1822,6 +1842,9 @@ rm -f $P.g $P.4 $P.6 $P.d
 .lcpu-h{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:4px 0 6px}.lcpu-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .lcpu-core{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:7px 8px;border-radius:10px;background:#0a1626;border:1px solid var(--bd);color:inherit;font:inherit;cursor:pointer;text-align:left}.lcpu-core b{font-size:12px}.lcpu-core span{font-size:11px;color:var(--mut)}.lcpu-core.on{border-color:#1f4a7a}.lcpu-core.off{opacity:.55}
 .liv-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--mut);font-weight:650}.liv-chips{display:inline-flex;gap:4px}.liv-chip{font:inherit;font-weight:750;padding:2px 9px;border-radius:999px;border:1px solid var(--bd);background:#0a1626;color:var(--mut);cursor:pointer}.liv-chip[aria-pressed=true]{background:#168cff22;border-color:#168cff66;color:#55b6ff}.liv-bp{font:inherit;padding:1px 4px;border-radius:6px;border:1px solid var(--bd);background:#0a1626;color:inherit}.liv-spark{margin-top:6px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 2px}.liv-spark svg{display:block}
+.liv-cards{flex-wrap:wrap}.liv-cc{flex:1;min-width:200px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:6px 10px 8px}.liv-cct{font-size:11px;font-weight:750;text-align:center;color:var(--fg);margin-bottom:6px}
+.liv-cbars{display:flex;gap:6px;align-items:flex-end;justify-content:center}.liv-cb{flex:1;max-width:34px;display:flex;flex-direction:column;align-items:center;gap:2px}.liv-cbt{width:100%;height:34px;display:flex;align-items:flex-end;border-radius:4px;background:#16283f;overflow:hidden}.liv-cbt i{display:block;width:100%;border-radius:3px;background:#55b6ff;transition:height .5s}.liv-cb span{font-size:10px;color:var(--mut)}.liv-cb.off{opacity:.45}
+.liv-cf{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 8px}.liv-cfi{display:flex;flex-direction:column;gap:3px;align-items:center}.liv-cfi b{font-size:12px;font-variant-numeric:tabular-nums}.liv-cfi.off{opacity:.45}
 .lcpu-bar{width:100%;height:4px;border-radius:99px;background:#16283f;overflow:hidden}.lcpu-bar i{display:block;height:100%;background:#55b6ff;border-radius:99px;transition:width .5s}
 .lcpu-ctl{display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.lcpu-ctl label{flex:1;min-width:130px;font-size:11px;font-weight:700;color:var(--mut);display:flex;flex-direction:column;gap:4px}.lcpu-ctl select{width:100%}
 .lcpu-note,.lcpu-boot{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}.lcpu-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.lcpu-actions button{flex:1}
