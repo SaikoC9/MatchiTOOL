@@ -64,7 +64,7 @@ jobs:
           RELEASES_REPO: ${{ vars.RELEASES_REPO }}
         run: |
           if [ -z "$RELEASES_REPO" ] || [ -z "$GH_TOKEN" ]; then echo "::error::Set repo variable RELEASES_REPO (owner/name) and secret RELEASES_TOKEN"; exit 1; fi
-          VER=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          VER=$(grep -oP '^VERSION_NAME=\K.+' version.properties)
           cp app/build/outputs/apk/release/app-release.apk MatchiTOOL.apk
           SHA=$(sha256sum MatchiTOOL.apk | cut -d' ' -f1)
           echo "Version $VER" ; echo "SHA-256 $SHA"
