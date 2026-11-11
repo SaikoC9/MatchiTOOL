@@ -725,7 +725,7 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
 /*
  * AT & Radio - MatchiTOOL plugin
  * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
- * network mode, performance mode, band lock, cell lock, modem restart (formats: docs/AT_RADIO_FORMATS.md).
+ * network mode, band lock, cell lock, modem restart (formats: docs/AT_RADIO_FORMATS.md).
  * AT commands are sent with the sendat binary from UFI-TOOLS, bundled with MatchiTOOL.
  * This file is only the window. Everything that talks to the modem or router is in web-src/radio-core.js (window.MatchiRadio).
  */
@@ -927,25 +927,23 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
 
   function setRadioBusy(on) {
     radioBusy = on;
-    for (const id of ['matchi_nm', 'matchi_pm', 'matchi_reboot', ...bandBtns]) { const el = document.getElementById(id); if (el) el.disabled = on; }
+    for (const id of ['matchi_nm', 'matchi_reboot', ...bandBtns]) { const el = document.getElementById(id); if (el) el.disabled = on; }
     document.querySelectorAll('#matchi_cell_panel button.at-cl').forEach((el) => { el.disabled = on; });
   }
   // Show what the router reports. Unknown value (other firmware) is shown as-is in its own option, never mapped to a guess.
   async function refreshRadio() {
-    const nmRow = document.getElementById('matchi_nm_row'), pmRow = document.getElementById('matchi_pm_row');
-    if (!nmRow || !pmRow) return;
+    const nmRow = document.getElementById('matchi_nm_row');
+    if (!nmRow) return;
     let st;
     try { st = await readRadio(); }
-    catch (e) { nmRow.style.display = pmRow.style.display = 'none'; log('Router settings not available: ' + e.message); return; }
-    const nm = document.getElementById('matchi_nm'), pm = document.getElementById('matchi_pm');
-    if (!nm || !pm) return;
+    catch (e) { nmRow.style.display = 'none'; log('Router settings not available: ' + e.message); return; }
+    const nm = document.getElementById('matchi_nm');
+    if (!nm) return;
     if (st.net) {
       nm.querySelectorAll('option[data-extra]').forEach((o) => o.remove());
       if (!NET_MODES.some((m) => m[0] === st.net)) { const o = document.createElement('option'); o.value = st.net; o.dataset.extra = '1'; o.textContent = 'Current: ' + st.net; nm.appendChild(o); }
       nm.value = st.net; nm.dataset.cur = st.net; nmRow.style.display = 'flex';
     } else nmRow.style.display = 'none';
-    if (st.perf === '0' || st.perf === '1') { pm.checked = st.perf === '1'; pm.dataset.cur = st.perf; pmRow.style.display = ''; }
-    else pmRow.style.display = 'none';
   }
   async function changeNetMode(e) {
     const nm = e.target, prev = nm.dataset.cur || '', next = nm.value;
@@ -962,24 +960,6 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
       if (st && st.net === next) { log('Router now reports: ' + netLabel(next)); createToast('Network mode: ' + netLabel(next), 'green'); }
       else { log('Router accepted the change but reports ' + (st && st.net ? netLabel(st.net) : 'nothing') + '. It may need a moment; open this window again to check.'); createToast('Sent, but the router does not report the new mode yet', 'red'); }
     } catch (err) { log('Network mode failed: ' + err.message); createToast(err.message, 'red'); }
-    setRadioBusy(false);
-    refreshRadio();
-  }
-  async function changePerf(e) {
-    const pm = e.target, prev = pm.dataset.cur || '', next = pm.checked ? '1' : '0';
-    if (radioBusy || next === prev) return;
-    const ok = await askConfirm((pm.checked ? 'Turn performance mode ON?' : 'Turn performance mode OFF?') + '\n\nThe router saves it now, but it only takes effect after the router is rebooted. Nothing changes until then.', pm.checked ? 'Turn on' : 'Turn off');
-    if (!ok) { pm.checked = prev === '1'; return; }
-    setRadioBusy(true);
-    try {
-      log('> Performance mode ' + (pm.checked ? 'on' : 'off') + ' (effective after reboot)');
-      await setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next });
-      let st = null;
-      try { st = await readRadio(); } catch (_) { /* shown below */ }
-      if (st && st.perf === next) log('Router now reports performance mode ' + (next === '1' ? 'on' : 'off') + '. Reboot the router to apply it.');
-      else log('Router accepted the change but reports ' + (st && st.perf ? st.perf : 'nothing') + '. Reboot the router, then open this window again to check.');
-      createToast('Saved. Effective after reboot', 'green');
-    } catch (err) { log('Performance mode failed: ' + err.message); createToast(err.message, 'red'); }
     setRadioBusy(false);
     refreshRadio();
   }
@@ -1212,12 +1192,11 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
         '<div style="display:flex;gap:8px;margin-bottom:8px"><select id="matchi_at_slot"><option value="0">SIM slot 0</option><option value="1">SIM slot 1</option></select></div>' +
         '<div id="matchi_nm_row" style="display:none;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap"><label for="matchi_nm">Network mode</label>' +
         '<select id="matchi_nm">' + NET_MODES.map((m) => `<option value="${esc(m[0])}">${esc(m[1])}</option>`).join('') + '</select></div>' +
-        '<div class="at-tg" id="matchi_pm_row" style="display:none"><label><input type="checkbox" id="matchi_pm"> Performance mode <small>(effective after reboot)</small></label></div>' +
         '<div id="matchi_band_row" style="display:none;margin-bottom:8px">' +
         '<div id="matchi_band_lte" style="display:none"><div class="at-bl"></div><div class="at-bc"></div></div>' +
         '<div id="matchi_band_nr" style="display:none"><div class="at-bl"></div><div class="at-bc"></div></div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px"><button type="button" id="matchi_band_lock">Lock ticked bands</button><button type="button" id="matchi_band_unlock">Unlock all</button><button type="button" id="matchi_band_restore" style="display:none">Restore original</button><button type="button" id="matchi_band_reapply">Re-apply network mode</button></div></div>' +
-        '<div style="font-size:11.5px;opacity:.7;margin-bottom:8px">Network mode and performance mode apply to the whole router, not to the SIM slot above.</div>' +
+        '<div style="font-size:11.5px;opacity:.7;margin-bottom:8px">Network mode applies to the whole router, not to the SIM slot above.</div>' +
         '<div id="matchi_cell_panel" style="display:none"><div style="color:#ff9a9a;margin-bottom:6px">Warning: locking the wrong cell can leave the phone with no signal or an unstable one.</div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"><button type="button" class="at-cl" id="matchi_cell_unlock">Unlock all cells</button><button type="button" class="at-cl" id="matchi_cell_refresh">Refresh</button><label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="matchi_cell_auto"> Auto-unlock if not registered after 60 s</label></div>' +
         '<div id="matchi_cell_list"></div>' +
@@ -1264,7 +1243,6 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
       };
     }
     document.getElementById('matchi_nm').onchange = changeNetMode;
-    document.getElementById('matchi_pm').onchange = changePerf;
     document.getElementById('matchi_band_row').onclick = (e) => {
       const t = e.target.closest && e.target.closest('.at-bd'); if (!t || radioBusy) return;
       const set = bandState.sel[t.dataset.bt], b = +t.dataset.b;
@@ -4053,14 +4031,14 @@ function mountDashRadio() {
   document.head.appendChild(css);
   const card = document.createElement('div'); card.id = 'dash_radio';
   card.innerHTML = '<div class="dr-h"><span class="dr-t">Radio settings</span><button type="button" data-a="refresh">Refresh</button></div>' +
-    '<div class="dr-note">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
+    '<div class="dr-note">Network mode, performance mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
     '<div class="dr-body">reading…</div><div class="dr-s"></div><pre class="dr-log"></pre>';
   const inl = document.getElementById('liv_inline');
   if (inl && inl.parentNode === home) inl.after(card); else home.appendChild(card);
   const body = card.querySelector('.dr-body'), statusEl = card.querySelector('.dr-s'), logEl = card.querySelector('.dr-log');
 
   // routerLte / routerNr = what the router reported at the last read. pendLte / pendNr = what is ticked now.
-  const st = { routerLte: [], routerNr: [], pendLte: new Set(), pendNr: new Set(), lteSup: [], nrSup: [], haveLte: false, haveNr: false, lteRaw: '', nrRaw: '', net: null, err: '' };
+  const st = { routerLte: [], routerNr: [], pendLte: new Set(), pendNr: new Set(), lteSup: [], nrSup: [], haveLte: false, haveNr: false, lteRaw: '', nrRaw: '', net: null, perf: null, err: '' };
   const sameSet = (arr, set) => arr.length === set.size && arr.every((x) => set.has(x));
   const dirty = () => (st.haveLte && !sameSet(st.routerLte, st.pendLte)) || (st.haveNr && !sameSet(st.routerNr, st.pendNr));
   const sorted = (set) => [...set].sort((a, b) => a - b);
@@ -4087,6 +4065,10 @@ function mountDashRadio() {
       const opts = R.NET_MODES.slice(); if (!opts.some((m) => m[0] === st.net)) opts.push([st.net, 'Current: ' + st.net]);
       h += `<div class="dr-row"><label for="dr_nm">Network mode</label><select id="dr_nm" data-a="net"${dis}>${opts.map((m) => `<option value="${esc(m[0])}"${m[0] === st.net ? ' selected' : ''}>${esc(m[1])}</option>`).join('')}</select></div>`;
     }
+    // Performance mode is its own control, separate from the network mode. Hidden when the router does not report it.
+    if (st.perf === '0' || st.perf === '1') {
+      h += `<div class="dr-row"><label><input type="checkbox" id="dr_pm" data-a="perf"${st.perf === '1' ? ' checked' : ''}${dis}> Performance mode</label><span class="dr-l" style="margin:0">(effective after reboot)</span></div>`;
+    }
     if (st.haveLte) h += `<div class="dr-l">LTE bands · locked now: ${esc(lockedText(st.routerLte, st.lteSup, st.lteRaw, 'B'))}</div><div class="dr-c">${chips('lte', st.lteSup, st.routerLte, st.pendLte)}</div>`;
     if (st.haveNr) h += `<div class="dr-l">5G NR bands · locked now: ${esc(lockedText(st.routerNr, st.nrSup, st.nrRaw, 'n'))}</div><div class="dr-c">${chips('nr', st.nrSup, st.routerNr, st.pendNr)}</div>`;
     if (st.haveLte || st.haveNr) {
@@ -4101,9 +4083,9 @@ function mountDashRadio() {
   async function refresh() {
     const g = ++gen;
     try {
-      const [b, r] = await Promise.all([R.readBands().catch((e) => ({ err: e.message })), R.readRadio().catch(() => ({ net: null }))]);
+      const [b, r] = await Promise.all([R.readBands().catch((e) => ({ err: e.message })), R.readRadio().catch(() => ({ net: null, perf: null }))]);
       if (g !== gen) return;
-      st.net = r.net || null;
+      st.net = r.net || null; st.perf = r.perf || null;
       if (b.err || (b.lte === null && b.nr === null)) { st.haveLte = st.haveNr = false; st.err = b.err || ''; paint(); return; }
       st.err = '';
       st.haveLte = b.lte !== null; st.haveNr = b.nr !== null;
@@ -4178,6 +4160,23 @@ function mountDashRadio() {
     finally { done(); }
   }
 
+  // Performance mode: saved at once, but the router applies it only after a reboot. No radio restart.
+  async function changePerf(box) {
+    const prev = st.perf, next = box.checked ? '1' : '0';
+    if (R.isBusy() || next === prev) return;
+    if (!(await askConfirm((box.checked ? 'Turn performance mode ON?' : 'Turn performance mode OFF?') + '\n\nThe router saves it now, but it only takes effect after the router is rebooted. Nothing changes until then.', box.checked ? 'Turn on' : 'Turn off'))) { box.checked = prev === '1'; return; }
+    const done = R.beginBusy('Performance mode saving…');
+    try {
+      setStatus('Saving performance mode…');
+      await R.setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next });
+      let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
+      if (r && r.perf) st.perf = r.perf;
+      if (r && r.perf === next) { setStatus('Router now reports performance mode ' + (next === '1' ? 'on' : 'off') + '. Reboot the router to apply it.'); toast('Saved. Effective after reboot', 'green'); }
+      else { setStatus('Router accepted the change but reports ' + (r && r.perf ? r.perf : 'nothing') + '. Reboot the router, then press Refresh to check.'); toast('Sent, but the router does not report it yet', 'red'); }
+    } catch (e) { setStatus('Performance mode failed: ' + e.message); toast(e.message, 'red'); box.checked = prev === '1'; }
+    finally { done(); }
+  }
+
   card.onclick = (e) => {
     const chip = e.target.closest && e.target.closest('.dr-b[data-t]');
     if (chip) {
@@ -4192,7 +4191,7 @@ function mountDashRadio() {
     else if (a.dataset.a === 'unlock') unlock();
     else if (a.dataset.a === 'reset') { st.pendLte = new Set(st.routerLte); st.pendNr = new Set(st.routerNr); paint(); }
   };
-  card.onchange = (e) => { if (e.target && e.target.dataset && e.target.dataset.a === 'net') changeNet(e.target); };
+  card.onchange = (e) => { const a = e.target && e.target.dataset && e.target.dataset.a; if (a === 'net') changeNet(e.target); else if (a === 'perf') changePerf(e.target); };
 
   // Busy period: show the host as restarting (not red) and disable the controls. When it ends the router is read again
   // (also covers a restart started from the AT & Radio window).
@@ -5396,7 +5395,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.4.0';
+const PAGE_VERSION='1.4.1';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
