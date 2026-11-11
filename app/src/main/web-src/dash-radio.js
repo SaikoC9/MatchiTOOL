@@ -30,14 +30,14 @@ function mountDashRadio() {
   document.head.appendChild(css);
   const card = document.createElement('div'); card.id = 'dash_radio';
   card.innerHTML = '<div class="dr-h"><span class="dr-t">Radio settings</span><button type="button" data-a="refresh">Refresh</button></div>' +
-    '<div class="dr-note">Network mode, performance mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
+    '<div class="dr-note">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
     '<div class="dr-body">reading…</div><div class="dr-s"></div><pre class="dr-log"></pre>';
   const inl = document.getElementById('liv_inline');
   if (inl && inl.parentNode === home) inl.after(card); else home.appendChild(card);
   const body = card.querySelector('.dr-body'), statusEl = card.querySelector('.dr-s'), logEl = card.querySelector('.dr-log');
 
   // routerLte / routerNr = what the router reported at the last read. pendLte / pendNr = what is ticked now.
-  const st = { routerLte: [], routerNr: [], pendLte: new Set(), pendNr: new Set(), lteSup: [], nrSup: [], haveLte: false, haveNr: false, lteRaw: '', nrRaw: '', net: null, perf: null, err: '' };
+  const st = { routerLte: [], routerNr: [], pendLte: new Set(), pendNr: new Set(), lteSup: [], nrSup: [], haveLte: false, haveNr: false, lteRaw: '', nrRaw: '', net: null, err: '' };
   const sameSet = (arr, set) => arr.length === set.size && arr.every((x) => set.has(x));
   const dirty = () => (st.haveLte && !sameSet(st.routerLte, st.pendLte)) || (st.haveNr && !sameSet(st.routerNr, st.pendNr));
   const sorted = (set) => [...set].sort((a, b) => a - b);
@@ -64,10 +64,6 @@ function mountDashRadio() {
       const opts = R.NET_MODES.slice(); if (!opts.some((m) => m[0] === st.net)) opts.push([st.net, 'Current: ' + st.net]);
       h += `<div class="dr-row"><label for="dr_nm">Network mode</label><select id="dr_nm" data-a="net"${dis}>${opts.map((m) => `<option value="${esc(m[0])}"${m[0] === st.net ? ' selected' : ''}>${esc(m[1])}</option>`).join('')}</select></div>`;
     }
-    // Performance mode is its own control, separate from the network mode. Hidden when the router does not report it.
-    if (st.perf === '0' || st.perf === '1') {
-      h += `<div class="dr-row"><label><input type="checkbox" id="dr_pm" data-a="perf"${st.perf === '1' ? ' checked' : ''}${dis}> Performance mode</label><span class="dr-l" style="margin:0">(effective after reboot)</span></div>`;
-    }
     if (st.haveLte) h += `<div class="dr-l">LTE bands · locked now: ${esc(lockedText(st.routerLte, st.lteSup, st.lteRaw, 'B'))}</div><div class="dr-c">${chips('lte', st.lteSup, st.routerLte, st.pendLte)}</div>`;
     if (st.haveNr) h += `<div class="dr-l">5G NR bands · locked now: ${esc(lockedText(st.routerNr, st.nrSup, st.nrRaw, 'n'))}</div><div class="dr-c">${chips('nr', st.nrSup, st.routerNr, st.pendNr)}</div>`;
     if (st.haveLte || st.haveNr) {
@@ -82,9 +78,9 @@ function mountDashRadio() {
   async function refresh() {
     const g = ++gen;
     try {
-      const [b, r] = await Promise.all([R.readBands().catch((e) => ({ err: e.message })), R.readRadio().catch(() => ({ net: null, perf: null }))]);
+      const [b, r] = await Promise.all([R.readBands().catch((e) => ({ err: e.message })), R.readRadio().catch(() => ({ net: null }))]);
       if (g !== gen) return;
-      st.net = r.net || null; st.perf = r.perf || null;
+      st.net = r.net || null;
       if (b.err || (b.lte === null && b.nr === null)) { st.haveLte = st.haveNr = false; st.err = b.err || ''; paint(); return; }
       st.err = '';
       st.haveLte = b.lte !== null; st.haveNr = b.nr !== null;
@@ -159,23 +155,6 @@ function mountDashRadio() {
     finally { done(); }
   }
 
-  // Performance mode: saved at once, but the router applies it only after a reboot. No radio restart.
-  async function changePerf(box) {
-    const prev = st.perf, next = box.checked ? '1' : '0';
-    if (R.isBusy() || next === prev) return;
-    if (!(await askConfirm((box.checked ? 'Turn performance mode ON?' : 'Turn performance mode OFF?') + '\n\nThe router saves it now, but it only takes effect after the router is rebooted. Nothing changes until then.', box.checked ? 'Turn on' : 'Turn off'))) { box.checked = prev === '1'; return; }
-    const done = R.beginBusy('Performance mode saving…');
-    try {
-      setStatus('Saving performance mode…');
-      await R.setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next });
-      let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
-      if (r && r.perf) st.perf = r.perf;
-      if (r && r.perf === next) { setStatus('Router now reports performance mode ' + (next === '1' ? 'on' : 'off') + '. Reboot the router to apply it.'); toast('Saved. Effective after reboot', 'green'); }
-      else { setStatus('Router accepted the change but reports ' + (r && r.perf ? r.perf : 'nothing') + '. Reboot the router, then press Refresh to check.'); toast('Sent, but the router does not report it yet', 'red'); }
-    } catch (e) { setStatus('Performance mode failed: ' + e.message); toast(e.message, 'red'); box.checked = prev === '1'; }
-    finally { done(); }
-  }
-
   card.onclick = (e) => {
     const chip = e.target.closest && e.target.closest('.dr-b[data-t]');
     if (chip) {
@@ -190,7 +169,7 @@ function mountDashRadio() {
     else if (a.dataset.a === 'unlock') unlock();
     else if (a.dataset.a === 'reset') { st.pendLte = new Set(st.routerLte); st.pendNr = new Set(st.routerNr); paint(); }
   };
-  card.onchange = (e) => { const a = e.target && e.target.dataset && e.target.dataset.a; if (a === 'net') changeNet(e.target); else if (a === 'perf') changePerf(e.target); };
+  card.onchange = (e) => { if (e.target && e.target.dataset && e.target.dataset.a === 'net') changeNet(e.target); };
 
   // Busy period: show the host as restarting (not red) and disable the controls. When it ends the router is read again
   // (also covers a restart started from the AT & Radio window).
