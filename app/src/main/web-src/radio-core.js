@@ -1,0 +1,233 @@
+/*
+ * MatchiRadio - the one place that talks to the modem and the router for radio settings.
+ * Used by the AT & Radio window (web-src/at-radio-ui.js) and, later, by the dashboard cards.
+ * No document, no toast, no confirm dialog in here: callers pass in what they need (SIM slot, log function).
+ * Router and AT formats: docs/AT_RADIO_FORMATS.md. Needs the page's global api().
+ */
+window.MatchiRadio = (() => {
+  'use strict';
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- AT commands -------------------------------------------------------------------------------------------
+  async function at(command, slot) {
+    const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command, slot: slot || 0 }) });
+    if (r.error) throw new Error(r.error);
+    return r.result || '';
+  }
+  async function sh(cmd, timeout) {
+    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout: timeout || 15000 }) });
+    if (r.error) throw new Error(r.error);
+    return String(r.content || '');
+  }
+  // Same parsing as UFI-TOOLS: take the text between the first ":" and "OK", split on ",". Text before the "+CMD:" (the bridge can
+  // print a stray first character such as "(" or "6") is ignored because only what follows the first ":" is used.
+  const fields = (raw) => String(raw).split('OK')[0].split(':').slice(1).join(':').replace(/["\r\n]/g, ' ').split(',').map((x) => x.trim());
+  // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
+  const tidy = (t) => String(t || '').replace(/\r/g, '').replace(/([^\n])(OK|ERROR|\+CME ERROR:[^\n]*|\+CMS ERROR:[^\n]*)\s*$/, '$1\n$2').replace(/\n{2,}/g, '\n').trim();
+  // "AT+SP5GCMDS=\"get nr support_band\"" answers "...get nr support_band,6,41,78,1,8,28,5": the first number is a COUNT of the bands after it
+  // (seen on the F50). It is dropped when it equals the number of values after it, so it never shows up as band "n6".
+  const parseNrSupported = (raw) => {
+    const f = fields(raw);
+    const nums = f.slice(1).map((x) => parseInt(x.replace(/\\/g, ''), 10)).filter((x) => !isNaN(x));
+    if (nums.length > 1 && nums[0] === nums.length - 1) nums.shift();
+    return nums;
+  };
+  async function readNrSupported(slot) {
+    try { return parseNrSupported(await at('AT+SP5GCMDS="get nr support_band"', slot)); } catch (_) { return []; }
+  }
+  // Registered = the modem reports status 1 (home) or 5 (roaming) on LTE or 5G. When nothing answers, it counts as not registered (unlocking is the safe side).
+  async function isRegistered(slot) {
+    for (const c of ['AT+CEREG?', 'AT+C5GREG?']) {
+      try { const m = tidy(await at(c, slot)).match(/\+C(?:5G|E)REG:\s*\d+\s*,\s*(\d+)/); if (m && (m[1] === '1' || m[1] === '5')) return true; } catch (_) { /* try the next */ }
+    }
+    return false;
+  }
+
+  // ---- Router (goform through the /api/zte proxy) -------------------------------------------------------------
+  async function zte(op, params) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: 0 }) });
+    if (r.error) throw new Error(r.error);
+    return r.data;
+  }
+  async function setRouter(params) {
+    const d = await zte('set', params);
+    const res = d && typeof d === 'object' ? d.result : d;
+    if (String(res).trim() !== 'success') throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : String(res).slice(0, 80)) + ')');
+  }
+  const NET_MODES = [
+    ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
+  ];
+  const netLabel = (v) => (NET_MODES.find((m) => m[0] === v) || [v, v])[1];
+  const clean = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+  // A key the firmware does not know comes back empty: that means "hide the control", never "show 0".
+  async function readRadio() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'net_select,BearerPreference,performance_mode' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    return { net: clean(d.net_select) || clean(d.BearerPreference), perf: clean(d.performance_mode) };
+  }
+
+  // ---- Band lock ----------------------------------------------------------------------------------------------
+  // LTE_BAND_LOCK / lte_band_lock and NR_BAND_LOCK / nr_band_lock take bare integers joined by ",". The F50 reports plain comma lists and
+  // reports the FULL list when nothing is locked (checked on the device).
+  const LTE_BANDS = [1, 2, 3, 4, 5, 7, 8, 12, 13, 17, 18, 19, 20, 25, 26, 28, 34, 38, 39, 40, 41, 42, 43];
+  // "1,3,n28" -> [1,3,28]. null = key not reported at all (hide); '' / "all" / junk -> [] (nothing parsed; raw text is kept for display).
+  const parseBands = (v) => {
+    if (v === undefined || v === null) return null;
+    const out = String(v).split(',').map((x) => parseInt(String(x).trim().replace(/^n/i, ''), 10)).filter((n) => n > 0 && n < 1000);
+    return [...new Set(out)].sort((a, b) => a - b);
+  };
+  const bandText = (l) => l.join(',');
+  const bandsMsg = (l, n) => (l.length ? l.map((x) => (n ? 'n' : 'B') + x).join(' ') : 'none');
+  const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // The router may drop bands the modem does not support, so a read-back that is a non-empty subset of what was sent counts as applied.
+  // ok = applied; dropped = bands that were sent but not reported back.
+  const bandsCheck = (read, want) => {
+    const r = read || [], dropped = want.filter((x) => !r.includes(x));
+    return { ok: r.length > 0 && r.every((x) => want.includes(x)), dropped };
+  };
+  async function readBands() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'lte_band_lock,nr_band_lock' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    return { lteRaw: d.lte_band_lock, nrRaw: d.nr_band_lock, lte: parseBands(d.lte_band_lock), nr: parseBands(d.nr_band_lock) };
+  }
+  // Sends only the parts that are given: [goformId, param, value]. Every one must answer success; the first failure stops the rest.
+  async function sendBands(parts) {
+    const sent = [];
+    for (const [goformId, param, value] of parts) {
+      await setRouter({ goformId, [param]: value }); sent.push(goformId);
+    }
+    return sent;
+  }
+  // Send, then read back and compare with `expect` ({lte?: [..], nr?: [..]}). Throws when the router refuses. Never restarts the radio.
+  // Returns { sent, read (null when the read-back failed), bad[] (types that do not match), notes[] (dropped bands), ok }.
+  async function setBands(parts, expect) {
+    const sent = await sendBands(parts);
+    let read = null; try { read = await readBands(); } catch (_) { /* reported as ok:false below */ }
+    const bad = [], notes = [];
+    if (read && expect.lte !== undefined) { const c = bandsCheck(read.lte, expect.lte); if (!c.ok) bad.push('LTE reports ' + bandsMsg(read.lte || [], false)); else if (c.dropped.length) notes.push('LTE ' + bandsMsg(c.dropped, false) + ' not supported, dropped by the router'); }
+    if (read && expect.nr !== undefined) { const c = bandsCheck(read.nr, expect.nr); if (!c.ok) bad.push('5G NR reports ' + bandsMsg(read.nr || [], true)); else if (c.dropped.length) notes.push('5G NR ' + bandsMsg(c.dropped, true) + ' not supported, dropped by the router'); }
+    return { sent, read, bad, notes, ok: !!read && !bad.length };
+  }
+
+  // ---- Cell lock ----------------------------------------------------------------------------------------------
+  // CELL_LOCK takes pci, earfcn, rat (12 = 4G, 16 = 5G); UNLOCK_ALL_CELL takes nothing. neighbor_cell_info / locked_cell_info are lists.
+  const toList = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) { try { const j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (_) { return []; } }
+    return [];
+  };
+  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // same as UFI: 12 is 4G, anything else is shown as 5G
+  // The neighbour list has no rat field. Only a band written as "n78" / "B3" decides it; a bare number does not, and then the user picks.
+  const guessRat = (band) => { const b = String(band == null ? '' : band).trim(); return /^n/i.test(b) ? '16' : /^b/i.test(b) ? '12' : ''; };
+  const cellOk = (pci, earfcn, rat) => /^\d{1,4}$/.test(pci) && +pci <= 1007 && /^\d{1,7}$/.test(earfcn) && +earfcn <= 3279165 && (rat === '12' || rat === '16');
+  async function readCells() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'neighbor_cell_info,locked_cell_info' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    if (d.neighbor_cell_info === undefined && d.locked_cell_info === undefined) throw new Error('this firmware reports neither neighbor_cell_info nor locked_cell_info');
+    return { nb: toList(d.neighbor_cell_info), locked: toList(d.locked_cell_info) };
+  }
+  // Send CELL_LOCK, then read the cells back. cells = null when the read failed. hit = the router lists exactly this lock.
+  async function cellLock(pci, earfcn, rat) {
+    await setRouter({ goformId: 'CELL_LOCK', pci, earfcn, rat });
+    let cells = null; try { cells = await readCells(); } catch (_) { /* reported as hit:false */ }
+    const hit = !!cells && cells.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
+    return { cells, hit };
+  }
+  async function cellUnlock() {
+    await setRouter({ goformId: 'UNLOCK_ALL_CELL' });
+    let cells = null; try { cells = await readCells(); } catch (_) { /* reported as none:false */ }
+    return { cells, none: !!cells && !cells.locked.length };
+  }
+
+  // ---- Radio restart ------------------------------------------------------------------------------------------
+  // Copied from UFI-TOOLS 4.1.5 (its code is obfuscated; the order was read from the real call sites):
+  //   AT+SFUN=5 on SIM slot 0, then slot 1 (radio OFF), then AT+SFUN=4 on slot 0, then slot 1 (radio ON), 100 ms apart.
+  // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF and left it there.
+  // On the F50 AT+SFUN? is not supported (+CME ERROR: 3), so this meaning is confirmed only indirectly: registration returns after the sequence.
+  // The whole sequence runs ON the device in ONE root call. Found on the F50: while the radio is off the browser loses the host for a few
+  // seconds, so a step sent from the page ("slot 0 on") never arrived and the radio stayed off. On the device nothing depends on the page.
+  // A slot that did not switch off is sent the "on" command once (as UFI does); a slot that did is retried for about 16 s.
+  const CYCLE_SH = [
+    'SA=/data/data/com.matchi.tool/files/sendat',
+    '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',
+    'tx() { "$SA" -n "$1" -c "$2" 2>&1 | tr "\\n\\r" "  "; }',
+    'o0=$(tx 0 AT+SFUN=5); echo "OFF0:$o0"',
+    'o1=$(tx 1 AT+SFUN=5); echo "OFF1:$o1"',
+    'sleep 0.1',
+    'for s in 0 1; do',
+    '  eval "o=\\$o$s"; n=1; case "$o" in *OK*) n=8;; esac',
+    '  i=0; ok=0; r=',
+    '  while [ $i -lt $n ]; do r=$(tx $s AT+SFUN=4); case "$r" in *OK*) ok=1; break;; esac; i=$((i+1)); [ $i -lt $n ] && sleep 2; done',
+    '  echo "ON$s:$ok:$r"',
+    'done',
+  ].join('\n');
+  // ui = { log(line), toast(text, colour) }, both optional. Returns true when the radio is confirmed back on.
+  async function radioCycle(ui) {
+    const log = (ui && ui.log) || (() => {}), toast = (ui && ui.toast) || (() => {});
+    log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does; runs on the device)');
+    let text = '', lost = false;
+    try { text = await sh(CYCLE_SH, 60000); }
+    catch (e) { lost = true; log('The page lost the host while the radio was off (' + e.message + '). The restart keeps going on the device; waiting for the host to come back...'); }
+    const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
+    if (!lost) {
+      if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
+      for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
+      const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
+      if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
+      const bad = [0, 1].filter((sl) => off[sl] && !/^1:/.test(get('ON' + sl)));
+      if (!bad.length) { log('Radio is back on. Registration can take about 30 s, then check Live Status.'); toast('Radio restarted', 'green'); return true; }
+      lost = true;   // an "on" step did not get OK: fall through to the check below
+      log('Slot ' + bad.join(', ') + ' did not confirm "on". Checking again...');
+    }
+    // The host (or the modem) is away for a short while. Wait until an AT read answers, then send "on" once more: it is harmless when the radio is already on.
+    let up = false;
+    for (let i = 0; i < 30 && !up; i++) {
+      await sleep(3000);
+      try { await at('AT+CSQ', 0); up = true; } catch (_) { /* still away */ }
+    }
+    if (!up) { log('WARNING: the host or the modem did not answer for 90 s. The radio may still be OFF. When this window works again run AT+SFUN=4 (slot 0, then slot 1), or reboot the device.'); toast('Radio may still be off: run AT+SFUN=4', 'red'); return false; }
+    let ok0 = false;
+    for (const sl of [0, 1]) {
+      let last = '';
+      for (let i = 0; i < 3; i++) { try { last = tidy(await at('AT+SFUN=4', sl)); if (last.includes('OK')) break; } catch (e) { last = e.message; } await sleep(2000); }
+      log('slot ' + sl + ' on (again): ' + (last || '(no output)'));
+      if (sl === 0) ok0 = last.includes('OK');
+    }
+    if (ok0) { log('Radio is on. Registration can take about 30 s, then check Live Status.'); toast('Radio restarted', 'green'); return true; }
+    log('WARNING: the radio may still be OFF on slot 0. Run AT+SFUN=4 here now, or reboot the device.'); toast('Radio may still be off: run AT+SFUN=4', 'red'); return false;
+  }
+
+  // ---- Busy state ---------------------------------------------------------------------------------------------
+  // While the radio restarts the modem (and sometimes the host) is away for ~30 s. Whoever starts a radio change calls beginBusy(reason) and
+  // the returned function when finished. Live Status listens (onBusy): it stops polling, keeps the last values on screen and shows the reason,
+  // then reads once when the last busy period ends. Nested periods count; the state ends when all are released.
+  const busyReasons = [], busyListeners = new Set();
+  const isBusy = () => busyReasons.length > 0;
+  const busyReason = () => (busyReasons.length ? busyReasons[busyReasons.length - 1] : '');
+  const notifyBusy = () => { for (const fn of [...busyListeners]) { try { fn(isBusy(), busyReason()); } catch (_) { /* a listener must not break a radio change */ } } };
+  function beginBusy(reason) {
+    const tag = { r: reason || 'Radio busy' }; busyReasons.push(tag.r); notifyBusy();
+    let done = false;
+    return () => { if (done) return; done = true; const i = busyReasons.lastIndexOf(tag.r); if (i >= 0) busyReasons.splice(i, 1); notifyBusy(); };
+  }
+  const onBusy = (fn) => { busyListeners.add(fn); return () => busyListeners.delete(fn); };
+  // Ask the registration every everyMs until the modem is registered (LTE or 5G, stat 1 or 5) or timeoutMs has passed. onTick(secondsWaited) is optional.
+  async function waitRegistered(slot, opt) {
+    const o = opt || {}, every = o.everyMs || 3000, limit = o.timeoutMs || 90000, t0 = Date.now();
+    for (;;) {
+      if (await isRegistered(slot)) return true;
+      const waited = Date.now() - t0; if (waited >= limit) return false;
+      if (o.onTick) { try { o.onTick(Math.round(waited / 1000)); } catch (_) { /* ignore */ } }
+      await sleep(Math.min(every, limit - waited));
+    }
+  }
+
+  return {
+    sleep, at, sh, fields, tidy, parseNrSupported, readNrSupported, isRegistered, waitRegistered,
+    isBusy, busyReason, beginBusy, onBusy,
+    zte, setRouter, NET_MODES, netLabel, clean, readRadio,
+    LTE_BANDS, parseBands, bandText, bandsMsg, sameList, bandsCheck, readBands, sendBands, setBands,
+    toList, ratLabel, guessRat, cellOk, readCells, cellLock, cellUnlock,
+    CYCLE_SH, radioCycle,
+  };
+})();
