@@ -121,7 +121,7 @@ internal fun WebServer.deleteUpload(name: String): Response {
 }
 
 /**
- * Password check for changes to installed plugins (Phase 1): replacing, deleting or approving a plugin needs the sign-in password again,
+ * Password check for changes to plugins (Phase 1): installing, replacing, deleting or approving a plugin needs the sign-in password again,
  * with the same lockout as /api/login and /api/security/net, so a plugin that holds the session token cannot rewrite plugins silently.
  * Returns a response to send back (password missing, or locked out), or null when the password is right. A wrong password throws.
  * Limit, stated plainly: a plugin that wraps window.fetch can still read the password while YOU type it. This stops silent changes only.
@@ -183,15 +183,19 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
         val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes
         if (total > 5L * 1024L * 1024L) throw IllegalArgumentException("custom plugin storage limit is 5 MB")
-        // Replacing an installed plugin needs the password again, unless nothing changes at all (same bytes as the file and as the approved record).
-        // The record is part of the test: otherwise re-saving a tampered file would quietly approve it.
+        // Every install needs the password, new names included: otherwise a running plugin could install another plugin (a copy of itself under a
+        // new name) without you, and it could send "force" and "confirmCaps" itself to skip the risky-code and new-abilities prompts. Those two
+        // fields are only reached after the password was right. The one exception is saving nothing new: the same bytes as the file AND as the
+        // approved record. The record is part of that test, otherwise re-saving a tampered file would quietly approve it.
+        // (This stays after the name, size and reserved-name checks above, so a bad request is still answered as a bad request.)
         val target = File(pluginDir, name)
         val newBytes = code.toByteArray(Charsets.UTF_8)
         val newSha = sha256Hex(newBytes)
         val oldBytes = if (target.isFile) target.readBytes() else null
         val record = Prefs.pluginRecords(ctx)[name]
-        if (oldBytes != null && !(record?.sha == newSha && sha256Hex(oldBytes) == newSha))
-            pluginPasswordCheck(s, req, "replace an installed plugin")?.let { return@run it }
+        val unchanged = oldBytes != null && record?.sha == newSha && sha256Hex(oldBytes) == newSha
+        if (!unchanged)
+            pluginPasswordCheck(s, req, if (oldBytes != null) "replace an installed plugin" else "install a plugin")?.let { return@run it }
         val scan = scanPlugin(code, Prefs.netHosts(ctx))
         if (scan.blocked) {
             if (!req.optBoolean("force", false)) {

@@ -3498,9 +3498,14 @@ document.addEventListener('click',async(e)=>{
   createToast('Rebooting…','orange');
   try{await api('/api/shell',{method:'POST',body:JSON.stringify({cmd:'reboot',timeout:5000})})}catch(_){}
 });
-/* Session token: kept in sessionStorage (gone when the tab closes, not shared with other tabs). Every storage call is guarded, so a browser that blocks storage still loads the page; the token then lives in memory only. An old token left in localStorage by earlier versions is removed. */
-function tokGet(){try{return sessionStorage.getItem('matchi_token')||''}catch(_){return ''}}
-function tokSet(t){try{sessionStorage.setItem('matchi_token',t)}catch(_){}}
+/* Session (1.4.3): the sign-in is an HttpOnly cookie that the host sets at login. Page code and plugins cannot read it; the browser sends it by itself.
+   TOKEN is NOT a secret any more. It is the word "cookie" while this tab is signed in, and "" when it is not: a marker the page tests with `if(!TOKEN)`
+   and sends as the x-token header, which the host requires next to the cookie (CSRF rule, SessionCookie.kt). The marker is kept in sessionStorage so a reload
+   of this tab stays signed in; a new tab asks for the password. Every storage call is guarded, so a browser that blocks storage still loads the page
+   (the marker then lives in memory only). A real token left by an older version (sessionStorage or localStorage) is removed and not used. */
+const SESSION_MARK='cookie';
+function tokGet(){try{const v=sessionStorage.getItem('matchi_token');if(v===SESSION_MARK)return v;if(v)sessionStorage.removeItem('matchi_token');return ''}catch(_){return ''}}
+function tokSet(){try{sessionStorage.setItem('matchi_token',SESSION_MARK)}catch(_){}}
 function tokClear(){try{sessionStorage.removeItem('matchi_token')}catch(_){}}
 try{localStorage.removeItem('matchi_token')}catch(_){}
 let TOKEN=tokGet();
@@ -3582,7 +3587,7 @@ async function api(path,opt={},_retried){
       }
       throw new Error('Install cancelled: this plugin has risky code');
     }
-    /* Plugin changes (1.4.3): replacing, deleting or approving an installed plugin asks for the sign-in password, so a plugin cannot do it silently. */
+    /* Plugin changes (1.4.3): installing, replacing, deleting or approving a plugin asks for the sign-in password, so a plugin cannot do it silently. */
     if(r.status===403&&data.code==='plugin-password'&&(path==='/api/plugins'||path==='/api/plugins/delete'||path==='/api/plugins/approve')){
       let o={};try{o=JSON.parse(opt.body||'{}')}catch(_){}
       if(o.password)throw new Error(data.error||'Password needed');
@@ -5418,7 +5423,7 @@ async function runSelfTest(onStep){
     if(X.ver!==PAGE_VERSION)return R.warn('host '+X.ver+' but page '+PAGE_VERSION+' - reload the page or clear its cache so both match ('+ms+' ms)');
     return R.ok('MatchiTOOL '+X.ver+', '+ms+' ms');
   },15000);
-  add(S1,'Session token',async()=>TOKEN?R.ok('token present in this browser (value never included in the report)'):R.fail('no token in this browser'));
+  add(S1,'Session',async()=>TOKEN?R.ok('signed in (the session is an HttpOnly cookie that the page cannot read)'):R.fail('not signed in in this tab'));
   add(S1,'Bad token is rejected',async()=>{
     let code=0;try{const r=await fetch('/api/ping',{headers:{'x-token':'invalid-selftest-token'}});code=r.status}catch(e){return R.fail('request failed: '+e.message)}
     if(code===401)return R.ok('HTTP 401 for an invalid token');
@@ -6099,7 +6104,7 @@ document.getElementById('logoutbtn').onclick=async()=>{
 document.getElementById('tokbtn').onclick=async()=>{
   const pw=document.getElementById('tok').value;
   document.getElementById('tokerr').textContent='Connecting…';
-  try{const lr=await api('/api/login',{method:'POST',body:JSON.stringify({password:pw})});TOKEN=lr.token;await api('/api/ping');setHostStatus(true,'Host connected');tokSet(TOKEN);await start()}
+  try{const lr=await api('/api/login',{method:'POST',body:JSON.stringify({password:pw})});if(!lr||lr.ok!==true)throw new Error('Sign-in failed');TOKEN=SESSION_MARK;await api('/api/ping');setHostStatus(true,'Host connected');tokSet();await start()}
   catch(e){document.getElementById('tokerr').textContent=e.message}
 };
 start();

@@ -34,7 +34,8 @@ object Prefs {
     }
     /** What was approved for each plugin: its SHA-256 and the capabilities shown at install (see PluginIntegrity). Tamper evidence, not protection from a running plugin. */
     internal fun pluginRecords(c: Context): Map<String, PluginRecord> = parsePluginRecords(sp(c).getString("plugin_records", null))
-    internal fun setPluginRecord(c: Context, name: String, rec: PluginRecord?) {
+    // Read, change, write: two installs at once could otherwise lose one record, and a lost record shows as "not tracked".
+    @Synchronized internal fun setPluginRecord(c: Context, name: String, rec: PluginRecord?) {
         val m = pluginRecords(c).toMutableMap()
         if (rec == null) m.remove(name) else m[name] = rec
         sp(c).edit().putString("plugin_records", encodePluginRecords(m)).apply()

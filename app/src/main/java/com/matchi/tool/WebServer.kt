@@ -53,7 +53,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      */
     internal fun rootGate(s: IHTTPSession): Response? {
         val ip = s.remoteIpAddress ?: "?"
-        return when (RootGate.decide(Tls.active, isLoopbackIp(ip), Prefs.rootOverHttp(ctx), s.headers["x-insecure-ok"], Sessions.ageMs(ctx, s.headers["x-token"]), SHELL_MAX_SESSION_MS)) {
+        return when (RootGate.decide(Tls.active, isLoopbackIp(ip), Prefs.rootOverHttp(ctx), s.headers["x-insecure-ok"], Sessions.ageMs(ctx, sessionToken(s)), SHELL_MAX_SESSION_MS)) {
             RootGate.Refusal.INSECURE_OFF -> json(Response.Status.FORBIDDEN, JSONObject().put("code", RootGate.Refusal.INSECURE_OFF.code).put("error", "Root actions are off while this console runs over plain HTTP (not encrypted). Open the console over HTTPS, or switch on \"Root over HTTP\" under Plugins > Root over HTTP."))
             RootGate.Refusal.INSECURE -> json(Response.Status.FORBIDDEN, JSONObject().put("code", RootGate.Refusal.INSECURE.code).put("error", "This connection is not encrypted (HTTP). Confirm in the page to run root commands anyway."))
             RootGate.Refusal.REAUTH -> json(Response.Status.FORBIDDEN, JSONObject().put("code", RootGate.Refusal.REAUTH.code).put("error", "Session too old for root commands - sign in again"))
@@ -128,8 +128,14 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
     }
 
+    /**
+     * The session token of this request. It comes only from the HttpOnly cookie, and only when the page's marker header x-token is sent too
+     * (CSRF rule, see SessionCookie.kt). Every place that needs "this request's session" goes through here, so no route reads the header itself.
+     */
+    internal fun sessionToken(s: IHTTPSession): String? = requestToken(s.headers["cookie"], s.headers["x-token"])
+
     /** True when the request carries a live per-login session token (see [SessionStore]). */
-    private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, s.headers["x-token"])
+    private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, sessionToken(s))
 
     /**
      * Every app on the device reaches the console as 127.0.0.1 / ::1, so they would all share one lockout bucket and one
@@ -345,7 +351,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         if (log) auditShell(ip, "$kind (first call in 60 s)", kind)
     }
 
-    /** Password login: returns the session token. Bad attempts count toward the per-IP lockout. */
+    /** Password login: starts a session and sets its cookie. Bad attempts count toward the per-IP lockout. */
     internal fun login(ip: String, s: IHTTPSession): Response {
         val pw = try { body(s, MAX_LOGIN_BODY).optString("password").take(200) } catch (e: Exception) {
             return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
@@ -376,7 +382,9 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
         guard.succeeded(ip, isLoopbackIp(ip))
         // A fresh random token for THIS login; it expires when idle, after 12 h, on sign-out or on a password change.
-        return json(Response.Status.OK, JSONObject().put("ok", true).put("token", Sessions.issue(ctx)))
+        // The token goes into an HttpOnly cookie and NOT into the reply, so page script and plugins never see it (SessionCookie.kt).
+        return json(Response.Status.OK, JSONObject().put("ok", true))
+            .also { it.addHeader("Set-Cookie", sessionCookieHeader(Sessions.issue(ctx), Tls.active)) }
     }
 
     private fun route(s: IHTTPSession, uri: String): Response =

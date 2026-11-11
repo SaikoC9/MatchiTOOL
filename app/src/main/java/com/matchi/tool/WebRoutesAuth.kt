@@ -13,8 +13,8 @@ import org.json.JSONObject
 internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when {
     uri == "/api/logout" && s.method == Method.POST -> {
         drainBody(s)
-        Sessions.revoke(ctx, s.headers["x-token"])
-        json(Response.Status.OK, JSONObject().put("ok", true))
+        Sessions.revoke(ctx, sessionToken(s))
+        json(Response.Status.OK, JSONObject().put("ok", true)).also { it.addHeader("Set-Cookie", clearSessionCookieHeader(Tls.active)) }
     }
     uri == "/api/console/password" && s.method == Method.GET ->
         json(Response.Status.OK, JSONObject().put("separate", Prefs.hasConsolePassword(ctx)).put("minLength", Prefs.MIN_CONSOLE_PW))
@@ -35,7 +35,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
             throw IllegalArgumentException("Current password is wrong")
         }
         Prefs.setConsolePassword(ctx, req.optString("password").take(200))   // empty = go back to the router password
-        Sessions.revokeAllExcept(ctx, s.headers["x-token"])
+        Sessions.revokeAllExcept(ctx, sessionToken(s))
         auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")
         json(Response.Status.OK, JSONObject().put("ok", true).put("separate", Prefs.hasConsolePassword(ctx)))
     }
@@ -75,7 +75,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
         val req = body(s)
         val ip = s.remoteIpAddress ?: "?"
         val loop = isLoopbackIp(ip)
-        if (!RootGate.freshEnough(Sessions.ageMs(ctx, s.headers["x-token"]), SHELL_MAX_SESSION_MS))
+        if (!RootGate.freshEnough(Sessions.ageMs(ctx, sessionToken(s)), SHELL_MAX_SESSION_MS))
             return@run json(Response.Status.FORBIDDEN, JSONObject().put("code", "reauth").put("error", "Session too old - sign in again"))
         val wait = guard.retryAfterMs(ip, loop)
         if (wait > 0) {
