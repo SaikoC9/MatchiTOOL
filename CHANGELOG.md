@@ -1,3 +1,10 @@
+# MatchiTOOL (unreleased) - AT & Radio: radio restart had on/off reversed (fix)
+
+- **Problem:** after a network-mode change or band lock, the dashboard could not be reached and showed 4G only, which UFI-TOOLS never does. Cause: the radio restart sent `AT+SFUN=4` first and `AT+SFUN=5` second, believing 4 = off and 5 = on. UFI-TOOLS' real order (decoded from its code, the helper is not a no-op as the old notes said) is `AT+SFUN=5` (radio off), then `AT+SFUN=4` (radio on). So the old "restart" left the radio off.
+- **Fix:** `radioCycle` now copies UFI: `AT+SFUN=5` on SIM slots 0 and 1, then `AT+SFUN=4` on slots 0 and 1, 100 ms apart. A missing slot is skipped; the ON step always runs and is retried. "Restart modem" uses the same code.
+- **Recovery if a radio is stuck off:** run `AT+SFUN=4` in the AT terminal (or reboot the device).
+- **Not yet checked on the F50.**
+
 # MatchiTOOL (unreleased) - AT & Radio: band lock now restarts the radio (found on the F50)
 
 - **Problem:** after "Lock ticked bands" the router reported the new lock (NR n41) but the dashboard still showed n78 (and the same on 4G). Read from the UFI-TOOLS 4.1.5 APK: after `LTE_BAND_LOCK` / `NR_BAND_LOCK` it cycles the modem radio with `AT+SFUN=4` / `AT+SFUN=5` through its AT helper; saving the lock alone does not move the modem. "Re-apply network mode" was not enough.
