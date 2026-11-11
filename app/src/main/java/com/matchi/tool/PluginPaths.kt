@@ -110,4 +110,4 @@ internal const val UPLOAD_RESERVE_BYTES = 200L * 1024L * 1024L
 internal fun uploadSpaceOk(freeBytes: Long, len: Long): Boolean = len >= 0 && freeBytes - len >= UPLOAD_RESERVE_BYTES
 
 /** Four values returned together by the snapshot route. */
-private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+internal data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
