@@ -3873,6 +3873,16 @@ window.MatchiRadio = (() => {
     if (d.neighbor_cell_info === undefined && d.locked_cell_info === undefined) throw new Error('this firmware reports neither neighbor_cell_info nor locked_cell_info');
     return { nb: toList(d.neighbor_cell_info), locked: toList(d.locked_cell_info) };
   }
+  // CELL_LOCK / UNLOCK_ALL_CELL on the F50 answer HTTP 200 with an EMPTY reply (seen on the device: success:true, data "", "reply empty"),
+  // not with the word "success". An empty reply is therefore accepted here, and the read-back (locked_cell_info) decides whether it worked.
+  // A reply that says something else (failure, error text) is still refused.
+  async function setRouterCell(params) {
+    const d = await zte('set', params);
+    const res = d && typeof d === 'object' ? d.result : d;
+    const t = res === undefined || res === null ? '' : String(res).trim();
+    if (t !== '' && t !== 'success') throw new Error('Router refused the change (' + t.slice(0, 80) + ')');
+    return t === '' ? 'empty' : 'success';
+  }
   // Is exactly this lock listed by the router?
   const cellListed = (cells, pci, earfcn, rat) => !!cells && cells.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
   // Every lock, unlock and auto-unlock watch takes a new epoch. A watch that sees the epoch change was replaced (newer lock) or made
@@ -3884,15 +3894,15 @@ window.MatchiRadio = (() => {
   // Send CELL_LOCK, then read the cells back. cells = null when the read failed. hit = the router lists exactly this lock.
   async function cellLock(pci, earfcn, rat) {
     cellEpoch++;
-    await setRouter({ goformId: 'CELL_LOCK', pci, earfcn, rat });
+    const reply = await setRouterCell({ goformId: 'CELL_LOCK', pci, earfcn, rat });
     let cells = null; try { cells = await readCells(); } catch (_) { /* reported as hit:false */ }
-    return { cells, hit: cellListed(cells, pci, earfcn, rat) };
+    return { cells, hit: cellListed(cells, pci, earfcn, rat), reply };
   }
   async function cellUnlock() {
     cellEpoch++;
-    await setRouter({ goformId: 'UNLOCK_ALL_CELL' });
+    const reply = await setRouterCell({ goformId: 'UNLOCK_ALL_CELL' });
     let cells = null; try { cells = await readCells(); } catch (_) { /* reported as none:false */ }
-    return { cells, none: !!cells && !cells.locked.length };
+    return { cells, none: !!cells && !cells.locked.length, reply };
   }
   // Wait, then look once at the registration. Resolves 'cancelled' (a newer lock or an unlock happened meanwhile), 'off' (auto-unlock was
   // switched off while waiting), 'registered' (the lock stays) or 'unregistered' (the caller should unlock). Never repeats, never unlocks by itself.
