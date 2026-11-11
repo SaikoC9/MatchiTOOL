@@ -49,10 +49,14 @@ window.MatchiRadio = (() => {
     if (r.error) throw new Error(r.error);
     return r.data;
   }
-  async function setRouter(params) {
+  // allowEmpty: the F50 answers some set commands (PERFORMANCE_MODE_SETTING, like CELL_LOCK) with HTTP 200 and an EMPTY reply instead of "success".
+  // With allowEmpty an empty reply is accepted and the caller's read-back decides; anything else that is not "success" is still refused.
+  async function setRouter(params, allowEmpty) {
     const d = await zte('set', params);
     const res = d && typeof d === 'object' ? d.result : d;
-    if (String(res).trim() !== 'success') throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : String(res).slice(0, 80)) + ')');
+    const t = res === undefined || res === null ? '' : String(res).trim();
+    if (t === 'success' || (allowEmpty && t === '')) return;
+    throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : t.slice(0, 80)) + ')');
   }
   const NET_MODES = [
     ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
