@@ -423,6 +423,28 @@ header #hostlabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-
 header #logoutbtn,header .hd-reboot{flex:none}
 @media(max-width:430px){header{gap:6px!important;padding-left:10px!important;padding-right:10px!important}header #logoutbtn{margin-right:0!important}}
 @media(max-width:340px){header{flex-wrap:wrap!important;row-gap:6px!important}}
+/* Phone view: header on two rows (title + host status, then language / Sign out / Reboot) so nothing is cut off; the host pill keeps its full text. */
+@media(max-width:640px){
+header{display:grid!important;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px!important}
+header .brand{grid-column:1;grid-row:1;min-width:0}
+header .host{grid-column:2 / 4;grid-row:1;justify-self:end;max-width:100%;overflow:visible!important}
+header #hostlabel{overflow:visible!important;text-overflow:clip!important}
+header #langsel{grid-column:1;grid-row:2;width:100%;min-width:0;margin:0!important}
+header #logoutbtn{grid-column:2;grid-row:2;margin:0!important}
+header #rebootbtn{grid-column:3;grid-row:2}
+}
+/* Phone view: plugin rows. Name + switch on the first line, the action buttons on their own line below, so the plugin name is no longer squeezed. */
+@media(max-width:640px){
+#pluginmgr .pm-item{flex-wrap:wrap;row-gap:6px}
+#pluginmgr .pm-name{flex:1 1 0;min-width:0}
+#pluginmgr .pm-n{font-size:13px}
+#pluginmgr .pm-m{white-space:normal}
+#pluginmgr .pm-sw{order:2;width:40px!important;height:22px!important}
+#pluginmgr .pm-sw i{width:16px;height:16px;margin-top:-8px}
+#pluginmgr .pm-sw[aria-checked=true] i{transform:translateX(18px)}
+#pluginmgr .pm-acts{order:3;flex:1 0 100%;justify-content:flex-end;gap:8px}
+#pluginmgr .pm-acts button{width:36px!important;height:32px!important}
+}
 </style>
 <style id="ui-unify">
 /* 1.2.26 one look everywhere: soft cards, flat rounded buttons, round switches, even footer buttons for every dialog,
