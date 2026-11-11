@@ -1,3 +1,14 @@
+# MatchiTOOL (unreleased) - AT & Radio: radio restart runs on the device (found on the F50)
+
+- **Problem (from the F50 log):** `slot 0 off: OK`, `slot 1 off: OK`, then `slot 0 on: Cannot reach MatchiTOOL host`. While the radio is off the page loses the host for a few seconds, so the "on" step sent from the page never arrived and slot 0 was left off. This is also why the dashboard could not be reached after a band lock.
+- **Fix:** the whole sequence (`AT+SFUN=5` slot 0, slot 1, then `AT+SFUN=4` slot 0, slot 1) is ONE root script that runs on the device (`sendat`), so it no longer depends on the page. A slot that switched off is sent "on" for up to about 16 s; a slot that did not is sent it once, as UFI does.
+- If the page loses the host, it says so, waits up to 90 s for an AT read to answer, then sends `AT+SFUN=4` to both slots once more (harmless if the radio is already on) and reports the result.
+- Tested the script with a fake `sendat` (slot 1 refusing, slot 0 failing twice before OK). **Not yet checked on the F50.**
+
+# MatchiTOOL (unreleased) - AT & Radio: "Radio report" button
+
+- Read-only. One tap runs `AT+SFUN?` (slots 0 and 1), `AT+CEREG?`, `AT+C5GREG?`, `AT+COPS?`, the NR support list, and one router read (`lte_band_lock`, `nr_band_lock`, `net_select`, `performance_mode`, serving band / channel / PCI, `locked_cell_info`). The text is shown in the window and copied to the clipboard. Used for the plan's Phase 1 (B1 vs B8, whether the n78 lock survives the radio restart).
+
 # MatchiTOOL (unreleased) - Dashboard: Core usage + CPU frequency cards (UFI-TOOLS style)
 
 - **Core usage:** one bar per core (0-100 %) with the number under it, from the same two `/proc/stat` reads as the CPU tile. An offline core is dimmed and shows a dash; cores that are switched off (the F50 outside performance mode keeps cores 4-7 off) are still drawn, so there are always as many bars as cores.
