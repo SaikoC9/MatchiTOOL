@@ -36,7 +36,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       return j({ success: true, result: 'OK' });
     }
     if (u.pathname === '/api/at/batch') return j({ results: ['', '', '', ''] });
-    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
+    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.1' });
     if (u.pathname === '/api/plugins') return j([]);
     return j({});
   });

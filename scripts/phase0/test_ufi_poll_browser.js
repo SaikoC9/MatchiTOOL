@@ -16,7 +16,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
     if (u.pathname === '/api/plugins' && req.method() === 'GET') return j([{ name: 'sig.js', kind: 'js', title: 'sig', enabled: true, code: 'window.__s = () => UFI_DATA.signalbar;' }]);
     if (u.pathname === '/api/zte') { zte++; return j({ success: true, data: { signalbar: '4', network_type: 'LTE' } }); } // no lan_ipaddr, ever
     if (u.pathname === '/api/shell') { if (/ip -4 addr/.test(JSON.parse(req.postData() || '{}').cmd || '')) lanShell++; return j({ success: true, content: '' }); }
-    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
+    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.1' });
     return j({});
   });
   await page.goto('http://localhost/'); await page.clock.runFor(2000);

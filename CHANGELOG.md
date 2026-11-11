@@ -1,19 +1,35 @@
-# MatchiTOOL (unreleased) - Cell lock: the F50 answers CELL_LOCK with an empty reply (fix, found on the F50)
+# MatchiTOOL 1.4.1 - Performance mode moved to the dashboard
+
+- **Performance mode is now a checkbox in the dashboard "Radio settings" card**, its own row under Network mode (not part of the network mode list). It is saved at once and applies after the router is rebooted; the confirm dialog says so. It is hidden when the router does not report `performance_mode`. Handled in `web-src/dash-radio.js` (`changePerf`), no radio restart.
+- **Removed from the AT & Radio window** (row, handler and the note text), so there is one place for it. `radio-core.js` `readRadio()` is unchanged (it already returned `perf`).
+- `validate.sh` passes. The Playwright dashboard test (`test_dash_radio_browser.js`, PC only) was not run. **Not yet checked on the F50.**
+
+# MatchiTOOL 1.4.1 - Radio settings and Cell lock on the dashboard (summary of the entries below)
+
+- **Radio code in one place** (`radio-core.js` + `at-radio-ui.js`), "n6" band chip fixed, radio restart order fixed (5 = off, 4 = on) and run on the device in one root call.
+- **Dashboard cards:** Radio settings (network mode, LTE / 5G band chips, router state vs pending ticks) and Cell lock (neighbour list, lock by hand, auto-unlock after 60 s). Live Status pauses during a radio change.
+- **Live Status polling guard:** 4 s deadline, keep-stale, back-off 3 / 6 / 12 / 24 / 30 s.
+- **Cell lock fix:** the F50 answers CELL_LOCK / UNLOCK_ALL_CELL with an empty reply; the read-back of `locked_cell_info` decides success.
+- **Checked on the F50 (11 Nov 2026):** band lock and radio restart, polling guard (offline, SFUN 5 / 4), cell lock of PCI 100 (registered after 60 s, lock stays), fake PCI 999 (auto-unlock fired at 60 s), unlock all cells.
+- **Known limits on the F50:** the router reports its serving cell keys (`nr5g_pci`, `lte_pci`, channels) EMPTY, so "Lock this cell" is not offered; use a neighbour row. The dashboard PCI comes from Android telephony and can differ. `AT+SFUN?` is not supported and `AT+CFUN?` does not follow SFUN. A leftover band lock (for example LTE B1 only) shows as "no service" and looks like a cell lock problem: use Unlock all.
+- Docs fixed: `AT_RADIO_FORMATS.md` and `AT_RADIO_UFI_PLAN.txt` now give the real SFUN order. Version 1.4.1 / versionCode 401 (app, web page, validation, README).
+
+# MatchiTOOL (1.4.1) - Cell lock: the F50 answers CELL_LOCK with an empty reply (fix, found on the F50)
 
 - **Problem:** the dashboard said "Cell lock failed: Router refused the change ()" although the router had accepted the command. Raw reply on the F50: `success:true, data:"", "reply empty"` (HTTP 200). The code only accepted the word "success".
 - **Fix:** `setRouterCell` in `radio-core.js` (used by `cellLock` and `cellUnlock`, so the dashboard card and the AT & Radio window both get it): an empty reply is accepted, any other text (failure, error) is still refused. The read-back of `locked_cell_info` decides whether the lock or unlock really happened; an empty reply with nothing listed is reported as "does not list the lock", not as success. Band locks are unchanged (they do answer "success").
 - Tests added in `scripts/test_at_radio.js` (empty reply accepted, confirmed by read-back, not a hit when nothing is listed, "failure" refused). `validate.sh` passes.
 
-# MatchiTOOL (unreleased) - Live Status polling guard (plan phase 5)
+# MatchiTOOL (1.4.1) - Live Status polling guard (plan phase 5)
 
 - **4 s deadline per router read.** A request that never answers is aborted instead of hanging (the radio restart and re-registration can stall the router web API). Reads never overlap (each loop already skips a tick while its read is running).
 - **A failed read keeps the last values** on screen instead of blanking the card. After 12 s without a good read the header says "Stale · N s ago". Only after 60 s are the old numbers dropped, so the modem / Android telephony fallback takes over and old values cannot pass for current ones. "Connecting…" is never shown once a value has been shown.
 - **Back-off 3 / 6 / 12 / 24 / 30 s** for the router loop (was 6 s up to 60 s), reset by the first success. Never faster than the heat / mode delay. The root loop is unchanged (15 / 30 / 60 s).
 - **Light read while recovering:** after a failure the router is asked only for network_type, signalbar and the RSRP keys (a small answer from a busy router), merged onto the last values; the full key list returns with the first success.
 - Paused during a radio change as before (phase 3: `MatchiRadio.beginBusy`).
-- Tests: new `scripts/test_live_guard.js` runs the real `collectFast` against a fake router (deadline, keep-stale, drop after 60 s, light keys, recovery); `scripts/test_live_poll.js` back-off values updated. `validate.sh` passes. **Not yet checked on the F50.**
+- Tests: new `scripts/test_live_guard.js` runs the real `collectFast` against a fake router (deadline, keep-stale, drop after 60 s, light keys, recovery); `scripts/test_live_poll.js` back-off values updated. `validate.sh` passes. **Checked on the F50: pass (offline test, AT+SFUN=5 / 4).**
 
-# MatchiTOOL (unreleased) - Dashboard: "Cell lock" card (plan phase 4)
+# MatchiTOOL (1.4.1) - Dashboard: "Cell lock" card (plan phase 4)
 
 - **New card under Radio settings** (`web-src/dash-cell.js`, UI only, calls `MatchiRadio`), **closed by default**. It reads `neighbor_cell_info` / `locked_cell_info` only when opened or on Refresh, never on the Live Status timer. Shows what is locked now, the cell the phone is on, the neighbours (RSRP / RSRQ / SINR) and a "lock by hand" row (PCI, EARFCN, 4G / 5G).
 - **"Lock this cell"** is built from the router's own serving-cell values (`nr5g_pci` + `nr5g_action_channel`, `lte_pci` + `wan_active_channel`), the safest lock because the phone is already on it. The cell is offered only when the network type says that radio is in use and the PCI / channel are valid; 5G NSA offers both. New in the core: `servingCells()`.
@@ -21,9 +37,9 @@
 - **Confirm names the cell** and warns about no signal. After lock or unlock there is **no radio restart**; if the router does not list the change yet it is read again after 3 s.
 - **Auto-unlock ON by default.** 60 s after a lock, if neither `AT+CEREG?` nor `AT+C5GREG?` reports 1 or 5, `UNLOCK_ALL_CELL` is sent once. The check now lives in the core (`watchCell`, `cellAutoOn`, `setCellAuto`) and is shared with the AT & Radio window; every lock, unlock or newer watch cancels an older one, so two windows cannot fight. The pending check **survives a page reload** (start time in localStorage; it resumes only if the router still lists a locked cell, and is dropped after 10 min).
 - **Lock buttons are off while bands are ticked but not saved or a band change is running**; "Unlock all cells" is always on screen and works during a radio restart.
-- Tests: `scripts/test_at_radio.js` (servingCells for 5G / 4G / NSA / bad values, cellListed, lock + unlock with no SFUN, watchCell registered / unregistered / cancelled / replaced / switched off). New `scripts/phase0/test_dash_cell_browser.js` (needs Playwright). `validate.sh` passes. **The card has not been run in a real browser or on the F50 yet.**
+- Tests: `scripts/test_at_radio.js` (servingCells for 5G / 4G / NSA / bad values, cellListed, lock + unlock with no SFUN, watchCell registered / unregistered / cancelled / replaced / switched off). New `scripts/phase0/test_dash_cell_browser.js` (needs Playwright). `validate.sh` passes. **Checked on the F50 (see the 1.4.1 summary).**
 
-# MatchiTOOL (unreleased) - Dashboard: "Radio settings" card, Live Status pauses during a radio restart (plan phase 3)
+# MatchiTOOL (1.4.1) - Dashboard: "Radio settings" card, Live Status pauses during a radio restart (plan phase 3)
 
 - **New card under Live device status** (`web-src/dash-radio.js`, UI only, calls `MatchiRadio`): network mode and LTE / 5G band chips. It reads the router once when the page opens, after a change and on Refresh. It never reads on the Live Status timer.
 - **Chips show the router state, ticks stay pending:** green = locked on the router, yellow = ticked but not saved, struck through = locked now and will be removed. The "locked now" text uses only the router list ("none (all bands allowed)" when every band is listed). "Lock ticked bands" is enabled only when the ticks differ from the router.
@@ -32,7 +48,7 @@
 - **Network mode** sends SET_BEARER_PREFERENCE only (no radio restart), freezes polling for the 2 s re-read, then shows what the router reports.
 - Tests: `scripts/test_at_radio.js` (busy state, waitRegistered), new `scripts/phase0/test_dash_radio_browser.js` (22 checks against a fake router: chips, pending vs router, both lists sent, no live reads during the restart, one read after, host pill). `validate.sh` passes. **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - Radio code in one place (plan phase 2), "n6" band chip fixed
+# MatchiTOOL (1.4.1) - Radio code in one place (plan phase 2), "n6" band chip fixed
 
 - **One source:** everything that talks to the modem or router for radio settings (AT, router get/set, band lock, cell lock, radio restart, parsing) is now `web-src/radio-core.js` (`window.MatchiRadio`, no DOM). The AT & Radio window is `web-src/at-radio-ui.js`. Both are included into `index.html` by `scripts/build-web.js`. `assets/plugins/AT_Radio.js` (a hand-kept second copy that nothing read at run time) is removed. `AT+SFUN` now exists only in `radio-core.js` (the report uses `AT+CFUN?`; `AT+SFUN?` answers `+CME ERROR: 3` on the F50).
 - **Fix (found on the F50):** `AT+SP5GCMDS="get nr support_band"` answers `...,6,41,78,1,8,28,5`. The first number is a count, not band n6; the window showed a bogus "n6" chip. The count is dropped when it equals the number of values after it.
@@ -40,43 +56,43 @@
 - Confirmed on the F50: `lte_band_lock` / `nr_band_lock` are plain comma lists and "no lock" is the full list. A stray first character in AT output ("(+CEREG", "6+C5GREG") does not move the parsed fields (test added).
 - Tests: `scripts/test_at_radio.js` now runs the real `radio-core.js` with a fake `api()` (adds setBands, restart order, n6, stray characters). New `scripts/phase0/test_at_radio_browser.js` opens the window against a fake router. `validate.sh` passes. **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - Dashboard: core cards smaller, no overlap on phones
+# MatchiTOOL (1.4.1) - Dashboard: core cards smaller, no overlap on phones
 
 - Core usage and CPU frequency now sit in a two-column grid (each card can shrink), so they no longer overlap on a phone.
 - CPU frequency shows only the numbers, in small chips like UFI-TOOLS (offline cores dim, 0). Core usage bars are smaller and have no number under them (the CPU tile still lists them; hover a bar for the value).
 
-# MatchiTOOL (unreleased) - AT & Radio: radio restart runs on the device (found on the F50)
+# MatchiTOOL (1.4.1) - AT & Radio: radio restart runs on the device (found on the F50)
 
 - **Problem (from the F50 log):** `slot 0 off: OK`, `slot 1 off: OK`, then `slot 0 on: Cannot reach MatchiTOOL host`. While the radio is off the page loses the host for a few seconds, so the "on" step sent from the page never arrived and slot 0 was left off. This is also why the dashboard could not be reached after a band lock.
 - **Fix:** the whole sequence (`AT+SFUN=5` slot 0, slot 1, then `AT+SFUN=4` slot 0, slot 1) is ONE root script that runs on the device (`sendat`), so it no longer depends on the page. A slot that switched off is sent "on" for up to about 16 s; a slot that did not is sent it once, as UFI does.
 - If the page loses the host, it says so, waits up to 90 s for an AT read to answer, then sends `AT+SFUN=4` to both slots once more (harmless if the radio is already on) and reports the result.
 - Tested the script with a fake `sendat` (slot 1 refusing, slot 0 failing twice before OK). **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - AT & Radio: "Radio report" button
+# MatchiTOOL (1.4.1) - AT & Radio: "Radio report" button
 
 - Read-only. One tap runs `AT+SFUN?` (slots 0 and 1), `AT+CEREG?`, `AT+C5GREG?`, `AT+COPS?`, the NR support list, and one router read (`lte_band_lock`, `nr_band_lock`, `net_select`, `performance_mode`, serving band / channel / PCI, `locked_cell_info`). The text is shown in the window and copied to the clipboard. Used for the plan's Phase 1 (B1 vs B8, whether the n78 lock survives the radio restart).
 
-# MatchiTOOL (unreleased) - Dashboard: Core usage + CPU frequency cards (UFI-TOOLS style)
+# MatchiTOOL (1.4.1) - Dashboard: Core usage + CPU frequency cards (UFI-TOOLS style)
 
 - **Core usage:** one bar per core (0-100 %) with the number under it, from the same two `/proc/stat` reads as the CPU tile. An offline core is dimmed and shows a dash; cores that are switched off (the F50 outside performance mode keeps cores 4-7 off) are still drawn, so there are always as many bars as cores.
 - **CPU frequency (MHz):** one cell per core with the current speed and a fill bar against its maximum. An offline core shows 0, as in UFI-TOOLS. The core list comes from `/sys/devices/system/cpu/possible`, so cores 4-7 still show (as 0) when the F50 is not in performance mode, even if the kernel removes their folders. Read in the same root call as the other slow values (`scaling_cur_freq`, `cpuinfo_max_freq`, `online`), no extra call. Tapping the card opens the CPU Governor.
 - Test added in `scripts/test_live_cpu.js` (`F:` lines). **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - AT & Radio: radio restart had on/off reversed (fix)
+# MatchiTOOL (1.4.1) - AT & Radio: radio restart had on/off reversed (fix)
 
 - **Problem:** after a network-mode change or band lock, the dashboard could not be reached and showed 4G only, which UFI-TOOLS never does. Cause: the radio restart sent `AT+SFUN=4` first and `AT+SFUN=5` second, believing 4 = off and 5 = on. UFI-TOOLS' real order (decoded from its code, the helper is not a no-op as the old notes said) is `AT+SFUN=5` (radio off), then `AT+SFUN=4` (radio on). So the old "restart" left the radio off.
 - **Fix:** `radioCycle` now copies UFI: `AT+SFUN=5` on SIM slots 0 and 1, then `AT+SFUN=4` on slots 0 and 1, 100 ms apart. A missing slot is skipped; the ON step always runs and is retried. "Restart modem" uses the same code.
 - **Recovery if a radio is stuck off:** run `AT+SFUN=4` in the AT terminal (or reboot the device).
 - **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - AT & Radio: band lock now restarts the radio (found on the F50)
+# MatchiTOOL (1.4.1) - AT & Radio: band lock now restarts the radio (found on the F50)
 
 - **Problem:** after "Lock ticked bands" the router reported the new lock (NR n41) but the dashboard still showed n78 (and the same on 4G). Read from the UFI-TOOLS 4.1.5 APK: after `LTE_BAND_LOCK` / `NR_BAND_LOCK` it cycles the modem radio with `AT+SFUN=4` / `AT+SFUN=5` through its AT helper; saving the lock alone does not move the modem. "Re-apply network mode" was not enough.
 - **Fix:** after a verified lock / unlock / restore, MatchiTOOL now restarts the radio itself (`AT+SFUN=4`, then `AT+SFUN=5` with retry, same code as "Restart modem"). The confirm dialog says so (signal drops about 30 s). The radio is restarted on the SIM slot picked at the top of the window only; UFI cycles slots 0 and 1.
 - **False warning fixed:** "Unlock all" sent `1,5,6,8,28,41,78` and the router reported `n1 n5 n8 n28 n41 n78` (n6 not supported); that was shown as a mismatch. A read-back that is a non-empty subset of what was sent now counts as applied, and the log says which band the router dropped. A different or empty list is still reported as a mismatch.
 - Test added in `scripts/test_at_radio.js`. **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - AT & Radio: cell lock (plan Phase 3)
+# MatchiTOOL (1.4.1) - AT & Radio: cell lock (plan Phase 3)
 
 - **"Cell lock" button** in AT & Radio opens a panel. It reads `neighbor_cell_info` and `locked_cell_info` only when opened or refreshed (never polled) and shows the locked cell and the neighbour list (band, EARFCN, PCI, RSRP, RSRQ, SINR). A firmware with neither key shows "not available"; Unlock still works.
 - **Lock:** a "Lock" button per neighbour, or by hand (PCI, EARFCN, 4G/5G). It sends `CELL_LOCK` with `pci`, `earfcn`, `rat` (12 = 4G, 16 = 5G) after a confirm that names the cell and warns that a wrong cell can give no or unstable signal. The neighbour list has no `rat` field: it is taken from a band written `n78` (5G) or `B3` (4G); a bare number makes you pick 4G or 5G yourself. PCI 0-1007, EARFCN up to 3279165 are checked before sending. After sending, the lock is read back.
@@ -84,7 +100,7 @@
 - **Auto-unlock (on by default, tick box):** 60 s after a lock the modem is asked `AT+CEREG?` / `AT+C5GREG?`; if neither says registered (1 or 5), or nothing answers, `UNLOCK_ALL_CELL` is sent once. A manual unlock or a newer lock cancels it. It runs once and never loops.
 - **Tests:** `scripts/test_at_radio.js` (in `validate.sh`) runs the real parsing helpers (band lists, cell lists, rat guess, cell validation). **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - AT & Radio: band lock (plan Phase 2)
+# MatchiTOOL (1.4.1) - AT & Radio: band lock (plan Phase 2)
 
 - **Band lock in AT & Radio:** LTE and 5G NR bands as tap chips, pre-ticked with what the router reports now (`lte_band_lock`, `nr_band_lock`, read on open and after a change only). "Lock ticked bands" sends `LTE_BAND_LOCK` / `NR_BAND_LOCK` (bare integers joined by `,`) after a confirm dialog that lists the bands. The section is hidden when the firmware reports neither key.
 - **Stricter than UFI-TOOLS:** every command sent must answer `success` (UFI accepts one), nothing is sent with zero bands ticked, a type with no tick is left unchanged (not sent as an empty string), and the bands are read back and compared.
@@ -92,7 +108,7 @@
 - **Not confirmed (Phase 0 table is still empty):** what the router calls "no lock", what its "Unlock bands" sends, and whether the LTE values are bare integers on the wire. That is why "Restore original" exists next to "Unlock all". **Not yet checked on the F50.**
 - Both copies changed (`plugins/AT_Radio.js` and the embedded copy in `index.html`). `validate.sh` passes.
 
-# MatchiTOOL (unreleased) - CPU %: UFI-TOOLS method (Live Status and CPU Governor)
+# MatchiTOOL (1.4.1) - CPU %: UFI-TOOLS method (Live Status and CPU Governor)
 
 Read from the UFI-TOOLS 4.1.5 APK (`DeviceInfo.kt`: `readProcStat`, `calculateCpuUsage`, `getCpuUsageSnapshot`, `getCpuFreqJson`):
 UFI keeps `/proc/stat` per core (`cpu`, `cpu0` ...), takes two reads a short delay apart, computes busy = 1 - idle / total with idle = idle + iowait,
@@ -102,32 +118,32 @@ formats it with one decimal (`%.1f`) and the page shows it with two. It never sh
 - **CPU Governor window:** each core tile now shows its real usage (`1.4 %`) and the bar is the usage. Before, the bar was current speed / max speed, which is always full in Performance mode, so it looked like 100 % load. The MHz text is unchanged. The first read after opening shows no usage yet (it needs two reads, 3 s apart).
 - **Tests:** `scripts/test_live_cpu.js` (in `validate.sh`) runs the real `parseSys()` on known `/proc/stat` numbers: 3 busy of 800 ticks gives 0.4, idle + iowait counted as idle, guest columns ignored, 100 / 0 limits, no movement gives no value, old output form still works. **Not yet checked on the F50**; the browser test could not be run here (Playwright not installed).
 
-# MatchiTOOL (unreleased) - Live status: tests (plan Phase 6, first part)
+# MatchiTOOL (1.4.1) - Live status: tests (plan Phase 6, first part)
 
 - **New `scripts/test_live_poll.js`** (runs in `validate.sh`): cuts the real interval code out of `index.html` and checks cool / warm / hot / critical delays, Fast / Normal / Eco, Fast never pushing a warm or hot phone harder, the router and root back-off (6 s ... 60 s, never faster than the heat delay), the battery pause (below the level and not charging only), saved choices and the `liv_thermal_test` override. A deliberately broken table makes it fail, so it does test the page code.
 - Not done yet: removing the `PHASE0-TIMING` console lines (kept so the phone baseline can still be measured), the version bump, and the 30-minute check on the F50.
 
-# MatchiTOOL (unreleased) - AT & Radio: Signal quality on 5G
+# MatchiTOOL (1.4.1) - AT & Radio: Signal quality on 5G
 
 - **Signal quality button:** `AT+CSQ` only measures 2G/3G/4G, so on 5G (for example NR n78) the modem answers `+CSQ: 99,99` ("unknown"). The button now runs `AT+CSQ` and `AT+CESQ`, says in words what a 99 means, and then reads the router's 5G and LTE values (RSRP, RSRQ, SINR, PCI, band, channel). Plain `AT+CSQ` typed by hand still works and still answers 99,99 on 5G; that is the modem, not a bug.
 - **Glued `OK`:** `sendat` prints the closing `OK` / `ERROR` with no line break (`+CSQ: 99,99OK`). Every console reply now puts it on its own line and drops blank lines.
 - Both copies changed (`index.html` built-in and `plugins/AT_Radio.js`). **Not yet checked on the F50.**
 
-# MatchiTOOL (unreleased) - Live status: optional extras (plan Phase 5)
+# MatchiTOOL (1.4.1) - Live status: optional extras (plan Phase 5)
 
 - **Refresh speed: Fast / Normal / Eco** (chips under the card, saved in `localStorage` as `liv_mode`). Router loop / root loop: Fast 2 s / 10 s, Normal 3 s / 15 s (default, unchanged), Eco 9 s / 45 s. Fast only applies while the phone is cool: when warm or hot the heat table still sets the pace, so Fast cannot push a hot phone harder. Eco is kept when warm or hot. Failure back-off still wins over all of them.
 - **Speed graph:** download and upload lines for the last 60 fast reads (memory only, gone on reload), with the peak shown. It appears after 2 readings and only when the router returns the speed keys.
 - **Pause below battery level:** Off (default) / 10 / 15 / 20 / 30 % (`liv_batpause`). Below the level and not charging, the router loop stops and the root loop checks once a minute, so plugging in the charger resumes everything. The header says "Paused - battery N% (below X%)".
 - Browser test extended (cadence of each mode, Fast on a hot phone, pause and resume, pause off by default, graph, no graph without speed keys). **Not yet checked on the F50**, and the new row was not looked at on the real card.
 
-# MatchiTOOL (unreleased) - Live status: CPU % and 5G RSRQ fixes
+# MatchiTOOL (1.4.1) - Live status: CPU % and 5G RSRQ fixes
 
 - **CPU %:** the total from `/proc/stat` also counted the `guest` and `guest_nice` columns, which the kernel already includes in `user` / `nice`. That inflated the total and pulled the percentage down (6 % shown with a load of 8.3). Only the first 8 counters are used now.
 - **5G RSRQ / SINR:** the router is now also asked for `nr_rsrq` and `Nr_snr` (the names UFI-TOOLS shows) and they are used when `Z5g_rsrq` / `Z5g_SINR` are empty, before the Android telephony fallback.
 - **5G RSRQ - real cause found (F50 B09 screenshot):** `dumpsys telephony.registry` lists several `CellSignalStrengthNr` entries. The first one has `ssRsrq = 2147483647` (unavailable), a later one has `ssRsrq = -11`. The parser only looked at the first match, so RSRQ stayed "-". It now reads every entry and takes the first usable RSRQ, preferring the entry whose RSRP equals the one on the card. The telephony grep also keeps every `CellSignalStrengthNr` line (head 40).
 - **Not confirmed:** the router keys `nr_rsrq` / `Nr_snr` added above are still a guess; the F50 answer for them was not seen. Checked only with the pasted dumpsys sample (node), not on the phone.
 
-# MatchiTOOL (unreleased) - Live status: 5G / 4G detail filled from Android telephony (fix)
+# MatchiTOOL (1.4.1) - Live status: 5G / 4G detail filled from Android telephony (fix)
 
 - **Bug:** on the F50 the 5G box showed RSRP but RSRQ, SINR, PCI and Ch were all "-". The router keys for those (`Z5g_rsrq`, `Z5g_SINR`, `nr5g_pci`, `nr5g_action_channel`, and the 4G twins) come back empty on this firmware, and the Android telephony read (which has them) only ran when the router API failed.
 - **UFI-TOOLS does it by merging a second source over the router answer** (`{...router, ...its own /baseDeviceInfo}`; the fields it shows are `Nr_snr`, `nr_rsrq`, `Nr_pci`, `Nr_fcn`, `Nr_bands`, `Lte_*`; none of them is in its router key list). MatchiTOOL now does the same with Android telephony: the slow loop reads `dumpsys telephony.registry` whenever the router leaves a detail field empty for the radio in use. When the router gives every field, no dumpsys is run.
@@ -135,7 +151,7 @@ formats it with one decimal (`%.1f`) and the page shows it with two. It never sh
 - The registered 5G cell (`CellInfoNr`) and 4G cell (`CellInfoLte`) are read separately, so on a 4G + 5G (NSA) link each box gets its own PCI, channel and band (n78 / B3 style). 5G values from telephony are only used when the router says 5G is active (or the router is down), so a stale NR entry cannot turn a 4G card into 5G.
 - Browser test extended (the screenshot case, 4G and 5G cells not mixed, no dumpsys when the router is complete, throttling cool and hot). The test uses AOSP-format sample lines; **not yet checked against the real F50 output**. If a field is still "-", open Live status raw output: the `telephony.registry:` part shows what the phone really prints.
 
-# MatchiTOOL (unreleased) - Live status: instant open (plan Phase 4)
+# MatchiTOOL (1.4.1) - Live status: instant open (plan Phase 4)
 
 - The last router **radio values** are kept in `sessionStorage` (this tab only, gone when the tab closes) and painted the moment the card starts, so a reload shows signal and bars straight away. While only cached values are on screen the header says **"Last reading · N s ago"** and the pulse is grey; the first live read replaces them and the header turns **Live**.
 - The cache holds signal numbers only: network type, bars, RSSI, LTE / 5G RSRP, RSRQ, SINR, band, channel. No operator name, PCI, speeds, device count, data used, IP or IDs. An entry older than 10 minutes, or without a network type or bars, is ignored.
@@ -143,21 +159,21 @@ formats it with one decimal (`%.1f`) and the page shows it with two. It never sh
 - When the card becomes visible again (sign-in after a lost session, another tool window closed) both loops read at once instead of waiting out a full interval. The first router and root reads already ran at start (no 3 s wait), so the "0.5 s first read" in the plan needed no timer change.
 - Browser test extended (cached values before the router answers, Connecting without a cache, 10-minute expiry, junk cache, failing router, card shown again). Not tested on a real device yet.
 
-# MatchiTOOL (unreleased) - Live status: heat-aware polling (plan Phase 3)
+# MatchiTOOL (1.4.1) - Live status: heat-aware polling (plan Phase 3)
 
 - One delay table, by heat level: **cool** router 3 s / root 15 s, **warm** 6 s / 30 s, **hot or critical** 15 s / 90 s. The thresholds that decide warm, hot and critical are unchanged. Before, warm only slowed the root read (120 s) and hot slowed it to 3 minutes.
 - The root loop is slowed when hot, not stopped: the temperatures come from that read, so without it the card could not see the device cool down. A failing loop still backs off (router up to 1 min, root 15 / 30 / 60 s) but never polls faster than its heat delay.
 - To try the slow-down on a cool phone, run `localStorage.setItem('liv_thermal_test','2')` in the browser console (0-3; `removeItem` to undo). It changes the polling speed only, not the temperatures shown.
 - `validate.sh` now checks the delay table instead of the old literal numbers. Browser test extended (warm, hot, critical, cooling down, forced level, hot plus failing router). Not tested on a real device.
 
-# MatchiTOOL (unreleased) - Live status: speed, devices and monthly data (plan Phase 2)
+# MatchiTOOL (1.4.1) - Live status: speed, devices and monthly data (plan Phase 2)
 
 - The Live device status card has a new row: **Download** and **Upload** speed, **Devices** on Wi-Fi, and **This month** (down + up, with the split). They come from the router keys `realtime_rx_thrpt`, `realtime_tx_thrpt`, `wifi_access_sta_num`, `monthly_rx_bytes`, `monthly_tx_bytes` (UFI-TOOLS fields), read by the same 3 s router loop, no extra root calls. Speeds are read as bytes per second and shown with 1024-based units (KB/s, MB/s); this unit is taken from UFI-TOOLS and still to be confirmed with a real download on the F50.
 - A tile is hidden when the router does not return its key (empty, missing, negative or not a number); a real 0 still shows as 0 B/s. "This month" needs both monthly keys.
 - `ppp_status` is requested too: anything other than connected shows a small "Data off" / "Data ..." badge next to the network type.
 - Browser test `scripts/phase0/test_live_loops_browser.js` now also covers the formatting and the hide rules. Not tested on a real device.
 
-# MatchiTOOL (unreleased) - Live status: router and root reads run as two loops (plan Phase 1)
+# MatchiTOOL (1.4.1) - Live status: router and root reads run as two loops (plan Phase 1)
 
 - The Live device status card reads the router every 3 s (no root) and the root shell (battery, temperatures, CPU, memory, uptime) every 15 s, each on its own timer with its own back-off. Slower when the phone is warm or hot; the router loop backs off to 1 min when the router fails and the card falls back to the modem AT / telephony path.
 - A hidden browser tab no longer polls (before, both loops kept running in a background tab). The first root read is no longer repeated 3 s after the start.
@@ -171,16 +187,16 @@ formats it with one decimal (`%.1f`) and the page shows it with two. It never sh
 - SMS delete tries the router up to three times (normal, fresh login, fresh login + MD5) and checks the router's list after each try, and no longer skips the router for an hour after one empty reply.
 - Dialogs made with `createModal` keep their footer below a scrolling content area; footers with two or more buttons are one row (fixes the floating Refresh Status / Close in the AdGuard Home dialog).
 
-# MatchiTOOL (unreleased) - Bypass (F50) removed
+# MatchiTOOL (1.4.1) - Bypass (F50) removed
 
 - **The bundled Bypass (F50) plugin is gone** (`assets/plugins/Bypass_v65_13.js`), with its `LICENSE-BYPASS` and the page rules that treated its dialog as a special case. The dialog and switch fixes stay for every plugin. Boot lines and firewall rules an earlier install wrote stay on the router until removed by hand (README, "Bypass tool" note).
 
-# MatchiTOOL (unreleased) - plugin dialogs: no strip on the right, round switches
+# MatchiTOOL (1.4.1) - plugin dialogs: no strip on the right, round switches
 
 - **The dim layer behind a plugin dialog now always covers the whole window.** The Bypass dialog sets `#kano_bypass_modal{width:94vw!important}`; in MatchiTOOL that id is on the full-screen layer, so it ended 6% short and the right side (Live status, Reboot) stayed bright. A rule in the page (`style#dialog-fixes`) keeps any `.modal-bg` at full window size.
 - **Switches inside dialogs (Bypass: Block QUIC, Auto-apply at boot) are full pills again.** The general dialog-button rules gave them a minimum height and a 7 px corner, which made them boxy. Only the page changed; the Bypass plugin file is untouched. Not tested on a real device.
 
-# MatchiTOOL (unreleased) - plugins are erased completely on delete
+# MatchiTOOL (1.4.1) - plugins are erased completely on delete
 
 - **Deleting a plugin now cleans up after it without header lines.** Folders named after the plugin in `/data/local`, `/data/local/tmp` and `/sdcard`, and saved browser settings (local and session storage) starting with the plugin's name, are erased with it and listed in the Delete dialog first. Same strict path checks as before. New test in `PluginDataTest`. Not tested on a real device.
 
@@ -191,19 +207,19 @@ formats it with one decimal (`%.1f`) and the page shows it with two. It never sh
 
 - Plugin host API, store logic and store window now live in `app/src/main/web-src/*.js` and are inlined into the single shipped `index.html` by `scripts/build-web.js`. Page behaviour is unchanged (page without the 6 marker lines is byte-identical to before). `validate.sh` runs `build-web.js --check`, so CI fails if the two drift. See `docs/WEB_SOURCE.md`.
 
-# MatchiTOOL (unreleased) - plugin compatibility report and plugin header
+# MatchiTOOL (1.4.1) - plugin compatibility report and plugin header
 
 - Confirm dialogs for store installs and `.txt`/`.html` imports now include a static compatibility check (routes MatchiTOOL does not serve, undefined `getCookie`/`setCookie`, UFI tools and files that are not shipped). Known gap it reports: `/api/get_custom_head` and `/api/set_custom_head` (UFI) are not implemented here.
 - Optional plugin header `@matchi-name / -version / -author / -description / -requires`, shown in the Plugins list.
 - `MATCHI_ROUTES` in the page is verified against `WebServer.kt` in both directions (`scripts/test_ufi_store.js`); new browser smoke test `scripts/phase0/test_store_browser.js`.
 
-# MatchiTOOL (unreleased) - plugin store reads UFI-TOOLS stores; capture shows real temperatures
+# MatchiTOOL (1.4.1) - plugin store reads UFI-TOOLS stores; capture shows real temperatures
 
 - Plugin store: reads the UFI-TOOLS index format (`download_url` + `res.data.content[]` with `hash_info.sha256`), checks the SHA-256 over the raw downloaded bytes (a BOM or odd bytes no longer change it), and has a **UFI-TOOLS plugins (community mirror)** source button. Archives and folders (which need the UFI-TOOLS app) are hidden and counted; file size is shown. Tests: `scripts/test_ufi_store.js`.
 - Boot capture `matchi_logd.sh` v6: `context.txt` lists every kernel thermal zone (the F50 battery sensor reads a fixed 750 / 25.0), names of boot scripts and of files or processes naming `minikano` / `ufi_tools` (an old UFI-TOOLS launcher was starting the missing app every 30 s as root); `status` carries a `thermal=` line.
 - CI: longer Gradle HTTP timeouts and retries, and a 3-try retry around the Gradle steps in both workflows (dl.google.com "Read timed out").
 
-# MatchiTOOL (unreleased) - heat: gentler UFI_DATA poller
+# MatchiTOOL (1.4.1) - heat: gentler UFI_DATA poller
 
 Reported: the ZTE F50 runs hot after the 1.4.0 update. Found by reading the code and the 1.3.9 log bundle (no on-device CPU or temperature figures yet):
 
@@ -211,19 +227,19 @@ Reported: the ZTE F50 runs hot after the 1.4.0 update. Found by reading the code
 - Poll interval 5 s -> 10 s (each round asks the router up to 3 times); while the page is hidden the loop only wakes every 60 s.
 - Not changed (needs a device test): the boot-capture script `matchi_logd.sh` copies kernel lines with a shell `while read` loop. Your kernel wrote 37 lines/s on average (up to 120/s), 76% of them sprd-wlan tracing, and the load grows with hotspot traffic.
 
-# MatchiTOOL (unreleased) - stability review (static; Kotlin still not compiled)
+# MatchiTOOL (1.4.1) - stability review (static; Kotlin still not compiled)
 
 - `/api/root_shell` default timeout is 30 s (cap stays 100 s, as UFI). Above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper, so a plugin that omits the timeout could have crowded them out.
 - `WebServer.serve`: an unexpected exception inside a route (not a deliberate IllegalArgument/IllegalState/IO/Update/JSON refusal) is now also written to the app log through `Quiet.note("WebServer.route", e)`. The reply is still 400 as before.
 - New browser test `scripts/phase0/test_plugin_upload_browser.js` (needs Playwright, not part of validate.sh) covers the non-ASCII and HTML-as-.js uploads.
 - Checked and left alone: bracket balance of every Kotlin file, root shell slots / timeouts / 1 MB output cap, request guards (Host header, hotspot-only, same-origin, login lockout), all 13 inline page scripts parse.
 
-# MatchiTOOL (unreleased) - Add plugin (.js) fixes seen on the F50
+# MatchiTOOL (1.4.1) - Add plugin (.js) fixes seen on the F50
 
 - `ADGuardHome插件2.4.js: invalid plugin name`: the host stores only ASCII file names, but the single-file upload sent the file name as it was. A name with Chinese characters, spaces or brackets now becomes a safe stable name (stem + hash + .js); the original name stays as the title in the list.
 - `WiFi_v1.5.js: Unexpected token '<'`: that file is HTML saved as .js. A .js file that starts with `<` is now imported the way a .txt/.html UFI plugin is (script re-creation, head injection) instead of being syntax-checked as JavaScript.
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.6: reply shapes taken from UFI's real server source
+# MatchiTOOL (1.4.1) - UFI-TOOLS plugin support, Phase 5.6: reply shapes taken from UFI's real server source
 
 UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) replaced guesses from compiled strings. What changed:
 
@@ -236,46 +252,46 @@ UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) 
 - Tests: `AtBatchTest.ufiTextMatchesUfiServer` (Kotlin, not run here), `scripts/test_ufi_bundle.js` (UFI layout round trip). `validate.sh` passes. Kotlin still not compiled.
 - Known gaps left as they are: `/api/goform/*` only forwards the two get/set endpoints (UFI forwards any path as a raw proxy with Kano-Cookie headers); UFI's plugin store is an alist listing at its own server (`{download_url, res}`), not MatchiTOOL's index format; UFI treats a plugin as disabled when its text holds `[kano_disabled]` (written as a comment wrapper), MatchiTOOL does not read that flag.
 
-# MatchiTOOL (unreleased) - Log basket: review of steps 1 to 6
+# MatchiTOOL (1.4.1) - Log basket: review of steps 1 to 6
 
 - **Redaction fails closed in the basket page:** if the page's redaction function is missing while "Hide private data" is ticked, View and Copy now stop with a message instead of showing the original text. Unticking the box still gives the original on purpose.
 - **Snapshot guard:** only one snapshot is made at a time (a second request gets a "busy" answer), since it can read up to 64 MB of session files.
 - `scripts/test_log_basket.js` extended for both. Not compiled or run here: the Kotlin and the screen on a device.
 
-# MatchiTOOL (unreleased) - Log basket: review fixes for chips and snapshot
+# MatchiTOOL (1.4.1) - Log basket: review fixes for chips and snapshot
 
 - **Root shell chip on Audit rows:** every audit line is a root command, so the chip now keeps all of them. Errors and Plugins on an audit row show a one-line reason instead of an empty list.
 - **Chips on Boot rows:** Errors uses the level the server already parsed for each boot line (raw logcat has no `[ERROR]` text). Plugins and Root shell say that plugin tags exist only in session logs.
 - **Snapshot counts the whole session:** the plugin problem and route counts now read every kept part of the newest session (`_part` files too, up to 64 MB, oldest part dropped first), not just the last 3000 lines in memory. A before and an after snapshot taken at different times now compare like with like. The recent buffer is used only when no session file exists yet.
 - `LogSnapshot.Counter` added (counts line by line); `LogSnapshotTest` and `scripts/test_log_basket.js` extended. Not compiled or run here.
 
-# MatchiTOOL (unreleased) - Log basket, steps 5 and 6: live view inside the basket, ready-for-update snapshot
+# MatchiTOOL (1.4.1) - Log basket, steps 5 and 6: live view inside the basket, ready-for-update snapshot
 
 - **Live view button (step 5):** the main screen now has only Log Basket. The old live panel opens from a Live view button inside the basket and has a Back to basket button. The stream check runs on a timer only while the panel is open, an alert is set or a stream is open.
 - **Snapshot (step 6):** Snapshot: before update / after update saves one redacted text file as an Export row: app version, plugin script problems per plugin, plugin route counts and the last 200 lines. Route `POST /api/logs/snapshot`. Same layout every time so two files can be compared with a text diff.
 - New `LogSnapshot.kt` and `LogSnapshotTest.kt`; `scripts/test_log_basket.js` extended. Not compiled or run here: the Kotlin and the screen on a device.
 
-# MatchiTOOL (unreleased) - Log basket, step 4: filter chips
+# MatchiTOOL (1.4.1) - Log basket, step 4: filter chips
 
 - **Filter chips** above the View output: All, Errors (`[ERROR]` lines), Plugins (`[plugin/...]` tags) and Root shell (`[plugin/shell]`). The chosen chip applies when View opens, can be changed while viewing, and works together with the search box. The match line shows "n of m lines match".
 - Chips filter the lines that were loaded (last 500, or the full-file option). Page only: no Kotlin change.
 - `scripts/test_log_basket.js` extended: each chip, chip plus search, and View opening already filtered. Not opened in a browser or on the F50.
 
-# MatchiTOOL (unreleased) - Log basket, step 3: search, boot delete, tests
+# MatchiTOOL (1.4.1) - Log basket, step 3: search, boot delete, tests
 
 - **Search in View:** a box under the viewed log keeps only the lines that contain the text (case-insensitive) and shows "n of m lines match". It searches what is on screen (the last 500 lines, or the full-file option), after private data is hidden.
 - **Boot files can be deleted** from the basket, but only rotated capture files (`logcat.log.1`, `dmesg.log.2` ...). The live `logcat.log` and `dmesg.log`, and the script's own info files, stay (they are still being written, or explain the capture). Needs the root gate; each delete is written to the shell audit log (`logs-boot-delete`). New `BootLogd.deleteFile` and the pure rule `LogBasket.bootDeletable`.
 - **Page test:** `scripts/test_log_basket.js` (run by `validate.sh`) runs the basket's page script on a fake page with the page's real redaction function: copy hides a password and keeps it when the box is unticked, several rows get headers, delete sends only deletable rows (never the active session or the live boot file), the confirm explains audit and boot rows, and the search box filters.
 - `LogBasketTest` updated and extended for the boot rule. Not compiled or run here: the Kotlin (`WebServer.kt`, `BootLogd.kt`, the tests) and the screen on a device.
 
-# MatchiTOOL (unreleased) - Log basket: the audit log can be deleted
+# MatchiTOOL (1.4.1) - Log basket: the audit log can be deleted
 
 - The audit log (`shell_audit.log`) row now has Delete. It is the only basket delete that needs the root gate (a root sign-in under 4 h; the "not encrypted" question over plain HTTP): without it the row stays and the page says "root sign-in needed". The confirm text explains what the file records.
 - Deleting it is itself recorded: the server writes a fresh `audit-cleared` line (time, client address, hash of a fixed text) straight after, so the file is never silently empty. The list shows the audit row again with that one line.
 - The active session and boot files are still not deletable from the basket. `POST /api/logs/basket/delete` results now carry a `reason` field (empty unless the root gate refused).
 - `LogBasketTest` updated (audit is deletable). Not compiled or run here: the `WebServer.kt` change and the test still need `gradle :app:testDebugUnitTest`.
 
-# MatchiTOOL (unreleased) - Log basket, step 2: the basket screen
+# MatchiTOOL (1.4.1) - Log basket, step 2: the basket screen
 
 - New **Log Basket** button next to Log Catcher (Diagnostics row): a list with one row per log (type, name, size, date, a "logging now" / "root" mark) and a checkbox each. **Select all**, **View**, **Copy**, **Delete**, **Refresh**. No polling: the list loads when the window opens and when you press Refresh.
 - View shows one row (the last 500 lines, scrolled to the end). Copy joins several rows with a `===== name =====` header. Both hide private data by default (same redaction as Log Catcher); untick "Hide private data in copies" to turn that off. "Full file" asks for up to 5000 lines from the last 2 MB of the file; boot files stay at 500 lines here (use Log Catcher for more).
@@ -285,7 +301,7 @@ UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) 
 - The live panel and all existing log routes are untouched.
 - Not compiled or run here: the `WebServer.kt` routes, `LogBasketTest`, and the page (not tried in a browser or on the F50).
 
-# MatchiTOOL (unreleased) - Log basket, step 1: one list of every log
+# MatchiTOOL (1.4.1) - Log basket, step 1: one list of every log
 
 - New `GET /api/logs/basket`: one row per log file of every kind, newest first inside each type: Session (`files/logs/sessions/*.log`), Export (`files/logs/exports/*.txt`), Audit (`files/shell_audit.log`) and Boot (`/data/local/matchitool/bootlogs/*`). A row has `id` (`type:name`), `type`, `name`, `size`, `modified` (epoch ms, 0 for boot files) with `modifiedText`, `active`, `rootOnly` and the flags `canView`, `canCopy`, `canDelete`.
 - Boot rows are listed only when boot capture is installed and the root gate passes; otherwise `bootNote` says why. Without root the route still lists the other three types.
@@ -294,19 +310,19 @@ UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) 
 - No page change yet (step 2 adds the basket screen). Existing log routes and the live panel are untouched.
 - Not compiled here: the `WebServer.kt` route and `LogBasketTest` still need `gradle :app:testDebugUnitTest`.
 
-# MatchiTOOL (unreleased) - Log Catcher: plugin-aware logging
+# MatchiTOOL (1.4.1) - Log Catcher: plugin-aware logging
 
 - Plugin errors now name the plugin. Plugin scripts carry a `//# sourceURL=matchi-plugin/NAME` line, so the page's error reports (and rejected promises, from their stack) reach the log as `[plugin/js] [NAME.js] JS error: ...` instead of an anonymous `WebPage` line pointing into index.html.
 - Plugin-facing routes are logged with a `plugin/...` function tag (`plugin/shell`, `plugin/at`, `plugin/goform`, `plugin/proxy`, `plugin/head`, `plugin/cookie`, `plugin/upload`): method, path without the query, HTTP status and time. Successful calls are DEBUG (polling stays quiet), refusals (401/403/404/429) and calls over 5 s are WARNING, 5xx is ERROR. Never logged: command text, query values, cookies, request or reply bodies. Filter by `plugin` in Log Catcher.
 - New `PluginLog.kt` (pure Kotlin) and `PluginLogTest`. Not compiled here: no Gradle or Android SDK in this sandbox, so `WebServer.kt` changes and the new test still need `gradle :app:testDebugUnitTest`.
 
-# MatchiTOOL (unreleased) - Phase 5.5 (partial): first Kotlin compile
+# MatchiTOOL (1.4.1) - Phase 5.5 (partial): first Kotlin compile
 
 - First time any of the Kotlin was compiled. The Android build still cannot run in the build sandbox (no Android SDK, no network), but the Kotlin compiler inside Gradle can compile the files that use no Android classes. New `scripts/kotlin_pure_tests.sh` does that and runs the unit tests that only need them with JUnit: **106 tests pass** (AtBatch incl. the new `/api/AT` rules, GatewayProxy incl. refusal of other hosts, UfiPathMap, RootGate, LoginGuard, Redactor and others).
 - Bug found and fixed: `GatewayProxy.kt` had `/api/goform/*` and `/api/proxy/*` inside doc comments. Kotlin comments nest, so `/*` opened a comment that was never closed and the Gradle build would have failed ("Unclosed comment"). Reworded; no other Kotlin file has this.
 - Still not compiled: `WebServer.kt` (incl. the `/api/AT` route), `RootShell.kt`, `PluginOrder.kt` and every other file that imports `android.*`, `org.json` or NanoHTTPD, and the 8 tests for them (ExitReasonModel, HostControl, HostHeader, NoiseGate, PluginData, PluginOrder, RootShellLauncher, SourceCounters). Run `gradle :app:testDebugUnitTest` on a machine with the Android SDK (`scripts/bootstrap-build.sh`). No device run yet.
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.3: UFI's `/api/AT` route
+# MatchiTOOL (1.4.1) - UFI-TOOLS plugin support, Phase 5.3: UFI's `/api/AT` route
 
 - New route `GET /api/AT?command=AT+CSQ&slot=0`, the one UFI-TOOLS' own `ufi_req` help text shows and the E5 baseband plugin calls. It runs the command through the bundled `sendat`, like `/api/at` (POST), with the same gate: pure reads (`AT+COPS?`, `AT+CSQ`, `AT+CGMR=?` ...) need only a session; anything else (NV writes, `AT+CFUN`, `AT^...`, chained commands) also needs the root gate (sign-in under 4 h; the page's "not encrypted" question over plain HTTP). Writes are written to the shell audit log (hash and length of the command only).
 - Reply: `{"success":true,"result":"<modem text>","error":null}`, or `{"success":false,"result":null,"error":"<text>"}`. Checked against the E5 plugin's own reader (v1.0.4: it takes `result` or `content` as text and fails on a truthy `error` or `success === false`; it only sends `AT+CFUN?`, `AT+CFUN=0` and `AT+CFUN=1`, and needs `OK` in the reply for the two writes), so this shape works for E5. For other plugins it is still **a guess**: UFI's server code is compiled and no plugin or script in the APK reads the reply. `result` and `error` match UFI's shell routes; `success` matches MatchiTOOL's `/api/at`. Compare with a real reply from an F50 before relying on it.
@@ -316,7 +332,7 @@ UFI-TOOLS' http-server source (modules/*.kt and frontEnd/public/script/main.js) 
 - The E5 plugin edits baseband NV and can brick a device. Back up first (for example read the values with AT first and keep them); MatchiTOOL does not add a safety net for it.
 - Not shown yet: Kotlin compiling (`gradle` here has no Android SDK, so `testDebugUnitTest` could not run); the E5 plugin working on an F50; the real UFI reply shape; `sendat` timing for slow NV commands (the route allows 15 s, same as `/api/at`).
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 5.1: globals and menu that real plugins need
+# MatchiTOOL (1.4.1) - UFI-TOOLS plugin support, Phase 5.1: globals and menu that real plugins need
 
 Found by running 8 real UFI plugins in Chromium (4 of them failed on names MatchiTOOL did not define).
 - New page globals: `checkAdvancedFunc()` (true when the root shell answers `root`), `encodeBase64()` (UTF-8 safe), `getData(URLSearchParams)` (router read through `/api/goform/goform_get_cmd_process`, adds `multi_data=1` for a comma list), `postData(login, {goformId,...})` (router write through `/api/goform/goform_set_cmd_process`, form body, returns a fetch `Response`), and `login()` (a function again: the page element `#login` used to shadow it; it only returns a marker because the host signs in to the router itself).

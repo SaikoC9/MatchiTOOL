@@ -23,7 +23,7 @@ async function scenario(name, run, opts = {}) {
     if (u.pathname === '/api/zte') { st.zte++; if (st.zteDelay) await new Promise((res) => setTimeout(res, st.zteDelay)); return st.zteFail ? j({ error: 'down' }, 500) : j({ success: true, data: { signalbar: '4', network_type: 'LTE', lte_rsrp: st.rsrp, ...st.extra } }); }
     if (u.pathname === '/api/shell') { st.shell++; const wantTele = /dumpsys telephony/.test(req.postData() || ''); if (wantTele) st.tele++; return j({ success: true, content: SHELL.replace('soc-thermal=45000', 'soc-thermal=' + st.zone).replace('level: 50', 'level: ' + (st.bat === undefined ? 50 : st.bat)).replace('status: 3', 'status: ' + (st.status || 3)) + (wantTele ? 'TELEPHONY\\n' + TELE : '') }); }
     if (u.pathname === '/api/at/batch') { st.at++; return j({ results: ['', '', '', ''] }); }
-    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
+    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.1' });
     if (u.pathname === '/api/plugins') return j([]);
     return j({});
   });

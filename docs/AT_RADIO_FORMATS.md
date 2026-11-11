@@ -57,10 +57,13 @@ LTE values are bare integers too (UFI matches `data-band="1"` against the read l
 this is inferred from the read side, not seen in a send. Confirm on the F50.
 
 UFI's own note: "does not require reboot, just switch the network mode afterwards".
-After a successful set UFI also runs an `AT+SFUN=4` / `AT+SFUN=5` sequence on SIM slots 0
-and 1; the exact order is hidden by the obfuscation and one helper looks like it can do
-nothing, so do NOT copy it. Phase 2 uses "re-apply network mode" instead, and the F50
-test decides whether that is enough.
+After a successful set UFI also restarts the radio. The order was read from the real call
+sites in UFI-TOOLS 4.1.5: `AT+SFUN=5` on SIM slot 0, then slot 1 (radio OFF), then
+`AT+SFUN=4` on slot 0, then slot 1 (radio ON), about 100 ms apart. Meaning on this modem
+(Unisoc): 5 = off, 4 = on. `AT+SFUN?` is not supported on the F50 (`+CME ERROR: 3`) and
+`AT+CFUN?` stays `1` through the sequence, so the meaning is confirmed only indirectly:
+after the sequence `AT+CEREG?` and `AT+C5GREG?` both report stat 1 again. MatchiTOOL runs
+the whole sequence on the device in one root call (`CYCLE_SH` in `radio-core.js`).
 
 ### 4. Cell lock and unlock
 
@@ -98,7 +101,7 @@ uses `PERFORMANCE_MODE_SETTING`. Use only that one.
 ### 6. AT quick buttons (no router call)
 
 Through the existing AT path: IMSI `AT+CIMI` · QoS `AT+CGEQOSRDP=1` (UFI itself re-polls it
-every 10 s on screen; do not poll) · modem reboot `AT+SFUN=4` then `AT+SFUN=5`.
+every 10 s on screen; do not poll) · modem restart `AT+SFUN=5` (off) then `AT+SFUN=4` (on), slots 0 and 1.
 
 Not in scope: `SET_SIM_SLOT` (removed from the plan).
 

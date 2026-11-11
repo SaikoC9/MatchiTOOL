@@ -42,7 +42,7 @@ plugins execute with the privileges of the host bridge and should be treated as 
 
 ## Build
 
-Current source version: **1.4.0** (versionCode **400**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.4.1** (versionCode **401**). The Android package and embedded web UI version are kept in sync.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
@@ -142,7 +142,7 @@ See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression,
 - **Root temp files:** the root shell keeps its pid/output files in the root-only folder `/data/local/matchitool/tmp`.
 
 
-Current source release: **1.4.0**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
+Current source release: **1.4.1**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
 
 
 ### Log Catcher 1.3.5

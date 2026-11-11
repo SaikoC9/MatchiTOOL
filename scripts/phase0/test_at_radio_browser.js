@@ -26,7 +26,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
       if (/support_band/.test(c)) return j({ success: true, result: '5+SP5GCMDS: get nr support_band,6,41,78,1,8,28,5\nOK' });
       return j({ success: true, result: 'OK' });
     }
-    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
+    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.1' });
     if (u.pathname === '/api/plugins') return j([]);
     return j({});
   });

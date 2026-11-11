@@ -26,7 +26,7 @@ In UFI-TOOLS but NOT in MatchiTOOL (all through the router goform API, not AT):
   - Cell lock / unlock    CELL_LOCK, UNLOCK_ALL_CELL
   - Performance mode      PERFORMANCE_MODE_SETTING (key: performance_mode)
   - AT quick buttons      IMSI, QoS (AT+CGEQOSRDP=1), modem reboot
-                          (AT+SFUN=4 then AT+SFUN=5), modem info
+                          (AT+SFUN=5 off, then AT+SFUN=4 on), modem info
   - APN profiles          (apn_* keys)
 
 NOT PLANNED
@@ -81,7 +81,7 @@ PHASE 1 - Safe additions
 ------------------------
 Work
   - New quick buttons: IMSI (AT+CIMI), QoS (AT+CGEQOSRDP=1), Modem info.
-  - Modem reboot button (AT+SFUN=4 then AT+SFUN=5) with a confirm dialog
+  - Modem reboot button (AT+SFUN=5 off, then AT+SFUN=4 on) with a confirm dialog
     ("Signal will drop for about 30 s").
   - Network mode dropdown: Auto 5G/4G/3G, 5G NSA, 5G SA, 4G only.
     Read net_select first and select the current one. On change: confirm,

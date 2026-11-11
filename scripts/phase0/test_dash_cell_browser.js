@@ -34,7 +34,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
     }
     if (u.pathname === '/api/shell') { if (/SFUN/.test(body.cmd || '')) log.sfun++; return j({ success: true, content: '' }); }
     if (u.pathname === '/api/at') { const c = body.command || ''; if (/support_band/.test(c)) return j({ success: true, result: '+SP5GCMDS: get nr support_band,2,78,41\nOK' }); if (/REG/.test(c)) return j({ success: true, result: router.registered ? '+CEREG: 2,1,"1","2",7\nOK' : '+CEREG: 2,0\nOK' }); return j({ success: true, result: 'OK' }); }
-    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.0' });
+    if (u.pathname === '/api/ping') return j({ ok: true, version: '1.4.1' });
     if (u.pathname === '/api/plugins') return j([]);
     return j({});
   });
