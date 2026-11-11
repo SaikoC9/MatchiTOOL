@@ -1237,45 +1237,52 @@ select option:checked,select option:hover{background:#168cff;color:#fff}
     await unlockCells(true);
   }
 
-  // AT+SFUN=4 turns the radio off, AT+SFUN=5 turns it back on. If the second step fails the radio would stay off, so it is retried.
-  // radioCycle is also used after a band lock (UFI-TOOLS does the same: the lock is only picked up after the radio is cycled). Uses the SIM slot picked above.
+  // Radio restart, copied from UFI-TOOLS 4.1.5 (its code is obfuscated; the order was read from the real call sites):
+  //   AT+SFUN=5 on SIM slot 0, then slot 1 (radio OFF), then AT+SFUN=4 on slot 0, then slot 1 (radio ON), 100 ms apart.
+  // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF
+  // and left it there. A slot that does not exist answers ERROR and is skipped; the ON steps always run once OFF was sent.
+  async function atSlot(command, sl) {
+    const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command, slot: sl }) });
+    if (r.error) throw new Error(r.error);
+    return r.result || '';
+  }
   async function radioCycle(quiet) {
+    let offSent = false;
     try {
-      log('> Radio restart (AT+SFUN=4, then AT+SFUN=5)');
-      const off = tidy(await at('AT+SFUN=4')); log(off || '(no output)');
-      if (!off.includes('OK')) { log('Radio-off step failed. The lock is saved but not active yet: use \"Restart modem\".'); createToast('Radio restart failed, lock not active yet', 'red'); return false; }
-      await sleep(2000);
-      let back = false, last = '';
-      for (let i = 0; i < 3 && !back; i++) {
-        if (i) await sleep(2500);
-        try { last = tidy(await at('AT+SFUN=5')); back = last.includes('OK'); } catch (e) { last = e.message; }
-        log(last || '(no output)');
+      log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does)');
+      const res = { off: [false, false], on: [false, false] };
+      for (const sl of [0, 1]) {
+        try { const o = tidy(await atSlot('AT+SFUN=5', sl)); offSent = true; res.off[sl] = o.includes('OK'); log('slot ' + sl + ' off: ' + (o || '(no output)')); }
+        catch (e) { log('slot ' + sl + ' off: ' + e.message); }
+        await sleep(100);
       }
-      if (back) { log('Radio is back on. Registration can take about 30 s, then check Live Status.'); createToast('Radio restarted', 'green'); }
-      else { log('WARNING: the radio may still be OFF. Run AT+SFUN=5 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=5', 'red'); }
-      return back;
-    } catch (err) { log('Radio restart failed: ' + err.message + '. If the radio is off, run AT+SFUN=5.'); createToast(err.message, 'red'); return false; }
+      if (!res.off[0] && !res.off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); createToast('Radio restart failed, nothing changed', 'red'); return false; }
+      await sleep(100);
+      for (const sl of [0, 1]) {
+        if (!res.off[sl]) continue;   // that slot was never switched off
+        let last = '';
+        for (let i = 0; i < 3 && !res.on[sl]; i++) {
+          if (i) await sleep(2500);
+          try { last = tidy(await atSlot('AT+SFUN=4', sl)); res.on[sl] = last.includes('OK'); } catch (e) { last = e.message; }
+        }
+        log('slot ' + sl + ' on: ' + (last || '(no output)'));
+        await sleep(100);
+      }
+      const bad = [0, 1].filter((sl) => res.off[sl] && !res.on[sl]);
+      if (!bad.length) { log('Radio is back on. Registration can take about 30 s, then check Live Status.'); createToast('Radio restarted', 'green'); return true; }
+      log('WARNING: the radio may still be OFF on slot ' + bad.join(', ') + '. Run AT+SFUN=4 here now (with that slot picked), or reboot the device.');
+      createToast('Radio may still be off: run AT+SFUN=4', 'red'); return false;
+    } catch (err) {
+      log('Radio restart failed: ' + err.message + (offSent ? '. If the radio is off, run AT+SFUN=4.' : ''));
+      createToast(err.message, 'red'); return false;
+    }
   }
   async function rebootModem() {
     if (radioBusy) return;
     const ok = await askConfirm('Restart the modem?\n\nSignal will drop for about 30 seconds. SMS and data stop until it is back.', 'Restart modem', true);
     if (!ok) return;
     setRadioBusy(true);
-    try {
-      log('> Modem restart (AT+SFUN=4, then AT+SFUN=5)');
-      const off = tidy(await at('AT+SFUN=4')); log(off || '(no output)');
-      if (!off.includes('OK')) { log('Radio-off step failed. Nothing was changed.'); createToast('Modem restart failed, nothing changed', 'red'); return; }
-      await sleep(2000);
-      let back = false, last = '';
-      for (let i = 0; i < 3 && !back; i++) {
-        if (i) await sleep(2500);
-        try { last = tidy(await at('AT+SFUN=5')); back = last.includes('OK'); } catch (e) { last = e.message; }
-        log(last || '(no output)');
-      }
-      if (back) { log('Radio is back on. Registration can take about 30 s.'); createToast('Modem restarted', 'green'); }
-      else { log('WARNING: the radio may still be OFF. Run AT+SFUN=5 here now, or reboot the device.'); createToast('Radio may still be off: run AT+SFUN=5', 'red'); }
-    } catch (err) { log('Modem restart failed: ' + err.message + '. If the radio is off, run AT+SFUN=5.'); createToast(err.message, 'red'); }
-    finally { setRadioBusy(false); }
+    try { await radioCycle(false); } finally { setRadioBusy(false); }
   }
 
   let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
