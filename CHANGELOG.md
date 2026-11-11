@@ -1,3 +1,22 @@
+# MatchiTOOL (unreleased) - Live Status polling guard (plan phase 5)
+
+- **4 s deadline per router read.** A request that never answers is aborted instead of hanging (the radio restart and re-registration can stall the router web API). Reads never overlap (each loop already skips a tick while its read is running).
+- **A failed read keeps the last values** on screen instead of blanking the card. After 12 s without a good read the header says "Stale · N s ago". Only after 60 s are the old numbers dropped, so the modem / Android telephony fallback takes over and old values cannot pass for current ones. "Connecting…" is never shown once a value has been shown.
+- **Back-off 3 / 6 / 12 / 24 / 30 s** for the router loop (was 6 s up to 60 s), reset by the first success. Never faster than the heat / mode delay. The root loop is unchanged (15 / 30 / 60 s).
+- **Light read while recovering:** after a failure the router is asked only for network_type, signalbar and the RSRP keys (a small answer from a busy router), merged onto the last values; the full key list returns with the first success.
+- Paused during a radio change as before (phase 3: `MatchiRadio.beginBusy`).
+- Tests: new `scripts/test_live_guard.js` runs the real `collectFast` against a fake router (deadline, keep-stale, drop after 60 s, light keys, recovery); `scripts/test_live_poll.js` back-off values updated. `validate.sh` passes. **Not yet checked on the F50.**
+
+# MatchiTOOL (unreleased) - Dashboard: "Cell lock" card (plan phase 4)
+
+- **New card under Radio settings** (`web-src/dash-cell.js`, UI only, calls `MatchiRadio`), **closed by default**. It reads `neighbor_cell_info` / `locked_cell_info` only when opened or on Refresh, never on the Live Status timer. Shows what is locked now, the cell the phone is on, the neighbours (RSRP / RSRQ / SINR) and a "lock by hand" row (PCI, EARFCN, 4G / 5G).
+- **"Lock this cell"** is built from the router's own serving-cell values (`nr5g_pci` + `nr5g_action_channel`, `lte_pci` + `wan_active_channel`), the safest lock because the phone is already on it. The cell is offered only when the network type says that radio is in use and the PCI / channel are valid; 5G NSA offers both. New in the core: `servingCells()`.
+- **Type is never guessed.** A neighbour called `n78` is 5G, `B3` is 4G; a bare number (`3`) shows a 4G / 5G picker and does not lock until one is chosen.
+- **Confirm names the cell** and warns about no signal. After lock or unlock there is **no radio restart**; if the router does not list the change yet it is read again after 3 s.
+- **Auto-unlock ON by default.** 60 s after a lock, if neither `AT+CEREG?` nor `AT+C5GREG?` reports 1 or 5, `UNLOCK_ALL_CELL` is sent once. The check now lives in the core (`watchCell`, `cellAutoOn`, `setCellAuto`) and is shared with the AT & Radio window; every lock, unlock or newer watch cancels an older one, so two windows cannot fight. The pending check **survives a page reload** (start time in localStorage; it resumes only if the router still lists a locked cell, and is dropped after 10 min).
+- **Lock buttons are off while bands are ticked but not saved or a band change is running**; "Unlock all cells" is always on screen and works during a radio restart.
+- Tests: `scripts/test_at_radio.js` (servingCells for 5G / 4G / NSA / bad values, cellListed, lock + unlock with no SFUN, watchCell registered / unregistered / cancelled / replaced / switched off). New `scripts/phase0/test_dash_cell_browser.js` (needs Playwright). `validate.sh` passes. **The card has not been run in a real browser or on the F50 yet.**
+
 # MatchiTOOL (unreleased) - Dashboard: "Radio settings" card, Live Status pauses during a radio restart (plan phase 3)
 
 - **New card under Live device status** (`web-src/dash-radio.js`, UI only, calls `MatchiRadio`): network mode and LTE / 5G band chips. It reads the router once when the page opens, after a change and on Refresh. It never reads on the Live Status timer.

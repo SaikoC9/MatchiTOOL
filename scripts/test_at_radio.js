@@ -78,5 +78,51 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
   assert.strictEqual(await R.waitRegistered(0, { everyMs: 5, timeoutMs: 1000 }), true); assert(n >= 3);
   reply = () => ({ result: '+CEREG: 2,0\nOK' });
   assert.strictEqual(await R.waitRegistered(0, { everyMs: 5, timeoutMs: 30 }), false);
+
+  // ---- cell lock (dashboard card + AT & Radio window share these) ----
+  // servingCells: only the radio the network type says is in use, and only with a valid PCI + channel. NSA lists both. Never guessed.
+  const sv = async (d) => { reply = (path) => path === '/api/zte' ? { data: d } : {}; return R.servingCells(); };
+  const nrKeys = { nr5g_pci: '120', nr5g_action_channel: '636666', nr5g_action_band: 'n78', lte_pci: '301', wan_active_channel: '1850', wan_active_band: 'B3' };
+  let sc = await sv({ network_type: '5G', ...nrKeys });
+  assert.deepStrictEqual(sc.cells, [{ rat: '16', pci: '120', earfcn: '636666', band: 'n78' }], '5G (SA): only the NR cell');
+  sc = await sv({ network_type: '4G LTE', ...nrKeys });
+  assert.deepStrictEqual(sc.cells, [{ rat: '12', pci: '301', earfcn: '1850', band: 'B3' }], '4G: only the LTE cell, stale NR values ignored');
+  sc = await sv({ network_type: 'ENDC', ...nrKeys });
+  assert.deepStrictEqual(sc.cells.map((c) => c.rat), ['16', '12'], 'NSA offers both, the person picks');
+  sc = await sv({ network_type: '5G', nr5g_pci: '', nr5g_action_channel: '636666' });
+  assert.deepStrictEqual(sc.cells, [], 'missing PCI: nothing offered');
+  sc = await sv({ network_type: '5G', nr5g_pci: '2000', nr5g_action_channel: '636666' });
+  assert.deepStrictEqual(sc.cells, [], 'PCI out of range: nothing offered');
+  sc = await sv({ ...nrKeys });
+  assert.deepStrictEqual(sc.cells, [], 'network type not reported: nothing offered');
+  // cellListed
+  const cells = { nb: [], locked: [{ pci: 120, earfcn: 636666, rat: '16' }] };
+  assert(R.cellListed(cells, '120', '636666', '16')); assert(!R.cellListed(cells, '120', '636666', '12')); assert(!R.cellListed(null, '1', '1', '12'));
+  // cellLock / cellUnlock answer from the read-back
+  calls.length = 0; let locked = [];
+  reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set'
+    ? (b.params.goformId === 'CELL_LOCK' ? (locked = [{ pci: b.params.pci, earfcn: b.params.earfcn, rat: b.params.rat }], { data: { result: 'success' } }) : (locked = [], { data: { result: 'success' } }))
+    : { data: { neighbor_cell_info: [], locked_cell_info: locked } };
+  let cl = await R.cellLock('120', '636666', '16');
+  assert(cl.hit); assert.deepStrictEqual(calls[0].body.params, { goformId: 'CELL_LOCK', pci: '120', earfcn: '636666', rat: '16' });
+  const cu = await R.cellUnlock(); assert(cu.none);
+  assert(calls.some((c) => c.body.params && c.body.params.goformId === 'UNLOCK_ALL_CELL'));
+  assert(!calls.some((c) => /SFUN/.test(JSON.stringify(c.body))), 'cell lock / unlock never restarts the radio');
+  // watchCell: registered -> keeps, not registered -> asks the caller to unlock, a newer lock / unlock cancels it, switch-off is honoured
+  const store = {}; global.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+  assert.strictEqual(R.cellAutoOn(), true, 'auto-unlock is ON by default');
+  reply = (path) => path === '/api/at' ? { result: '+CEREG: 2,1,"1","2",7\nOK' } : {};
+  assert.strictEqual(await R.watchCell({ waitMs: 20, stepMs: 5 }), 'registered');
+  reply = () => ({ result: '+CEREG: 2,0\nOK' });
+  assert.strictEqual(await R.watchCell({ waitMs: 20, stepMs: 5 }), 'unregistered');
+  assert.strictEqual(await R.watchCell({ waitMs: 0 }), 'unregistered', 'waitMs 0 checks at once (used after a page reload)');
+  let w = R.watchCell({ waitMs: 60, stepMs: 5 }); await R.sleep(15); reply = (path, b) => path === '/api/zte' ? { data: b.op === 'set' ? { result: 'success' } : { locked_cell_info: [], neighbor_cell_info: [] } } : {};
+  await R.cellUnlock(); assert.strictEqual(await w, 'cancelled', 'an unlock cancels the pending check');
+  reply = () => ({ result: '+CEREG: 2,0\nOK' });
+  w = R.watchCell({ waitMs: 60, stepMs: 5 }); await R.sleep(15); const w2 = R.watchCell({ waitMs: 20, stepMs: 5 });
+  assert.strictEqual(await w, 'cancelled', 'a newer watch replaces the older one'); assert.strictEqual(await w2, 'unregistered');
+  R.setCellAuto(false); assert.strictEqual(R.cellAutoOn(), false);
+  assert.strictEqual(await R.watchCell({ waitMs: 10, stepMs: 5 }), 'off', 'switched off: the lock stays');
+  R.setCellAuto(true); assert.strictEqual(R.cellAutoOn(), true);
   console.log('at radio tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

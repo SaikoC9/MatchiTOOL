@@ -39,12 +39,13 @@ eq(at({ mode: 'eco', ...heat(2) }), [15000, 90000], 'eco, hot');
 // The hot slow loop is slowed, never stopped
 ok(isFinite(at(heat(2))[1]) && at(heat(2))[1] <= 90000, 'slow loop still runs when hot');
 
-// Back-off: the router loop doubles from 6 s up to 60 s, the root loop goes 15 / 30 / 60 s; never faster than the heat delay
-eq(at({ failF: 1, failS: 1 }), [6000, 15000], 'back-off step 1');
-eq(at({ failF: 2, failS: 2 }), [12000, 30000], 'back-off step 2');
-eq(at({ failF: 3, failS: 3 }), [24000, 60000], 'back-off step 3');
-eq(at({ failF: 5, failS: 4 }), [60000, 60000], 'back-off capped at 60 s (5 / 4 failures)');
-eq(at({ failF: 50, failS: 50 }), [60000, 60000], 'back-off stays capped');
+// Back-off: the router loop goes 3 / 6 / 12 / 24 / 30 s (capped at 30), the root loop 15 / 30 / 60 s; never faster than the heat delay
+eq(at({ failF: 1, failS: 1 }), [3000, 15000], 'back-off step 1');
+eq(at({ failF: 2, failS: 2 }), [6000, 30000], 'back-off step 2');
+eq(at({ failF: 3, failS: 3 }), [12000, 60000], 'back-off step 3');
+eq(at({ failF: 4, failS: 4 }), [24000, 60000], 'back-off step 4');
+eq(at({ failF: 5, failS: 4 }), [30000, 60000], 'router back-off capped at 30 s');
+eq(at({ failF: 50, failS: 50 }), [30000, 60000], 'back-off stays capped');
 eq(at({ failF: 1, failS: 1, ...heat(2) }), [15000, 90000], 'back-off never faster than hot delay');
 
 // Battery pause: below the level and not charging only; the root loop then checks once a minute, not faster
