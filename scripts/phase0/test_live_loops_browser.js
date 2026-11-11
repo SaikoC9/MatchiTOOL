@@ -12,7 +12,7 @@ const SHELL = 'BATTERY\nlevel: 50\ntemperature: 300\nstatus: 3\nTHERMAL\nZ:soc-t
 async function scenario(name, run, opts = {}) {
   const b = await chromium.launch(); const ctx = await b.newContext();
   // opts.seed = { ageMs, d } writes a Phase 4 sessionStorage cache entry (ageMs old) before the page starts
-  await ctx.addInitScript((seed) => { try { sessionStorage.setItem('matchi_token', 'T'); localStorage.removeItem('liv_auto'); if (seed) sessionStorage.setItem('liv_cache_v1', JSON.stringify({ t: Date.now() - seed.ageMs, d: seed.d })); } catch (_) {} }, opts.seed || null);
+  await ctx.addInitScript((seed) => { try { sessionStorage.setItem('matchi_token', 'cookie'); localStorage.removeItem('liv_auto'); if (seed) sessionStorage.setItem('liv_cache_v1', JSON.stringify({ t: Date.now() - seed.ageMs, d: seed.d })); } catch (_) {} }, opts.seed || null);
   const page = await ctx.newPage(); const st = { extra0: opts.extra || {}, zteDelay: opts.zteDelay || 0, tele: 0, zte: 0, shell: 0, at: 0, rsrp: '-95', zteFail: false, extra: opts.extra || {}, zone: 45000 }, errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.clock.install();

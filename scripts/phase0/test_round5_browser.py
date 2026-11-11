@@ -20,7 +20,7 @@ CellSignalStrengthLte: rssi=-70 rsrp=-95 rsrq=-10 rssnr=12 level=3"""
 
 def run(p, router_keys, tele_text, name):
     b = p.chromium.launch(); ctx = b.new_context()
-    ctx.add_init_script("try{sessionStorage.setItem('matchi_token','T');localStorage.removeItem('matchi_cell_auto');localStorage.setItem('liv_mode','eco')}catch(e){}")
+    ctx.add_init_script("try{sessionStorage.setItem('matchi_token', 'cookie');localStorage.removeItem('matchi_cell_auto');localStorage.setItem('liv_mode','eco')}catch(e){}")
     page = ctx.new_page(); errors = []; log = {'sets': []}
     page.on('pageerror', lambda e: errors.append(str(e)))
     def handle(route):

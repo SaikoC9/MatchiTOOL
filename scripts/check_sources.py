@@ -191,4 +191,11 @@ assert 'RouterHost.isValid(Prefs.zteHost(ctx))' in zc and 'GatewayProxy.safePath
 assert 'fun proxy(ctx: Context, method: String, path: String' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
 assert 'UFIDATA-BEGIN' in html and 'function ufiDataStart(' in html and 'fillUfiData' not in html, 'UFI_DATA poller missing'
 assert 'if(UFIPOLL.busy||!UFIPOLL.fields||!TOKEN)return' in html and 'document.hidden' in html, 'UFI_DATA poller must not overlap and must pause when hidden'
+# Phase 3: the session is an HttpOnly cookie. No route reads the token header itself, and the login reply carries no token.
+assert 'headers["x-token"]' not in server.replace('requestToken(s.headers["cookie"], s.headers["x-token"])', ''), 'read the session through sessionToken(s), not the x-token header'
+assert '.put("token"' not in server, 'the login reply must not hand the session token to the page'
+assert 'sessionCookieHeader(Sessions.issue(ctx), Tls.active)' in server and 'clearSessionCookieHeader(Tls.active)' in server, 'login must set the session cookie and sign-out must clear it'
+assert 'lr.token' not in html, 'the page must not expect a token in the login reply'
+# Every plugin install asks for the password, new names included (a running plugin must not install another plugin silently).
+assert '"install a plugin"' in server and 'val unchanged = oldBytes != null' in server and 'if (!unchanged)' in server, 'installing a plugin must need the password unless nothing changes'
 print(f'source guards passed ({len(SERVER_FILES)} host files, tripwires only - see the header of this file)')

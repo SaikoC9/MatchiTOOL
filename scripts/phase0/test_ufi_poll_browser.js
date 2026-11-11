@@ -5,7 +5,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext();
-  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); } catch (_) {} });
+  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); } catch (_) {} });
   const page = await ctx.newPage(); let zte = 0, lanShell = 0; const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.clock.install();

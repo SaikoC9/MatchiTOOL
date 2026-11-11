@@ -7,7 +7,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext();
-  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); localStorage.removeItem('matchi_band_orig'); localStorage.setItem('liv_mode', 'eco'); } catch (_) {} });
+  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); localStorage.removeItem('matchi_band_orig'); localStorage.setItem('liv_mode', 'eco'); } catch (_) {} });
   const page = await ctx.newPage(); const errors = [];
   const router = { lte_band_lock: '1,3', nr_band_lock: '78', net_select: 'WL_AND_5G' };
   const log = { sets: [], liveGets: 0, shell: 0, cycleAt: 0 };

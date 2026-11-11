@@ -12,7 +12,15 @@ STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
   Phase 2: DONE in code (server asks again when an update adds an ability;
            store confirm names the token and network use).
   Phase 2B: DONE in code (default hosts trimmed, docs corrected).
-  Phase 3, 4, 5: not started.
+  Phase 3: DONE in code (HttpOnly session cookie, marker header, no token in the login reply). SessionCookie.kt, SessionCookieTest.kt,
+           scripts/phase0/test_session_cookie_browser.js (passes in Chromium against a mock host). Kotlin NOT compiled.
+           To test on the F50: sign in, reload (stays signed in), open a new tab (asks for password), sign out (all tabs), run a plugin
+           that calls /api, and check over HTTPS that the cookie is Secure. Everyone signs in once after the update.
+  Install password (follow-up to the review): POST /api/plugins now needs the password for a NEW name too, not only for a replace, so a running
+           plugin cannot install a copy of itself or send force/confirmCaps itself. Only re-saving identical approved bytes is free. Store installs
+           and file uploads now ask once per plugin. Browser test: scripts/phase0/test_plugin_install_password_browser.js. Kotlin NOT compiled.
+           To test on the F50: install from the store (password asked), install a second plugin (asked again), wrong password (refused, counts toward lockout).
+  Phase 4, 5: not started.
   Checked here: page build, all JS tests, route-gate table, repo checks.
   NOT checked: Kotlin compile and PluginIntegrityTest (no Kotlin compiler
   in this environment). Run `gradle :app:testDebugUnitTest` first, then an
@@ -28,7 +36,7 @@ STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
       the approved record both already match.
 
   To test on the F50:
-    1. Install a plugin from the store: no password asked, shows no badge.
+    1. Install a plugin from the store: the password is asked, then it shows no badge.
     2. Upload the same name with different code: password asked; if the new
        code adds root/network/host/token, a second confirm lists it.
     3. Edit the file with adb/root: list shows "changed since approved".

@@ -18,7 +18,7 @@ const files = fs.readdirSync(DIR).filter((f) => /\.(js|txt)$/.test(f)).sort();
       ? { name: 'p.html', kind: 'html', title: f, enabled: true, code: /^\s*</.test(code) ? code : `<script>${code}</script>` }
       : { name: 'p.js', kind: 'js', enabled: true, code };
     const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } });
-    await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); } catch (_) {} });
+    await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); } catch (_) {} });
     const page = await ctx.newPage();
     const rec = { api: [], shell: [], errors: [], consoleErr: [], ext: [] };
     page.on('pageerror', (e) => rec.errors.push(String(e.message).slice(0, 160)));

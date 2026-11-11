@@ -6,7 +6,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1100, height: 900 } });
-  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); } catch (_) {} });
+  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); } catch (_) {} });
   const page = await ctx.newPage(); const errors = [], dialogs = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const plug = '// @matchi-name Signal meter\n// @matchi-version 1.2\n// @matchi-author me\n// @matchi-description Shows signal\ncreateToast("x");';

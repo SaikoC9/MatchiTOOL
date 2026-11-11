@@ -6,7 +6,7 @@ const adb = fs.readFileSync(fs.readdirSync(DIR).map((f) => path.join(DIR, f)).fi
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext({ viewport: { width: 1100, height: 900 } });
-  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); } catch (_) {} });
+  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); } catch (_) {} });
   const page = await ctx.newPage(); const seen = [], dialogs = []; let acceptDialog = true;
   // The page asks with its own in-page dialog (askConfirm), not the browser's: answer it by clicking OK or Cancel.
   await page.exposeFunction('__asked', (m) => { dialogs.push(m.slice(0, 40)); return acceptDialog; });
@@ -34,7 +34,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await page.evaluate(() => typeof login === 'function'), 'typeof login === "function" (page element id no longer shadows it)');
   const g = await page.evaluate(() => getData(new URLSearchParams({ cmd: 'queryWiFiModuleSwitch,queryAccessPointInfo' })));
   ok(g.WiFiModuleSwitch === '1', 'getData returns the router JSON');
-  const gr = seen.find((x) => x.m === 'GET'); ok(gr && gr.p.includes('multi_data=1') && gr.t === 'T', 'getData adds multi_data=1 for a cmd list and sends the session token: ' + (gr && gr.p));
+  const gr = seen.find((x) => x.m === 'GET'); ok(gr && gr.p.includes('multi_data=1') && gr.t === 'cookie', 'getData adds multi_data=1 for a cmd list and sends the session token: ' + (gr && gr.p));
   // feimao switch: click card, confirm modal, host PIN confirm
   await page.click('.fmp-net-card[data-net="0200"]'); await page.click('.fmp-modal .danger'); await page.waitForTimeout(1500);
   const post = seen.find((x) => x.m === 'POST');

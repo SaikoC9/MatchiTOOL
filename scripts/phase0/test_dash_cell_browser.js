@@ -7,7 +7,7 @@ const html = fs.readFileSync(process.argv[2], 'utf8');
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 (async () => {
   const b = await chromium.launch(); const ctx = await b.newContext();
-  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'T'); localStorage.setItem('liv_mode', 'eco'); localStorage.removeItem('matchi_cell_auto'); localStorage.removeItem('matchi_cell_watch'); } catch (_) {} });
+  await ctx.addInitScript(() => { try { sessionStorage.setItem('matchi_token', 'cookie'); localStorage.setItem('liv_mode', 'eco'); localStorage.removeItem('matchi_cell_auto'); localStorage.removeItem('matchi_cell_watch'); } catch (_) {} });
   const page = await ctx.newPage(); const errors = [];
   const router = { locked: [], registered: true };
   const log = { sets: [], cellReads: 0, sfun: 0 };
