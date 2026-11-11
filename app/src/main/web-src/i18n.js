@@ -1,6 +1,6 @@
 /* Language switch (review item 21). English is the text written in the page; a language is a dictionary English text -> translated text.
    The page's fixed labels (header, sign-in, the home buttons, the popup titles, buttons and placeholders listed in TARGETS) follow the switch.
-   Not translated yet: messages the code builds while it runs (toasts, results, errors), the built-in tools' windows and plugins. They stay English.
+   Also translated (exact DICT texts only): the built-in tools' windows and the fixed toasts. Not translated: messages with a changing value built while it runs (results, errors), log / terminal output and plugins. They stay English.
    To add a language: add its code to LANGS and a dictionary to DICT with the same English keys as 'fil' (scripts/test_i18n.js lists what is missing).
    The choice is kept in localStorage 'matchi_lang'; with none saved the browser language decides. */
 (function(){
@@ -40,7 +40,27 @@
     'Radio settings':'Mga setting ng radio','Lock ticked bands':'I-lock ang mga naka-tick na band','Unlock all':'I-unlock lahat','Reset ticks':'I-reset ang mga tick',
     'Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.':'Ang network mode at mga band ay para sa buong router, hindi sa isang SIM slot. Binabasa kapag binuksan ang page at pagkatapos ng pagbabago, hindi sa live timer.',
     'Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.':'Berde = naka-lock sa router. Dilaw = naka-tick, hindi pa na-save. May guhit = naka-lock ngayon, tatanggalin.',
-    'Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.':'Babala: ang pag-lock sa maling cell ay maaaring mawalan ng signal o maging hindi stable ang telepono. Binabasa kapag binuksan ang card o sa Refresh, hindi sa live timer.'
+    'Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.':'Babala: ang pag-lock sa maling cell ay maaaring mawalan ng signal o maging hindi stable ang telepono. Binabasa kapag binuksan ang card o sa Refresh, hindi sa live timer.',
+    /* Tool windows (AT & Radio, Screen control, Log basket, Diagnostics, USB, Firmware, Update, Plugins) and the Performance mode toasts. */
+    'Performance mode':'Mode ng performance','Performance mode ON. Effective after reboot':'Performance mode ON. Epektibo pagkatapos ng reboot','Performance mode OFF. Effective after reboot':'Performance mode OFF. Epektibo pagkatapos ng reboot',
+    'This router does not report performance mode':'Hindi nag-uulat ng performance mode ang router na ito',
+    'Signal quality':'Kalidad ng signal','Registration':'Rehistrasyon','Modem info':'Impormasyon ng modem','NR bands':'Mga NR band','Restart modem':'I-restart ang modem',
+    'Radio report':'Ulat ng radyo','Change IMEI':'Palitan ang IMEI','Apply':'Ilapat','AT command, e.g. AT+CSQ':'AT command, hal. AT+CSQ',
+    'Back':'Bumalik','Recents':'Kamakailan','Wake':'Gisingin','Auto (smooth)':'Auto (makinis)','Low quality (fastest)':'Mababang kalidad (pinakamabilis)',
+    'Medium quality':'Katamtamang kalidad','High quality (slower)':'Mataas na kalidad (mas mabagal)','Keyboard input for the device':'Keyboard input para sa device','Starting…':'Sinisimulan…',
+    'Select all':'Piliin lahat','Live view':'Live view','Snapshot: before update':'Snapshot: bago mag-update','Snapshot: after update':'Snapshot: pagkatapos mag-update',
+    'Hide private data in copies':'Itago ang pribadong data sa mga kopya','Full file (not just the last 500 lines)':'Buong file (hindi lang ang huling 500 linya)',
+    'All':'Lahat','Errors':'Mga error','Plugins':'Mga plugin','Back to basket':'Bumalik sa basket',
+    'Read-only checks for root, Android build, network, storage and available tools.':'Mga read-only na check para sa root, Android build, network, storage at mga available na tool.',
+    'Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.':'Sinusuri ang bawat function sa isang takbo: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager at ang mga built-in na tool. Read-only ito: walang binabago sa device at walang SMS na ipinapadala. Hindi kailanman nilalaman ng ulat ang iyong password o token.',
+    'Manage Android USB debugging and USB tethering. These actions require granted root access and support varies by device and ROM.':'Pamahalaan ang Android USB debugging at USB tethering. Kailangan ng ibinigay na root access ang mga aksyong ito at nag-iiba ang suporta ayon sa device at ROM.',
+    'Unknown':'Hindi alam','Enabled':'Naka-enable','Disabled':'Naka-disable','CDC-ECM active':'Aktibo ang CDC-ECM','RNDIS active':'Aktibo ang RNDIS','No USB Ethernet mode detected':'Walang nakitang USB Ethernet mode',
+    'Choose RNDIS or CDC-ECM for USB Ethernet. MatchiTOOL keeps ADB in the USB function when debugging is enabled. Restore default returns to the firmware\'s saved USB configuration.':'Pumili ng RNDIS o CDC-ECM para sa USB Ethernet. Pinapanatili ng MatchiTOOL ang ADB sa USB function kapag naka-enable ang debugging. Ibinabalik ng Restore default ang naka-save na USB configuration ng firmware.',
+    'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
+    'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
+    'Add plugin (.js or UFI-TOOLS .txt)':'Magdagdag ng plugin (.js o UFI-TOOLS .txt)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
+    'Plugin store…':'Plugin store…','Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…','Export UFI .txt':'I-export ang UFI .txt','Import UFI .txt':'I-import ang UFI .txt',
+    'Plugins can run any command as root through this console. Install only code you trust.':'Ang mga plugin ay maaaring magpatakbo ng anumang command bilang root sa console na ito. Mag-install lang ng code na pinagkakatiwalaan mo.'
   }};
   /* Pieces of texts that carry a changing value (a number, a band list): replaced inside the text, in this order. */
   var SUBS={fil:[
@@ -108,33 +128,72 @@
     var sel=document.getElementById('langsel');if(sel)sel.value=lang;
     walk();
   }
-  /* The dashboard and the tool buttons under #home are built (and rebuilt every few seconds) by other scripts, so their text cannot be listed in TARGETS.
-     walk() goes over the text nodes under #home, translates the ones listed in DICT / SUBS, and remembers the English of each one it changed
-     (touched) so that switching back restores it. A node whose text the page changed since is treated as new English. A MutationObserver runs it
-     again after the page re-renders. Nodes that TARGETS already handles, and log or code areas, are skipped. */
-  var ROOT='#home',touched=new Map(),obs=null,timer=0;
+  /* The dashboard, the tool windows (cards and modals) and the toasts are built, and rebuilt every second or so, by other scripts, so their text
+     cannot be listed in TARGETS. walkTree() translates the text nodes (and placeholder / title attributes) of the nodes it is given: exact
+     DICT texts everywhere; the SUBS pieces (texts with a changing number) only under #home. It remembers the English of each node it changed
+     (touched) so that switching back restores it. A node whose text the page changed since is treated as new English.
+     The MutationObserver translates what changed IN THE SAME MICROTASK, before the browser paints, so a text the page rewrites every second
+     ("Live · updated 3 s ago") never shows its English for one frame. Its own edits are discarded with takeRecords(), so it cannot loop.
+     Nodes that TARGETS already handles, and log or code areas, are skipped. */
+  var touched=new Map(),atouched=new Map(),obs=null;
   var SKIP={SCRIPT:1,STYLE:1,TEXTAREA:1,PRE:1,CODE:1,INPUT:1};
+  var ATTRS=['placeholder','title'];
   function isTarget(el){
     for(var i=0;i<TARGETS.length;i++){if(TARGETS[i][1]!=='text')continue;try{if(el.matches(TARGETS[i][0]))return true}catch(_){}}
     return false;
   }
-  function walk(){
-    var root=document.querySelector(ROOT);if(!root)return;
-    touched.forEach(function(r,n){if(!n.isConnected)touched.delete(n)});
-    var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null),n,list=[];
-    while((n=w.nextNode()))list.push(n);
-    list.forEach(function(n){
-      var par=n.parentNode;if(!par||SKIP[par.nodeName]||isTarget(par))return;
-      var cur=n.nodeValue,rec=touched.get(n),en=(rec&&cur===rec.out)?rec.en:cur;
-      var out=lang==='en'?en:translateText(lang,en);
-      if(out!==cur)n.nodeValue=out;
-      if(out!==en)touched.set(n,{en:en,out:out});else touched.delete(n);
+  function inHome(n){var h=document.getElementById('home');return !!h&&h.contains(n)}
+  function exactText(en){
+    var core=en.trim();if(!core)return en;
+    var d=DICT[lang];if(!d||!Object.prototype.hasOwnProperty.call(d,core))return en;
+    return en.slice(0,en.indexOf(core))+d[core]+en.slice(en.indexOf(core)+core.length);
+  }
+  function textNode(n){
+    var par=n.parentNode;if(!par||SKIP[par.nodeName]||isTarget(par))return;
+    var cur=n.nodeValue,rec=touched.get(n),en=(rec&&cur===rec.out)?rec.en:cur;
+    var out=lang==='en'?en:(inHome(n)?translateText(lang,en):exactText(en));
+    if(out!==cur)n.nodeValue=out;
+    if(out!==en)touched.set(n,{en:en,out:out});else touched.delete(n);
+  }
+  function attrs(el){
+    if(SKIP[el.nodeName]&&el.nodeName!=='INPUT'&&el.nodeName!=='TEXTAREA')return;
+    ATTRS.forEach(function(a){
+      if(!el.hasAttribute(a)||(el.dataset&&el.dataset['mtEn'+a]!==undefined))return;
+      var cur=el.getAttribute(a),m=atouched.get(el)||{},rec=m[a],en=(rec&&cur===rec.out)?rec.en:cur;
+      var out=lang==='en'?en:exactText(en);
+      if(out!==cur)el.setAttribute(a,out);
+      if(out!==en){m[a]={en:en,out:out};atouched.set(el,m)}else if(rec){delete m[a];if(Object.keys(m).length)atouched.set(el,m);else atouched.delete(el)}
     });
   }
+  function walkTree(root){
+    if(!root)return;
+    if(root.nodeType===3){textNode(root);return}
+    if(root.nodeType!==1)return;
+    if(SKIP[root.nodeName]&&root.nodeName!=='INPUT'&&root.nodeName!=='TEXTAREA')return;
+    var w=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT,null),n,list=[];
+    while((n=w.nextNode()))list.push(n);
+    if(root.hasAttribute)attrs(root);
+    list.forEach(function(n){if(n.nodeType===3)textNode(n);else attrs(n)});
+  }
+  function walk(){
+    touched.forEach(function(r,n){if(!n.isConnected)touched.delete(n)});
+    atouched.forEach(function(r,el){if(!el.isConnected)atouched.delete(el)});
+    walkTree(document.body);
+    if(obs)obs.takeRecords();
+  }
+  function onMutations(recs){
+    if(lang==='en'&&!touched.size&&!atouched.size)return;
+    recs.forEach(function(r){
+      if(r.type==='characterData')textNode(r.target);
+      else if(r.type==='attributes')attrs(r.target);
+      else Array.prototype.forEach.call(r.addedNodes,walkTree);
+    });
+    obs.takeRecords();
+  }
   function watch(){
-    var root=document.querySelector(ROOT);if(!root||obs||typeof MutationObserver==='undefined')return;
-    obs=new MutationObserver(function(){if(lang==='en'&&!touched.size)return;clearTimeout(timer);timer=setTimeout(walk,60)});
-    obs.observe(root,{childList:true,subtree:true,characterData:true});
+    if(obs||typeof MutationObserver==='undefined'||!document.body)return;
+    obs=new MutationObserver(onMutations);
+    obs.observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:ATTRS});
   }
   function setLang(l){
     if(!LANGS[l])return;lang=l;
