@@ -129,10 +129,11 @@ function plugScan(code){
   const risky=riskyRx.filter(([,rx])=>rx.test(s)).map(([l])=>l);
   const endpoints=uniq((s.match(/\/api\/[A-Za-z0-9_./-]+/g)||[]).map(x=>x.replace(/[./-]+$/,''))).slice(0,12);
   const hosts=uniq([...s.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map(m=>m[1].toLowerCase())).slice(0,8);
-  return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts};
+  const token=/matchi_token|\bTOKEN\b|x-token/.test(s),net=/\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts)\b/.test(s);
+  return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts,token,net};
 }
 /* Routes the host really serves (kept in step with WebServer.kt by scripts/test_ufi_store.js). A plugin that calls any other /api path gets a 404. */
-const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/data","/api/plugins/delete","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
+const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/approve","/api/plugins/data","/api/plugins/delete","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
 const MATCHI_ROUTE_PREFIXES=["/api/goform/","/api/logs/session/","/api/proxy/","/api/uploads/"];
 /* Files MatchiTOOL ships under UFI's files folder; any other UFI file a plugin names is missing. Tools UFI ships that MatchiTOOL does not: */
 const MATCHI_BUNDLED_FILES=new Set(['curl','jq','sendat','sha256','zreq']);
@@ -175,7 +176,9 @@ function storeSummary(item,sha,scan,replaces,compat){
   if(scan.tools.length)L.push('Tools it names: '+scan.tools.join(', ')+'.');
   if(scan.risky.length)L.push('Careful: it '+scan.risky.join('; ')+'.');
   if(scan.endpoints.length)L.push('MatchiTOOL routes it calls: '+scan.endpoints.join(', ')+'.');
-  if(scan.hosts.length)L.push('Web hosts it mentions: '+scan.hosts.join(', ')+'.');
+  if(scan.token)L.push('Careful: it mentions the sign-in token.');
+  if(scan.net&&!scan.hosts.length)L.push('It makes network requests (no host named in the text).');
+  if(scan.hosts.length)L.push('Web hosts it contacts or names: '+scan.hosts.join(', ')+'.');
   if(compat)L.push(compat.ok?'Compatibility check: no known problems.':'Compatibility: this plugin '+compat.issues.join('; ')+'. It may not work here.');
   L.push('This list comes from a text search of the source; a plugin can build commands while it runs.');
   if(replaces.length)L.push('It will REPLACE: '+replaces.join(', ')+'.');

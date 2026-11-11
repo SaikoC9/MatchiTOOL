@@ -120,6 +120,29 @@ internal fun WebServer.deleteUpload(name: String): Response {
     return json(Response.Status.OK, JSONObject().put("ok", File(uploadDir, name).delete()))
 }
 
+/**
+ * Password check for changes to installed plugins (Phase 1): replacing, deleting or approving a plugin needs the sign-in password again,
+ * with the same lockout as /api/login and /api/security/net, so a plugin that holds the session token cannot rewrite plugins silently.
+ * Returns a response to send back (password missing, or locked out), or null when the password is right. A wrong password throws.
+ * Limit, stated plainly: a plugin that wraps window.fetch can still read the password while YOU type it. This stops silent changes only.
+ */
+internal fun WebServer.pluginPasswordCheck(s: IHTTPSession, req: JSONObject, what: String): Response? {
+    val pw = req.optString("password").take(200)
+    if (pw.isEmpty()) return json(Response.Status.FORBIDDEN, JSONObject().put("code", "plugin-password").put("error", "Enter your sign-in password to $what"))
+    val ip = s.remoteIpAddress ?: "?"
+    val loop = isLoopbackIp(ip)
+    val wait = guard.retryAfterMs(ip, loop)
+    if (wait > 0) {
+        val secs = (wait + 999) / 1000
+        return json(tooMany, JSONObject().put("error", "too many bad attempts, wait $secs s")).also { it.addHeader("Retry-After", secs.toString()) }
+    }
+    if (!Prefs.checkAdminPassword(ctx, pw)) {
+        guard.failed(ip, loop)
+        throw IllegalArgumentException("Password is wrong")
+    }
+    return null
+}
+
 internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = when {
     (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s, uri == "/api/upload_img")
     uri == "/api/uploads/delete" && s.method == Method.POST -> deleteUpload(body(s).optString("name"))
@@ -131,12 +154,18 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
             ?.associateBy { it.name }.orEmpty()
         val titles = Prefs.pluginTitles(ctx)
         val netExtra = Prefs.netHosts(ctx)
+        val records = Prefs.pluginRecords(ctx)
         for (n in orderPlugins(all.keys, Prefs.pluginOrder(ctx))) {
             val f = all.getValue(n)
-            val src = f.readText()
+            val bytes = f.readBytes()
+            val src = String(bytes, Charsets.UTF_8)
+            val sc = scanPlugin(src, netExtra)
+            val sha = sha256Hex(bytes)
             arr.put(JSONObject().put("name", n).put("code", src).put("enabled", n !in off)
                 .put("kind", pluginKind(n)).put("title", titles[n] ?: pluginBaseName(n))
-                .put("risk", scanPlugin(src, netExtra).risk))
+                .put("risk", sc.risk).put("sha256", sha)
+                .put("integrity", integrityState(records[n]?.sha, sha))   // ok | changed | untracked
+                .put("caps", JSONArray(pluginCaps(src, sc.hosts))))
         }
         json(Response.Status.OK, arr)
     }
@@ -154,6 +183,15 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
         val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes
         if (total > 5L * 1024L * 1024L) throw IllegalArgumentException("custom plugin storage limit is 5 MB")
+        // Replacing an installed plugin needs the password again, unless nothing changes at all (same bytes as the file and as the approved record).
+        // The record is part of the test: otherwise re-saving a tampered file would quietly approve it.
+        val target = File(pluginDir, name)
+        val newBytes = code.toByteArray(Charsets.UTF_8)
+        val newSha = sha256Hex(newBytes)
+        val oldBytes = if (target.isFile) target.readBytes() else null
+        val record = Prefs.pluginRecords(ctx)[name]
+        if (oldBytes != null && !(record?.sha == newSha && sha256Hex(oldBytes) == newSha))
+            pluginPasswordCheck(s, req, "replace an installed plugin")?.let { return@run it }
         val scan = scanPlugin(code, Prefs.netHosts(ctx))
         if (scan.blocked) {
             if (!req.optBoolean("force", false)) {
@@ -163,8 +201,20 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
             }
             LogCatcher.log("WARNING", "plugin/guard", "[$name] installed after the person accepted: " + scan.findings.filter { it.level == "block" }.joinToString(", ") { it.code })
         }
+        // An update that adds a capability (root commands, network use, a new host, the token) is shown again. The baseline is the approved
+        // record, or the file on disk when the plugin was installed before records existed.
+        val caps = pluginCaps(code, scan.hosts)
+        if (oldBytes != null) {
+            val oldSrc = String(oldBytes, Charsets.UTF_8)
+            val before = record?.caps ?: pluginCaps(oldSrc, scanPlugin(oldSrc, Prefs.netHosts(ctx)).hosts)
+            val added = addedCaps(before, caps)
+            if (added.isNotEmpty() && !req.optBoolean("confirmCaps", false))
+                return@run json(Response.Status.CONFLICT, JSONObject().put("code", "newcaps").put("error", "This update adds new abilities")
+                    .put("added", JSONArray(added.map { describeCap(it) })))
+        }
         auditShell(s.remoteIpAddress ?: "?", name + "\n" + code, "plugin-upload")
-        File(pluginDir, name).writeText(code)
+        target.writeText(code)
+        Prefs.setPluginRecord(ctx, name, PluginRecord(newSha, caps))
         // UFI-TOOLS blocks keep their original name (it may hold spaces or non-Latin letters) next to the safe file name.
         if (req.has("title")) Prefs.setPluginTitle(ctx, name, cleanPluginTitle(req.optString("title")).ifBlank { null })
         json(Response.Status.OK, JSONObject().put("ok", true))
@@ -207,6 +257,8 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val req = body(s)
         // Erasing plugin data runs a root script; a plain delete of the plugin file does not.
         if (req.optBoolean("erase", false)) rootGate(s)?.let { return@run it }
+        // Deleting needs the password too: delete, then install under the same name, would otherwise skip the check on replacing.
+        pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it }
         val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
@@ -236,6 +288,21 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val req = body(s); val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         Prefs.setEnabled(ctx, name, req.optBoolean("enabled", true))
+        json(Response.Status.OK, JSONObject().put("ok", true))
+    }
+    // Approve the plugin file as it is now: stores its SHA-256 and capability list. For a plugin shown as "changed" (after you reviewed it)
+    // or "not tracked" (installed before records existed). Needs the gate and the password.
+    uri == "/api/plugins/approve" && s.method == Method.POST -> rootGate(s) ?: run {
+        val req = body(s)
+        val name = req.optString("name")
+        if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+        val f = File(pluginDir, name)
+        if (!f.isFile) throw IllegalArgumentException("no such plugin")
+        pluginPasswordCheck(s, req, "approve this plugin")?.let { return@run it }
+        val bytes = f.readBytes()
+        val src = String(bytes, Charsets.UTF_8)
+        Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), pluginCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts)))
+        auditShell(s.remoteIpAddress ?: "?", "approve " + name, "plugin-approve")
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
     // Scan an installed plugin again: {"name":"My_Plugin.js"} -> risk, findings and the hosts its source mentions.

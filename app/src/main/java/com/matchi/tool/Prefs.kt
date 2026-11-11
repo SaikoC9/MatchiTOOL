@@ -32,10 +32,18 @@ object Prefs {
         if (title.isNullOrBlank()) m.remove(name) else m[name] = title
         sp(c).edit().putString("plugin_titles", org.json.JSONObject(m as Map<*, *>).toString()).apply()
     }
-    /** Forget a deleted plugin's place in the order and its title. */
+    /** What was approved for each plugin: its SHA-256 and the capabilities shown at install (see PluginIntegrity). Tamper evidence, not protection from a running plugin. */
+    internal fun pluginRecords(c: Context): Map<String, PluginRecord> = parsePluginRecords(sp(c).getString("plugin_records", null))
+    internal fun setPluginRecord(c: Context, name: String, rec: PluginRecord?) {
+        val m = pluginRecords(c).toMutableMap()
+        if (rec == null) m.remove(name) else m[name] = rec
+        sp(c).edit().putString("plugin_records", encodePluginRecords(m)).apply()
+    }
+    /** Forget a deleted plugin's place in the order, its title and its approved record. */
     fun forgetPlugin(c: Context, name: String) {
         setPluginOrder(c, pluginOrder(c).filter { it != name })
         setPluginTitle(c, name, null)
+        setPluginRecord(c, name, null)
     }
     /** Network rules for plugins (see NetPolicy): strict mode on or off, and the hosts the person added to the allow-list. */
     fun netStrict(c: Context): Boolean = sp(c).getBoolean("net_strict", true)

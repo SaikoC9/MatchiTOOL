@@ -63,7 +63,9 @@ class PluginScanTest {
         assertEquals(listOf("evil.example.org"), r.hosts)
         assertEquals("warn", r.risk)
         assertEquals("ok", scanPlugin(src, listOf("evil.example.org")).risk)
-        assertEquals("ok", scanPlugin("fetch('https://api.ipify.org')", emptyList()).risk)
+        assertEquals("ok", scanPlugin("fetch('https://raw.githubusercontent.com/o/r/main/x.js')", emptyList()).risk)
+        // not on the default list any more: a plugin that names it is warned until the person allows it
+        assertEquals("warn", scanPlugin("fetch('https://api.ipify.org')", emptyList()).risk)
         assertEquals("ok", scanPlugin("xmlns='http://www.w3.org/2000/svg'", emptyList()).risk)
     }
 }
@@ -97,6 +99,20 @@ class NetPolicyTest {
         assertFalse(csp.contains(" http:"))
         assertFalse(csp.contains(" https:"))
         assertTrue(csp.contains("form-action 'self'") && csp.contains("frame-ancestors 'none'"))
+    }
+
+    @Test fun defaultsHaveNoResolverOrIpCheckHosts() {
+        val csp = NetPolicy.csp(emptyList(), true)
+        for (h in listOf("dns.google", "checkip.amazonaws.com", "api.ipify.org", "www.cloudflare.com")) {
+            assertFalse(h, NetPolicy.DEFAULT_HOSTS.contains(h))
+            assertFalse(h, csp.contains(h))
+        }
+        assertTrue(NetPolicy.hostAllowed("raw.githubusercontent.com", NetPolicy.allowedHosts(emptyList())))
+        assertFalse(NetPolicy.hostAllowed("dns.google", NetPolicy.allowedHosts(emptyList())))
+    }
+
+    @Test fun addedHostsStillWork() {
+        assertTrue(NetPolicy.csp(listOf("dns.google"), true).contains("connect-src 'self' raw.githubusercontent.com github.com api.github.com objects.githubusercontent.com dns.google"))
     }
 
     @Test fun openPolicyKeepsTheOldBehaviour() {

@@ -11,6 +11,9 @@ package com.matchi.tool
  *  3. shellDanger: root commands that are clearly destructive or open a remote shell are refused by the host. A command a
  *     plugin sent (header x-matchi-plugin) is held to a stricter list than one typed in the console.
  *
+ * The network policy limits the BROWSER page only. It does not limit what a plugin runs through the root shell (the bundled curl can
+ * upload to any host), and a CSP does not cover page navigation (location.href) either.
+ *
  * Limits, stated plainly: plugins still run inside the page, so a plugin that is allowed to reach a host can send data there;
  * the scan cannot see code that is built at run time; and the x-matchi-plugin header comes from the page, so a plugin that
  * bypasses the page's helpers is only held to the shorter "any source" shell list. Review a plugin before you install it.
@@ -72,10 +75,16 @@ internal fun scanPlugin(code: String, extraHosts: List<String>): ScanResult {
 
 /** The network allow-list that becomes the page's Content-Security-Policy. */
 internal object NetPolicy {
-    /** What MatchiTOOL's own page needs: the plugin store, GitHub releases, and the public IP and DNS checks. */
+    /**
+     * What MatchiTOOL's own page needs in the browser: the plugin store mirror and GitHub (store files are often linked there, and a
+     * github.com link redirects to the other GitHub hosts, which the policy checks too). Nothing else is on the list on purpose: each
+     * host is a place a plugin's data can go. dns.google was removed in 1.4.2+ because a DNS-over-HTTPS resolver lets a plugin leak
+     * data in a host name. The public-IP check in the page runs as a root shell script (curl on the device), so it never used the
+     * browser policy; checkip.amazonaws.com, api.ipify.org and www.cloudflare.com were removed with it. A plugin of your own that needs
+     * one of them can be added under Plugins > Network rules.
+     */
     val DEFAULT_HOSTS = listOf(
         "raw.githubusercontent.com", "github.com", "api.github.com", "objects.githubusercontent.com",
-        "www.cloudflare.com", "dns.google", "checkip.amazonaws.com", "api.ipify.org",
     )
 
     private val ENTRY = Regex("""^(?:https?://)?(?:\*\.)?[a-z0-9](?:[a-z0-9.-]{0,98}[a-z0-9])?(?::[0-9]{1,5})?$""")

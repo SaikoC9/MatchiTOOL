@@ -1,0 +1,217 @@
+MatchiTOOL - plugin security: what is best to do, and the phased plan
+=====================================================================
+Revised after a review against the 1.4.x source (PluginGuard.kt,
+WebRoutesPlugins.kt, WebRoutesAuth.kt, Prefs.kt, plugin-store JS).
+Nothing was compiled or run on a device.
+
+
+STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
+-----------------------------------------------------------------------
+  Phase 1: DONE in code. PluginIntegrity.kt, PluginRecords.kt, Prefs
+           (plugin_records), WebRoutesPlugins.kt, plugin list in the page.
+  Phase 2: DONE in code (server asks again when an update adds an ability;
+           store confirm names the token and network use).
+  Phase 2B: DONE in code (default hosts trimmed, docs corrected).
+  Phase 3, 4, 5: not started.
+  Checked here: page build, all JS tests, route-gate table, repo checks.
+  NOT checked: Kotlin compile and PluginIntegrityTest (no Kotlin compiler
+  in this environment). Run `gradle :app:testDebugUnitTest` first, then an
+  F50 pass (see "To test on the F50" below).
+
+  Differences from the plan text below:
+    - DELETE also needs the password. Without it, a plugin could delete a
+      plugin and install new code under the same name, skipping the
+      replace check.
+    - New endpoint POST /api/plugins/approve (gate + password) for plugins
+      shown as "changed" or "not tracked".
+    - Re-saving identical bytes needs no password only when the file AND
+      the approved record both already match.
+
+  To test on the F50:
+    1. Install a plugin from the store: no password asked, shows no badge.
+    2. Upload the same name with different code: password asked; if the new
+       code adds root/network/host/token, a second confirm lists it.
+    3. Edit the file with adb/root: list shows "changed since approved".
+    4. Existing plugins show "not tracked" until you press Approve.
+    5. Delete a plugin: password asked. Wrong password: refused, and the
+       lockout counts it.
+
+0. WHAT THE CODE ALREADY DOES
+-----------------------------
+
+  - README and SECURITY.md already say plugins are trusted code.
+  - The install scan (scanPlugin) already blocks or warns on risky
+    patterns and lists the hosts a plugin mentions.
+  - The plugin store already checks the SHA-256 against the index.
+  - Changing the network rules already needs a fresh sign-in AND the
+    console password again (/api/security/net). Reuse this pattern.
+  - NOT done: nothing stores a hash of an installed plugin, so a changed
+    plugin file is not flagged.
+
+
+1. WHAT IS BEST TO DO
+---------------------
+
+For a personal F50 where you pick the plugins yourself, the best move is
+NOT to build the plugin sandbox yet.
+
+Why the sandbox is not worth it now:
+  - A plugin runs in your page and can call the same root endpoints your
+    page does. So an installed plugin is effectively root code.
+  - Hiding the session token would not change that.
+  - Real isolation would break most UFI-TOOLS plugins and would take a
+    long device-testing cycle.
+
+What to do instead (small, no breakage):
+  1. Treat plugins as root code. Install only from sources you trust.
+     Keep using the plugin store path (SHA-256 checked). Avoid pasting
+     random scripts.
+  2. Keep the network filter on strict, but know what it is. It is the
+     page's Content-Security-Policy, so it only limits what the BROWSER
+     page can contact. It does not stop a plugin from running the
+     bundled curl through the root shell, and it does not cover
+     navigation (location.href). See section 3.
+  3. Warn when an installed plugin changes. Store each plugin's hash on
+     the SERVER (Prefs), not in browser storage, and flag a mismatch.
+     Require the console password to overwrite an existing plugin file,
+     otherwise a plugin can rewrite itself or another plugin through
+     POST /api/plugins and update the hash too. See Phase 1.
+  4. Show what a plugin does before install. The scan already lists
+     risky patterns. Add "can run root commands" and "contacts these
+     hosts" as a clear confirm step, and re-show it when an update adds
+     a capability. Call it a review aid, not a security boundary.
+  5. Say the trust model plainly in the README. Done already; also state
+     the limits of the network filter (section 3).
+
+Best starting point: items 3 and 4 (most protection for the least change).
+
+If you later want real isolation, do it in this order:
+  first an opt-in "sandboxed" mode for plugins that only need a few
+  helpers, leaving the current mode for trusted ones; per-plugin
+  permissions after that. Only start that if you plan to run plugins
+  from people you do not know. The HttpOnly cookie is optional and is
+  not a prerequisite (see Phase 3).
+
+
+2. PHASED PLAN
+--------------
+
+PHASE 1 - Know what is installed (small, nothing breaks)
+  - On POST /api/plugins, store the plugin's SHA-256 server-side
+    (Prefs, e.g. plugin_hashes), next to the file name.
+  - GET /api/plugins returns a "changed" flag when the file on disk no
+    longer matches the stored hash; show a warning badge in the list.
+  - Overwriting an EXISTING plugin file needs the console password
+    again (same lockout as /api/login and /api/security/net). A new
+    plugin name does not need it.
+  - A plugin file with no stored hash (installed before this version)
+    is shown as "not tracked" until you re-approve it once.
+  - What this catches: edits made outside the console (adb, root shell
+    writing to files/plugins) and anything you did not approve.
+  - What it does not catch: a plugin that is already running and has
+    root. Root can edit Prefs too. This is tamper evidence, not
+    protection.
+  - Done when: a changed plugin file is flagged in the plugin list, and
+    a plugin that calls POST /api/plugins to replace an installed
+    plugin is refused without the password.
+
+PHASE 2 - Show what a plugin can do before install (review aid)
+  - Extend the install confirm to list: "can run root commands",
+    "contacts these hosts", and "mentions the session token".
+  - Store the capability list with the hash. Re-show the confirm if an
+    update adds a capability.
+  - Do not auto-update plugins. Every update needs the confirm and a
+    new hash.
+  - Limits to state in the UI: the scan is a text search. Strings built
+    at run time (e.g. 'matchi'+'_token'), eval, and a second script
+    loaded later get past it.
+  - Done when: installing a plugin that calls the root shell shows a
+    clear confirm with the hosts it uses, and an update that adds a
+    capability asks again.
+
+PHASE 2B - Fix the network filter claims (small)
+  - Remove dns.google from NetPolicy.DEFAULT_HOSTS, or serve the DNS and
+    public-IP checks through the host instead. A DNS-over-HTTPS
+    resolver lets a plugin leak data in a hostname.
+  - Review the other defaults (github.com, cloudflare, ipify,
+    checkip.amazonaws.com): each allowed host is a place data can go.
+  - Update SECURITY.md: strict mode limits browser-side requests only.
+    It does not limit curl or other tools run through the root shell,
+    and it does not cover page navigation.
+  - Optional curl/wget upload rule: NOT DONE, on purpose. UFI-TOOLS
+    plugins commonly use `curl -d` to post to the router at
+    192.168.0.1, so the rule would break plugins that work today, and
+    it is bypassable anyway.
+  - Finding: the page's public-IP check runs as a root shell script,
+    not in the browser, so dns.google, checkip.amazonaws.com,
+    api.ipify.org and www.cloudflare.com were unused by the CSP list.
+    All four are removed. GitHub hosts stay (store files, redirects).
+  - Done when: the defaults no longer include a general-purpose
+    resolver and the docs say what the filter does not stop.
+
+PHASE 3 - Make the session token harder to steal (OPTIONAL)
+  - Switch the session from x-token in sessionStorage to an HttpOnly,
+    SameSite cookie, with Secure when HTTPS is on.
+  - Be clear about the gain: it stops the token being copied and
+    reused elsewhere. It does NOT stop a plugin from making
+    authenticated calls, because the browser attaches the cookie
+    itself. It matters little while plugins already have root shell
+    access.
+  - New cost: the token is a header today, so there is no CSRF exposure
+    now. A cookie adds it. Keep the existing Origin check and add
+    SameSite=Strict. Secure does not apply on plain HTTP.
+  - Keep the 4 h fresh-sign-in rule for root calls unchanged.
+  - This touches every request path, so it needs a full test pass on
+    the F50.
+  - Do it only if you start running plugins from people you do not
+    know. Otherwise skip it.
+
+PHASE 4 - Opt-in sandbox for plugins that need little
+          (only if you run untrusted plugins)
+  - Run a plugin in a sandboxed iframe with a message bridge that offers
+    only the helpers it declares (toast, read-only router data, a
+    limited shell).
+  - Add a per-plugin "sandboxed / trusted" switch, with trusted staying
+    the default.
+  - Done when: a sandboxed test plugin cannot read the page or call a
+    root route it did not declare.
+
+PHASE 5 - Per-plugin permissions
+  - Let a plugin declare what it needs (root, network hosts, uploads),
+    and let you approve or deny each one.
+  - Enforce this in the host so it holds even if the page is bypassed.
+
+
+3. KNOWN LIMITS (state these in SECURITY.md)
+--------------------------------------------
+
+  - Plugins run in the page with the session. They can run root
+    commands, so anything root can do, a plugin can do.
+  - The network filter is a browser CSP. Not covered: root-shell tools
+    (the bundled curl), page navigation, and DNS-style leaks through an
+    allowed host.
+  - The install scan and shellDanger are accident guards. They can be
+    bypassed by building strings at run time or by quoting and encoding.
+  - A stored plugin hash detects changes you did not approve; it does
+    not stop a plugin that is already running with root.
+  - The real controls are: the sign-in, the 4 h root gate, the password
+    re-entry on sensitive changes, and which plugins you choose to
+    install.
+
+
+4. ORDER AND EFFORT
+-------------------
+
+  Phase   Effort   Risk to existing plugins
+  -----   ------   ------------------------------------------
+    1     Small    Low (overwriting a plugin now asks for the
+                   password; old plugins show "not tracked")
+    2     Small    None
+    2B    Small    Low (a plugin that used dns.google needs it
+                   added to the allow-list)
+    3     Medium   Low, but needs an F50 test (optional)
+    4     Large    Only for plugins you switch to sandboxed
+    5     Large    Medium
+
+For your setup: do phases 1, 2 and 2B now. Treat 3 as optional, and
+skip 4 and 5 unless you start installing plugins from strangers.

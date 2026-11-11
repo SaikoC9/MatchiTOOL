@@ -3582,6 +3582,21 @@ async function api(path,opt={},_retried){
       }
       throw new Error('Install cancelled: this plugin has risky code');
     }
+    /* Plugin changes (1.4.3): replacing, deleting or approving an installed plugin asks for the sign-in password, so a plugin cannot do it silently. */
+    if(r.status===403&&data.code==='plugin-password'&&(path==='/api/plugins'||path==='/api/plugins/delete'||path==='/api/plugins/approve')){
+      let o={};try{o=JSON.parse(opt.body||'{}')}catch(_){}
+      if(o.password)throw new Error(data.error||'Password needed');
+      const pw=await askText({title:'Confirm',message:data.error||'Enter your sign-in password',password:true,okText:'Confirm'});
+      if(pw===null||pw==='')throw new Error('Cancelled: password not entered');
+      return api(path,{...opt,body:JSON.stringify({...o,password:pw})},true);
+    }
+    /* An update adds abilities the approved version did not have (root commands, network use, a new host, the token): ask again. */
+    if(r.status===409&&data.code==='newcaps'&&path==='/api/plugins'){
+      let o={};try{o=JSON.parse(opt.body||'{}')}catch(_){}
+      if(!o.confirmCaps&&await askConfirm('This update adds new abilities. It now:\n'+(data.added||[]).map(x=>'\u2022 '+x).join('\n')+'\n\nInstall the update anyway? Only do this if you trust where it came from.','Install update',true))
+        return api(path,{...opt,body:JSON.stringify({...o,confirmCaps:true})},true);
+      throw new Error('Update cancelled: it adds new abilities');
+    }
     if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
     else if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
     const message=r.status===401?(data.error||'Invalid password'):r.status===429?(data.error||'Too many attempts. Wait a minute and retry.'):(data.error||data.message||`Request failed (${r.status})`);
@@ -4947,10 +4962,11 @@ function plugScan(code){
   const risky=riskyRx.filter(([,rx])=>rx.test(s)).map(([l])=>l);
   const endpoints=uniq((s.match(/\/api\/[A-Za-z0-9_./-]+/g)||[]).map(x=>x.replace(/[./-]+$/,''))).slice(0,12);
   const hosts=uniq([...s.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map(m=>m[1].toLowerCase())).slice(0,8);
-  return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts};
+  const token=/matchi_token|\bTOKEN\b|x-token/.test(s),net=/\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts)\b/.test(s);
+  return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts,token,net};
 }
 /* Routes the host really serves (kept in step with WebServer.kt by scripts/test_ufi_store.js). A plugin that calls any other /api path gets a 404. */
-const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/data","/api/plugins/delete","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
+const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/approve","/api/plugins/data","/api/plugins/delete","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
 const MATCHI_ROUTE_PREFIXES=["/api/goform/","/api/logs/session/","/api/proxy/","/api/uploads/"];
 /* Files MatchiTOOL ships under UFI's files folder; any other UFI file a plugin names is missing. Tools UFI ships that MatchiTOOL does not: */
 const MATCHI_BUNDLED_FILES=new Set(['curl','jq','sendat','sha256','zreq']);
@@ -4993,7 +5009,9 @@ function storeSummary(item,sha,scan,replaces,compat){
   if(scan.tools.length)L.push('Tools it names: '+scan.tools.join(', ')+'.');
   if(scan.risky.length)L.push('Careful: it '+scan.risky.join('; ')+'.');
   if(scan.endpoints.length)L.push('MatchiTOOL routes it calls: '+scan.endpoints.join(', ')+'.');
-  if(scan.hosts.length)L.push('Web hosts it mentions: '+scan.hosts.join(', ')+'.');
+  if(scan.token)L.push('Careful: it mentions the sign-in token.');
+  if(scan.net&&!scan.hosts.length)L.push('It makes network requests (no host named in the text).');
+  if(scan.hosts.length)L.push('Web hosts it contacts or names: '+scan.hosts.join(', ')+'.');
   if(compat)L.push(compat.ok?'Compatibility check: no known problems.':'Compatibility: this plugin '+compat.issues.join('; ')+'. It may not work here.');
   L.push('This list comes from a text search of the source; a plugin can build commands while it runs.');
   if(replaces.length)L.push('It will REPLACE: '+replaces.join(', ')+'.');
@@ -5032,7 +5050,7 @@ function renderPlugins(list){
     const wrap=document.createElement('div');wrap.className='pm-name';
     const pmeta=plugMeta(p.code||'');
     const n=document.createElement('div');n.className='pm-n';n.textContent=p.kind==='html'?(p.title||p.name):(pmeta.name||p.name.replace(/\.js$/i,''));
-    const meta=document.createElement('div');meta.className='pm-m';meta.textContent=[pmeta.version?'v'+pmeta.version:'',pmeta.author,`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB`,p.risk==='block'?'\u26A0 risky code':p.risk==='warn'?'review code':'',p.enabled?'On':'Off'].filter(Boolean).join(' · ');
+    const meta=document.createElement('div');meta.className='pm-m';meta.textContent=[pmeta.version?'v'+pmeta.version:'',pmeta.author,`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB`,p.risk==='block'?'\u26A0 risky code':p.risk==='warn'?'review code':'',p.integrity==='changed'?'\u26A0 changed since approved':p.integrity==='untracked'?'not tracked':'',p.enabled?'On':'Off'].filter(Boolean).join(' · ');
     if(pmeta.description||pmeta.requires.length)meta.title=[pmeta.description,pmeta.requires.length?'Needs: '+pmeta.requires.join(', '):''].filter(Boolean).join(' \u2014 ');wrap.append(n,meta);
     const t=document.createElement('button');t.type='button';t.className='pm-sw';t.setAttribute('role','switch');t.setAttribute('aria-checked',p.enabled?'true':'false');t.setAttribute('aria-label',(p.enabled?'Disable ':'Enable ')+p.name);t.innerHTML='<i></i>';
     t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});await refreshPluginList();location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
@@ -5063,7 +5081,17 @@ function renderPlugins(list){
     const free=shown.length===list.length,at=list.indexOf(p);
     const mk=(label,dir,glyph)=>{const b=document.createElement('button');b.type='button';b.textContent=glyph;b.title=label;b.setAttribute('aria-label',label+' '+p.name);
       b.disabled=!free||at+dir<0||at+dir>=list.length;b.onclick=()=>pmMove(p.name,at+dir);return b};
-    acts.append(mk('Move up',-1,'\u25B2'),mk('Move down',1,'\u25BC'),ex,d);
+    const apv=[];
+    if(p.integrity&&p.integrity!=='ok'){
+      const ap=document.createElement('button');ap.type='button';ap.textContent='Approve';ap.title=p.integrity==='changed'?'The file differs from the version you approved':'Installed before changes were tracked';ap.setAttribute('aria-label','Approve '+p.name);
+      ap.onclick=async()=>{
+        const why=p.integrity==='changed'?p.name+' is not the file you approved. It was changed outside the console, or by something running on this device. Export and read it before you approve it.':p.name+' was installed before MatchiTOOL tracked plugin changes, so nothing can tell whether it is still the file you installed.';
+        if(!(await askConfirm(why+'\n\nApprove the file as it is now? The sign-in password is asked next.','Approve',p.integrity==='changed')))return;
+        ap.disabled=true;
+        try{await api('/api/plugins/approve',{method:'POST',body:JSON.stringify({name:p.name})});createToast('Approved '+p.name);await refreshPluginList()}
+        catch(e){ap.disabled=false;createToast(e.message,'red')}
+      };apv.push(ap)}
+    acts.append(mk('Move up',-1,'\u25B2'),mk('Move down',1,'\u25BC'),...apv,ex,d);
     if(free){row.draggable=true;row.ondragstart=e=>{e.dataTransfer.setData('text/plain',p.name);e.dataTransfer.effectAllowed='move'};
       row.ondragover=e=>{e.preventDefault();row.classList.add('pm-over')};row.ondragleave=()=>row.classList.remove('pm-over');
       row.ondrop=e=>{e.preventDefault();row.classList.remove('pm-over');const from=e.dataTransfer.getData('text/plain');if(from&&from!==p.name)pmMove(from,at)}}
