@@ -1548,9 +1548,9 @@ rm -f $P.g $P.4 $P.6 $P.d
   // The level used for the delays. localStorage 'liv_thermal_test' = 0..3 forces a level so the slow-down can be tried on a cool phone
   // (it only changes the polling speed, not the temperatures shown); remove the key to go back to the measured level.
   const heatLevel = () => { try { const f = localStorage.getItem('liv_thermal_test'); if (/^[0-3]$/.test(f)) return Number(f); } catch (_) {  } return last && last.thermalLevel > 0 ? Math.min(last.thermalLevel, 3) : 0; };
-  // Phase 5 options (saved in this browser). Refresh speed: Fast 2 s / 10 s, Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
+  // Phase 5 options (saved in this browser). Refresh speed: Fast 0 s / 1 s (the next read starts as soon as the last one ends), Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
   // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
-  const MODES = { fast: { fast: 2000, slow: 10000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
+  const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
   const BATPAUSE = [0, 10, 15, 20, 30];   // "pause when battery below X %" choices, 0 = off
   let mode = 'normal', batPause = 0;
   try { const m = localStorage.getItem('liv_mode'); if (MODES[m]) mode = m; const b = Number(localStorage.getItem('liv_batpause')); if (BATPAUSE.includes(b)) batPause = b; } catch (_) {  }

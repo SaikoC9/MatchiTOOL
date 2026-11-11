@@ -21,7 +21,7 @@ const heat = (l) => ({ last: { thermalLevel: l } });
 
 // Modes while the phone is cool: the speeds from the plan
 eq(at({}), [3000, 15000], 'normal, cool');
-eq(at({ mode: 'fast' }), [2000, 10000], 'fast, cool');
+eq(at({ mode: 'fast' }), [0, 1000], 'fast, cool');
 eq(at({ mode: 'eco' }), [9000, 45000], 'eco, cool');
 
 // Heat table: warm and hot slow both loops down; level 3 (critical) is treated as hot
