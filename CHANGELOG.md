@@ -1,8 +1,8 @@
-# MatchiTOOL 1.4.1 - Performance mode moved to the dashboard
+# MatchiTOOL 1.4.1 - Performance mode is a button in the top row; AT & Radio keeps only AT tools
 
-- **Performance mode is now a checkbox in the dashboard "Radio settings" card**, its own row under Network mode (not part of the network mode list). It is saved at once and applies after the router is rebooted; the confirm dialog says so. It is hidden when the router does not report `performance_mode`. Handled in `web-src/dash-radio.js` (`changePerf`), no radio restart.
-- **Removed from the AT & Radio window** (row, handler and the note text), so there is one place for it. `radio-core.js` `readRadio()` is unchanged (it already returned `perf`).
-- `validate.sh` passes. The Playwright dashboard test (`test_dash_radio_browser.js`, PC only) was not run. **Not yet checked on the F50.**
+- **Performance mode is now a button in the top button row, next to Change IP** (`web-src/perf-mode.js`, `mountPerfMode()`). It opens a small window that shows the router's setting (ON / OFF) and has one Turn on / Turn off button with a confirm. The router saves it at once and applies it only after a reboot; no radio restart. If the router does not report `performance_mode` the window says so and offers nothing. It is not part of the Network mode list and not in the Radio settings card.
+- **AT & Radio window: network mode, band lock and cell lock removed** (they live on the dashboard: Radio settings and Cell lock cards, same `MatchiRadio` code). The window keeps the SIM slot picker, VoLTE / VoNR, the quick AT buttons (including NR bands, Restart modem, Radio report, Change IMEI), the AT box and the output.
+- `scripts/phase0/test_at_radio_browser.js` rewritten for this (PC only, not run here). `validate.sh` passes. **Not yet checked on the F50.**
 
 # MatchiTOOL 1.4.1 - Radio settings and Cell lock on the dashboard (summary of the entries below)
 

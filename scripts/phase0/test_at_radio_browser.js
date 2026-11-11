@@ -1,4 +1,5 @@
-// Browser smoke test, AT & Radio window on top of window.MatchiRadio: opens the window against a fake router and checks the bands it paints.
+// Browser smoke test: the AT & Radio window no longer has network mode / band lock / cell lock (they are on the dashboard), and the
+// "Performance mode" button in the top row opens a window that shows and switches the router's setting. Fake router.
 // usage: node test_at_radio_browser.js INDEX_HTML     (needs Playwright; not part of validate.sh)
 const { chromium } = require('playwright'); const fs = require('fs');
 const html = fs.readFileSync(process.argv[2], 'utf8');
@@ -33,12 +34,13 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await page.goto('http://localhost/'); await page.waitForTimeout(500);
   ok(await page.evaluate(() => typeof window.MatchiRadio === 'object' && typeof window.MatchiRadio.radioCycle === 'function'), 'MatchiRadio is defined in the page');
   await page.locator('#matchi_at_btn').first().click({ force: true }); await page.waitForTimeout(600);
-  const nr = await page.locator('#matchi_band_nr .at-bd').allInnerTexts();
-  ok(JSON.stringify(nr) === JSON.stringify(['n1', 'n5', 'n8', 'n28', 'n41', 'n78']), 'NR chips are the six real bands, no n6: ' + nr.join(' '));
-  ok(/locked now: 1,3\)/.test(await page.locator('#matchi_band_lte .at-bl').innerText()), 'LTE header shows the router list');
-  ok(/locked now: 78\)/.test(await page.locator('#matchi_band_nr .at-bl').innerText()), 'NR header shows the router list');
-  const on = await page.locator('#matchi_band_lte .at-bd.on').allInnerTexts();
-  ok(JSON.stringify(on) === JSON.stringify(['B1', 'B3']), 'highlighted LTE chips equal the router list: ' + on.join(' '));
+  ok(await page.locator('#matchi_at_modal #matchi_report').count() === 1, 'AT & Radio window opens with its quick buttons');
+  for (const id of ['matchi_nm_row', 'matchi_band_row', 'matchi_cell_panel', 'matchi_cell_btn', 'matchi_pm_row']) ok(await page.locator('#matchi_at_modal #' + id).count() === 0, id + ' is gone from the AT & Radio window');
+  await page.locator('#matchi_at_modal').getByText('Close').first().click({ force: true }).catch(() => {}); await page.waitForTimeout(200);
+  ok(await page.locator('.actions-buttons #matchi_perf_btn').count() === 1, 'Performance mode button is in the top button row');
+  await page.locator('#matchi_perf_btn').click({ force: true }); await page.waitForTimeout(600);
+  ok(/Performance mode is OFF/.test(await page.locator('#matchi_perf_state').innerText()), 'window shows the router value (OFF)');
+  ok((await page.locator('#matchi_perf_set').innerText()) === 'Turn on', 'button offers Turn on');
   ok(errors.length === 0, 'no page errors ' + errors.join(' | '));
   await b.close(); process.exit(fails ? 1 : 0);
 })();
