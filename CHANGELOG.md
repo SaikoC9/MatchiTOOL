@@ -1,3 +1,20 @@
+# MatchiTOOL (unreleased) - Dashboard: "Radio settings" card, Live Status pauses during a radio restart (plan phase 3)
+
+- **New card under Live device status** (`web-src/dash-radio.js`, UI only, calls `MatchiRadio`): network mode and LTE / 5G band chips. It reads the router once when the page opens, after a change and on Refresh. It never reads on the Live Status timer.
+- **Chips show the router state, ticks stay pending:** green = locked on the router, yellow = ticked but not saved, struck through = locked now and will be removed. The "locked now" text uses only the router list ("none (all bands allowed)" when every band is listed). "Lock ticked bands" is enabled only when the ticks differ from the router.
+- **Lock sends both lists** like UFI-TOOLS (the type you did not touch is sent again unchanged; nothing is ever sent empty; both must answer success), reads them back, restarts the radio (SFUN order unchanged), then asks AT+CEREG? / AT+C5GREG? every 3 s for up to 90 s until the modem is registered.
+- **Live Status freezes during a radio change** (`MatchiRadio.beginBusy` / `onBusy`): both loops skip their reads, the last values stay on screen, the card says "Radio restarting, ~30 s · showing the last reading", and ONE read runs when the restart is over, then the normal interval. The host pill says "Radio restarting" instead of "Host disconnected". This also covers a restart started from the AT & Radio window.
+- **Network mode** sends SET_BEARER_PREFERENCE only (no radio restart), freezes polling for the 2 s re-read, then shows what the router reports.
+- Tests: `scripts/test_at_radio.js` (busy state, waitRegistered), new `scripts/phase0/test_dash_radio_browser.js` (22 checks against a fake router: chips, pending vs router, both lists sent, no live reads during the restart, one read after, host pill). `validate.sh` passes. **Not yet checked on the F50.**
+
+# MatchiTOOL (unreleased) - Radio code in one place (plan phase 2), "n6" band chip fixed
+
+- **One source:** everything that talks to the modem or router for radio settings (AT, router get/set, band lock, cell lock, radio restart, parsing) is now `web-src/radio-core.js` (`window.MatchiRadio`, no DOM). The AT & Radio window is `web-src/at-radio-ui.js`. Both are included into `index.html` by `scripts/build-web.js`. `assets/plugins/AT_Radio.js` (a hand-kept second copy that nothing read at run time) is removed. `AT+SFUN` now exists only in `radio-core.js` (the report uses `AT+CFUN?`; `AT+SFUN?` answers `+CME ERROR: 3` on the F50).
+- **Fix (found on the F50):** `AT+SP5GCMDS="get nr support_band"` answers `...,6,41,78,1,8,28,5`. The first number is a count, not band n6; the window showed a bogus "n6" chip. The count is dropped when it equals the number of values after it.
+- New in the core, for the dashboard cards: `setBands`, `cellLock`, `cellUnlock`, `parseNrSupported`, `radioCycle({log, toast})`.
+- Confirmed on the F50: `lte_band_lock` / `nr_band_lock` are plain comma lists and "no lock" is the full list. A stray first character in AT output ("(+CEREG", "6+C5GREG") does not move the parsed fields (test added).
+- Tests: `scripts/test_at_radio.js` now runs the real `radio-core.js` with a fake `api()` (adds setBands, restart order, n6, stray characters). New `scripts/phase0/test_at_radio_browser.js` opens the window against a fake router. `validate.sh` passes. **Not yet checked on the F50.**
+
 # MatchiTOOL (unreleased) - Dashboard: core cards smaller, no overlap on phones
 
 - Core usage and CPU frequency now sit in a two-column grid (each card can shrink), so they no longer overlap on a phone.

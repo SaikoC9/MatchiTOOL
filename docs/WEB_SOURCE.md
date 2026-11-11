@@ -8,6 +8,9 @@ The console is one self-contained page, `app/src/main/assets/web/index.html` (th
 | `plugin-store-pure.js` | store and plugin logic with no DOM: URL rules, UFI/JSON index parsing, SHA-256, `plugScan`, `plugCompat`, `plugMeta`, route list (tested by `scripts/test_ufi_store.js`) |
 | `plugin-store-ui.js` | the Plugin store window: fetch, install, source picker |
 | `plugin-trace.js` | tags root commands and uploads with the plugin that sent them (header `x-matchi-plugin`), so Delete can erase what that plugin wrote (tested by `scripts/test_plugin_trace.js`) |
+| `radio-core.js` | `window.MatchiRadio`: AT and router calls, band lock, cell lock, radio restart, parsing. No DOM (tested by `scripts/test_at_radio.js`) |
+| `at-radio-ui.js` | the AT & Radio window (a built-in tool block in `index.html`); calls `MatchiRadio` |
+| `dash-radio.js` | `mountDashRadio()`: the Radio settings card under Live device status (network mode, band chips, Lock / Unlock all) |
 
 In `index.html` each file sits between `/* @include web-src/NAME.js */` and `/* @end-include web-src/NAME.js */`.
 
