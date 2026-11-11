@@ -22,8 +22,18 @@ for (const lang of Object.keys(core.DICT)) {
 }
 for (const k of base) {
   const esc = k.replace(/&/g, '&amp;');
-  const found = page.includes('>' + esc + '<') || page.includes('"' + esc + '"') || page.includes('>' + esc + '</');
+  // the page text may sit in markup or in a script string; a few texts are put together while it runs (RUNTIME)
+  const RUNTIME = ['Live refresh: Off', '▾ Cell lock'];
+  const found = page.includes(esc) || RUNTIME.includes(k);
   assert.ok(found, 'dictionary key not found in the page as a label, title or placeholder: ' + k);
 }
+// texts with a changing value: pieces replaced inside the text (SUBS), and the text-node translator keeps the spaces around a text
+assert.strictEqual(core.translateText('fil', ' Refresh '), ' I-refresh ');
+assert.strictEqual(core.translateText('fil', 'Live · updated 4 s ago'), 'Live · na-update 4 s ang nakalipas');
+assert.strictEqual(core.translateText('fil', 'LTE bands · locked now: B1 B3'), 'Mga LTE band · naka-lock ngayon: B1 B3');
+assert.strictEqual(core.translateText('fil', '5G NR bands · locked now: none (all bands allowed)'), 'Mga 5G NR band · naka-lock ngayon: wala (pinapayagan ang lahat ng band)');
+assert.strictEqual(core.translateText('en', 'Refresh'), 'Refresh');
+assert.strictEqual(core.translateText('fil', '   '), '   ');
+for (const [lang, subs] of Object.entries(core.SUBS)) for (const [from] of subs) assert.ok(page.includes(from) || from === ' s ago' || from.startsWith('LTE bands') || from.startsWith('5G NR bands'), lang + ' SUBS piece not in the page: ' + from);
 for (const [sel, what] of core.TARGETS) assert.ok(typeof sel === 'string' && /^(text|title|placeholder)$/.test(what), 'bad target ' + sel);
 console.log('i18n ok: ' + base.length + ' texts, ' + Object.keys(core.DICT).length + ' language(s), ' + core.TARGETS.length + ' targets');

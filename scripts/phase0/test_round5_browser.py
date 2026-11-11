@@ -73,6 +73,19 @@ with sync_playwright() as p:
     ok(page.get_attribute('#tok', 'placeholder') == 'Admin password', 'untranslated key keeps its English')
     page.reload(); page.wait_for_timeout(1500)
     ok(page.inner_text('#logoutbtn') == 'Mag-sign out' and page.input_value('#langsel') == 'fil', 'language choice survives a reload')
+    # dashboard text built by other scripts (Live device status, Radio settings, Cell lock, tool buttons) follows the switch, also after a re-render
+    def home_texts():
+        return page.evaluate("(()=>{const o=[];const w=document.createTreeWalker(document.getElementById('home'),NodeFilter.SHOW_TEXT);let n;while(n=w.nextNode()){const s=n.nodeValue.trim();if(s&&!['SCRIPT','STYLE'].includes(n.parentNode.nodeName))o.push(s)}return o})()")
+    page.select_option('#langsel', 'en'); page.wait_for_timeout(300)
+    en_texts = [s for s in home_texts() if not s.startswith('Live ·')]
+    page.select_option('#langsel', 'fil'); page.wait_for_timeout(400)
+    fil_texts = home_texts()
+    for want in ('Live na status ng device', 'Mga setting ng radio', 'Baterya', 'Linisin ang memory', 'I-unlock lahat ng cell', 'Live refresh: Naka-on'):
+        ok(want in fil_texts, 'Filipino dashboard: ' + want)
+    page.wait_for_timeout(5500)
+    ok('Baterya' in home_texts() and 'Mga setting ng radio' in home_texts(), 'Filipino dashboard survives a re-render')
+    page.select_option('#langsel', 'en'); page.wait_for_timeout(400)
+    ok(sorted(s for s in home_texts() if not s.startswith('Live ·')) == sorted(en_texts), 'back to English restores every dashboard text')
     page.select_option('#langsel', 'en'); page.wait_for_timeout(200)
     ok(page.inner_text('#logoutbtn') == 'Sign out', 'back to English')
     ok(not errors, 'no page errors ' + ' | '.join(errors)); b.close()
@@ -115,4 +128,12 @@ with sync_playwright() as p:
     b, page, log, errors = run(p, {'network_type': 'LTE', 'lte_band_lock': '1,2,3,4,5,7,8,12,13,17,18,19,20,25,26,28,34,38,39,40,41,42,43', 'nr_band_lock': '78,41'}, '', 'nolock')
     page.evaluate("window.MatchiLive = { snapshot: () => ({ ageMs: 1000, noService: true }) }; document.dispatchEvent(new CustomEvent('matchi:live'))"); page.wait_for_timeout(200)
     ok(page.locator('#dash_radio .dr-warn').count() == 0, 'no band lock (every band allowed) + no service: no band-lock warning'); b.close()
+    # sign-in card keeps one width, with or without the error text under the button (it shrank after Sign out)
+    b = p.chromium.launch(); pg = b.new_page(viewport={'width': 1366, 'height': 700})
+    pg.route('**/*', lambda r: r.abort() if 'localhost' not in r.request.url else (r.fulfill(content_type='text/html', body=html) if r.request.url.rstrip('/').endswith('localhost') else r.fulfill(status=401, content_type='application/json', body='{}')))
+    pg.goto('http://localhost/'); pg.wait_for_timeout(800)
+    w1 = pg.evaluate("Math.round(document.getElementById('login').getBoundingClientRect().width)")
+    pg.evaluate("document.getElementById('tokerr').textContent='Session expired or invalid - log in again'")
+    w2 = pg.evaluate("Math.round(document.getElementById('login').getBoundingClientRect().width)")
+    ok(w1 == w2 and w1 >= 300, 'sign-in card width does not change with the message (%s / %s)' % (w1, w2)); b.close()
 sys.exit(1 if fails else 0)

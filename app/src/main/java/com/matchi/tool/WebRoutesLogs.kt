@@ -44,6 +44,7 @@ internal fun WebServer.routeLogs(s: IHTTPSession, uri: String): Response? = when
         .put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL)
         .put("droppedWrites", LogCatcher.droppedWriteCount()).put("counters", countersJson()))
     uri == "/api/logs/start" && s.method == Method.POST -> {
+        drainBody(s)
         LogCatcher.start(ctx)
         json(Response.Status.OK, JSONObject().put("ok", LogCatcher.isRunning()).put("running", LogCatcher.isRunning()).put("session", LogCatcher.currentSession() ?: JSONObject.NULL))
     }
@@ -57,6 +58,7 @@ internal fun WebServer.routeLogs(s: IHTTPSession, uri: String): Response? = when
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
     uri == "/api/logs/stop" && s.method == Method.POST -> {
+        drainBody(s)
         LogCatcher.stop()
         json(Response.Status.OK, JSONObject().put("ok", true).put("running", false))
     }

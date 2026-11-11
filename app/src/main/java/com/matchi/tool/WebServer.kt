@@ -194,6 +194,13 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      * which spools the whole body to a temp file, so /api/login (open to every hotspot client) could be used to fill
      * memory or the cache folder without a password.
      */
+    /**
+     * For POST routes that do not need their body: read and drop it. NanoHTTPD 2.3.1 keeps the connection open and does not
+     * skip an unread body, so the leftover bytes (the page's `{}` on /api/logout) were parsed as the start of the next request
+     * on that connection and the reload after signing out answered "BAD REQUEST: ... HTTP verb {}GET unhandled".
+     */
+    internal fun drainBody(s: IHTTPSession) { try { body(s, MAX_LOGIN_BODY) } catch (e: Exception) { LogCatcher.log("WARNING", "WebServer", "request body not drained: " + e.message) } }
+
     internal fun body(s: IHTTPSession, max: Int = MAX_JSON_BODY): JSONObject {
         val raw = s.headers["content-length"]?.trim()
         if (raw == null && s.method == Method.POST && s.headers["transfer-encoding"] != null)

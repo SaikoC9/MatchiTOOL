@@ -12,6 +12,7 @@ import org.json.JSONObject
 
 internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when {
     uri == "/api/logout" && s.method == Method.POST -> {
+        drainBody(s)
         Sessions.revoke(ctx, s.headers["x-token"])
         json(Response.Status.OK, JSONObject().put("ok", true))
     }

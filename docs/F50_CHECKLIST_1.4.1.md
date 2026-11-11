@@ -39,3 +39,8 @@ Everything marked "unchanged" was checked on the F50 on 11 Nov 2026 (see the CHA
 ## E. Not changed, quick look
 - [ ] Band lock and Unlock all, radio restart, auto-unlock of a wrong cell (PCI 999), unlock all cells (checked 11 Nov 2026).
 - [ ] Console starts after install, HTTPS or the "not encrypted" bar as before, sign-in speed with the new 310,000-iteration hash (patched2).
+
+## F. Found on 11 Nov 2026 (patched8)
+- [ ] Press **Sign out**: the sign-in card keeps the same width as before sign-out. Reload the tab right after: the sign-in page loads (no "BAD REQUEST ... HTTP verb {}GET unhandled").
+- [ ] Language Filipino: the dashboard (Live device status, Radio settings, Cell lock) and the tool buttons are in Filipino and stay so after a few refreshes; English restores them. Messages made at run time and the tool windows stay English.
+- [ ] Cell lock: "This phone is on" PCI can differ from the PCI in the Live status box if the phone changed cell in between; press Refresh on both and compare (write down both PCIs if they still differ).
