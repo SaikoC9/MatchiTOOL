@@ -31,7 +31,18 @@ function mountDashCell() {
 #dash_cell button,#dash_cell select,#dash_cell input[type=text]{min-height:28px;padding:3px 10px;font-size:12px;border-radius:7px}
 #dash_cell input[type=text]{width:84px;min-width:0}
 #dash_cell .dc-s{font-size:11.5px;min-height:15px;margin-top:4px}
-#dash_cell .dc-log{display:none;margin:6px 0 0;padding:6px 8px;max-height:96px;overflow:auto;white-space:pre-wrap;font-size:10.5px;line-height:1.4;background:var(--bg);border:1px solid var(--bd);border-radius:8px}`;
+#dash_cell .dc-log{display:none;margin:6px 0 0;padding:6px 8px;max-height:96px;overflow:auto;white-space:pre-wrap;font-size:10.5px;line-height:1.4;background:var(--bg);border:1px solid var(--bd);border-radius:8px}
+#dash_cell .dc-c1,#dash_cell .dc-c2{min-width:0}
+/* Wide screens: the card sits under Live device status (right column) in two columns. Narrow screens keep it under Radio settings, one column. */
+@media(min-width:1000px){
+.liv>#dash_cell{margin-top:12px}
+.liv>#dash_cell .dc-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto auto auto 1fr auto auto;column-gap:22px;align-items:start}
+.liv>#dash_cell .dc-body>*{grid-column:1}
+.liv>#dash_cell .dc-body>label{justify-self:start}
+.liv>#dash_cell .dc-dyn{display:contents}
+.liv>#dash_cell .dc-c2{grid-column:2;grid-row:1/-1}
+.liv>#dash_cell .dc-body>.dc-l{align-self:end}
+}`;
   document.head.appendChild(css);
 
   const card = document.createElement('div'); card.id = 'dash_cell';
@@ -46,8 +57,15 @@ function mountDashCell() {
     '<div class="dc-row"><input type="text" inputmode="numeric" data-f="pci" placeholder="PCI" aria-label="PCI"><input type="text" inputmode="numeric" data-f="earfcn" placeholder="EARFCN" aria-label="EARFCN">' +
     '<select data-f="rat" aria-label="Type"><option value="">Type…</option><option value="12">4G</option><option value="16">5G</option></select><button type="button" class="dc-lk" data-a="manual">Lock cell</button></div>' +
     '<pre class="dc-log"></pre></div>';
-  const rad = document.getElementById('dash_radio');
-  if (rad && rad.parentNode === home) rad.after(card); else home.appendChild(card);
+  // Wide screens (the two-column console): under Live device status. Narrow screens: under Radio settings, as before.
+  const wide = window.matchMedia ? window.matchMedia('(min-width:1000px)') : null;
+  function place() {
+    const inl = document.getElementById('liv_inline'), rad = document.getElementById('dash_radio');
+    if (wide && wide.matches && inl && inl.parentNode === home) { if (card.parentNode !== inl) inl.appendChild(card); return; }
+    if (rad && rad.parentNode === home) { if (rad.nextSibling !== card) rad.after(card); } else if (card.parentNode !== home) home.appendChild(card);
+  }
+  place();
+  if (wide) { if (wide.addEventListener) wide.addEventListener('change', place); else if (wide.addListener) wide.addListener(place); }
   const dyn = card.querySelector('.dc-dyn'), statusEl = card.querySelector('.dc-s'), logEl = card.querySelector('.dc-log'), bodyEl = card.querySelector('.dc-body');
   const autoBox = card.querySelector('[data-a=auto]'), tg = card.querySelector('[data-a=toggle]');
   autoBox.checked = R.cellAutoOn();
@@ -69,17 +87,18 @@ function mountDashCell() {
   }
   function paint() {
     if (st.err) { dyn.innerHTML = '<div class="dc-note">Cell info not available: ' + esc(st.err) + '. Unlock all cells still works.</div>'; sync(); return; }
-    let h = '<div class="dc-l">Locked now</div>';
+    let h = '<div class="dc-c1"><div class="dc-l">Locked now</div>';
     h += st.locked.length ? st.locked.map((c) => `<div>${cellText(c, String(c.rat))}</div>`).join('') : '<div>none</div>';
     h += '<div class="dc-l">This phone is on</div>';
     h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}</span><button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button></div>`).join('')
       : '<div class="dc-note">No serving cell with a valid PCI and channel was reported. Use a neighbour below or lock by hand.</div>';
-    h += '<div class="dc-l">Neighbours</div>';
+    h += '</div><div class="dc-c2"><div class="dc-l">Neighbours</div>';
     h += st.nb.length ? st.nb.map((c, i) => {
       const rat = ['12', '16'].includes(String(c.rat)) ? String(c.rat) : R.guessRat(c.band) || st.rat[i] || '';
       const pick = R.guessRat(c.band) || ['12', '16'].includes(String(c.rat)) ? '' : `<select data-a="nbrat" data-i="${i}" aria-label="Type"><option value="">Type…</option><option value="12"${rat === '12' ? ' selected' : ''}>4G</option><option value="16"${rat === '16' ? ' selected' : ''}>5G</option></select>`;
       return `<div class="dc-cell"><span>${val(c.band)} · EARFCN ${val(c.earfcn)} · PCI ${val(c.pci)} · RSRP ${val(c.rsrp)} · RSRQ ${val(c.rsrq)} · SINR ${val(c.sinr)}</span>${pick}<button type="button" class="dc-lk" data-a="nb" data-i="${i}">Lock</button></div>`;
     }).join('') : '<div class="dc-note">No neighbour cells</div>';
+    h += '</div>';
     dyn.innerHTML = h; sync();
   }
 
