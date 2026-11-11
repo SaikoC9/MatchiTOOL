@@ -359,8 +359,7 @@
   // ---- Cell lock (Phase 3, highest risk). Formats: docs/AT_RADIO_FORMATS.md. Read only when the "Cell lock" button is pressed or refreshed. ----
   // CELL_LOCK takes pci, earfcn, rat (12 = 4G, 16 = 5G); UNLOCK_ALL_CELL takes nothing. neighbor_cell_info / locked_cell_info are lists.
   const cellState = { nb: [], locked: [] };
-  let cellGen = 0;   // a newer lock or an unlock cancels a pending auto-unlock check
-  const cellKeep = () => { try { return localStorage.getItem('matchi_cell_auto') !== '0'; } catch (_) { return true; } };
+  const cellKeep = R.cellAutoOn;
   function paintCells() {
     const pn = document.getElementById('matchi_cell_list'); if (!pn) return;
     const cell = (c) => c == null || c === '' ? '-' : esc(c);
@@ -396,7 +395,6 @@
   async function unlockCells(auto) {
     if (radioBusy && !auto) return;
     if (!auto && !(await askConfirm('Unlock all cells?\n\nThe modem may re-register for a few seconds.', 'Unlock all'))) return;
-    cellGen++;   // cancel a pending auto-unlock check
     setRadioBusy(true);
     try {
       log('> UNLOCK_ALL_CELL' + (auto ? ' (automatic)' : ''));
@@ -409,13 +407,11 @@
   }
   // One check 60 s after a lock: not registered -> the lock is removed. Cancelled by an unlock or a newer lock. Never repeats.
   async function cellWatch() {
-    const gen = ++cellGen;
     log('Auto-unlock check in 60 s (switch it off with the tick box if you do not want it).');
-    for (let t = 0; t < 12; t++) { await sleep(5000); if (gen !== cellGen) return; }
-    if (!cellKeep()) { log('Auto-unlock is off: the cell lock stays.'); return; }
-    let reg = false; try { reg = await R.isRegistered(slot()); } catch (_) { /* counts as not registered */ }
-    if (gen !== cellGen) return;
-    if (reg) { log('Modem is registered 60 s after the lock: the lock stays. Unlock all cells to remove it.'); return; }
+    const res = await R.watchCell({ slot: slot() });   // radio-core.js: the same check the dashboard card uses
+    if (res === 'cancelled') return;
+    if (res === 'off') { log('Auto-unlock is off: the cell lock stays.'); return; }
+    if (res === 'registered') { log('Modem is registered 60 s after the lock: the lock stays. Unlock all cells to remove it.'); return; }
     log('Not registered 60 s after the lock: removing the lock.');
     for (let i = 0; i < 10 && radioBusy; i++) await sleep(1000);
     await unlockCells(true);
@@ -561,7 +557,7 @@
       if (show) refreshCells();
     };
     const auto = document.getElementById('matchi_cell_auto'); auto.checked = cellKeep();
-    auto.onchange = () => { try { localStorage.setItem('matchi_cell_auto', auto.checked ? '1' : '0'); } catch (_) { /* not fatal */ } };
+    auto.onchange = () => R.setCellAuto(auto.checked);
     document.getElementById('matchi_cell_refresh').onclick = refreshCells;
     document.getElementById('matchi_cell_unlock').onclick = () => unlockCells(false);
     document.getElementById('matchi_cell_manual').onclick = () => {

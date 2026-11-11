@@ -53,7 +53,10 @@ function mountDashRadio() {
     const inR = router.includes(b), inP = pend.has(b), cls = inR && inP ? 'on' : inP ? 'add' : inR ? 'rm' : '';
     return `<button type="button" class="dr-b ${cls}" data-t="${type}" data-b="${b}" aria-pressed="${inP}">${type === 'nr' ? 'n' : 'B'}${b}</button>`;
   }).join('');
+  // Tells the Cell lock card whether bands are ticked but not saved (it turns its Lock buttons off while they are).
+  const announce = () => { try { document.dispatchEvent(new CustomEvent('matchi:bands-dirty', { detail: { dirty: dirty() } })); } catch (_) { /* not fatal */ } };
   function paint() {
+    announce();
     if (st.err) { body.textContent = 'Radio settings not available: ' + st.err; return; }
     const busy = R.isBusy(), dis = busy ? ' disabled' : '';
     let h = '';

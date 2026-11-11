@@ -126,17 +126,47 @@ window.MatchiRadio = (() => {
     if (d.neighbor_cell_info === undefined && d.locked_cell_info === undefined) throw new Error('this firmware reports neither neighbor_cell_info nor locked_cell_info');
     return { nb: toList(d.neighbor_cell_info), locked: toList(d.locked_cell_info) };
   }
+  // Is exactly this lock listed by the router?
+  const cellListed = (cells, pci, earfcn, rat) => !!cells && cells.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
+  // Every lock, unlock and auto-unlock watch takes a new epoch. A watch that sees the epoch change was replaced (newer lock) or made
+  // pointless (unlock) and stops, no matter which window started it. This is what keeps two windows from fighting over one modem.
+  let cellEpoch = 0;
+  // Auto-unlock is ON unless the person switched it off (one setting for the AT & Radio window and the dashboard card).
+  const cellAutoOn = () => { try { return localStorage.getItem('matchi_cell_auto') !== '0'; } catch (_) { return true; } };
+  const setCellAuto = (on) => { try { localStorage.setItem('matchi_cell_auto', on ? '1' : '0'); } catch (_) { /* not fatal */ } };
   // Send CELL_LOCK, then read the cells back. cells = null when the read failed. hit = the router lists exactly this lock.
   async function cellLock(pci, earfcn, rat) {
+    cellEpoch++;
     await setRouter({ goformId: 'CELL_LOCK', pci, earfcn, rat });
     let cells = null; try { cells = await readCells(); } catch (_) { /* reported as hit:false */ }
-    const hit = !!cells && cells.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
-    return { cells, hit };
+    return { cells, hit: cellListed(cells, pci, earfcn, rat) };
   }
   async function cellUnlock() {
+    cellEpoch++;
     await setRouter({ goformId: 'UNLOCK_ALL_CELL' });
     let cells = null; try { cells = await readCells(); } catch (_) { /* reported as none:false */ }
     return { cells, none: !!cells && !cells.locked.length };
+  }
+  // Wait, then look once at the registration. Resolves 'cancelled' (a newer lock or an unlock happened meanwhile), 'off' (auto-unlock was
+  // switched off while waiting), 'registered' (the lock stays) or 'unregistered' (the caller should unlock). Never repeats, never unlocks by itself.
+  async function watchCell(opt) {
+    const o = opt || {}, step = o.stepMs || 5000, total = o.waitMs == null ? 60000 : o.waitMs, epoch = ++cellEpoch;
+    for (let t = 0; t < total; t += step) { await sleep(Math.min(step, total - t)); if (epoch !== cellEpoch) return 'cancelled'; }
+    if (!cellAutoOn()) return 'off';
+    let reg = false; try { reg = await isRegistered(o.slot || 0); } catch (_) { /* counts as not registered */ }
+    if (epoch !== cellEpoch) return 'cancelled';
+    return reg ? 'registered' : 'unregistered';
+  }
+  // The cell the phone is on right now, built from the router's own serving-cell values: the safest lock, because nothing changes.
+  // A cell is offered only when the network type says that radio is in use AND its PCI / channel are valid. 5G NSA lists both. Never guessed.
+  async function servingCells() {
+    const d = (await zte('get', { multi_data: '1', cmd: 'network_type,nr5g_pci,nr5g_action_band,nr5g_action_channel,lte_pci,wan_active_band,wan_active_channel' })) || {};
+    if (typeof d !== 'object') throw new Error('Unexpected router answer');
+    const nt = String(d.network_type || '').trim(), cells = [];
+    const add = (rat, pci, earfcn, band) => { const p = clean(pci) || '', e = clean(earfcn) || ''; if (cellOk(p, e, rat)) cells.push({ rat, pci: p, earfcn: e, band: clean(band) || '' }); };
+    if (/5G|NR|ENDC|^SA$/i.test(nt)) add('16', d.nr5g_pci, d.nr5g_action_channel, d.nr5g_action_band);
+    if (/LTE|4G|ENDC|NSA/i.test(nt)) add('12', d.lte_pci, d.wan_active_channel, d.wan_active_band);
+    return { networkType: nt, cells };
   }
 
   // ---- Radio restart ------------------------------------------------------------------------------------------
@@ -227,7 +257,7 @@ window.MatchiRadio = (() => {
     isBusy, busyReason, beginBusy, onBusy,
     zte, setRouter, NET_MODES, netLabel, clean, readRadio,
     LTE_BANDS, parseBands, bandText, bandsMsg, sameList, bandsCheck, readBands, sendBands, setBands,
-    toList, ratLabel, guessRat, cellOk, readCells, cellLock, cellUnlock,
+    toList, ratLabel, guessRat, cellOk, readCells, cellListed, cellLock, cellUnlock, cellAutoOn, setCellAuto, watchCell, servingCells,
     CYCLE_SH, radioCycle,
   };
 })();
