@@ -15,6 +15,28 @@ object RootGate {
     fun insecureNeedsConfirm(tlsActive: Boolean, loopback: Boolean, confirmHeader: String?): Boolean =
         !tlsActive && !loopback && confirmHeader != "1"
 
+    /**
+     * True when root actions must be refused outright: plain HTTP from another device, and the owner has not switched
+     * "Root over HTTP" on. Loopback (apps on the phone itself) and HTTPS are never refused here.
+     */
+    fun insecureRefused(tlsActive: Boolean, loopback: Boolean, allowOverHttp: Boolean): Boolean =
+        !tlsActive && !loopback && !allowOverHttp
+
+    /** What [decide] answers when a root-capable call must be turned away. [code] is the one the page handles. */
+    enum class Refusal(val code: String) { INSECURE_OFF("insecure-off"), INSECURE("insecure"), REAUTH("reauth") }
+
+    /**
+     * The whole root gate in one place, in the order the checks run: plain HTTP refused outright (unless the owner allowed it),
+     * then plain HTTP needs the page's confirmation, then the sign-in must be young enough. Null means the call may go on.
+     * WebServer.rootGate only turns the answer into the 403 reply, so this order is what the unit tests pin down.
+     */
+    fun decide(tlsActive: Boolean, loopback: Boolean, allowOverHttp: Boolean, confirmHeader: String?, sessionAgeMs: Long?, maxMs: Long = MAX_SESSION_MS): Refusal? = when {
+        insecureRefused(tlsActive, loopback, allowOverHttp) -> Refusal.INSECURE_OFF
+        insecureNeedsConfirm(tlsActive, loopback, confirmHeader) -> Refusal.INSECURE
+        !freshEnough(sessionAgeMs, maxMs) -> Refusal.REAUTH
+        else -> null
+    }
+
     private val queryRx = Regex("^AT(\\+[A-Z0-9_]+)?(\\?|=\\?)$", RegexOption.IGNORE_CASE)
     private val bareReads = setOf("AT", "ATI", "AT+CSQ", "AT+CESQ", "AT+CGSN", "AT+CIMI", "AT+CCID", "AT+CNUM", "AT+CGMR", "AT+CGMM", "AT+CGMI")
 

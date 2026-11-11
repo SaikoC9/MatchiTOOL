@@ -47,6 +47,9 @@ object Prefs {
     /** True once the root temp files that older versions left in /data/local/tmp have been deleted (see HostService.cleanOldTmpFiles). */
     fun oldTmpCleaned(c: Context): Boolean = sp(c).getBoolean("old_tmp_cleaned", false)
     fun setOldTmpCleaned(c: Context) { sp(c).edit().putBoolean("old_tmp_cleaned", true).apply() }
+    /** Root actions from another device while the console runs over plain HTTP (HTTPS could not start). Off by default; see RootGate.insecureRefused. */
+    fun rootOverHttp(c: Context): Boolean = sp(c).getBoolean("root_over_http", false)
+    fun setRootOverHttp(c: Context, v: Boolean) { sp(c).edit().putBoolean("root_over_http", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
     fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)
@@ -162,7 +165,7 @@ object Prefs {
     // It is stored as a salted PBKDF2 hash, never in clear. Until one password exists nobody can sign in.
     const val MIN_CONSOLE_PW = 10
     private const val CONSOLE_PW = "console_pw"
-    private const val CONSOLE_PW_ITER = 120_000
+    private const val CONSOLE_PW_ITER = 310_000   // was 120_000; older hashes are re-made at the next good sign-in (see checkConsolePassword)
 
     fun hasConsolePassword(c: Context): Boolean = !sp(c).getString(CONSOLE_PW, null).isNullOrEmpty()
 
@@ -182,7 +185,15 @@ object Prefs {
     private fun checkConsolePassword(c: Context, pw: String): Boolean = try {
         val parts = sp(c).getString(CONSOLE_PW, "")!!.split(":")
         if (parts.size != 3) false
-        else MessageDigest.isEqual(Base64.decode(parts[2], Base64.NO_WRAP), pbkdf2(pw, Base64.decode(parts[1], Base64.NO_WRAP), parts[0].toInt()))
+        else {
+            val iter = parts[0].toInt()
+            val ok = MessageDigest.isEqual(Base64.decode(parts[2], Base64.NO_WRAP), pbkdf2(pw, Base64.decode(parts[1], Base64.NO_WRAP), iter))
+            // The password is known to be right here, so a hash made with fewer iterations is replaced by one with the current count.
+            if (ok && iter < CONSOLE_PW_ITER) {
+                try { setConsolePassword(c, pw) } catch (e: Exception) { Quiet.note("Prefs.rehash", e) }
+            }
+            ok
+        }
     } catch (_: Exception) { false }
 
     fun hasAdminPassword(c: Context): Boolean = hasConsolePassword(c) || ztePass(c).isNotEmpty()

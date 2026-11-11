@@ -3,6 +3,7 @@
  * window.MatchiRadio (web-src/radio-core.js).
  *  - Reads neighbor_cell_info / locked_cell_info only when the card is opened or Refresh is pressed. Never on the Live Status timer.
  *  - "Lock this cell" is built from the router's own serving-cell values (the phone is already on that cell), the safest lock.
+ *    When the router leaves those values empty (the F50 does), the cell Android telephony reports is offered instead, marked as such, only from a fresh Live Status reading, and the confirm says it may differ from the router's cell.
  *  - The type of a neighbour (4G / 5G) comes from its band name (n78 / B3). A bare number asks you. Never guessed.
  *  - Auto-unlock is ON by default: 60 s after a lock, if the modem is not registered, UNLOCK_ALL_CELL is sent once. The pending check
  *    survives a page reload (the start time is kept in localStorage and the check resumes only if the router still lists a locked cell).
@@ -90,8 +91,8 @@ function mountDashCell() {
     let h = '<div class="dc-c1"><div class="dc-l">Locked now</div>';
     h += st.locked.length ? st.locked.map((c) => `<div>${cellText(c, String(c.rat))}</div>`).join('') : '<div>none</div>';
     h += '<div class="dc-l">This phone is on</div>';
-    h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}</span><button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button></div>`).join('')
-      : '<div class="dc-note">No serving cell with a valid PCI and channel was reported. Use a neighbour below or lock by hand.</div>';
+    h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}${c.tele ? ' <i title="The router left its serving cell empty. This is the cell Android telephony reports; it can differ from the router\'s.">(Android telephony)</i>' : ''}</span><button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button></div>`).join('')
+      : '<div class="dc-note">No serving cell with a valid PCI and channel was reported by the router or by Android telephony (Live Status must have a recent reading). Use a neighbour below or lock by hand.</div>';
     h += '</div><div class="dc-c2"><div class="dc-l">Neighbours</div>';
     h += st.nb.length ? st.nb.map((c, i) => {
       const rat = ['12', '16'].includes(String(c.rat)) ? String(c.rat) : R.guessRat(c.band) || st.rat[i] || '';
@@ -102,6 +103,19 @@ function mountDashCell() {
     dyn.innerHTML = h; sync();
   }
 
+  // Item 22: the router's serving-cell keys are empty on the F50, so "This phone is on" was always empty. Fall back to the registered cell Android telephony reports,
+  // taken from the last Live Status reading (read-only, no extra root call). Only when that reading is under 2 minutes old and the PCI / channel pass the same check as any lock.
+  function teleServing() {
+    try {
+      const L = window.MatchiLive && window.MatchiLive.snapshot();
+      if (!L || L.ageMs === null || L.ageMs > 120000) return [];
+      const out = [], one = (v) => (v == null || v === '\u2014' ? '' : String(v).trim());
+      const add = (rat, c) => { if (!c || c.src !== 'Android telephony') return; const pci = one(c.pci), earfcn = one(c.chan); if (R.cellOk(pci, earfcn, rat)) out.push({ rat, pci, earfcn, band: one(c.band), tele: true }); };
+      if (L.hasNr) add('16', L.nr);
+      if (L.hasLte) add('12', L.lte);
+      return out;
+    } catch (_) { return []; }
+  }
   const take = (c) => { st.nb = c.nb; st.locked = c.locked; };
   let gen = 0;
   async function refresh() {
@@ -109,7 +123,7 @@ function mountDashCell() {
     try {
       const [c, s] = await Promise.all([R.readCells(), R.servingCells().catch(() => ({ cells: [] }))]);
       if (g !== gen) return;
-      take(c); st.serving = s.cells; st.loaded = true; st.rat = {};
+      take(c); st.serving = s.cells.length ? s.cells : teleServing(); st.loaded = true; st.rat = {};
     } catch (e) { if (g !== gen) return; st.err = e.message; }
     paint();
   }
@@ -133,10 +147,11 @@ function mountDashCell() {
     await unlock(true);
   }
 
-  async function lock(pci, earfcn, rat) {
+  async function lock(pci, earfcn, rat, tele) {
     if (lockOff()) return;
     if (!R.cellOk(pci, earfcn, rat)) { toast('PCI, EARFCN or type is not valid', 'red'); return; }
     const ok = await askConfirm('Lock to this cell?\n\n' + ratLabel(rat) + ' \u00b7 EARFCN ' + earfcn + ' \u00b7 PCI ' + pci +
+      (tele ? '\n\nThis cell comes from Android telephony, because the router did not report its own serving cell. It can differ from the cell the router uses: if unsure, lock a neighbour row or Cancel.' : '') +
       '\n\nWARNING: a wrong cell can leave the phone with no signal or an unstable one. "Unlock all cells" stays on this card. ' +
       (R.cellAutoOn() ? 'If the modem is not registered 60 seconds after the lock, the lock is removed automatically.' : 'Automatic unlock is OFF: you must unlock by hand.'), 'Lock cell', true);
     if (!ok) return;
@@ -182,7 +197,7 @@ function mountDashCell() {
     if (k === 'toggle') setOpen(!st.open);
     else if (k === 'refresh') { if (!st.open) setOpen(true); else { setStatus(''); dyn.textContent = 'reading…'; refresh(); } }
     else if (k === 'unlock') unlock(false);
-    else if (k === 'sv') { const c = st.serving[i]; if (c) lock(c.pci, c.earfcn, c.rat); }
+    else if (k === 'sv') { const c = st.serving[i]; if (c) lock(c.pci, c.earfcn, c.rat, !!c.tele); }
     else if (k === 'nb') {
       const c = st.nb[i]; if (!c) return;
       const rat = ['12', '16'].includes(String(c.rat)) ? String(c.rat) : R.guessRat(c.band) || st.rat[i] || '';

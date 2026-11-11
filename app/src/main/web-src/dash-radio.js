@@ -55,6 +55,12 @@ function mountDashRadio() {
   }).join('');
   // Tells the Cell lock card whether bands are ticked but not saved (it turns its Lock buttons off while they are).
   const announce = () => { try { document.dispatchEvent(new CustomEvent('matchi:bands-dirty', { detail: { dirty: dirty() } })); } catch (_) { /* not fatal */ } };
+  // Item 24: a band lock left on (or a wrong one) looks like "no service". Show a warning on this card when a lock is active AND the last fresh Live reading has no service.
+  // The lock counts as active when the router lists fewer bands than the modem supports. Nothing is changed by the warning; Unlock all is the way out.
+  const lockActive = () => (st.haveLte && st.routerLte.length > 0 && st.lteSup.length > 0 && !st.lteSup.every((b) => st.routerLte.includes(b))) || (st.haveNr && st.routerNr.length > 0 && st.nrSup.length > 0 && !st.nrSup.every((b) => st.routerNr.includes(b)));
+  const liveNoService = () => { try { const s = window.MatchiLive && window.MatchiLive.snapshot(); return !!(s && s.noService); } catch (_) { return false; } };
+  const lockWarnHtml = () => (lockActive() && liveNoService() && !R.isBusy()
+    ? '<div class="dr-warn" role="alert" style="margin:0 0 8px;padding:6px 8px;border:1px solid #ff9a9a;border-radius:8px;color:#ff9a9a;font-size:11.5px">A band lock is active and Live Status shows no service. If the signal went away after a band change, the lock may be the cause: press <b>Unlock all</b>.</div>' : '');
   function paint() {
     announce();
     if (st.err) { body.textContent = 'Radio settings not available: ' + st.err; return; }
@@ -71,8 +77,16 @@ function mountDashRadio() {
         `<button type="button" data-a="reset"${dis || (dirty() ? '' : ' disabled')}>Reset ticks</button></div>` +
         '<div class="dr-note" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
     }
-    body.innerHTML = h || 'The router reports neither a network mode nor band locks.';
+    warnShown = !!lockWarnHtml();
+    body.innerHTML = h ? lockWarnHtml() + h : 'The router reports neither a network mode nor band locks.';
   }
+  // Live Status painted again: show or clear the warning without reading the router. Ticks are kept (they live in st), only the warning line changes.
+  let warnShown = false;
+  document.addEventListener('matchi:live', () => {
+    if (st.err || !(st.haveLte || st.haveNr)) return;
+    const want = lockActive() && liveNoService() && !R.isBusy();
+    if (want !== warnShown) { warnShown = want; paint(); }
+  });
 
   let gen = 0;
   async function refresh() {

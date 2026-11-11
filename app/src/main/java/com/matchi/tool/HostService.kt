@@ -254,6 +254,12 @@ class HostService : Service() {
         try { workers.shutdownNow() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         try { server?.stop() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         server = null
+        // Close the hotspot-side port again. Run off the main thread and wait at most 3 s, so stopping the service can never hang.
+        // (If the process is killed without onDestroy the rule stays; the next start finds it with "iptables -C" and reuses it.)
+        try {
+            val closer = Thread { try { HostControl.closeLanFirewall(applicationContext) } catch (e: Exception) { Quiet.note("HostService.closeFirewall", e) } }
+            closer.isDaemon = true; closer.start(); closer.join(3000)
+        } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         RootShell.closeAll()
         initialized.set(false)
         super.onDestroy()
@@ -323,6 +329,18 @@ runone() {
 [ -d §D ] || { echo 'No MatchiTOOL boot tasks registered'; exit 0; }
 trusted §D || { note "skipped: §D is a symlink or not owned by root"; exit 0; }
 rm -f §D/boot.current 2>/dev/null
+# Bypass was removed from MatchiTOOL, but its firewall/TTL lines can still sit in boot.sh and keep running. Lines that name "bypass" are
+# taken out once (a copy stays in boot.sh.pre-bypass-removal). The result must still be valid shell, otherwise boot.sh is left as it was.
+if [ -f §D/boot.sh ] && trusted §D/boot.sh && grep -qi bypass §D/boot.sh 2>/dev/null; then
+  cp -f §D/boot.sh §D/boot.sh.pre-bypass-removal 2>/dev/null
+  grep -vi bypass §D/boot.sh > §D/boot.sh.new 2>/dev/null
+  if [ -f §D/boot.sh.pre-bypass-removal ] && [ -f §D/boot.sh.new ] && /system/bin/sh -n §D/boot.sh.new 2>/dev/null && cat §D/boot.sh.new > §D/boot.sh 2>/dev/null; then
+    note "removed legacy Bypass lines from boot.sh (copy: boot.sh.pre-bypass-removal)"
+  else
+    note "boot.sh still has legacy Bypass lines that could not be removed safely: edit it by hand"
+  fi
+  rm -f §D/boot.sh.new 2>/dev/null
+fi
 if [ -f §D/boot.sh ]; then
   if trusted §D/boot.sh; then runone §D/boot.sh; else note "skipped boot.sh: symlink or not owned by root"; fi
 else echo 'No MatchiTOOL boot tasks registered'; fi

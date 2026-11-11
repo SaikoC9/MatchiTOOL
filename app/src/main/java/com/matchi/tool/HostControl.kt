@@ -147,6 +147,29 @@ object HostControl {
         echo done
     """.trimIndent().replace('§', '$')
 
+    /** Takes the rule added by [openLanFirewall] away again (called when the host service stops). Best effort, bounded. */
+    fun closeLanFirewall(ctx: Context) {
+        RootShell.run(ctx, lanFirewallCloseScript(Prefs.PORT), 4_000)
+    }
+
+    /** Root script for [closeLanFirewall]: deletes the ACCEPT rule on every hotspot-side interface (a few passes, in case it was added twice). */
+    internal fun lanFirewallCloseScript(port: Int): String = """
+        for t in iptables ip6tables; do
+          command -v §t >/dev/null 2>&1 || continue
+          for path in /sys/class/net/*; do
+            [ -e "§path" ] || continue
+            i=§{path##*/}
+            case "§i" in
+              br*|ap*|swlan*|usb*|rndis*|ecm*)
+                n=0
+                while [ §n -lt 5 ] && §t -D INPUT -i "§i" -p tcp --dport $port -j ACCEPT 2>/dev/null; do n=§((n+1)); done
+                ;;
+            esac
+          done
+        done
+        echo done
+    """.trimIndent().replace('§', '$')
+
     /** True when the web host is accepting connections on its port. */
     fun isHostUp(): Boolean = try {
         Socket().use { it.connect(InetSocketAddress("127.0.0.1", Prefs.PORT), 500) }

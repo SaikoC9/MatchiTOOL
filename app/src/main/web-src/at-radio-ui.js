@@ -216,6 +216,7 @@
     log('> Radio report (read only)');
     const out = [];
     const tryAt = async (c, sl) => { try { out.push(c + (sl === undefined ? '' : '  [slot ' + sl + ']') + '\n' + (tidy(sl === undefined ? await at(c) : await atSlot(c, sl)) || '(no output)')); } catch (e) { out.push(c + '\nError: ' + e.message); } };
+    out.push('Radio on/off: UNKNOWN\nAT+SFUN? is not supported on the F50 (+CME ERROR: 3) and AT+CFUN? does not follow the AT+SFUN=5 / 4 off-on switch used by the restart, so the radio state cannot be read here. Registration (AT+CEREG? / AT+C5GREG? below) is the real sign that the radio is working.');
     await tryAt('AT+CFUN?', 0); await tryAt('AT+CFUN?', 1);
     for (const c of ['AT+CEREG?', 'AT+C5GREG?', 'AT+COPS?', 'AT+SP5GCMDS="get nr support_band"']) await tryAt(c);
     const keys = 'lte_band_lock,nr_band_lock,net_select,BearerPreference,performance_mode,network_type,nr5g_action_band,nr5g_action_channel,nr5g_pci,wan_active_band,wan_active_channel,lte_pci,locked_cell_info';
