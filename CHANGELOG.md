@@ -1,3 +1,9 @@
+# MatchiTOOL (unreleased) - Cell lock: the F50 answers CELL_LOCK with an empty reply (fix, found on the F50)
+
+- **Problem:** the dashboard said "Cell lock failed: Router refused the change ()" although the router had accepted the command. Raw reply on the F50: `success:true, data:"", "reply empty"` (HTTP 200). The code only accepted the word "success".
+- **Fix:** `setRouterCell` in `radio-core.js` (used by `cellLock` and `cellUnlock`, so the dashboard card and the AT & Radio window both get it): an empty reply is accepted, any other text (failure, error) is still refused. The read-back of `locked_cell_info` decides whether the lock or unlock really happened; an empty reply with nothing listed is reported as "does not list the lock", not as success. Band locks are unchanged (they do answer "success").
+- Tests added in `scripts/test_at_radio.js` (empty reply accepted, confirmed by read-back, not a hit when nothing is listed, "failure" refused). `validate.sh` passes.
+
 # MatchiTOOL (unreleased) - Live Status polling guard (plan phase 5)
 
 - **4 s deadline per router read.** A request that never answers is aborted instead of hanging (the radio restart and re-registration can stall the router web API). Reads never overlap (each loop already skips a tick while its read is running).

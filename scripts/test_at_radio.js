@@ -108,6 +108,17 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
   const cu = await R.cellUnlock(); assert(cu.none);
   assert(calls.some((c) => c.body.params && c.body.params.goformId === 'UNLOCK_ALL_CELL'));
   assert(!calls.some((c) => /SFUN/.test(JSON.stringify(c.body))), 'cell lock / unlock never restarts the radio');
+  // F50: CELL_LOCK / UNLOCK_ALL_CELL answer with an EMPTY reply (success:true, data ''). That is accepted; the read-back decides. Other text is refused.
+  locked = []; reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set'
+    ? (b.params.goformId === 'CELL_LOCK' ? (locked = [{ pci: b.params.pci, earfcn: b.params.earfcn, rat: b.params.rat }], { data: '' }) : (locked = [], { data: '' }))
+    : { data: { neighbor_cell_info: [], locked_cell_info: locked } };
+  cl = await R.cellLock('100', '620640', '16'); assert(cl.hit && cl.reply === 'empty', 'empty reply accepted, lock confirmed by the read-back');
+  assert((await R.cellUnlock()).none, 'empty reply on unlock accepted');
+  reply = (path, b) => path === '/api/zte' ? (b.op === 'set' ? { data: '' } : { data: { neighbor_cell_info: [], locked_cell_info: [] } }) : {};
+  cl = await R.cellLock('100', '620640', '16'); assert(!cl.hit, 'empty reply but the router lists nothing: not a hit (the card says so)');
+  reply = (path, b) => path === '/api/zte' ? { data: b.op === 'set' ? { result: 'failure' } : {} } : {};
+  await assert.rejects(R.cellLock('100', '620640', '16'), /refused/);
+  await assert.rejects(R.cellUnlock(), /refused/);
   // watchCell: registered -> keeps, not registered -> asks the caller to unlock, a newer lock / unlock cancels it, switch-off is honoured
   const store = {}; global.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
   assert.strictEqual(R.cellAutoOn(), true, 'auto-unlock is ON by default');
