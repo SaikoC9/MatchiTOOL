@@ -27,4 +27,13 @@ class HostControlTest {
         assertFalse(script.contains("rmnet"))
         assertFalse(script.contains("wlan*)"))
     }
+
+    @Test fun closeScriptRemovesTheSameRuleOnTheSameInterfaces() {
+        val close = HostControl.lanFirewallCloseScript(2334)
+        assertFalse(close.contains('§'))
+        assertTrue(close, close.contains("-D INPUT -i \"${'$'}i\" -p tcp --dport 2334 -j ACCEPT"))
+        assertTrue(close, close.contains("br*|ap*|swlan*|usb*|rndis*|ecm*)"))
+        assertFalse(close.contains("rmnet"))
+        assertFalse(close.contains("-I INPUT"))   // it only removes, never adds
+    }
 }

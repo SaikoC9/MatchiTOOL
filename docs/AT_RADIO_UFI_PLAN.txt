@@ -129,9 +129,9 @@ Work
     for the value parsing and the command building (no real router).
   - Run: node scripts/build-web.js --check ; bash scripts/validate.sh
   - Update CHANGELOG.md. If the version changes, change ALL of these
-    together: app/build.gradle.kts (versionCode, versionName), PAGE_VERSION in
-    index.html, scripts/validate.sh (3 version checks and the final message),
-    README.md.
+    together: version.properties (the one source: Gradle and PAGE_VERSION follow
+    it; run node scripts/build-web.js), the version line in README.md and the
+    top CHANGELOG.md entry. scripts/check_repo.py checks all of these.
   - On the phone: test every control once, then confirm the SMS tool and
     Live Status still work and the phone is not hotter than before.
 Done when
@@ -157,4 +157,4 @@ FILES THAT WILL CHANGE
   docs/AT_RADIO_FORMATS.md                (new, Phase 0)
   scripts/test_at_radio.js                (new, Phase 4)
   CHANGELOG.md
-  (only if a version bump is wanted: build.gradle.kts, validate.sh, README.md)
+  (only if a version bump is wanted: version.properties, README.md)

@@ -78,11 +78,12 @@ eq(ref(Buffer.from('abc')), api.sha256Pure(new TextEncoder().encode('abc')), 'sh
 
 
   // Route list in the page vs the routes WebServer.kt really serves (both directions, so neither side can drift).
-  const kt = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/java/com/matchi/tool/WebServer.kt'), 'utf8');
+  const ktDir = path.join(__dirname, '..', 'app/src/main/java/com/matchi/tool');
+  const kt = ['WebServer.kt', ...fs.readdirSync(ktDir).filter(f => /^WebRoutes.*\.kt$/.test(f)).sort()].map(f => fs.readFileSync(path.join(ktDir, f), 'utf8')).join('\n');   // the host is split into WebServer.kt + WebRoutes*.kt
   const ktExact = new Set([...kt.matchAll(/uri == "(\/api\/[A-Za-z0-9_\/]+)"/g)].map(m => m[1]));
   const ktPref = new Set([...kt.matchAll(/uri\.startsWith\("(\/api\/[A-Za-z0-9_\/]+)"/g)].map(m => m[1]));
-  eq([...ktExact].sort(), [...api.MATCHI_ROUTES].sort(), 'page route list matches WebServer.kt (exact routes)');
-  eq([...ktPref].sort(), [...api.MATCHI_ROUTE_PREFIXES].sort(), 'page route list matches WebServer.kt (prefix routes)');
+  eq([...ktExact].sort(), [...api.MATCHI_ROUTES].sort(), 'page route list matches the host routes (exact)');
+  eq([...ktPref].sort(), [...api.MATCHI_ROUTE_PREFIXES].sort(), 'page route list matches the host routes (prefix)');
 
   // Plugin metadata header
   let m = api.plugMeta('// @matchi-name Signal meter\n// @matchi-version 1.2\n/* @matchi-author me */\n * @matchi-description Shows\u0000 signal\n// @matchi-requires root, curl; jq\nconsole.log(1)');

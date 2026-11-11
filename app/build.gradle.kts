@@ -11,6 +11,8 @@ val ksProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.isFile) f.inputStream().use { load(it) }
 }
+// One source of truth for the version: version.properties in the project root (also read by scripts/build-web.js and the release workflow).
+val versionProps = Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
 fun ksValue(key: String, env: String): String? = (ksProps.getProperty(key) ?: System.getenv(env))?.takeIf { it.isNotBlank() }   // an empty secret counts as missing
 val ksIncomplete = ksValue("storeFile", "MATCHI_KEYSTORE_FILE") != null &&
     (ksValue("storePassword", "MATCHI_KEYSTORE_PASSWORD") == null || ksValue("keyAlias", "MATCHI_KEY_ALIAS") == null || ksValue("keyPassword", "MATCHI_KEY_PASSWORD") == null)
@@ -21,8 +23,8 @@ android {
         applicationId = "com.matchi.tool"
         minSdk = 26
         targetSdk = 28   // old target: keeps legacy /sdcard + exec behaviour working on router firmware
-        versionCode = 401
-        versionName = "1.4.1"
+        versionCode = versionProps.getProperty("VERSION_CODE").trim().toInt()
+        versionName = versionProps.getProperty("VERSION_NAME").trim()
     }
     signingConfigs {
         create("matchi") {
@@ -45,7 +47,15 @@ android {
     }
     buildTypes {
         // Releases must never be debuggable (a debuggable APK exposes the app's private data through `run-as`).
-        release { isMinifyEnabled = false; isDebuggable = false }
+        // Release builds shrink unused library code and unused resources (R8 in shrink-only mode: no renaming, no optimising - see
+        // proguard-rules.pro). That keeps stack traces readable in the Log Catcher and the app's own code untouched. If a release build
+        // ever misbehaves on the device and you need to rule shrinking out: set isMinifyEnabled and isShrinkResources to false here.
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            isDebuggable = false
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
+        }
         // A build without the keystore falls back to the default debug key (and cannot update a permanently signed install).
         // Without the keystore a RELEASE build used to come out unsigned (app-release-unsigned.apk), which the updater and Android both
         // reject ("The APK has no valid signature"). It now falls back to the debug key, like debug builds do.

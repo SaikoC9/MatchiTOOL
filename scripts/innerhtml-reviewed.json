@@ -1,0 +1,16 @@
+{
+ "109bff5b40": "Network_Diagnostics: rows() passes every router value through esc(); the rest is fixed text and a clock time.",
+ "158ff0e04b": "Live_Status: render() escapes every router string (op, net, reg, band, pci, chan, tile sub text); the other values are numbers or fixed text.",
+ "8f93aa7b00": "Live_Status: the keys are the fixed MODES table, not input.",
+ "a2fac7b2cc": "Live_Status: the values are the fixed BATPAUSE numbers.",
+ "2ffff2e666": "Live_Status CPU cores: only numbers (core index, MHz, percent), booleans and fixed text.",
+ "afb87c2678": "Memory_Cleaner progress panel: a fixed template with two constant element ids.",
+ "fb038a1d54": "Cell lock: every router value goes through val()/cellText()/esc(); the rest are indexes and fixed text.",
+ "c9a940f6c3": "createModal is the UFI-TOOLS plugin API: name and titleI18nKey come from the plugin, which already runs arbitrary script in this page. The title text is set with textContent.",
+ "eaa51e12e2": "createModal content is plugin-supplied markup by design (plugin API; plugins already run script in this page).",
+ "75913f753f": "createFixedToast html is plugin-supplied markup by design (plugin API). Also the log history select: built from esc() values and bootOptions().",
+ "7a1fc8d3b8": "pmIcon() returns a fixed svg string; the text beside it is fixed.",
+ "c89715bd07": "pmIcon() returns a fixed svg string.",
+ "c3033825fb": "Log Catcher boot files: bootOptions() escapes every file name and label.",
+ "f49165b761": "Radio settings: h is built with esc() for the mode names and band text; band numbers and data-* come from the supported-band lists. The warning line in front is fixed text."
+}

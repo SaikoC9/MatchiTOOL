@@ -16,7 +16,7 @@ For rooting the **stock ZTE F50 itself**, see [`docs/F50_STOCK_ROOT.md`](docs/F5
 Root commands are sent to the shell over stdin, rather than interpolated into a `su -c` command string. Command
 output is bounded and execution has a timeout. Root status reports the effective UID, resolved `su` path, and a
 best-effort Magisk / KernelSU / APatch hint; UID 0 is the authoritative grant check. Root authorization and
-revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.1.52.md`](docs/ROOT_INTEGRATION_1.1.52.md).
+revocation remain controlled by the root manager. Security details: [`SECURITY.md`](SECURITY.md).
 
 ## Features
 
@@ -27,7 +27,7 @@ revocation remain controlled by the root manager. See [`docs/ROOT_INTEGRATION_1.
 - **Firmware manifest preflight**: XML/scatter format detection, XML well-formedness, partition-name extraction, model/project hints, critical-partition warnings, and SHA-256 fingerprint. This is inspection only and never flashes partitions.
 
 - Browser interface on port **2334** with admin-password login and per-login expiring sessions (2 h idle / 12 h maximum, Sign out button). The service binds to LAN interfaces so other devices on the ZTE hotspot / USB-tether network can connect; API access is restricted to the device itself and detected hotspot-side subnets. The host serves a self-signed HTTPS endpoint first and only falls back to plain HTTP if TLS cannot start; the app shows "(NOT encrypted)" in that case.
-- Full diagnose with copy/download (read-only checks). Eight built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
+- Full diagnose with copy/download (read-only checks). Seven built-in tools embedded in the web page, plus custom plugin upload (multi-file), enable/disable and delete.
 - Root terminal and the `runShellWithRoot` plugin bridge.
 - **Update app** (web console): upload a MatchiTOOL APK (or check an https link first, then download). It is only accepted if it is this app and signed with the same key; newer versions update, the same version number with a different SHA-256 (a different build) updates too, an identical file reinstalls, older versions roll back (data kept). You confirm the SHA-256 before it is installed through root (`pm install -r`, `-d` for rollback).
 - **Screen control**: view and control the device's own screen from the web page (root `screencap` frames + root `input` events), e.g. from a second phone. A screenshot stream, not video. Requires the companion device to be on the trusted ZTE hotspot / USB-tether network.
@@ -40,9 +40,25 @@ The seven built-in tools (AT Radio, Network Diagnostics, Live Status, Memory Cle
 Do not run multiple tools that manage the same modem/firewall rules at the same time. Review plugin code before enabling it:
 plugins execute with the privileges of the host bridge and should be treated as trusted code.
 
+## Install and use
+
+1. Install the APK on an Android device that already has a supported root manager.
+2. Open MatchiTOOL and press **Request / check root access**. Approve the root prompt in the root manager.
+3. Connect using the LAN URL shown in the app (the host listens on the LAN by default). LAN access is always on and cannot be switched off.
+4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
+5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
+
+The Bypass tool (firewall/TTL rules) is no longer part of MatchiTOOL. At boot, before `boot.sh` runs, the host now removes any line of `/data/local/matchitool/boot.sh` that names "bypass" (a copy is kept as `boot.sh.pre-bypass-removal`, the result must still be valid shell, otherwise the file is left alone and a warning goes to `events.log`). Other leftover firewall/TTL lines that do not name Bypass are not touched: check `boot.sh` by hand (`su -c cat /data/local/matchitool/boot.sh`). Running `boot.sh` requires the root manager to retain MatchiTOOL's grant across reboot.
+
+The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It serves HTTPS with a self-signed certificate (plain HTTP only as a fallback) and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep your admin password private and press Sign out on shared computers. Sessions end by themselves after 2 h idle or 12 h. Root commands additionally need a sign-in younger than 4 h. If the console may have been exposed to an untrusted network, change the admin password (this ends every session).
+
+**Update link.** The online-update field starts with `https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk` (forks: change `D` in the page script near `matchi_ota_url`, or paste your own link once; it is remembered in the browser). A pasted release page link (`.../releases/tag/build-115`) is turned into the download link, and when the release's APK has another name the only `.apk` in the release is used. Tags like `build-115` are not compared as versions; the SHA-256 and the APK's own version are checked after download.
+
+**Console password.** By default the console signs in with the router's admin password. Use the *Password* button to set a separate console password (10+ characters). Sessions, lockout, HTTPS / HTTP and the rest of the security model are in [`SECURITY.md`](SECURITY.md).
+
 ## Build
 
-Current source version: **1.4.1** (versionCode **401**). The Android package and embedded web UI version are kept in sync.
+Current source version: **1.4.1** (versionCode **401**). The version is written in one place, `version.properties`: Gradle reads it, `node scripts/build-web.js` writes it into the page (`PAGE_VERSION`), and `scripts/validate.sh` fails if the README or the top CHANGELOG entry names another version. To bump: edit `version.properties`, run `node scripts/build-web.js`, update the README line and add the CHANGELOG entry.
 
 Requirements: Android 8.0+ device (minSdk 26); Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with the Android Gradle Plugin 8.5.2.
 
@@ -53,33 +69,35 @@ gradle :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
 gradle :app:assembleRelease   # app/build/outputs/apk/release/app-release.apk (what gets published)
 ```
 
+Where the checks live: `scripts/validate.sh` runs the page build check, `check_repo.py` (version, README tool count, bundled binary hashes), `test_route_gates.py` (which routes need the root gate, read from the code), the Node and shell tests, and `check_sources.py` (older grep-style tripwires; do not add to it, replace a guard with a real test when you touch that area). Kotlin logic is tested in `app/src/test` (`gradle :app:testDebugUnitTest`); the root gate order is in `RootGateTest`.
+
+Code layout of the web host: `WebServer.kt` holds the server core (request checks, login, sessions, headers, the page, the route dispatcher). The routes are in `WebRoutes*.kt` (Auth, Device, Logs, Plugins, Root, Router, Update), one extension function per group that returns null for a path that is not its own; `PluginPaths.kt` holds the plugin data-path rules. A new route goes into the matching `WebRoutes*.kt` **and** the table in `scripts/test_route_gates.py`.
+
+Release builds shrink unused code and resources with R8 but do not rename or optimise (`app/proguard-rules.pro`); if a release build ever misbehaves, set `isMinifyEnabled` and `isShrinkResources` to false in `app/build.gradle.kts`.
+
 First time on a new machine: `bash scripts/bootstrap-build.sh` creates the Gradle wrapper and does the first full build.
 
 The GitHub Actions workflow validates JavaScript/XML and builds the debug APK on push, pull request, or manual dispatch. The CI workflow pins Gradle 8.7 and the Android Gradle Plugin 8.5.2. The repository does not yet include the Gradle wrapper; use an installed Gradle 8.7 distribution or Android Studio for local builds.
 
-## 1.1.49 security notes
-
-Router credentials are stored using Android Keystore AES-GCM encryption where the platform keystore is available. Older installations migrate their saved router password when it is first read; existing preferences, plugin files, and boot task paths are retained. The web API adds defensive response headers and rejects cross-origin requests.
-
-The web console uses a self-signed HTTPS certificate when it can (your browser will warn once) and falls back to plain HTTP otherwise, to preserve compatibility with the existing LAN browser workflow. Plain HTTP does not encrypt passwords, session tokens, or root-command traffic. Keep port 2334 restricted to a trusted ZTE hotspot / USB-tether network; never port-forward it to the public internet. For remote access, use a trusted VPN or encrypted tunnel.
-
-## Log Catcher (1.2.30)
+## Log Catcher
 
 Log Catcher is available **only in the web console** (there is no Log Catcher screen in the Android app). Open the console in a browser, open Log Catcher and press **Start logging** to begin a session without restarting the host. The collector records MatchiTOOL diagnostic events and, where Android permits access to the app's own process log buffer, tails this process with `logcat --pid`. Press **Stop logging** to close the session. Each session is stored privately under `files/logs/sessions/`; text snapshots are saved under `files/logs/exports/`.
 
 The collector uses a low-priority single-thread writer so filesystem work does not block the UI, shell, or network request threads. Recent memory history is capped at 3,000 entries, queued writes at 4,096, each session file at approximately 8 MiB before rollover, and retained session files at 30. If the device denies process-log access, explicit MatchiTOOL diagnostic events continue to be recorded. Logs may contain device or network diagnostic data; keep exported files private.
 
-## Install and use
+The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed. It also captures Android logcat output for the whole MatchiTOOL process while a session is active, in addition to explicit diagnostic events, and writes each session as a paired `.log` and `.txt` file with the same timestamped, leveled records and start/stop markers. The `.log` file is the canonical session-history entry.
 
-1. Install the APK on an Android device that already has a supported root manager.
-2. Open MatchiTOOL and press **Request / check root access**. Approve the root prompt in the root manager.
-3. Connect using the LAN URL shown in the app (the host listens on the LAN by default). LAN access is always on and cannot be switched off.
-4. Open the web page and log in; the built-in tools load by themselves. Use the Plugins card only for your own scripts.
-5. Configure the ZTE router gateway and admin password in the SMS plugin settings if the router API requires login.
+## Live device status
 
-The Bypass tool (firewall/TTL rules) is no longer part of MatchiTOOL. Boot entries it wrote earlier may still be in `/data/local/matchitool/boot.sh`, and MatchiTOOL's boot receiver still asks the already-authorized `su` manager to run that file if it exists, so those firewall/TTL rules keep applying until you remove them. Turn Bypass Off in the previous version before updating, or edit or delete that file by hand (`su -c`). Running the file requires the root manager to retain MatchiTOOL's grant across reboot.
+The Live device status panel (which also shows CPU, memory, load and uptime) only reads: it reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed, another tool window is open, or the browser tab is hidden. It reads the router every 3 s and the root shell (CPU, memory, temperatures) every 15 s, and slows both down when the device is warm (6 s / 30 s) or hot (15 s / 90 s). It never disables thermal services or changes GPU/charging controls.
 
-The web API rejects every source that is not this device or inside the ZTE hotspot subnet, as a defense-in-depth measure. The host always listens on the LAN (there is no local-only mode). It serves HTTPS with a self-signed certificate (plain HTTP only as a fallback) and exposes privileged root/plugin APIs to the trusted LAN; never forward port 2334 to the public internet, and keep your admin password private and press Sign out on shared computers. Sessions end by themselves after 2 h idle or 12 h. Root commands additionally need a sign-in younger than 4 h. If the console may have been exposed to an untrusted network, change the admin password (this ends every session).
+The one exception is the **CPU Governor** window, opened by tapping the CPU tile. It writes to `/sys/devices/system/cpu` only when you change something: core on/off, the mode (governor) per cluster and, in Manual mode, a locked speed. Changes last until restart unless you press **Save for boot**, which writes `/data/local/matchitool/boot.d/10-cpu.sh` (run by the host after `boot.sh`); **Remove from boot** deletes it. If a saved setting ever makes the device unusable, delete that file with adb or a root shell.
+
+**Change IP** (home button) turns mobile data off and on to get a new carrier address and shows the local and public IP. Hotspot clients lose internet for a few seconds.
+
+## Boot capture (Magisk)
+
+Log Catcher > "Boot capture" installs `matchi_logd.sh` into `/data/adb/service.d/`. At boot it starts Android's own `logcat -b all` and `dmesg -w` into rotating files under `/data/local/matchitool/bootlogs/`, so capture survives app kills, crashes and updates and includes early-boot lines. Total disk use is capped (default at most about 41 MB) and capture pauses when /data has less than the configured free space. Remove it from the same panel (optionally deleting the files). Needs root and Magisk (or KernelSU/APatch); not yet verified on a real F50, see `docs/TESTING.md`.
 
 ## Compatibility notes
 
@@ -107,6 +125,12 @@ The web bridge retains the existing plugin-facing functions (`runShellWithRoot`,
 specific modem firmware, device nodes, AT command tools, or shell utilities. The bundled `sendat` binary must match the
 CPU architecture and runtime environment of the target device.
 
+## Security and testing
+
+- [`SECURITY.md`](SECURITY.md): threat model, network access, sign-in, root gate, plugins, updater, bundled binaries.
+- [`docs/TESTING.md`](docs/TESTING.md): automated checks, F50 checks, boot capture checks; [`docs/F50_CHECKLIST_1.4.1.md`](docs/F50_CHECKLIST_1.4.1.md) for the current release.
+- [`CHANGELOG.md`](CHANGELOG.md): one short entry per version; full history in `docs/CHANGELOG_DETAIL.md`.
+
 ## Licenses and attribution
 
 - MatchiTOOL project code: MIT, see `LICENSE`.
@@ -114,44 +138,3 @@ CPU architecture and runtime environment of the target device.
 - Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
 
 Do not remove upstream copyright or license notices when modifying or redistributing derived components.
-
-
-## Current network exposure model (1.1.49)
-
-The historical 1.1.1 note about opt-in LAN mode was superseded by later compatibility changes. In 1.1.49, `HostService` explicitly binds to `0.0.0.0` so another device on the ZTE hotspot / USB-tether network can open the console. `WebServer`'s constructor default of `127.0.0.1` is only a default for callers that do not supply a bind address; it is not the active service binding. `Prefs.lanAccess()` is retained as a compatibility method and returns true. API requests are additionally restricted by `HostControl.isHotspotClient`.
-
-**Security limitation:** this is still HTTP. The subnet check is not a substitute for encryption, and any trusted-LAN client that obtains a valid session token can access privileged APIs. Never port-forward the port or use it on an untrusted network.
-
-
-## Stability-first integration 1.2.0
-The Live device status panel (which also shows CPU, memory, load and uptime) only reads: it reports sensors exposed by the running kernel/firmware; modem temperature availability and sensor units can vary. Its temperature bands are advisory and are not proof of CPU/modem throttling. The monitor pauses when its panel is closed, another tool window is open, or the browser tab is hidden. It reads the router every 3 s and the root shell (CPU, memory, temperatures) every 15 s, and slows both down when the device is warm (6 s / 30 s) or hot (15 s / 90 s). It never disables thermal services or changes GPU/charging controls.
-
-The one exception is the **CPU Governor** window, opened by tapping the CPU tile. It writes to `/sys/devices/system/cpu` only when you change something: core on/off, the mode (governor) per cluster and, in Manual mode, a locked speed. Changes last until restart unless you press **Save for boot**, which writes `/data/local/matchitool/boot.d/10-cpu.sh` (run by the host after `boot.sh`); **Remove from boot** deletes it. If a saved setting ever makes the device unusable, delete that file with adb or a root shell.
-
-**Change IP** (home button) turns mobile data off and on to get a new carrier address and shows the local and public IP. Hotspot clients lose internet for a few seconds.
-
-## Stability update 1.1.54
-See `docs/TESTING_1.1.54_STABILITY.md` for resource, thermal, Bypass regression, and 24-hour soak tests. For the 1.2.0 monitor and network-diagnostics checks, see `docs/TESTING_1.2.0.md`. This release applies app-side back-pressure and polling reductions; device runtime validation is still required.
-
-
-## Security notes (review fixes)
-- **Console password:** by default the web console signs in with the router's admin password. Use the *Password* button to set a separate console password (10+ characters); wrong guesses are then never forwarded to the router.
-- **HTTP fallback:** if HTTPS cannot start, the console runs over plain HTTP; the page shows a red banner and asks once before running root commands from another device.
-- **Update link:** the online-update field starts with `https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk` (forks: change `D` in the page script near `matchi_ota_url`, or paste your own link once; it is remembered in the browser). A pasted release page link (`.../releases/tag/build-115`) is turned into the download link, and when the release's APK has another name the only `.apk` in the release is used. Tags like `build-115` are not compared as versions; the SHA-256 and the APK's own version are checked after download.
-- **IMEI rewrite:** the IMEI feature writes the IMEI with `AT+SPIMEI` and re-applies it at boot. Changing an IMEI is restricted or illegal in some countries; use it only where it is allowed and only on your own device.
-- **Root temp files:** the root shell keeps its pid/output files in the root-only folder `/data/local/matchitool/tmp`.
-
-
-Current source release: **1.4.1**. The web Log Catcher runs as a server-side session and is not stopped when its dashboard popup is closed.
-
-
-### Log Catcher 1.3.5
-
-- Captures Android logcat output for the full MatchiTOOL process while a session is active, in addition to explicit diagnostic events.
-- Automatically writes each session in paired `.log` and `.txt` files. The `.log` file is the canonical session-history entry; the `.txt` companion is saved alongside it.
-- Both formats receive the same timestamped, leveled records and session start/stop markers.
-
-
-## Boot capture (Magisk)
-
-Log Catcher > "Boot capture" installs `matchi_logd.sh` into `/data/adb/service.d/`. At boot it starts Android's own `logcat -b all` and `dmesg -w` into rotating files under `/data/local/matchitool/bootlogs/`, so capture survives app kills, crashes and updates and includes early-boot lines. Total disk use is capped (default at most about 41 MB) and capture pauses when /data has less than the configured free space. Remove it from the same panel (optionally deleting the files). Needs root and Magisk (or KernelSU/APatch); not yet verified on a real F50, see `docs/TESTING_BOOT_CAPTURE.md`.

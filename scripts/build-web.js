@@ -3,15 +3,16 @@
 // between marker lines:   /* @include web-src/NAME.js */ ... /* @end-include web-src/NAME.js */
 // The page stays a single self-contained file (the APK and every test read that file); the split only changes where you edit.
 //   node scripts/build-web.js          rewrite the included blocks in index.html from web-src/
-//   node scripts/build-web.js --check  exit 1 if index.html differs from web-src/ (validate.sh runs this)
+//   node scripts/build-web.js --check  exit 1 if index.html differs from web-src/ or its PAGE_VERSION differs from version.properties (validate.sh runs this)
 'use strict';
 const fs = require('fs'), path = require('path');
 const root = path.join(__dirname, '..'), page = path.join(root, 'app/src/main/assets/web/index.html'), src = path.join(root, 'app/src/main/web-src');
 const check = process.argv.includes('--check');
 const html = fs.readFileSync(page, 'utf8');
+const version = require('./version.js').name;   // version.properties is the one source of the app version
 const re = /^\/\* @include web-src\/([A-Za-z0-9._-]+) \*\/\n[\s\S]*?^\/\* @end-include web-src\/\1 \*\//gm;
 const used = new Set(); let bad = 0;
-const out = html.replace(re, (all, name) => {
+const out = html.replace(/const PAGE_VERSION='[^']*';/, "const PAGE_VERSION='" + version + "';").replace(re, (all, name) => {
   used.add(name);
   const f = path.join(src, name);
   if (!fs.existsSync(f)) { console.error('missing source file web-src/' + name); bad++; return all; }

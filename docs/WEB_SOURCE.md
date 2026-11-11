@@ -19,4 +19,6 @@ In `index.html` each file sits between `/* @include web-src/NAME.js */` and `/* 
 
 **Adding a file:** create `web-src/NAME.js`, put a marker pair where it belongs in `index.html`, run the build. A file that no marker includes also fails the check. The files must not contain `</script`.
 
+`build-web.js` also writes the app version (from `version.properties`) into `const PAGE_VERSION=...` in `index.html`; `--check` fails when it differs.
+
 The split changes only where you edit: with the marker lines removed, the page is byte-identical to the one before the split.

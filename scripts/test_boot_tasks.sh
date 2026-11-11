@@ -39,4 +39,21 @@ took=$(( $(date +%s) - start ))
 grep -q '20-slow.sh stopped' "$work/mt/events.log" && ok "timeout written to events.log" || bad "timeout missing in events.log"
 grep -q '30-fail.sh exited with code 3' "$work/mt/events.log" && ok "non-zero exit written to events.log" || bad "exit code missing in events.log"
 [ "$(grep -c '10-ok\|40-after\|boot\.sh' "$work/mt/events.log")" = 0 ] && ok "successful scripts are not logged" || bad "successful script logged"
+
+# Legacy Bypass lines: removed once, copy kept, the other boot.sh lines still run.
+rm -f "$work/mt/events.log" "$work/ran_boot_sh" "$work/ran_keep"
+printf 'echo bypass_rule_1 > /dev/null\n# BYPASS block\ntouch %s/ran_keep\n' "$work" > "$work/mt/boot.sh"
+PATH="$work/bin:$PATH" sh "$work/boot_script.sh" > "$work/out2.txt" 2>&1
+! grep -qi bypass "$work/mt/boot.sh" && ok "legacy Bypass lines removed from boot.sh" || bad "Bypass lines still in boot.sh"
+grep -qi bypass "$work/mt/boot.sh.pre-bypass-removal" && ok "copy of the old boot.sh kept" || bad "no copy of the old boot.sh"
+[ -f "$work/ran_keep" ] && ok "other boot.sh lines still ran" || bad "other boot.sh lines did not run"
+grep -q 'removed legacy Bypass lines' "$work/mt/events.log" && ok "removal written to events.log" || bad "removal missing in events.log"
+
+# If removing the lines would leave broken shell, boot.sh stays as it was.
+rm -f "$work/mt/events.log"
+printf 'if true; then # bypass\ntouch %s/ran_keep2\nfi\n' "$work" > "$work/mt/boot.sh"
+cp "$work/mt/boot.sh" "$work/boot_before.sh"
+PATH="$work/bin:$PATH" sh "$work/boot_script.sh" > "$work/out3.txt" 2>&1
+cmp -s "$work/mt/boot.sh" "$work/boot_before.sh" && ok "unsafe removal refused, boot.sh unchanged" || bad "boot.sh was changed although the result is broken"
+grep -q 'could not be removed safely' "$work/mt/events.log" && ok "manual-edit warning written to events.log" || bad "warning missing in events.log"
 [ "$fail" = 0 ] && echo "boot tasks test passed" || { cat "$work/out.txt"; cat "$work/mt/events.log" 2>/dev/null; exit 1; }
