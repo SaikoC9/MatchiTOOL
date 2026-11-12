@@ -51,6 +51,50 @@ internal fun implicitPluginFiles(pluginName: String): List<String> {
 internal fun pluginDataDeclarations(code: String): List<String> =
     code.lineSequence().take(400).mapNotNull { DATA_DECL.find(it)?.groupValues?.get(1) }.distinct().take(20).toList()
 
+private val UNINSTALL_DECL = Regex("^\\s*//\\s*@matchi-uninstall\\s+(\\S.*?)\\s*$")
+private val CHECK_DECL = Regex("^\\s*//\\s*@matchi-check\\s+(\\S.*?)\\s*$")
+private val BOOT_DECL = Regex("^\\s*//\\s*@matchi-boot\\s+(\\S+)\\s*$")
+internal const val MAX_UNINSTALL_LINES = 10
+internal const val MAX_UNINSTALL_LEN = 300   // same size as SBX_SHELL_MAX_LEN, so a sandboxed plugin can grant the same command with @matchi-needs shell:
+internal const val MAX_BOOT_FILES = 5
+private const val BOOT_PATH_MAX = 200
+
+/** What a plugin declares for being stopped on delete: [commands] in order, one optional [check] command, and the [bootFiles] it creates. */
+internal class UninstallDecls(val commands: List<String>, val check: String?, val bootFiles: List<String>) {
+    val isEmpty: Boolean get() = commands.isEmpty()
+}
+
+/** True for a usable uninstall or check command: 1 to 300 characters and no control characters (the same rule sandboxNeeds applies to a shell command). */
+private fun declaredCommandOk(c: String): Boolean = c.isNotEmpty() && c.length <= MAX_UNINSTALL_LEN && c.none { it.code < 32 || it.code == 127 }
+
+/** True for a boot file path that is only READ (checked for existence): absolute, plain characters, no empty, . or .. parts, no trailing /. */
+private fun declaredBootPathOk(p: String): Boolean =
+    p.length <= BOOT_PATH_MAX && DATA_PATH_CHARS.matches(p) && p.split('/').drop(1).none { it.isEmpty() || it == "." || it == ".." }
+
+/**
+ * Header lines a plugin uses to say how to stop what it started, read from the first 400 lines (same as @matchi-data), each on a line of its own:
+ *   // @matchi-uninstall COMMAND     (at most 10, in file order, duplicates dropped)
+ *   // @matchi-check COMMAND         (at most 1: the first valid one)
+ *   // @matchi-boot /path            (at most 5, duplicates dropped)
+ * A line that breaks a rule (empty, over 300 characters, control characters, bad path) is dropped and does not count towards the limits.
+ * Text that only mentions a header inside code (var s = '// @matchi-uninstall x') is not a header because the line must START with the comment.
+ * This only reads the file: whether a command may run is decided later (shellDanger, the sandbox grant and the integrity state).
+ */
+internal fun pluginUninstallDeclarations(code: String): UninstallDecls {
+    val commands = LinkedHashSet<String>()
+    val bootFiles = LinkedHashSet<String>()
+    var check: String? = null
+    for (line in code.lineSequence().take(400)) {
+        val u = UNINSTALL_DECL.find(line)?.groupValues?.get(1)
+        if (u != null) { if (declaredCommandOk(u) && commands.size < MAX_UNINSTALL_LINES) commands.add(u); continue }
+        val c = CHECK_DECL.find(line)?.groupValues?.get(1)
+        if (c != null) { if (check == null && declaredCommandOk(c)) check = c; continue }
+        val b = BOOT_DECL.find(line)?.groupValues?.get(1)
+        if (b != null && declaredBootPathOk(b) && bootFiles.size < MAX_BOOT_FILES) bootFiles.add(b)
+    }
+    return UninstallDecls(commands.toList(), check, bootFiles.toList())
+}
+
 /** null when [path] may be erased on plugin delete, otherwise the reason it may not. Strict on purpose: it runs `rm -rf` as root. */
 internal fun checkPluginDataPath(path: String, pluginName: String): String? {
     if (path.length > 200 || !DATA_PATH_CHARS.matches(path)) return "use only letters, digits . _ - and /"

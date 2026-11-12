@@ -93,9 +93,9 @@ internal fun sandboxNeeds(code: String, shellProblem: (String) -> String? = { nu
     return SandboxNeeds(caps, problems)
 }
 
-/** The capability list stored with a plugin and compared on update: the sandbox permissions when it runs sandboxed, otherwise the text-search list. */
+/** The capability list stored with a plugin and compared on update: the sandbox permissions when it runs sandboxed, otherwise the text-search list. Both end with the plugin's uninstall commands ("unin:"); sandboxGrant ignores them, only "sbx:" entries grant anything. */
 internal fun effectiveCaps(code: String, hosts: List<String>, sandboxed: Boolean, shellProblem: (String) -> String? = { null }): List<String> =
-    if (sandboxed) sandboxNeeds(code, shellProblem).caps else pluginCaps(code, hosts)
+    if (sandboxed) sandboxNeeds(code, shellProblem).caps + uninstallCaps(code) else pluginCaps(code, hosts)
 
 /** What the bridge may grant right now: the approved "sbx:" entries, and only while the file is exactly the approved one. */
 internal fun sandboxGrant(approvedCaps: List<String>?, integrity: String): List<String> =

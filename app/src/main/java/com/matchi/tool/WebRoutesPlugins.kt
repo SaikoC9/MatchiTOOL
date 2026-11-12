@@ -33,6 +33,37 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     return pruned to bad
 }
 
+/**
+ * Step 3: the stop plan for plugin [name], read from the file as it is NOW (the delete route reads it before the file is removed, Step 4).
+ * Collects what the pure stopPlan() needs: the integrity state, the sandbox mode and grant, the other installed plugins (for the same-folder guard),
+ * the command filter and the UfiPathMap mapping. Runs nothing. A missing file gives an empty plan.
+ */
+internal fun WebServer.pluginStopPlan(name: String): StopPlan {
+    val f = File(pluginDir, name)
+    val bytes = if (f.isFile) try { f.readBytes() } catch (_: Exception) { null } else null
+    if (bytes == null) return stopPlan(name, "", "ok", false, emptyList(), emptyList(), { null }, { it })
+    val records = Prefs.pluginRecords(ctx)
+    val integrity = integrityState(records[name]?.sha, sha256Hex(bytes))
+    val sandboxed = pluginKind(name) == "js" && Prefs.pluginModes(ctx)[name] == "sandbox"
+    val grant = sandboxGrant(records[name]?.caps, integrity)
+    val others = pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }
+        ?.mapNotNull { x -> try { x.name to x.readText() } catch (_: Exception) { null } }.orEmpty()
+    return stopPlan(name, String(bytes, Charsets.UTF_8), integrity, sandboxed, grant, others, { shellDanger(it, true) }, { UfiPathMap.map(it, ctx.packageName) })
+}
+
+internal fun StopPlan.toJson(): JSONObject {
+    val refusedArr = JSONArray()
+    for ((c, why) in refused) refusedArr.put(JSONObject().put("command", c).put("reason", why))
+    return JSONObject().put("commands", JSONArray(commands)).put("check", check ?: JSONObject.NULL).put("bootFiles", JSONArray(bootFiles))
+        .put("refused", refusedArr).put("blocked", blocked ?: JSONObject.NULL).put("shared", JSONArray(shared)).put("planHash", planHash)
+}
+
+internal fun StopReport.toJson(): JSONObject {
+    val cmds = JSONArray()
+    for (o in outcomes) cmds.put(JSONObject().put("command", o.command).put("status", o.status).put("output", o.output))
+    return JSONObject().put("success", success).put("log", log).put("leftovers", JSONArray(leftovers)).put("notChecked", JSONArray(notChecked)).put("commands", cmds)
+}
+
 // Paths passed the strict character check in checkPluginDataPath, so they cannot break out of single quotes.
 internal fun WebServer.quotedList(paths: List<String>) = paths.joinToString(" ") { "'$it'" }
 
@@ -171,7 +202,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                 .put("kind", pluginKind(n)).put("title", titles[n] ?: pluginBaseName(n))
                 .put("risk", sc.risk).put("sha256", sha)
                 .put("integrity", integrity)
-                .put("caps", JSONArray(if (needs != null && sandboxed) needs.caps else pluginCaps(src, sc.hosts)))
+                .put("caps", JSONArray(if (needs != null && sandboxed) needs.caps + uninstallCaps(src) else pluginCaps(src, sc.hosts)))
                 .put("mode", if (sandboxed) "sandbox" else "trusted")
             if (needs != null) o.put("declared", JSONArray(needs.caps)).put("sbxProblems", JSONArray(needs.problems))
             if (sandboxed) o.put("grant", JSONArray(sandboxGrant(records[n]?.caps, integrity)))
@@ -266,23 +297,50 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val led = traceStore.read(name)
         val ups = JSONArray(); for (u in led.uploads) if (File(uploadDir, u).isFile) ups.put(u)
         json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success)
-            .put("uploads", ups).put("effects", JSONArray(led.effects)))
+            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()))
     }
     // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
+    // Phase 1 / Step 4: {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).
+    // If the stop does not fully succeed the plugin is NOT deleted and nothing is erased: the answer is {"ok":false,"kept":true,"stop":{...}} and the
+    // person can try again or send {"stop":true,"skipStop":true} ("Delete without stopping"). A request without "stop" never runs a stop.
     uri == "/api/plugins/delete" && s.method == Method.POST -> run {
         val req = body(s)
-        // Erasing plugin data runs a root script; a plain delete of the plugin file does not.
-        if (req.optBoolean("erase", false)) rootGate(s)?.let { return@run it }
+        val wantStop = req.optBoolean("stop", false)
+        // Erasing plugin data and stopping both run root scripts; a plain delete of the plugin file does not.
+        if (req.optBoolean("erase", false) || wantStop) rootGate(s)?.let { return@run it }
         // Deleting needs the password too: delete, then install under the same name, would otherwise skip the check on replacing.
         pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it }
         val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+        val ip = s.remoteIpAddress ?: "?"
+        val stopPlanNow = if (wantStop) pluginStopPlan(name) else null // read from the file BEFORE it is deleted, like the erase plan
+        var stopOut: JSONObject? = null
+        if (stopPlanNow != null && stopMode(true, req.optBoolean("skipStop", false), stopPlanNow) == StopMode.RUN) {
+            // The plan is recomputed from the file as it is now; the person reviewed the one in planHash.
+            if (!stopHashMatches(req.optString("planHash"), stopPlanNow))
+                return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The plugin changed since you reviewed it; open the delete dialog again"))
+            val report = if (stopPlanNow.commands.isNotEmpty() && !RootShell.status(ctx).granted) {
+                val off = stopPlanNow.commands.map { CommandOutcome(it, "notRun", "root not available") }
+                stopReport(stopPlanNow, off, StopVerify.NOT_RUN, "Could not stop: root not available")
+            } else {
+                val t0 = System.currentTimeMillis()
+                val exec = { cmd: String, ms: Long -> RootShell.run(ctx, cmd, ms) }
+                val audit = { cmd: String -> auditShell(ip, cmd, "plugin-uninstall") }
+                val outcomes = runStopCommands(stopPlanNow.commands, STOP_TOTAL_MS, System::currentTimeMillis, exec, audit, t0)
+                // Step 5: the check command and the boot file test share what is left of the same 60 s.
+                val verify = verifyStop(stopPlanNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, audit)
+                stopReport(stopPlanNow, outcomes, verify)
+            }
+            stopOut = report.toJson()
+            if (!report.success) return@run json(Response.Status.OK, JSONObject().put("ok", false).put("kept", true).put("stop", stopOut))
+        }
         val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
         val ledger = if (plan != null) traceStore.read(name) else null
         val deleted = File(pluginDir, name).delete()
         Prefs.setEnabled(ctx, name, true)
         if (deleted) Prefs.forgetPlugin(ctx, name)
         val out = JSONObject().put("ok", deleted)
+        if (stopOut != null) out.put("stop", stopOut)
         if (deleted && ledger != null) {
             // Files this plugin uploaded go with it, then the ledger itself.
             var removed = 0
@@ -292,7 +350,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         }
         if (plan != null && deleted) {
             val script = eraseScript(plan.first, name)
-            auditShell(s.remoteIpAddress ?: "?", script, "plugin-erase")
+            auditShell(ip, script, "plugin-erase")
             val r = RootShell.run(ctx, script, 30_000)
             val bad = JSONArray()
             for ((p, why) in plan.second) bad.put(JSONObject().put("path", p).put("reason", why))

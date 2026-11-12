@@ -3492,6 +3492,10 @@ function askDialog(o){
     const foot=document.createElement('div');foot.className='btn mfoot';
     let cancel=null;
     if(!o.noCancel){cancel=document.createElement('button');cancel.type='button';cancel.className='mclose ccancel';cancel.textContent='Cancel';foot.appendChild(cancel)}
+    /* o.extra: more buttons between Cancel and OK, [{text,value,danger}]; a click resolves with that value (Phase 1: "Delete without stopping", "Restart device"). */
+    if(o.extra)for(const x of o.extra){const b=document.createElement('button');b.type='button';b.className='mclose ccancel';b.textContent=x.text;
+      if(x.danger)b.style.cssText='background:rgba(255,100,124,.16)!important;border:1px solid rgba(255,100,124,.5)!important;color:#ffd5dc!important';
+      b.onclick=()=>done(x.value);foot.appendChild(b)}
     const ok=document.createElement('button');ok.type='button';ok.className='cok';ok.textContent=o.okText||'OK';
     if(o.noCancel){ok.className='mclose cok'}
     else if(o.danger)ok.style.cssText='background:rgba(255,100,124,.16)!important;border:1px solid rgba(255,100,124,.5)!important;color:#ffd5dc!important';
@@ -5331,27 +5335,67 @@ function renderPlugins(list){
     const acts=document.createElement('div');acts.className='pm-acts';
     const ex=document.createElement('button');ex.type='button';ex.innerHTML=pmIcon('<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>')+'<span class="pm-t">Export</span>';ex.title='Export';ex.setAttribute('aria-label','Export '+p.name);ex.onclick=()=>p.kind==='html'?downloadText((p.title||p.name)+'.txt',ufiBuild([{title:p.title||p.name,content:p.code||''}]),'text/plain'):downloadText(p.name,p.code||'','text/javascript');
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
+    /* Delete (Phase 1): the dialog lists what is erased and what the plugin's own uninstall commands will stop (stopPlan from /api/plugins/data).
+       A stop that does not finish keeps the plugin: the host answers {ok:false,kept:true,stop:{...}} and this dialog opens again with the report
+       (try again, delete without stopping, restart the device). A plugin that declares no stop commands is deleted as before. */
     d.onclick=async()=>{
-      let info=null;try{info=await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}
-      const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
-      let msg='Delete '+p.name+'? Export a backup first if you may need it again.';
-      const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
-      if(present.length||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
-      if(fx.length)msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.'
-      if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased (not allowed): '+info.rejected.map(r=>r.path).join(', ');
-      if(!(await askConfirm(msg,'Delete',true)))return;
-      d.disabled=true;
-      try{
-        const r=await api('/api/plugins/delete',{method:'POST',body:JSON.stringify({name:p.name,erase:true})});
+      let failure=null;
+      while(true){
+        let info=null;try{info=await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}
+        const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
+        const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
+        const sp=(info&&info.stopPlan)||{},cmds=sp.commands||[],refused=sp.refused||[],shared=sp.shared||[];
+        const mode=!cmds.length&&!refused.length?'plain':refused.length?'cannot':shared.length?'shared':'stop';
+        let msg,okText='Delete',extra=[],title='Confirm';
+        if(failure){
+          title='Stop did not finish';okText='Try again';
+          msg=p.name+' was NOT deleted, because what it started could not be stopped completely.';
+          if(failure.log)msg+='\n\n'+failure.log;
+          const left=failure.leftovers||[],nc=failure.notChecked||[];
+          if(left.length)msg+='\n\nStill there:\n'+left.map(x=>'\u2022 '+x).join('\n');
+          if(nc.length)msg+='\n\nNot checked:\n'+nc.map(x=>'\u2022 '+x).join('\n');
+          extra=[{text:'Delete without stopping',value:'skip',danger:true}];
+          if(left.length&&!left.some(x=>x.indexOf('boot file still there')===0)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
+        }else{
+          msg='Delete '+p.name+'? Export a backup first if you may need it again.';
+          if(present.length||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
+          if(mode==='plain')msg+='\n\nThis plugin declares no stop commands. Anything it started may keep running.';
+          else if(mode==='cannot'){
+            msg+='\n\nIts stop cannot run, so nothing it started will be stopped:\n'+refused.map(r=>'\u2022 '+r.command+' ('+r.reason+')').join('\n');
+            okText='Delete without stopping';
+          }else{
+            msg+='\n\nAll its files and data will be deleted, and what it started will be stopped by its uninstall commands, run as root:\n'+cmds.map(c=>'\u2022 '+c).join('\n');
+            if(sp.check)msg+='\n\nThen it checks with:\n\u2022 '+sp.check;
+            if(mode==='shared'){msg+='\n\nWarning: '+shared.join(', ')+' declares the same stop command or boot file. Stopping now would probably break '+(shared.length>1?'them':'it')+', so the stop is skipped.';okText='Delete, skip the stop';extra=[{text:'Delete and stop anyway',value:'stop'}]}
+            else okText='Delete and stop';
+          }
+          if(fx.length&&mode!=='stop')msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.';
+          if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased (not allowed): '+info.rejected.map(r=>r.path).join(', ');
+        }
+        const choice=await askDialog({title,message:msg,okText,danger:!failure,extra,maxWidth:'460px'});
+        if(!choice)return;
+        if(choice==='reboot'){document.getElementById('rebootbtn').click();return}
+        const stop=(!failure&&mode==='stop')||choice==='stop'||(!!failure&&choice===true);
+        const skip=choice==='skip'||(!failure&&mode==='cannot');
+        const body={name:p.name,erase:true};
+        if(stop){body.stop=true;body.planHash=sp.planHash||''}
+        else if(skip){body.stop=true;body.skipStop=true}
+        d.disabled=true;
+        let r;
+        try{r=await api('/api/plugins/delete',{method:'POST',body:JSON.stringify(body)})}
+        catch(e){d.disabled=false;if(/changed since you reviewed/.test(e.message||'')){createToast(e.message,'orange');failure=null;continue}createToast(e.message,'red');return}
+        if(r&&r.ok===false&&r.kept&&r.stop){d.disabled=false;failure=r.stop;continue}
         for(const k of lsKeys){try{localStorage.removeItem(k)}catch(_){}}
         sbxPurge(p.name);
         for(const k of ssKeys){try{sessionStorage.removeItem(k)}catch(_){}}
         try{const pre=pluginLsPrefixes(p);if(window.indexedDB&&indexedDB.databases){for(const db of await indexedDB.databases()){if(db.name&&pluginKeyMine(db.name,pre))indexedDB.deleteDatabase(db.name)}}}catch(_){}
         try{const pre=pluginLsPrefixes(p);if(window.caches){for(const k of await caches.keys()){if(pluginKeyMine(k,pre))await caches.delete(k)}}}catch(_){}
         const failed=r&&r.erase&&r.erase.success===false;
-        createToast(failed?'Deleted '+p.name+', but some data could not be erased':'Deleted '+p.name+(present.length||lsKeys.length||ssKeys.length||ups.length?' and its data':''),failed?'orange':undefined);
+        const stopped=r&&r.stop&&r.stop.success===true;
+        createToast(failed?'Deleted '+p.name+', but some data could not be erased':(stopped?'Stopped and deleted ':'Deleted ')+p.name+(present.length||lsKeys.length||ssKeys.length||ups.length?' and its data':''),failed?'orange':undefined);
         await refreshPluginList();
-      }catch(e){d.disabled=false;createToast(e.message,'red')}
+        return;
+      }
     };
     const free=shown.length===list.length,at=list.indexOf(p);
     const mk=(label,dir,glyph)=>{const b=document.createElement('button');b.type='button';b.textContent=glyph;b.title=label;b.setAttribute('aria-label',label+' '+p.name);

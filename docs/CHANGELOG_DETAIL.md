@@ -1,5 +1,16 @@
 <!-- Full, unedited per-change history kept for reference. The short per-version summary is ../CHANGELOG.md. Headings are not in version order and some versions appear several times. -->
 
+# MatchiTOOL 1.4.1 - Deleting a plugin can stop what it started (Phase 1, steps 0-7)
+
+- **New header lines** `// @matchi-uninstall COMMAND`, `// @matchi-check COMMAND` and `// @matchi-boot /path` (first 400 lines). The Delete dialog lists the commands word for word; with `stop` the host runs them as root inside one 60 s total, then runs the check and tests the boot files. A stop that does not fully succeed **keeps the plugin** and opens the dialog again (try again, delete without stopping, restart the device for running leftovers). Nothing is retried automatically.
+- **Approval:** the commands are part of what the person approves (`unin:` entries in the capability list, shown in the install / update dialog). A file that differs from the approved one cannot stop anything; an installed-before-records ("untracked") one can. A sandboxed plugin may only run an uninstall command it also granted with `@matchi-needs shell:`. Every command and the plan pass the existing shell filter, and every command is written to `shell_audit.log` as `plugin-uninstall`.
+- **Plan hash:** the page sends the hash of the plan it showed; the host rebuilds the plan from the file and refuses (409 `plan-changed`) if it differs.
+- **Same-folder guard:** if another installed plugin declares the same command or boot file, the stop is skipped by default and the dialog says why.
+- **Bundled plugins need no headers:** Device_Status, SMS, Live_Status and Signal_Info start nothing (no background processes, boot lines or firewall rules), so they declare nothing. Headers are for plugins from the store or written by users. Plugins without headers are deleted as before.
+- Files: `PluginUninstall.kt` (pure logic), `PluginPaths.kt`, `PluginIntegrity.kt`, `PluginSandbox.kt`, `WebRoutesPlugins.kt`, `index.html` (dialog). New tests `PluginUninstallTest.kt` (parser, rules, plan, run, verify). Docs: `docs/PLUGIN_STOP.md`, `docs/examples/Stop_Example.js`.
+- **Not done in this phase:** a process sweep for plugins without headers, undo of ledger entries, "Disable and stop" (Phases 2-3), README / SECURITY / CHANGELOG.md / PLUGIN_STORE updates (Phase 4).
+- **Not compiled, not run on a device or in a browser.** Run `scripts/kotlin_pure_tests.sh` or `gradle :app:testDebugUnitTest`, then the on-device list in `MatchiTOOL_Phase1_todo.txt`.
+
 # MatchiTOOL 1.4.1 - Radio dashboard: telephony serving cell, no-service warning, PCI source, radio state (review items 22-26)
 
 - **Cell lock: "Lock this cell" is back on the F50** (item 22). The router leaves its serving-cell keys empty, so the card now falls back to the registered cell Android telephony reports, taken from the last Live Status reading (no extra root call). It is marked "(Android telephony)", is used only when that reading is under 2 minutes old and its PCI / channel pass the normal check, and the confirm says it may differ from the router's cell. The existing 60 s auto-unlock still removes a wrong lock. `AT+QENG` was not used: it is a Quectel command and the F50 modem is Unisoc.
