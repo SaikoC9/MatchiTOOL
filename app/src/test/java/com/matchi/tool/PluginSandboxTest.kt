@@ -51,7 +51,7 @@ class PluginSandboxTest {
             """.trimIndent(),
         )
         assertEquals(listOf("sbx:router:ok_one"), n.caps)
-        assertEquals(8, n.problems.size)
+        assertEquals(9, n.problems.size) // root, at.read value, router empty, "bad field", "a;b", 3 bad net hosts, shell empty
     }
 
     @Test fun aHttpsPrefixOnAHostIsDropped() {
