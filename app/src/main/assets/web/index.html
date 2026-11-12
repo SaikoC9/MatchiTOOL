@@ -5358,7 +5358,7 @@ function renderPlugins(list){
           if(left.length&&!left.some(x=>x.indexOf('boot file still there')===0)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
         }else{
           msg='Delete '+p.name+'? Export a backup first if you may need it again.';
-          if(present.length||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
+          const noRoot=info&&info.rootOk===false;if(noRoot)msg+='\n\nRoot is not available, so it cannot be checked which data this plugin left behind. Nothing can be erased until root works.';if((!noRoot&&present.length)||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';if(!noRoot)for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
           if(mode==='plain')msg+='\n\nThis plugin declares no stop commands. Anything it started may keep running.';
           else if(mode==='cannot'){
             msg+='\n\nIts stop cannot run, so nothing it started will be stopped:\n'+refused.map(r=>'\u2022 '+r.command+' ('+r.reason+')').join('\n');

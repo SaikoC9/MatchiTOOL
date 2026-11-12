@@ -14,7 +14,7 @@
     'case "$1" in',
     '  start) [ -f $D/beat.pid ] && kill -0 "$(cat $D/beat.pid)" 2>/dev/null && exit 0',
     '         ( while :; do date > $D/beat.txt; sleep 30; done ) & echo $! > $D/beat.pid ;;',
-    '  stop) [ -f $D/beat.pid ] && kill "$(cat $D/beat.pid)" 2>/dev/null; rm -f $D/beat.pid; exit 0 ;;',
+    '  stop) [ -f $D/beat.pid ] && kill -9 "$(cat $D/beat.pid)" 2>/dev/null; rm -f $D/beat.pid; exit 0 ;;',
     'esac',
   ].join('\n');
   const run = async (cmd) => { const r = await runShellWithRoot(cmd, 20000); return r && r.success; };
