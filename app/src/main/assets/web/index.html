@@ -445,6 +445,10 @@ header #rebootbtn{grid-column:3;grid-row:2}
 #pluginmgr .pm-acts{order:3;flex:1 0 100%;justify-content:flex-end;gap:5px}
 #pluginmgr .pm-acts button{width:30px!important;height:28px!important}
 }
+/* Plugin switch stays a round pill on phone: the generic '.card.pop.open button' phone rule would square it. */
+#pluginmgr .pm-sw{border-radius:999px!important;padding:0!important;min-height:0!important;min-width:0!important;box-shadow:none}
+#pluginmgr .pm-ico{display:grid!important;place-items:center;width:28px!important;height:28px!important;min-width:0!important;min-height:0!important;padding:0!important;box-sizing:border-box}
+#pluginmgr .pm-ico svg{display:block;margin:0}
 /* Close button everywhere (card windows, createModal windows, plugin windows): small, at the bottom right, on phone and desktop. */
 .popfoot,.modal-bg .modal .mfoot,.modal .mfoot,:is(.modal,.card.pop,.popfoot,.mfoot):has(>.mclose,>.popx){display:flex!important;flex-wrap:wrap;justify-content:flex-end!important;align-items:center;gap:8px!important}
 .popfoot,.modal-bg .modal .mfoot,.modal .mfoot{grid-template-columns:none!important}
