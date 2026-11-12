@@ -282,9 +282,9 @@ html,body{max-width:100%}
 .pm-sw i{display:block;position:absolute;top:50%;margin-top:-6px;left:2px;width:12px;height:12px;border-radius:50%;background:#8da2bf;transition:transform .18s,background .18s}
 .pm-sw[aria-checked=true]{background:var(--acc)!important;border-color:var(--acc)!important}
 .pm-sw[aria-checked=true] i{transform:translateX(14px);background:#fff}
-.pm-acts{flex:none;display:flex;gap:4px}
+.pm-acts{flex:none;display:flex;flex-wrap:wrap;gap:3px;justify-content:flex-end}
 .pm-item.pm-over{outline:2px dashed var(--acc2);outline-offset:-2px}.pm-acts button:disabled{opacity:.35}
-.pm-t{display:none!important}.pm-acts button{display:grid!important;place-items:center;width:26px!important;height:26px!important;min-width:0!important;min-height:0!important;padding:0!important;border-radius:7px!important}
+.pm-t{display:none!important}.pm-acts button{display:grid!important;place-items:center;width:24px!important;height:24px!important;min-width:0!important;min-height:0!important;padding:0!important;border-radius:7px!important}
 .pm-acts button svg{width:13px;height:13px}
 .pm-acts .pm-del{color:var(--danger);border-color:#ff647c40!important}
 .pm-empty{padding:10px;text-align:center;border:1px dashed var(--bd);border-radius:10px;color:var(--mut);font-size:12px}
@@ -442,8 +442,8 @@ header #rebootbtn{grid-column:3;grid-row:2}
 #pluginmgr .pm-sw{order:2;width:40px!important;height:22px!important}
 #pluginmgr .pm-sw i{width:16px;height:16px;margin-top:-8px}
 #pluginmgr .pm-sw[aria-checked=true] i{transform:translateX(18px)}
-#pluginmgr .pm-acts{order:3;flex:1 0 100%;justify-content:flex-end;gap:8px}
-#pluginmgr .pm-acts button{width:36px!important;height:32px!important}
+#pluginmgr .pm-acts{order:3;flex:1 0 100%;justify-content:flex-end;gap:5px}
+#pluginmgr .pm-acts button{width:30px!important;height:28px!important}
 }
 /* Close button everywhere (card windows, createModal windows, plugin windows): small, at the bottom right, on phone and desktop. */
 .popfoot,.modal-bg .modal .mfoot,.modal .mfoot,:is(.modal,.card.pop,.popfoot,.mfoot):has(>.mclose,>.popx){display:flex!important;flex-wrap:wrap;justify-content:flex-end!important;align-items:center;gap:8px!important}
@@ -5340,7 +5340,7 @@ function renderPlugins(list){
       b.disabled=!free||at+dir<0||at+dir>=list.length;b.onclick=()=>pmMove(p.name,at+dir);return b};
     const apv=[];
     if(p.integrity&&p.integrity!=='ok'){
-      const ap=document.createElement('button');ap.type='button';ap.textContent='Approve';ap.title=p.integrity==='changed'?'The file differs from the version you approved':'Installed before changes were tracked';ap.setAttribute('aria-label','Approve '+p.name);
+      const ap=document.createElement('button');ap.type='button';ap.innerHTML=pmIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>')+'<span class="pm-t">Approve</span>';ap.title=p.integrity==='changed'?'The file differs from the version you approved':'Installed before changes were tracked';ap.setAttribute('aria-label','Approve '+p.name);
       ap.onclick=async()=>{
         const why=p.integrity==='changed'?p.name+' is not the file you approved. It was changed outside the console, or by something running on this device. Export and read it before you approve it.':p.name+' was installed before MatchiTOOL tracked plugin changes, so nothing can tell whether it is still the file you installed.';
         if(!(await askConfirm(why+'\n\nApprove the file as it is now? The sign-in password is asked next.','Approve',p.integrity==='changed')))return;
