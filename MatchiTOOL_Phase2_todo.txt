@@ -27,7 +27,11 @@ PROGRESS  (update after every step)
   [x] Step 1 - the tag written: tagPrefix/tagCommand (PluginSweep.kt), tagged(s, cmd) helper (WebServer.kt), added at /api/shell,
       /api/root_shell, /api/user_shell (WebRoutesRoot.kt) and pluginCall "shell" (WebRoutesPlugins.kt). 4 new tests in PluginSweepTest.kt.
       Not tagged on purpose: the Phase 1 stop commands, /api/upload (the todo lists only the three trace sites + pluginCall).
-  [ ] Step 2 - next to do (the probe).
+  [x] Step 2 - the probe written (PluginSweep.kt): sweepProbeScript() (read-only, one line per process
+      MTSWEEP|PID|PPID|START|UID|TAG|ARGS, START = field 22 of /proc/PID/stat, first line SELF pid, last line END count),
+      parseSweepProbe() -> SweepProbe(procs, selfPid, complete, skipped). "complete" only when END arrived and its count matches,
+      so a cut output is never read as "nothing else runs". 9 new tests in PluginSweepTest.kt.
+  [ ] Step 3 - next to do (candidate rules: classify, exclusions, shared guard, cap).
   Nothing compiled here (no Kotlin compiler in this session): run scripts/kotlin_pure_tests.sh or push to GitHub Actions.
   Nothing run on a device.
 
@@ -87,6 +91,8 @@ P12 The sweep script is built by the HOST, not by the plugin, so it needs no per
 UNVERIFIED (device)
   - /proc/PID/environ is readable by root on the F50 and holds the marker of a child started
     with nohup/setsid.
+  - (Step 2 probe) tr with '\000' escapes, "stat -c %u", "grep -m1", and "${20}" in the F50's sh; the probe reads /proc itself
+    instead of ps, so the ps ARGS column question below only matters for RootShell's own use. Time the probe: it must stay well under 15 s.
   - ps -A -o PID,PPID,ARGS column behaviour (long ARGS, truncation) and the cost of reading
     /proc for every process inside the 60 s clock.
   - The session shell in the pool is persistent; the script runs in a child "sh", so an
@@ -151,9 +157,9 @@ STEP 1 - The tag                                Files: PluginSweep.kt, WebRoutes
     untouched, a name with a quote cannot get through.
 
 STEP 2 - The probe (read-only)                  File: PluginSweep.kt
-[ ] sweepProbeScript(): prints one line per process: PID, PPID, start time, UID, ARGS (cut
+[x] sweepProbeScript(): prints one line per process: PID, PPID, start time, UID, ARGS (cut
     at 200 chars) and a flag if /proc/PID/environ holds MATCHI_PLUGIN=<name>. Reads only.
-[ ] parseSweepProbe(output): pure parser. Tests with sample outputs: normal, ARGS with
+[x] parseSweepProbe(output): pure parser. Tests with sample outputs: normal, ARGS with
     spaces, truncated line, empty output, garbage.
 
 STEP 3 - Candidate rules                        File: PluginSweep.kt

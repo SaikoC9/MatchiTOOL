@@ -86,3 +86,78 @@ internal fun tagPrefix(plugin: String?): String {
 
 /** Step 1: [command] with the tag in front for [plugin]; the command itself is not changed, so it is returned as is when there is no valid name. */
 internal fun tagCommand(plugin: String?, command: String): String = tagPrefix(plugin) + command
+
+/** Step 2: every probe line starts with this word; the last line is "MTSWEEP-END <count>", the first "MTSWEEP-SELF <pid>". */
+internal const val SWEEP_LINE_PREFIX = "MTSWEEP"
+
+/**
+ * Step 2: what the probe saw. [procs] are the lines that parsed; [selfPid] is the PID of the probe's own shell (Step 3 walks the PPID
+ * chain from it, P5); [skipped] counts probe lines that were cut or malformed; [complete] is true only when the closing END line
+ * arrived AND its count equals procs + skipped, so an output cut short by a timeout or a size limit is never trusted as "nothing else runs".
+ */
+internal class SweepProbe(
+    val procs: List<SweepProc>,
+    val selfPid: Int?,
+    val complete: Boolean,
+    val skipped: Int,
+)
+
+/**
+ * Step 2: the READ-ONLY probe script. It lists /proc and prints one line per process:
+ *   MTSWEEP|PID|PPID|START|UID|TAG|ARGS
+ * START is field 22 of /proc/PID/stat (start time in clock ticks since boot): one token, and with PID it tells a reused PID from the
+ * old process (D3). TAG is the value of MATCHI_PLUGIN in /proc/PID/environ ("" when there is none or it cannot be read). ARGS is the
+ * command line with NUL, newline and tab turned into spaces, cut at [SWEEP_ARGS_MAX] characters, so a line is always one line.
+ * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have an empty ARGS and their environ is not read.
+ * It writes nothing and kills nothing: the only redirects are inputs and 2>/dev/null. Needs root to read other users' environ.
+ * [UNVERIFIED] on the F50: tr's NUL escape, "stat -c %u", "grep -m1", and the cost of the loop (a few hundred processes).
+ */
+internal fun sweepProbeScript(): String = listOf(
+    "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
+    "n=0",
+    "for d in /proc/[0-9]*; do",
+    "  p=\${d#/proc/}",
+    "  s=\$(cat \$d/stat 2>/dev/null) || continue",
+    "  case \"\$s\" in *') '*) ;; *) continue ;; esac",
+    "  s=\${s##*) }",
+    "  set -- \$s",
+    "  pp=\$2; st=\${20}",
+    "  u=\$(stat -c %u \$d 2>/dev/null) || u=",
+    "  a=\$(tr '\\000\\n\\t' '   ' <\$d/cmdline 2>/dev/null | cut -c1-$SWEEP_ARGS_MAX)",
+    "  t=",
+    "  if [ -n \"\$a\" ]; then t=\$(tr '\\000' '\\n' <\$d/environ 2>/dev/null | grep -m1 '^$SWEEP_TAG_VAR=') || t=; t=\${t#$SWEEP_TAG_VAR=}; fi",
+    "  echo \"$SWEEP_LINE_PREFIX|\$p|\$pp|\$st|\$u|\$t|\$a\"",
+    "  n=\$((n+1))",
+    "done",
+    "echo \"$SWEEP_LINE_PREFIX-END \$n\""
+).joinToString("\n")
+
+/**
+ * Step 2: pure parser for the probe's output. Lines that are not ours (shell noise, su banners) are ignored. A line of ours that is cut or has a
+ * non-numeric PID, PPID or START is skipped and counted. An unreadable UID becomes -1. A TAG that is not a valid plugin name becomes null
+ * (a process can put anything in its own environment). Never throws.
+ */
+internal fun parseSweepProbe(output: String): SweepProbe {
+    val procs = ArrayList<SweepProc>()
+    var self: Int? = null
+    var skipped = 0
+    var endCount: Int? = null
+    for (raw in output.split('\n')) {
+        val line = raw.trimEnd('\r')
+        when {
+            line.startsWith("$SWEEP_LINE_PREFIX|") -> {
+                val f = line.split('|', limit = 7)
+                val pid = f.getOrNull(1)?.toIntOrNull()
+                val ppid = f.getOrNull(2)?.toIntOrNull()
+                val start = f.getOrNull(3)
+                if (f.size < 7 || pid == null || ppid == null || start.isNullOrEmpty() || !start.all { it.isDigit() }) { skipped++; continue }
+                val tag = tracePluginName(f[5].takeIf { it.isNotEmpty() })
+                procs.add(SweepProc(pid, ppid, start, f[4].toIntOrNull() ?: -1, f[6].trim(), tag))
+            }
+            line.startsWith("$SWEEP_LINE_PREFIX-SELF ") -> self = line.substringAfter(' ').trim().toIntOrNull()
+            line.startsWith("$SWEEP_LINE_PREFIX-END ") -> endCount = line.substringAfter(' ').trim().toIntOrNull()
+        }
+    }
+    return SweepProbe(procs, self, endCount != null && endCount == procs.size + skipped, skipped)
+}
+
