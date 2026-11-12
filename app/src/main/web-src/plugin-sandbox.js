@@ -224,7 +224,7 @@ function sbxMount(p){
   const m=createModal({name:modalId,title:title,maxWidth:'680px',showConfirm:false,content:'',onClose:async()=>{sbxHide(entry);return false}});
   const body=m.el.querySelector('.content');
   const note=document.createElement('p');note.className='mut';note.style.margin='0 0 8px';
-  note.textContent='Sandboxed plugin. '+(grant.length?'It may: '+grant.map(sbxDescribe).join('; ')+'.':'It has no device access.');
+  note.textContent='Sandboxed plugin. '+(grant.length?'It may: '+grant.map(sbxDescribe).join('; ')+'.':'It has no device access.')+' If this window stays empty, the plugin draws its screen in the console page, which the sandbox hides. Press Trust on its row in Plugins to run it normally.';
   body.append(note,frame);
   sbxEntries.set(name,entry);
   const box=document.querySelector('.collapse_box');
