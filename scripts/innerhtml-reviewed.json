@@ -1,4 +1,5 @@
 {
+ "347bb371e8": "Plugin list Approve button: pmIcon() with a fixed check-mark path; no input.",
  "109bff5b40": "Network_Diagnostics: rows() passes every router value through esc(); the rest is fixed text and a clock time.",
  "158ff0e04b": "Live_Status: render() escapes every router string (op, net, reg, band, pci, chan, tile sub text); the other values are numbers or fixed text.",
  "8f93aa7b00": "Live_Status: the keys are the fixed MODES table, not input.",
