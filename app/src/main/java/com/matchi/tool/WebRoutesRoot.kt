@@ -32,7 +32,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         commandBlocked(s, command)?.let { return@run it }
         auditShell(s.remoteIpAddress ?: "?", command)
         traceCommand(s, command)
-        val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
+        val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
     }
     // UFI-TOOLS aliases (shapes read from UFI's own server source, advancedToolsModule.kt). root_shell: request {"command","timeout"},
@@ -47,7 +47,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         commandBlocked(s, command)?.let { return@run it }
         auditShell(s.remoteIpAddress ?: "?", command, "root_shell")
         traceCommand(s, command)
-        val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), t)
+        val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
         ufiShellReply(if (r.success) r.content else null, if (r.success) null else r.content.ifBlank { "command failed" })
     }
     // UFI's one_click_shell is a GET with no body: it drives the phone screen over adb to switch on UFI's own root shell. It is
@@ -65,7 +65,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         commandBlocked(s, command)?.let { return@run it }
         auditShell(s.remoteIpAddress ?: "?", command, "user_shell")
         traceCommand(s, command)
-        val r = UserShell.run(ctx.filesDir, command, 20000)
+        val r = UserShell.run(ctx.filesDir, tagged(s, command), 20000)
         // UFI's reply: {"result":{"done":true,"content":"<stdout>"}}; any stderr output makes UFI answer an error instead.
         ufiShellReply(if (r.success) JSONObject().put("done", true).put("content", r.content) else null, if (r.success) null else r.content.ifBlank { "command failed" })
     }

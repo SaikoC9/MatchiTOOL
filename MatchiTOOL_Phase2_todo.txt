@@ -24,7 +24,10 @@ PROGRESS  (update after every step)
 ------------------------------------------------------------------
   [x] D1-D8 answered by the owner (all as recommended; D5 = b). See DECISIONS below.
   [x] Step 0 - PluginSweep.kt created (constants + SweepProc + SweepCandidate) and PluginSweepTest.kt (4 tests).
-  [ ] Step 1 - next to do (the tag).
+  [x] Step 1 - the tag written: tagPrefix/tagCommand (PluginSweep.kt), tagged(s, cmd) helper (WebServer.kt), added at /api/shell,
+      /api/root_shell, /api/user_shell (WebRoutesRoot.kt) and pluginCall "shell" (WebRoutesPlugins.kt). 4 new tests in PluginSweepTest.kt.
+      Not tagged on purpose: the Phase 1 stop commands, /api/upload (the todo lists only the three trace sites + pluginCall).
+  [ ] Step 2 - next to do (the probe).
   Nothing compiled here (no Kotlin compiler in this session): run scripts/kotlin_pure_tests.sh or push to GitHub Actions.
   Nothing run on a device.
 
@@ -138,13 +141,13 @@ STEP 0 - Pure file                              File: NEW PluginSweep.kt
 
 STEP 1 - The tag                                Files: PluginSweep.kt, WebRoutesPlugins.kt,
                                                 WebRoutesRoot.kt
-[ ] tagPrefix(name): "export MATCHI_PLUGIN='NAME'; " for a name that passes tracePluginName
+[x] tagPrefix(name): "export MATCHI_PLUGIN='NAME'; " for a name that passes tracePluginName
     (safe characters only, so nothing can break out of the quotes).
-[ ] Add it right before RootShell.run for commands attributed to a plugin: pluginCall "shell"
+[x] Add it right before RootShell.run for commands attributed to a plugin: pluginCall "shell"
     (WebRoutesPlugins.kt ~465) and the three traceCommand sites (WebRoutesRoot.kt 34/49/67).
     AFTER shellDanger, traceCommand and the sandbox exact-match, which must keep seeing the
     original text. NOT on the Phase 1 stop commands (they must not tag themselves).
-[ ] Unit tests: the prefix for good names, no prefix for a bad name, the original text is
+[x] Unit tests: the prefix for good names, no prefix for a bad name, the original text is
     untouched, a name with a quote cannot get through.
 
 STEP 2 - The probe (read-only)                  File: PluginSweep.kt

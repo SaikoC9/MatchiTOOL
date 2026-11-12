@@ -32,4 +32,33 @@ class PluginSweepTest {
         val c = SweepCandidate(p.pid, p.start, SWEEP_HOW_TAG, p.args)
         assertEquals(1234, c.pid); assertEquals("tag", c.how)
     }
+
+    // ---- Step 1: the tag ----
+    @Test fun goodNamesGetTheTagPrefix() {
+        assertEquals("export MATCHI_PLUGIN='Bypass_v65_17.js'; ", tagPrefix("Bypass_v65_17.js"))
+        assertEquals("export MATCHI_PLUGIN='my-plugin.v2.html'; ", tagPrefix("  my-plugin.v2.html "))   // tracePluginName trims
+    }
+
+    @Test fun badOrMissingNamesGetNoTag() {
+        assertEquals("", tagPrefix(null))
+        assertEquals("", tagPrefix(""))
+        assertEquals("", tagPrefix("noext"))
+        assertEquals("", tagPrefix("../evil.js"))
+        assertEquals("", tagPrefix("a..b.js"))
+        assertEquals("", tagPrefix("x".repeat(81) + ".js"))
+    }
+
+    @Test fun aNameWithAQuoteOrShellCharactersCannotGetThrough() {
+        for (bad in listOf("a'b.js", "a'; reboot; '.js", "a\"b.js", "a b.js", "a;b.js", "a\$(id).js", "a`id`.js", "a\\b.js", "a\nb.js", "a\u0000b.js"))
+            assertEquals("no tag for: $bad", "", tagPrefix(bad))
+    }
+
+    @Test fun theOriginalCommandTextIsUntouched() {
+        val cmd = "nohup sh /data/local/x/beat.sh &\necho \$! > /data/local/x/beat.pid"
+        val t = tagCommand("beat.js", cmd)
+        assertTrue(t.endsWith(cmd))
+        assertEquals("export MATCHI_PLUGIN='beat.js'; " + cmd, t)
+        assertEquals(cmd, tagCommand(null, cmd))          // no name: returned as is
+        assertEquals(cmd, tagCommand("bad name", cmd))
+    }
 }

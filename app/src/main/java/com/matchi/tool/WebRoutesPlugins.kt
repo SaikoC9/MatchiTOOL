@@ -462,7 +462,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                 try {
                     traceStore.record(name, pluginWriteTargets(command).filter { checkPluginDataPath(it, name) == null }, pluginSideEffects(command))
                 } catch (e: Exception) { Quiet.note("WebRoutesPlugins.pluginCall", e) }
-                val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), 20_000)
+                val r = RootShell.run(ctx, tagCommand(name, UfiPathMap.map(command, ctx.packageName)), 20_000)
                 json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
             }
         }

@@ -69,3 +69,20 @@ internal class SweepCandidate(
     val how: String,
     val args: String,
 )
+
+/**
+ * Step 1 (the tag): the text the host puts in front of a command that is attributed to a plugin, so every process that command
+ * starts inherits MATCHI_PLUGIN=NAME in its environment (the probe in Step 2 reads it from /proc/PID/environ). Only a name that
+ * passes tracePluginName (letters, digits, dot, dash, underscore, ending in .js or .html) gets a tag; those characters cannot end
+ * the single quotes, and a second check below refuses anything else. A bad, empty or missing name gives "" (no tag, no error).
+ * The tag is added AFTER shellDanger, traceCommand and the sandbox exact match, which keep seeing the original text, and never
+ * on the Phase 1 stop commands (they must not tag themselves).
+ */
+internal fun tagPrefix(plugin: String?): String {
+    val name = tracePluginName(plugin) ?: return ""
+    if (name.any { it == '\'' || it == '\\' || it == '\n' || it == '\r' || it == '\u0000' }) return ""
+    return "export $SWEEP_TAG_VAR='$name'; "
+}
+
+/** Step 1: [command] with the tag in front for [plugin]; the command itself is not changed, so it is returned as is when there is no valid name. */
+internal fun tagCommand(plugin: String?, command: String): String = tagPrefix(plugin) + command
