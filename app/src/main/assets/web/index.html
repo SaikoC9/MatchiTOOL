@@ -339,6 +339,8 @@ input[type=file]:active::file-selector-button{transform:scale(.98)}
 .lg-warn{margin-top:10px;font-size:10.5px;line-height:1.4;color:#d9b66a}
 </style>
 <style id="ui-smooth">
+.kano_btn_is_loading{display:inline-block;box-sizing:border-box;width:1em;height:1em;vertical-align:-.15em;margin-left:.4em;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:u-spin .8s linear infinite;font-size:0}
+@keyframes u-spin{to{transform:rotate(360deg)}}
 @keyframes u-fade{from{opacity:0}to{opacity:1}}
 @keyframes u-pop{from{opacity:0;transform:translate(-50%,-48%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
 @keyframes u-rise{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
@@ -4467,7 +4469,7 @@ function createSwitch({text,value,className='',onChange,fontSize=14}){
 function setBtnLoading(ele,isLoading=false){
   if(!ele)return;
   const old=ele.querySelector('.kano_btn_is_loading');if(old)ele.removeChild(old);
-  if(isLoading){const sp=document.createElement('span');sp.className='kano_btn_is_loading spin';sp.style.display='inline-block';sp.textContent='\u{1F365}';ele.appendChild(sp);ele.disabled=true}
+  if(isLoading){const sp=document.createElement('span');sp.className='kano_btn_is_loading spin';ele.appendChild(sp);ele.disabled=true}
   else ele.disabled=false;
 }
 const createFormToast=({title,id,fields},cb=async()=>{})=>{

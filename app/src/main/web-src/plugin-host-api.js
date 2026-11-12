@@ -97,7 +97,7 @@ function createSwitch({text,value,className='',onChange,fontSize=14}){
 function setBtnLoading(ele,isLoading=false){
   if(!ele)return;
   const old=ele.querySelector('.kano_btn_is_loading');if(old)ele.removeChild(old);
-  if(isLoading){const sp=document.createElement('span');sp.className='kano_btn_is_loading spin';sp.style.display='inline-block';sp.textContent='\u{1F365}';ele.appendChild(sp);ele.disabled=true}
+  if(isLoading){const sp=document.createElement('span');sp.className='kano_btn_is_loading spin';ele.appendChild(sp);ele.disabled=true}
   else ele.disabled=false;
 }
 const createFormToast=({title,id,fields},cb=async()=>{})=>{
