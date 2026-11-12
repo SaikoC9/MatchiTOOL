@@ -17,6 +17,7 @@ const out = html.replace(/const PAGE_VERSION='[^']*';/, "const PAGE_VERSION='" +
   const f = path.join(src, name);
   if (!fs.existsSync(f)) { console.error('missing source file web-src/' + name); bad++; return all; }
   const body = fs.readFileSync(f, 'utf8');
+  if (/<!--[\s\S]*<script/i.test(body)) { console.error('web-src/' + name + ' holds a comment opener followed by a script tag: inside the inline page script the HTML parser then ignores the real closing tag. Build the strings from pieces.'); bad++; return all; }
   if (/<\/script/i.test(body)) { console.error('web-src/' + name + ' contains "</script", which would end the page script early'); bad++; return all; }
   return '/* @include web-src/' + name + ' */\n' + body + '\n/* @end-include web-src/' + name + ' */';
 });

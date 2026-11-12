@@ -5,7 +5,7 @@ WebRoutesPlugins.kt, WebRoutesAuth.kt, Prefs.kt, plugin-store JS).
 Nothing was compiled or run on a device.
 
 
-STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
+STATUS (Phases 1, 2, 2B, 3, 4 and 5 written, not yet compiled or run on the F50)
 -----------------------------------------------------------------------
   Phase 1: DONE in code. PluginIntegrity.kt, PluginRecords.kt, Prefs
            (plugin_records), WebRoutesPlugins.kt, plugin list in the page.
@@ -20,8 +20,22 @@ STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
            plugin cannot install a copy of itself or send force/confirmCaps itself. Only re-saving identical approved bytes is free. Store installs
            and file uploads now ask once per plugin. Browser test: scripts/phase0/test_plugin_install_password_browser.js. Kotlin NOT compiled.
            To test on the F50: install from the store (password asked), install a second plugin (asked again), wrong password (refused, counts toward lockout).
-  Phase 4, 5: not started.
-  Checked here: page build, all JS tests, route-gate table, repo checks.
+  Phase 4: DONE in code (opt-in sandbox). PluginSandbox.kt, PluginSandboxTest.kt, PluginModesTest.kt, web-src/plugin-sandbox.js, POST /api/plugins/mode,
+           Sandbox / Trust button, docs/PLUGIN_SANDBOX.md. Per-plugin switch, trusted stays the default. Frame = sandbox="allow-scripts" + its own CSP +
+           MessageChannel bridge. Permissions are declared (@matchi-needs), approved with the password, stored with the SHA-256, and empty if the file changes.
+           Chromium test (scripts/phase0/test_plugin_sandbox_browser.js) passes: the probe cannot reach the page, session, network, windows or frames.
+           Found in testing: the page CSP also stops the frame navigating to another site. Kotlin NOT compiled.
+           The host now decides too (Phase 5, below).
+           To test on the F50: switch a small .js plugin with @matchi-needs lines to Sandbox (password asked, permissions listed), open it from Plugin actions,
+           run its allowed call, edit the file with adb (permissions drop until Approve), switch back to Trust, delete it (its saved data goes).
+  Phase 5: DONE in code, for SANDBOXED plugins (host-enforced). POST /api/plugins/call, sandboxCallError in PluginSandbox.kt (+ tests in
+           PluginSandboxTest.kt), the page relays device calls instead of calling /api/at, /api/shell and the router itself. The host re-reads the
+           stored record and the file on EVERY call, so a file edited after the page loaded is refused at once. Chromium test passes. Kotlin NOT compiled.
+           Not done on purpose: permissions for trusted plugins (would break most UFI-TOOLS plugins).
+           To test on the F50: sandbox a plugin with a shell: line and run it; edit the file with adb WITHOUT reloading the page and call it again
+           (refused: "not approved"); press Approve and reload (works); check the app log for the refusal.
+  Checked here: page build, all JS tests (incl. test_plugin_sandbox.js), route-gate table, repo checks, and the Chromium tests in
+  scripts/phase0 (session cookie, install password, plugin upload, plugin sandbox).
   NOT checked: Kotlin compile and PluginIntegrityTest (no Kotlin compiler
   in this environment). Run `gradle :app:testDebugUnitTest` first, then an
   F50 pass (see "To test on the F50" below).
@@ -60,8 +74,9 @@ STATUS (Phases 1, 2 and 2B written, not yet compiled or run on the F50)
 1. WHAT IS BEST TO DO
 ---------------------
 
-For a personal F50 where you pick the plugins yourself, the best move is
-NOT to build the plugin sandbox yet.
+For a personal F50 where you pick the plugins yourself, the best first move
+was NOT to build the plugin sandbox. Phases 1-3 were done first; Phase 4
+(below) was then added as an OPT-IN mode, so trusted plugins are unchanged.
 
 Why the sandbox is not worth it now:
   - A plugin runs in your page and can call the same root endpoints your
@@ -93,12 +108,11 @@ What to do instead (small, no breakage):
 
 Best starting point: items 3 and 4 (most protection for the least change).
 
-If you later want real isolation, do it in this order:
-  first an opt-in "sandboxed" mode for plugins that only need a few
-  helpers, leaving the current mode for trusted ones; per-plugin
-  permissions after that. Only start that if you plan to run plugins
-  from people you do not know. The HttpOnly cookie is optional and is
-  not a prerequisite (see Phase 3).
+Real isolation was done in this order: first an opt-in "sandboxed" mode
+for plugins that only need a few helpers, leaving the current mode for
+trusted ones (Phase 4, done); host-enforced permissions for them after
+that (Phase 5, done for sandboxed plugins). Use the sandbox for plugins from people you
+do not know, or for your own small plugins written for the bridge.
 
 
 2. PHASED PLAN
@@ -174,20 +188,68 @@ PHASE 3 - Make the session token harder to steal (OPTIONAL)
   - Do it only if you start running plugins from people you do not
     know. Otherwise skip it.
 
-PHASE 4 - Opt-in sandbox for plugins that need little
-          (only if you run untrusted plugins)
-  - Run a plugin in a sandboxed iframe with a message bridge that offers
-    only the helpers it declares (toast, read-only router data, a
-    limited shell).
-  - Add a per-plugin "sandboxed / trusted" switch, with trusted staying
-    the default.
+PHASE 4 - Opt-in sandbox for plugins that need little   (DONE in code)
+  - A .js plugin can be switched to "sandbox" (shield button on its row;
+    POST /api/plugins/mode; gate + password, both directions). "trusted"
+    stays the default. .html (UFI block) plugins cannot be sandboxed.
+  - A sandboxed plugin runs in <iframe sandbox="allow-scripts"> (never
+    allow-same-origin): opaque origin, no page, no session, no /api, no
+    storage of its own. The frame has its own CSP on top of the page's:
+    no eval, frames, forms or workers; connections only to approved
+    https hosts.
+  - The only way out is a MessageChannel bridge (window.matchi). Always:
+    toast (labelled with the plugin name), info, close, small private
+    storage. Declared with "// @matchi-needs" in the first 80 lines and
+    approved: at.read (read-only AT), router: a,b (named read-only
+    fields), shell: CMD (that exact text, nothing added), net: host.
+  - Approval: switching the mode approves the file as it is now (SHA-256 +
+    permission list in plugin_records, entries "sbx:..."). If the file
+    differs later, the plugin still runs with NO permissions until
+    Approve. A replace that asks for another permission shows the
+    "adds new abilities" confirm. Replacing keeps the mode.
+  - Files: PluginSandbox.kt (+ PluginSandboxTest.kt, PluginModesTest.kt),
+    web-src/plugin-sandbox.js, WebRoutesPlugins.kt, Prefs plugin_modes,
+    docs/PLUGIN_SANDBOX.md, docs/examples/Sandbox_Uptime.js.
   - Done when: a sandboxed test plugin cannot read the page or call a
-    root route it did not declare.
+    root route it did not declare.  -> shown in Chromium by
+    scripts/phase0/test_plugin_sandbox_browser.js: the host saw none of the
+    probe's attempts (fetch, XHR, beacon, image, form, frame, popup,
+    top navigation, eval, worker); the bridge refused AT writes, chained
+    commands, unapproved router fields and any shell text but the exact
+    one; a changed file got nothing; a frame that navigated away got no
+    port.
+  - Found while testing: (1) the page CSP (frame-src falls back to
+    default-src 'self') also stops the frame navigating to another site;
+    (2) in the inline page script a literal comment opener followed by a
+    script tag makes the HTML parser swallow the real closing tag;
+    build-web.js now rejects that.
+  - Limits: the page made the check at first (Phase 5 added the host's). An approved
+    root command runs as root; an approved net host can receive data.
+    UFI-TOOLS plugins that need the page do not work sandboxed. Import /
+    restore installs plugins as trusted. Seen in Chromium only. Kotlin not
+    compiled; nothing run on the F50.
 
-PHASE 5 - Per-plugin permissions
-  - Let a plugin declare what it needs (root, network hosts, uploads),
-    and let you approve or deny each one.
-  - Enforce this in the host so it holds even if the page is bypassed.
+PHASE 5 - Permissions enforced by the host   (DONE in code, sandboxed plugins only)
+  - Phase 4 had declared + approved permissions, enforced by the page.
+    Now device calls from the bridge (at, router.get, shell) go to
+    POST /api/plugins/call {name, op, args}. The host requires: the plugin
+    runs sandboxed, its file is still the approved one (SHA-256 against the
+    record), and the call is inside the approved list (sandboxCallError).
+    It runs the AT read / router read / exact shell command itself; shell
+    also takes the root gate and shellDanger, and the write ledger (so
+    Delete still erases what the plugin wrote). Refusals go to the app log.
+  - The page still checks first (clear early errors); the host is the
+    authority. Gain: a bug or bypass in the page's check, or a file changed
+    after the page loaded, cannot grant more than the stored approval.
+  - Done when: a call outside the approved record is refused by the host
+    even if the page lets it through.  -> shown in Chromium (a plugin
+    "edited" after load is refused on its next call) and in
+    PluginSandboxTest.kt (not compiled here).
+  - Limits: the host cannot tell WHICH page code relays a call, so a trusted
+    plugin (already root) could name a sandboxed one and use that plugin's
+    narrow list. Permissions for trusted plugins (declare root / hosts /
+    uploads, approve or deny each) are NOT enforced: it would break most
+    UFI-TOOLS plugins. Only do that if you accept that.
 
 
 3. KNOWN LIMITS (state these in SECURITY.md)
@@ -202,6 +264,11 @@ PHASE 5 - Per-plugin permissions
     bypassed by building strings at run time or by quoting and encoding.
   - A stored plugin hash detects changes you did not approve; it does
     not stop a plugin that is already running with root.
+  - A sandboxed plugin (Phase 4) has no page, session or /api. The host
+    re-checks its approval on every call (Phase 5), but cannot tell which
+    page code relays a call. An approved root
+    command runs as root; an approved net host can receive data. Seen in
+    Chromium only. Trusted plugins are not affected by the sandbox.
   - The real controls are: the sign-in, the 4 h root gate, the password
     re-entry on sensitive changes, and which plugins you choose to
     install.
@@ -218,8 +285,12 @@ PHASE 5 - Per-plugin permissions
     2B    Small    Low (a plugin that used dns.google needs it
                    added to the allow-list)
     3     Medium   Low, but needs an F50 test (optional)
-    4     Large    Only for plugins you switch to sandboxed
-    5     Large    Medium
+    4     Large    Only for plugins you switch to sandboxed (DONE;
+                   UFI plugins that need the page will not work there)
+    5     Large    None for trusted plugins (DONE for sandboxed ones;
+                   trusted-plugin permissions not done)
 
-For your setup: do phases 1, 2 and 2B now. Treat 3 as optional, and
-skip 4 and 5 unless you start installing plugins from strangers.
+For your setup: phases 1, 2, 2B, 3 and 4 are written. Keep plugins you
+trust as they are; switch the ones from unknown people (or your own small
+ones) to Sandbox. What is left is optional: permissions for trusted
+plugins, which would break many UFI-TOOLS plugins.

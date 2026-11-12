@@ -63,6 +63,8 @@ TABLE = {
   ('POST', '/api/plugins'): ('GATE', ''),
   ('POST', '/api/plugins/order'): ('GATE', ''),
   ('POST', '/api/plugins/approve'): ('GATE', 'also needs the sign-in password'),
+  ('POST', '/api/plugins/call'): ('PARTIAL', 'sandboxed plugins only; the host checks the approved record on every call; the shell op needs the gate, AT reads and router reads are read-only'),
+  ('POST', '/api/plugins/mode'): ('GATE', 'also needs the sign-in password; both directions (sandbox and trusted)'),
   ('POST', '/api/plugins/data'): ('OPEN', 'read-only existence probe of paths that passed checkPluginDataPath'),
   ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data needs the gate; every delete needs the sign-in password'),
   ('POST', '/api/plugins/toggle'): ('OPEN', ''),

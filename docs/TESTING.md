@@ -9,6 +9,7 @@ Current for MatchiTOOL 1.4.1. This file replaces `TESTING_1.1.54_STABILITY.md`, 
 gradle :app:testDebugUnitTest         # Kotlin unit tests (RootGateTest, HostControlTest, BootLogdModelTest, ...)
 gradle :app:assembleRelease           # release build (R8 shrink): check it installs and the console starts
 python3 scripts/phase0/test_round5_browser.py   # Chromium + Playwright, fake router; not part of validate.sh
+node scripts/phase0/test_plugin_sandbox_browser.js app/src/main/assets/web/index.html   # Chromium + Playwright: sandboxed plugins; not part of validate.sh
 ```
 
 What each covers is in the README ("Where the checks live"). The route table test (`scripts/test_route_gates.py`) must be updated whenever a route is added.
