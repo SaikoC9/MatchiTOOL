@@ -5700,7 +5700,8 @@ async function runSelfTest(onStep){
   },15000);
   add(S1,'Session',async()=>TOKEN?R.ok('signed in (the session is an HttpOnly cookie that the page cannot read)'):R.fail('not signed in in this tab'));
   add(S1,'Bad token is rejected',async()=>{
-    let code=0;try{const r=await fetch('/api/ping',{headers:{'x-token':'invalid-selftest-token'}});code=r.status}catch(e){return R.fail('request failed: '+e.message)}
+    // credentials:'omit': the session comes from the cookie, so with the cookie this request would be a valid one and get 200.
+    let code=0;try{const r=await fetch('/api/ping',{credentials:'omit',headers:{'x-token':'invalid-selftest-token'}});code=r.status}catch(e){return R.fail('request failed: '+e.message)}
     if(code===401)return R.ok('HTTP 401 for an invalid token');
     if(code===429)return R.warn('HTTP 429: this IP is temporarily locked out after bad tokens, wait a minute');
     return R.fail('expected HTTP 401, got '+code);
