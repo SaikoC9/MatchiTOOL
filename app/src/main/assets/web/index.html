@@ -597,7 +597,13 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 .card.pop.open input[type=checkbox],.card.pop.open:not(#pluginmgr) input[type=checkbox],#pluginmgr.card.pop.open input[type=checkbox],.modal-bg .modal input[type=checkbox],.card input[type=checkbox]{width:32px!important;min-width:32px!important;height:18px!important;min-height:0!important;max-height:18px!important;padding:0!important;margin:0!important;border:0!important;border-radius:999px!important;box-sizing:border-box;vertical-align:middle;background-size:18px 18px!important}
 #matchi_at_modal input[type=checkbox],#matchi_at_modal.card.pop.open input[type=checkbox]{width:30px!important;min-width:30px!important;height:17px!important;min-height:0!important;max-height:17px!important;padding:0!important;border:0!important;border-radius:999px!important;background-size:17px 17px!important}
 /* Label text sits level with its switch */
-.modal-bg .modal label:has(>input[type=checkbox]),.card label:has(>input[type=checkbox]){display:inline-flex;align-items:center;gap:8px}
+.modal-bg .modal label:not(.row):has(>input[type=checkbox]),.card label:not(.row):has(>input[type=checkbox]){display:inline-flex;align-items:center;gap:8px}
+/* List rows that are a label (log basket): always one full-width row, switch on the left, text beside it */
+.modal-bg .modal label.row,.card label.row{display:flex!important;width:100%;box-sizing:border-box;align-items:center;gap:10px}
+.modal-bg .modal label.row>input[type=checkbox],.card label.row>input[type=checkbox]{flex:0 0 32px}
+/* No scrollbars anywhere (page, popups, lists, boxes). Scrolling still works by wheel, touch and keys. This block is last so the thin-scrollbar rules above no longer bring them back. */
+*{scrollbar-width:none!important;-ms-overflow-style:none!important}
+*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}
 </style>
 <style>
 /* Dropdown lists: the native list used the light system colours on the dark page (white/grey, unreadable). */
