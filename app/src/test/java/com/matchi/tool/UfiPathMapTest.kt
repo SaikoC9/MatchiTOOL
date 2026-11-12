@@ -18,6 +18,14 @@ class UfiPathMapTest {
         assertEquals("ls /sdcard/ufi_tools_boot.sh2", m("ls /sdcard/ufi_tools_boot.sh2"))
     }
 
+    @Test fun bootTempFileStaysBesideBootSh() {
+        assertEquals(
+            "grep -v x /data/local/matchitool/boot.sh > \"/data/local/matchitool/boot.sh.tmp.\$\$\" && mv -f /data/local/matchitool/boot.sh.tmp.\$\$ /data/local/matchitool/boot.sh",
+            m("grep -v x /sdcard/ufi_tools_boot.sh > \"/sdcard/ufi_tools_boot.sh.tmp.\$\$\" && mv -f /sdcard/ufi_tools_boot.sh.tmp.\$\$ /sdcard/ufi_tools_boot.sh"),
+        )
+        assertEquals("rm -f /data/local/matchitool/boot.sh.tmp.123", m("rm -f /sdcard/ufi_tools_boot.sh.tmp.123"))
+    }
+
     @Test fun ufiFilesFolderBecomesThisApp() {
         assertEquals("ls /data/data/com.matchi.tool/files/uploads/a.zip", m("ls /data/data/com.minikano.f50_sms/files/uploads/a.zip"))
         assertEquals("/data/data/com.matchi.tool/files/curl -V", m("/data/data/com.minikano.f50_sms/files/curl -V"))
