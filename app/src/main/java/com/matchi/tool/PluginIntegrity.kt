@@ -53,5 +53,6 @@ internal fun describeCap(cap: String): String = when {
     cap == CAP_NET -> "makes network requests"
     cap == CAP_TOKEN -> "mentions the sign-in token"
     cap.startsWith(CAP_HOST_PREFIX) -> "contacts " + cap.removePrefix(CAP_HOST_PREFIX)
+    cap.startsWith(SBX_PREFIX) -> describeSandboxCap(cap)
     else -> cap
 }

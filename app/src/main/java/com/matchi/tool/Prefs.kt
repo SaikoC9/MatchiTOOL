@@ -40,11 +40,19 @@ object Prefs {
         if (rec == null) m.remove(name) else m[name] = rec
         sp(c).edit().putString("plugin_records", encodePluginRecords(m)).apply()
     }
-    /** Forget a deleted plugin's place in the order, its title and its approved record. */
+    /** Which plugins run sandboxed (Phase 4, see PluginSandbox). A plugin not in the map is trusted: it runs in the page, as before. */
+    internal fun pluginModes(c: Context): Map<String, String> = parsePluginModes(sp(c).getString("plugin_modes", null))
+    @Synchronized internal fun setPluginSandboxed(c: Context, name: String, sandboxed: Boolean) {
+        val m = pluginModes(c).toMutableMap()
+        if (sandboxed) m[name] = "sandbox" else m.remove(name)
+        sp(c).edit().putString("plugin_modes", encodePluginModes(m)).apply()
+    }
+    /** Forget a deleted plugin's place in the order, its title, its approved record and its sandbox mode. */
     fun forgetPlugin(c: Context, name: String) {
         setPluginOrder(c, pluginOrder(c).filter { it != name })
         setPluginTitle(c, name, null)
         setPluginRecord(c, name, null)
+        setPluginSandboxed(c, name, false)
     }
     /** Network rules for plugins (see NetPolicy): strict mode on or off, and the hosts the person added to the allow-list. */
     fun netStrict(c: Context): Boolean = sp(c).getBoolean("net_strict", true)

@@ -155,17 +155,27 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val titles = Prefs.pluginTitles(ctx)
         val netExtra = Prefs.netHosts(ctx)
         val records = Prefs.pluginRecords(ctx)
+        val modes = Prefs.pluginModes(ctx)
         for (n in orderPlugins(all.keys, Prefs.pluginOrder(ctx))) {
             val f = all.getValue(n)
             val bytes = f.readBytes()
             val src = String(bytes, Charsets.UTF_8)
             val sc = scanPlugin(src, netExtra)
             val sha = sha256Hex(bytes)
-            arr.put(JSONObject().put("name", n).put("code", src).put("enabled", n !in off)
+            val integrity = integrityState(records[n]?.sha, sha)   // ok | changed | untracked
+            // Sandbox (Phase 4): only .js plugins can run sandboxed. "declared" is what the file asks for now; "grant" is what the person approved,
+            // and it is empty while the file differs from the approved one. The page enforces "grant" in its bridge.
+            val needs = if (pluginKind(n) == "js") sandboxNeeds(src) { shellDanger(it, true) } else null
+            val sandboxed = needs != null && modes[n] == "sandbox"
+            val o = JSONObject().put("name", n).put("code", src).put("enabled", n !in off)
                 .put("kind", pluginKind(n)).put("title", titles[n] ?: pluginBaseName(n))
                 .put("risk", sc.risk).put("sha256", sha)
-                .put("integrity", integrityState(records[n]?.sha, sha))   // ok | changed | untracked
-                .put("caps", JSONArray(pluginCaps(src, sc.hosts))))
+                .put("integrity", integrity)
+                .put("caps", JSONArray(if (needs != null && sandboxed) needs.caps else pluginCaps(src, sc.hosts)))
+                .put("mode", if (sandboxed) "sandbox" else "trusted")
+            if (needs != null) o.put("declared", JSONArray(needs.caps)).put("sbxProblems", JSONArray(needs.problems))
+            if (sandboxed) o.put("grant", JSONArray(sandboxGrant(records[n]?.caps, integrity)))
+            arr.put(o)
         }
         json(Response.Status.OK, arr)
     }
@@ -196,6 +206,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val unchanged = oldBytes != null && record?.sha == newSha && sha256Hex(oldBytes) == newSha
         if (!unchanged)
             pluginPasswordCheck(s, req, if (oldBytes != null) "replace an installed plugin" else "install a plugin")?.let { return@run it }
+        val sandboxed = Prefs.pluginModes(ctx)[name] == "sandbox" && pluginKind(name) == "js"   // a replaced plugin keeps its mode
         val scan = scanPlugin(code, Prefs.netHosts(ctx))
         if (scan.blocked) {
             if (!req.optBoolean("force", false)) {
@@ -207,10 +218,11 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         }
         // An update that adds a capability (root commands, network use, a new host, the token) is shown again. The baseline is the approved
         // record, or the file on disk when the plugin was installed before records existed.
-        val caps = pluginCaps(code, scan.hosts)
+        // A sandboxed plugin's list is its declared sandbox permissions (PluginSandbox.kt), so an update that asks for another one is shown again too.
+        val caps = effectiveCaps(code, scan.hosts, sandboxed) { shellDanger(it, true) }
         if (oldBytes != null) {
             val oldSrc = String(oldBytes, Charsets.UTF_8)
-            val before = record?.caps ?: pluginCaps(oldSrc, scanPlugin(oldSrc, Prefs.netHosts(ctx)).hosts)
+            val before = record?.caps ?: effectiveCaps(oldSrc, scanPlugin(oldSrc, Prefs.netHosts(ctx)).hosts, sandboxed) { shellDanger(it, true) }
             val added = addedCaps(before, caps)
             if (added.isNotEmpty() && !req.optBoolean("confirmCaps", false))
                 return@run json(Response.Status.CONFLICT, JSONObject().put("code", "newcaps").put("error", "This update adds new abilities")
@@ -305,9 +317,85 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         pluginPasswordCheck(s, req, "approve this plugin")?.let { return@run it }
         val bytes = f.readBytes()
         val src = String(bytes, Charsets.UTF_8)
-        Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), pluginCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts)))
+        val sandboxed = Prefs.pluginModes(ctx)[name] == "sandbox" && pluginKind(name) == "js"
+        Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), effectiveCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts, sandboxed) { shellDanger(it, true) }))
         auditShell(s.remoteIpAddress ?: "?", "approve " + name, "plugin-approve")
         json(Response.Status.OK, JSONObject().put("ok", true))
+    }
+    // Switch a plugin between "sandbox" and "trusted": {"name":"My_Plugin.js","mode":"sandbox","password":"..."} (Phase 4). Both directions need the gate and the
+    // password: sandbox approves the permissions the file declares (@matchi-needs) as it is now; trusted gives it the whole page again. Either way the
+    // file is approved as it is now (SHA-256 and capability list), like /api/plugins/approve, and the page reloads to apply it. Only .js plugins.
+    uri == "/api/plugins/mode" && s.method == Method.POST -> rootGate(s) ?: run {
+        val req = body(s)
+        val name = req.optString("name")
+        if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+        val mode = req.optString("mode")
+        if (mode != "sandbox" && mode != "trusted") throw IllegalArgumentException("mode must be sandbox or trusted")
+        val f = File(pluginDir, name)
+        if (!f.isFile) throw IllegalArgumentException("no such plugin")
+        if (pluginKind(name) != "js") throw IllegalArgumentException("only .js plugins can run sandboxed; UFI-TOOLS .html blocks need the page")
+        val sandboxed = mode == "sandbox"
+        pluginPasswordCheck(s, req, if (sandboxed) "run this plugin in the sandbox" else "make this plugin trusted")?.let { return@run it }
+        val bytes = f.readBytes()
+        val src = String(bytes, Charsets.UTF_8)
+        Prefs.setPluginSandboxed(ctx, name, sandboxed)
+        Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), effectiveCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts, sandboxed) { shellDanger(it, true) }))
+        auditShell(s.remoteIpAddress ?: "?", "mode " + name + " " + mode, "plugin-mode")
+        json(Response.Status.OK, JSONObject().put("ok", true).put("mode", mode))
+    }
+    // A call a SANDBOXED plugin made through the page's bridge (Phase 5): {"name":"X.js","op":"at"|"router.get"|"shell","args":["..."]}. The host decides, on every
+    // call, from the stored record: the plugin must run sandboxed, its file must still be the approved one, and the call must be inside what it declared and
+    // you approved (sandboxCallError). The page only relays; its own check is a first line. Reply shapes match /api/at, the router get and /api/shell.
+    // Limit: the host cannot tell WHICH page code relays, so a trusted plugin (already root) could name a sandboxed one and get that plugin's narrow list.
+    // at and router.get are read-only and need only the session; shell needs the root gate like /api/shell.
+    uri == "/api/plugins/call" && s.method == Method.POST -> run {
+        val req = body(s)
+        val name = req.optString("name")
+        if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+        val op = req.optString("op")
+        val arr = req.optJSONArray("args") ?: JSONArray()
+        if (arr.length() > SBX_MAX_ROUTER) throw IllegalArgumentException("too many arguments")
+        val args = ArrayList<String>()
+        for (i in 0 until arr.length()) args.add(arr.opt(i) as? String ?: throw IllegalArgumentException("arguments must be strings"))
+        val f = File(pluginDir, name)
+        if (!f.isFile || pluginKind(name) != "js" || Prefs.pluginModes(ctx)[name] != "sandbox")
+            return@run json(Response.Status.FORBIDDEN, JSONObject().put("code", "not-sandboxed").put("error", "This plugin does not run in the sandbox"))
+        val record = Prefs.pluginRecords(ctx)[name]
+        val grant = sandboxGrant(record?.caps, integrityState(record?.sha, sha256Hex(f.readBytes())))
+        sandboxCallError(grant, op, args)?.let { why ->
+            LogCatcher.log("WARNING", "plugin/sandbox", "[$name] call refused by the host: $op ($why)")
+            return@run json(Response.Status.FORBIDDEN, JSONObject().put("code", "not-approved").put("error", why))
+        }
+        val ip = s.remoteIpAddress ?: "?"
+        when (op) {
+            "at" -> {
+                auditBusy(ip, "plugin-at")
+                val q = "'" + args[0].trim().replace("'", "'\\''") + "'"
+                val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n 0 -c $q", 15000)
+                json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
+            }
+            "router.get" -> {
+                val fields = args.map { it.trim() }
+                val p = LinkedHashMap<String, String>()
+                p["cmd"] = fields.joinToString(",")
+                if (fields.size > 1) p["multi_data"] = "1"
+                harden(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", ZteClient.call(ctx, "get", p)))
+            }
+            else -> {   // "shell": a root command, so the gate first; the filter still runs (it is an accident guard, the approved exact text is the control)
+                rootGate(s)?.let { return@run it }
+                val command = args[0]
+                shellDanger(command, true)?.let { why ->
+                    auditShell(ip, "BLOCKED: $why", "shell-blocked")
+                    return@run json(Response.Status.FORBIDDEN, JSONObject().put("code", "blocked").put("error", "Blocked by MatchiTOOL security: this command $why"))
+                }
+                auditShell(ip, command, "plugin-shell")
+                try {
+                    traceStore.record(name, pluginWriteTargets(command).filter { checkPluginDataPath(it, name) == null }, pluginSideEffects(command))
+                } catch (e: Exception) { Quiet.note("WebRoutesPlugins.pluginCall", e) }
+                val r = RootShell.run(ctx, UfiPathMap.map(command, ctx.packageName), 20_000)
+                json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
+            }
+        }
     }
     // Scan an installed plugin again: {"name":"My_Plugin.js"} -> risk, findings and the hosts its source mentions.
     uri == "/api/plugins/scan" && s.method == Method.POST -> {
