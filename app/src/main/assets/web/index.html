@@ -5370,7 +5370,7 @@ function renderPlugins(list){
             else okText='Delete and stop';
           }
           if(fx.length&&mode!=='stop')msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.';
-          if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased (not allowed): '+info.rejected.map(r=>r.path).join(', ');
+          if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased: '+info.rejected.map(r=>r.path+(r.reason?' ('+r.reason+')':'')).join('; ');
         }
         const choice=await askDialog({title,message:msg,okText,danger:!failure,extra,maxWidth:'460px'});
         if(!choice)return;

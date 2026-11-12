@@ -63,7 +63,104 @@ PROGRESS  (update this block after every step)
           guide), docs/examples/Stop_Example.js, docs/CHANGELOG_DETAIL.md entry,
           and Bypass_v65_17_MatchiTOOL.js (v65_17 + 7 header lines, delivered
           next to the repo, NOT inside it: F1). validate.sh passes.
-  Step 8  not started
+  Step 8  IN PROGRESS: GitHub Actions passed (validate.sh, unit tests, APK build) on 2026-11-12.
+          Unit test boxes below are ticked.
+          Device results so far (F50, debug APK from GitHub Actions, 2026-11-12):
+            B  PASS  plugin with no headers (old Bypass_v65.17.js): dialog says it
+                     declares no stop commands.
+            A  PASS (second try)  docs/examples/Stop_Example.js: dialog listed the 3
+                     commands + check. First stop: all 3 commands ok, process, folder
+                     and boot file really gone, but the check command reported
+                     "something is still there", so the plugin was KEPT and the
+                     "Stop did not finish" dialog opened (this is the D3 behaviour
+                     working: part of F). By hand, the check logic gives ps-match=1,
+                     dir-gone=0, full=0. Second stop (Try again): plugin deleted.
+                     Likely cause: timing race, the check ran just before the killed
+                     process finished exiting. NOT proven. If it happens again: add a
+                     short settle wait (about 1-2 s) before the check, in
+                     verifyStop(); the Bypass check has the same weakness.
+            F  PARTLY  "failed stop keeps the plugin, dialog opens again, retry works"
+                     seen. The 60 s hang case (sleep 120) is NOT tested yet.
+            E  PASS  Stop_Example edited by hand on the device (echo >> the file in
+                     /data/data/com.matchi.tool/files/plugins/): dialog says "Its stop
+                     cannot run, so nothing it started will be stopped", lists all 4
+                     commands each with "the plugin file is not the one you approved;
+                     approve it again first", and offers only Cancel and "Delete without
+                     stopping". Before deleting, the heartbeat process and the folder
+                     were still there (nothing stopped).
+                     Note: "Delete without stopping" erases the plugin's data folder
+                     (/data/local/stop_example) but does not stop the process, so the
+                     heartbeat keeps running as an orphan until killed or a reboot; the
+                     boot file was removed by hand.
+            After test E: ps shows no stop_example process left (the orphan heartbeat is
+                     gone), boot.d holds only 20-bypass-ttl.sh. Clean start for F.
+            Next: F (60 s hang) with /mnt/.../Stop_Hang.js (copy of Stop_Example.js with
+                     "// @matchi-uninstall sleep 120" as the FIRST uninstall line; node
+                     --check ok). Expected: after 60 s plugin kept, sleep reported as
+                     timeout, the other commands and the check "not run", dialog reopens.
+            F  PASS  Stop_Hang.js (sleep 120 as first uninstall command), Delete and stop:
+                     after 60 s "Stop did not finish" dialog: Stop_Hang.js NOT deleted;
+                     "TIMEOUT: sleep 120 - [timeout after 60000ms]"; the 3 other commands
+                     "NOT RUN ... the 60 s total ran out"; Not checked: the 3 commands,
+                     "check command did not run", "boot file test did not run". Buttons:
+                     Cancel / Delete without stopping / Try again (no Restart device, as
+                     there are no leftovers). The plugin stayed in the list (its trash
+                     button was greyed while the stop ran).
+                     After the failed stop the heartbeat (PID 10743) and boot.d/30-stop-example.sh
+                     were still there (nothing ran), as expected; removed by hand.
+                     Cleanup done: heartbeat gone (kill said "No such process"), boot.d holds
+                     only 20-bypass-ttl.sh.
+            C  NEXT  files: Stop_Example.js (old) + Stop_Example_New.js (same headers, new
+                     name). Plan: start the job from the OLD plugin, install the NEW one,
+                     delete the OLD one: expect the shared warning and "Delete, skip the
+                     stop". WATCH FOR A GAP (read in index.html, not yet seen on device): the
+                     page sends erase:true even when the stop is skipped, so the old
+                     plugin's ledger entry (/data/local/stop_example) may still be erased,
+                     which would delete beat.sh and break the new copy. If the folder is
+                     gone after the delete, that is a finding for Phase 1 ("Deleting an old
+                     copy of a plugin does not break a newer copy").
+                     C try 1 (not valid): only Stop_Example_New.js was installed (list showed 4
+                     plugins, one Stop_*). Its delete dialog was the normal "Delete and stop"
+                     one, with no shared warning, which is correct when no other plugin
+                     declares the same commands. Dialog also listed "This also erases the
+                     data it left behind: /data/local/stop_example (16 KB)" (ledger of the
+                     plugin that started the job). Redo with BOTH plugins installed and
+                     delete the OLD one (Stop_Example.js).
+                     C try 2 (both installed): dialogs seen for BOTH plugins.
+                       Delete Stop_Example.js: warning "Stop_Example_New.js declares the same
+                       stop command or boot file. Stopping now would probably break it, so
+                       the stop is skipped." Buttons: Cancel / "Delete an..." (Delete and stop
+                       anyway) / "Delete, skip the stop". Same warning the other way round for
+                       Stop_Example_New.js (names Stop_Example.js). Shared guard WORKS.
+                       BUT both dialogs also say "This also erases the data it left behind:
+                       /data/local/stop_example (16 KB)" next to the shared warning: the
+                       skip-the-stop delete may erase the folder the other copy needs.
+                       Device check pending: after "Delete, skip the stop", does
+                       /data/local/stop_example still exist, and does the heartbeat run?
+            C  FAIL (bug found, fix written, NOT yet tested on device)
+                     After "Delete, skip the stop" on Stop_Example.js (old) with
+                     Stop_Example_New.js installed: stop skipped as designed (heartbeat PID
+                     14751 still running, boot.d/30-stop-example.sh still there) BUT
+                     /data/local/stop_example was GONE ("No such file or directory"): the data
+                     erase ran although the stop was skipped, so the new copy lost beat.sh
+                     (its boot entry would fail at the next boot).
+                     Cause: the page always sends erase:true and pluginDataPlan() erased every
+                     ledger path of the deleted plugin, including a folder another installed
+                     plugin uses.
+                     FIX (in MatchiTOOL-main-patched-testC.zip): pluginDataPlan() now skips a
+                     declared or ledger path that another installed plugin also declares or has
+                     in its ledger (same path, or one inside the other). It is listed as "Not
+                     erased: PATH (also used by NAME, so it is kept)". New pure functions
+                     pathsOverlap() and pluginsUsingPath() in PluginUninstall.kt, 7 new tests
+                     (class PluginSharedPathsTest), page text "Not erased: ...", CHANGELOG_DETAIL
+                     line. validate.sh passes here; Kotlin NOT compiled here (no Gradle): GitHub
+                     Actions must run the unit tests.
+                     To redo C after the fix: both copies installed, start from the OLD one,
+                     delete the OLD one with "Delete, skip the stop": the dialog must list
+                     /data/local/stop_example under "Not erased", and afterwards the folder, the
+                     heartbeat and the boot file must all still exist.
+            Still to do: C (redo after the fix), D, G, H, I, then Bypass 1-4.
+            Also seen: ps -A -o ARGS works on the F50 (open question in Step 7 notes).
   Bypass_v65_17.js received and compared with the Step 7 headers (see Step 7 notes).
 
 
@@ -504,24 +601,24 @@ STEP 8 - Test
 ------------------------------------------------------------------
 Unit tests (run with scripts/kotlin_pure_tests.sh; also gradle
 :app:testDebugUnitTest)
-[ ] header parser limits, duplicates, no headers, header inside a string
-[ ] sandbox: ungranted uninstall command refused; granted one allowed
-[ ] "changed" integrity blocks the stop; "untracked" allows it (D1)
-[ ] plan hash changes when a header changes
-[ ] same-folder guard for two plugins sharing a command
-[ ] shellDanger-blocked uninstall command refused
+[x] header parser limits, duplicates, no headers, header inside a string
+[x] sandbox: ungranted uninstall command refused; granted one allowed
+[x] "changed" integrity blocks the stop; "untracked" allows it (D1)
+[x] plan hash changes when a header changes
+[x] same-folder guard for two plugins sharing a command
+[x] shellDanger-blocked uninstall command refused
 
 On the device - generic (use a small test plugin; the repo has no plugin
 that starts anything, F2)
-[ ] A. Test plugin that starts a background process and writes a boot.d
+[x] A. Test plugin that starts a background process and writes a boot.d
        file. Delete with Stop ON: process gone, boot file gone, file deleted.
-[ ] B. Plugin with NO headers: delete works as before; dialog says it
+[x] B. Plugin with NO headers: delete works as before; dialog says it
        declares no stop commands.
-[ ] C. Install the same plugin under a NEW file name, delete the old one:
+[ ] C. (FAILED once, fix written) Install the same plugin under a NEW file name, delete the old one:
        warning shown, stop skipped, the new one keeps working.
 [ ] D. Sandboxed plugin with an ungranted uninstall command: refused, listed.
-[ ] E. Plugin file edited after approval: stop refused until re-approved.
-[ ] F. A command that hangs: the 60 s total ends it, the plugin is NOT
+[x] E. Plugin file edited after approval: stop refused until re-approved.
+[x] F. A command that hangs: the 60 s total ends it, the plugin is NOT
        deleted, the report says what did not run, the delete dialog opens
        again. "Delete without stopping" then deletes it.
 [ ] G. Root unavailable: nothing deleted, clear message, dialog opens again.

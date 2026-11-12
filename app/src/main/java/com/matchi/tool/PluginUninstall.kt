@@ -286,3 +286,20 @@ internal fun stopReport(plan: StopPlan, outcomes: List<CommandOutcome>, verify: 
     }
     return StopReport(success, sb.toString().trimEnd().take(2000), verify.leftovers, notChecked, outcomes)
 }
+
+// ---- Test C finding: erasing a plugin's data must not take a folder another installed plugin uses ----
+
+/** True when [a] and [b] are the same path, or one is inside the other. Blank paths never overlap. */
+internal fun pathsOverlap(a: String, b: String): Boolean {
+    val x = a.trimEnd('/'); val y = b.trimEnd('/')
+    if (x.isEmpty() || y.isEmpty()) return false
+    return x == y || x.startsWith("$y/") || y.startsWith("$x/")
+}
+
+/**
+ * Names (sorted) of the OTHER installed plugins that use [path] or a folder inside or around it. [others] maps a plugin name to the paths it
+ * declares with "@matchi-data" or recorded in its ledger. Deleting a plugin skips such a path, so deleting an old copy of a plugin does not
+ * erase what a newer copy under another name still needs.
+ */
+internal fun pluginsUsingPath(path: String, others: Map<String, List<String>>): List<String> =
+    others.filter { (_, ps) -> ps.any { pathsOverlap(path, it) } }.keys.sorted()

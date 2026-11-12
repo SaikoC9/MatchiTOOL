@@ -19,14 +19,25 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     val ok = ArrayList<String>()
     val bad = ArrayList<Pair<String, String>>()
     ok.add(pluginDataDir(name))
+    // A folder that another installed plugin declares or recorded in its ledger is NOT erased: deleting an old copy of a plugin must not take what a newer
+    // copy under another name still needs (test C on the F50 showed the folder gone). It is listed as "not erased" with the reason.
+    val others = HashMap<String, List<String>>()
+    pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.forEach { o ->
+        val oc = try { o.readText() } catch (_: Exception) { "" }
+        others[o.name] = (pluginDataDeclarations(oc) + traceStore.read(o.name).paths).distinct()
+    }
+    fun shareNote(d: String): String? = pluginsUsingPath(d, others).takeIf { it.isNotEmpty() }?.let { "also used by " + it.joinToString(", ") + ", so it is kept" }
     // Folders named after the plugin are erased too, without a header line. They pass the same strict check and are listed in the dialog (only when they exist).
     for (d in implicitPluginPaths(name)) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
     for (d in pluginDataDeclarations(code)) {
-        val why = checkPluginDataPath(d, name)
+        val why = checkPluginDataPath(d, name) ?: shareNote(d)
         if (why == null) { if (d !in ok) ok.add(d) } else bad.add(d to why)
     }
     // Paths its root commands wrote to while it ran (the ledger). Same strict check; a path inside another listed path is dropped.
-    for (d in traceStore.read(name).paths) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
+    for (d in traceStore.read(name).paths) if (checkPluginDataPath(d, name) == null && d !in ok) {
+        val shared = shareNote(d)
+        if (shared == null) ok.add(d) else if (bad.none { it.first == d }) bad.add(d to shared)
+    }
     // Loose files named after the plugin (NAME.txt, NAME.js, NAME.html, NAME.log ...), added last so the cap below never drops a traced path for them.
     for (d in implicitPluginFiles(name)) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
     val pruned = ok.filter { p -> ok.none { q -> q != p && p.startsWith("$q/") } }.take(100)

@@ -465,3 +465,44 @@ class PluginStopVerifyTest {
         assertEquals(2, audited.size)
     }
 }
+
+class PluginSharedPathsTest {
+    private val others = mapOf(
+        "Stop_Example_New.js" to listOf("/data/local/stop_example"),
+        "Other.js" to listOf("/data/local/other/cache"),
+    )
+
+    @Test fun theSameFolderIsSharedWithTheOtherPlugin() {
+        assertEquals(listOf("Stop_Example_New.js"), pluginsUsingPath("/data/local/stop_example", others))
+    }
+
+    @Test fun aFolderInsideOrAroundAnotherPluginsFolderIsShared() {
+        assertEquals(listOf("Stop_Example_New.js"), pluginsUsingPath("/data/local/stop_example/sub", others))
+        assertEquals(listOf("Other.js"), pluginsUsingPath("/data/local/other", others))
+    }
+
+    @Test fun aLookalikeNameIsNotShared() {
+        assertEquals(emptyList<String>(), pluginsUsingPath("/data/local/stop_example2", others))
+        assertEquals(emptyList<String>(), pluginsUsingPath("/data/local/stop_exam", others))
+    }
+
+    @Test fun aTrailingSlashChangesNothing() {
+        assertEquals(listOf("Stop_Example_New.js"), pluginsUsingPath("/data/local/stop_example/", others))
+        assertEquals(listOf("Stop_Example_New.js"), pluginsUsingPath("/data/local/stop_example", mapOf("Stop_Example_New.js" to listOf("/data/local/stop_example/"))))
+    }
+
+    @Test fun severalPluginsAreListedInOrder() {
+        val many = mapOf("b.js" to listOf("/data/local/x"), "a.js" to listOf("/data/local/x/y"), "c.js" to listOf("/data/local/z"))
+        assertEquals(listOf("a.js", "b.js"), pluginsUsingPath("/data/local/x", many))
+    }
+
+    @Test fun nothingIsSharedWhenNoOtherPluginIsInstalled() {
+        assertEquals(emptyList<String>(), pluginsUsingPath("/data/local/stop_example", emptyMap()))
+    }
+
+    @Test fun blankPathsNeverOverlap() {
+        assertTrue(!pathsOverlap("", "/data/local/x"))
+        assertTrue(!pathsOverlap("/", "/data/local/x"))
+        assertEquals(emptyList<String>(), pluginsUsingPath("", others))
+    }
+}
