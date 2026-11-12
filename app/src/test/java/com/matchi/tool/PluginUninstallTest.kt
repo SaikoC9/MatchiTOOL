@@ -506,3 +506,31 @@ class PluginSharedPathsTest {
         assertEquals(emptyList<String>(), pluginsUsingPath("", others))
     }
 }
+
+class PluginCommandPathsTest {
+    @Test fun foldersInStopCommandsAreFound() {
+        val cmds = listOf(
+            "rm -f /data/local/matchitool/boot.d/30-stop-example.sh",
+            "[ ! -f /data/local/stop_example/beat.sh ] || sh /data/local/stop_example/beat.sh stop",
+            "rm -rf /data/local/stop_example",
+        )
+        val p = commandPaths(cmds, "! ps -A -o ARGS 2>/dev/null | grep -q 'stop_example/beat.sh' && [ ! -e /data/local/stop_example ]")
+        assertTrue("/data/local/stop_example" in p)
+        assertTrue("/data/local/stop_example/beat.sh" in p)
+        assertTrue("/dev/null" !in p)
+    }
+
+    @Test fun shortAndRelativePathsAreIgnored() {
+        assertEquals(emptyList<String>(), commandPaths(listOf("cd /data/local", "ls /sdcard", "echo a/b/c"), null))
+    }
+
+    @Test fun aDeclaredFolderMakesThePathSharedWithThatPlugin() {
+        val others = mapOf("Stop_Example_New.js" to commandPaths(listOf("rm -rf /data/local/stop_example"), null))
+        assertEquals(listOf("Stop_Example_New.js"), pluginsUsingPath("/data/local/stop_example", others))
+        assertEquals(emptyList<String>(), pluginsUsingPath("/data/local/stop_example2", others))
+    }
+
+    @Test fun noCommandsGiveNoPaths() {
+        assertEquals(emptyList<String>(), commandPaths(emptyList(), null))
+    }
+}

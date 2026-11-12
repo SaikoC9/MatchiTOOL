@@ -24,7 +24,8 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     val others = HashMap<String, List<String>>()
     pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.forEach { o ->
         val oc = try { o.readText() } catch (_: Exception) { "" }
-        others[o.name] = (pluginDataDeclarations(oc) + traceStore.read(o.name).paths).distinct()
+        val od = pluginUninstallDeclarations(oc)
+        others[o.name] = (pluginDataDeclarations(oc) + traceStore.read(o.name).paths + commandPaths(od.commands, od.check)).distinct()
     }
     fun shareNote(d: String): String? = pluginsUsingPath(d, others).takeIf { it.isNotEmpty() }?.let { "also used by " + it.joinToString(", ") + ", so it is kept" }
     // Folders named after the plugin are erased too, without a header line. They pass the same strict check and are listed in the dialog (only when they exist).

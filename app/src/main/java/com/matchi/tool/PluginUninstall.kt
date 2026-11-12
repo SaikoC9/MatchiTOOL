@@ -303,3 +303,19 @@ internal fun pathsOverlap(a: String, b: String): Boolean {
  */
 internal fun pluginsUsingPath(path: String, others: Map<String, List<String>>): List<String> =
     others.filter { (_, ps) -> ps.any { pathsOverlap(path, it) } }.keys.sorted()
+
+/**
+ * Test C, second finding: a plugin that has not run its job yet has an empty ledger and may declare no "@matchi-data", yet its stop commands name the
+ * folder it will use (for example "rm -rf /data/local/x" or "sh /data/local/x/run.sh stop"). Absolute paths found in the uninstall and check commands
+ * count as "used by this plugin" for the shared-folder guard. Paths with fewer than 3 segments ("/data/local", "/dev") are ignored: they are
+ * parents of everything or system paths, never a plugin's own folder. Boot files are not included (they live in the shared boot.d folder).
+ */
+internal fun commandPaths(commands: List<String>, check: String?): List<String> {
+    val re = Regex("(?<![A-Za-z0-9_./-])/[A-Za-z0-9_./-]+")
+    val out = LinkedHashSet<String>()
+    for (c in commands + listOfNotNull(check)) for (m in re.findAll(c)) {
+        val p = m.value.trimEnd('/', '.')
+        if (p.split('/').count { it.isNotEmpty() } >= 3) out.add(p)
+    }
+    return out.toList()
+}

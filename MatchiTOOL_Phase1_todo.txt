@@ -30,6 +30,7 @@ PROGRESS  (update this block after every step)
           docs/PLUGIN_STOP.md (new, Step 7), docs/examples/Stop_Example.js (new, Step 7),
           docs/CHANGELOG_DETAIL.md (Step 7: one entry)
           app/src/test/java/com/matchi/tool/PluginUninstallTest.kt (new, Step 3 added)
+          (test C fix 2: PluginUninstall.kt, WebRoutesPlugins.kt, PluginUninstallTest.kt again)
   Delivery: two zips every step - MatchiTOOL-main.zip (the full repo, always
           current) and MatchiTOOL-changes.zip (only the changed files, same
           folder paths, no top folder, for uploading to GitHub).
@@ -159,6 +160,34 @@ PROGRESS  (update this block after every step)
                      delete the OLD one with "Delete, skip the stop": the dialog must list
                      /data/local/stop_example under "Not erased", and afterwards the folder, the
                      heartbeat and the boot file must all still exist.
+                     The user installed the fixed build on the F50 (after GitHub Actions).
+                     Redo of C in progress.
+                     C redo, 2026-11-12 (web terminal in the app, uid=0 magisk):
+                       Step 1 clean start: folder and boot file were gone, but an ORPHAN
+                       heartbeat from the first C run was still running (PID 14751). kill
+                       (SIGTERM) did not end it at once (the shell waits for its
+                       foreground "sleep 30"); kill -9 ended it. boot.d held only
+                       20-bypass-ttl.sh. Clean start reached.
+                       Step 2/3: both plugins installed, job started from the OLD
+                       Stop_Example.js: beat.pid, beat.sh, beat.txt present, heartbeat
+                       PID 27676 running.
+                       Step 4 dialog for the OLD plugin (screenshot): shared warning
+                       present, BUT still "This also erases the data it left behind:
+                       /data/local/stop_example (16 KB)" and NO "Not erased" line. NOT
+                       deleted (stopped before pressing). Cause found in the code: the
+                       first fix only compared @matchi-data headers and the ledger of the
+                       other plugins. Stop_Example_New.js has neither (its job never ran, no
+                       @matchi-data), it names the folder only in its stop commands, so the
+                       data plan could not see the overlap.
+                       FIX 2 (written, NOT compiled): commandPaths() in PluginUninstall.kt
+                       takes absolute paths (3+ segments) from the other plugins' uninstall
+                       and check commands; pluginDataPlan() adds them to the "others" map.
+                       4 new tests (class PluginCommandPathsTest). Files: PluginUninstall.kt,
+                       WebRoutesPlugins.kt, PluginUninstallTest.kt. Needs GitHub Actions +
+                       a new APK before the C redo can pass with the New copy untouched.
+                       Quick check meanwhile (current build): press "Start the heartbeat
+                       job" in Stop_Example_New.js too (its ledger then holds the folder);
+                       the old plugin's dialog should then show "Not erased".
             Still to do: C (redo after the fix), D, G, H, I, then Bypass 1-4.
             Also seen: ps -A -o ARGS works on the F50 (open question in Step 7 notes).
   Bypass_v65_17.js received and compared with the Step 7 headers (see Step 7 notes).
