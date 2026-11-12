@@ -308,6 +308,12 @@ trusted() {
   case "§3" in ?????-??-?) ;; *) chmod go-w "§1" 2>/dev/null ;; esac
   return 0
 }
+# Why a path was refused, in plain words: "symlink", "owner uid N (must be root)" or "stat failed". Same checks as trusted() above.
+why() {
+  [ ! -L "§1" ] || { echo "symlink"; return; }
+  u=§(stat -c %u "§1" 2>/dev/null) || { echo "stat failed"; return; }
+  echo "owner uid §u (must be root)"
+}
 T=25
 # One script, its own time limit: a slow or failing script is logged to events.log and the next one still runs.
 runone() {
@@ -327,30 +333,37 @@ runone() {
   esac
 }
 [ -d §D ] || { echo 'No MatchiTOOL boot tasks registered'; exit 0; }
-trusted §D || { note "skipped: §D is a symlink or not owned by root"; exit 0; }
+trusted §D || { note "skipped: §D: §(why §D)"; exit 0; }
 rm -f §D/boot.current 2>/dev/null
 # Bypass was removed from MatchiTOOL, but its firewall/TTL lines can still sit in boot.sh and keep running. Lines that name "bypass" are
-# taken out once (a copy stays in boot.sh.pre-bypass-removal). The result must still be valid shell, otherwise boot.sh is left as it was.
-if [ -f §D/boot.sh ] && trusted §D/boot.sh && grep -qi bypass §D/boot.sh 2>/dev/null; then
-  cp -f §D/boot.sh §D/boot.sh.pre-bypass-removal 2>/dev/null
-  grep -vi bypass §D/boot.sh > §D/boot.sh.new 2>/dev/null
-  if [ -f §D/boot.sh.pre-bypass-removal ] && [ -f §D/boot.sh.new ] && /system/bin/sh -n §D/boot.sh.new 2>/dev/null && cat §D/boot.sh.new > §D/boot.sh 2>/dev/null; then
-    note "removed legacy Bypass lines from boot.sh (copy: boot.sh.pre-bypass-removal)"
-  else
-    note "boot.sh still has legacy Bypass lines that could not be removed safely: edit it by hand"
+# taken out ONE time only (marker file .bypass-cleanup-done), so a plugin that writes its own boot lines later is never touched. A copy stays
+# in boot.sh.pre-bypass-removal. The result must still be valid shell, otherwise boot.sh is left as it was. The marker is set only after a
+# trusted (or missing) boot.sh was looked at, so a skipped boot.sh does not use up the one-time cleanup.
+if [ ! -e §D/.bypass-cleanup-done ]; then
+  if [ ! -f §D/boot.sh ] || trusted §D/boot.sh; then
+    if [ -f §D/boot.sh ] && grep -qi bypass §D/boot.sh 2>/dev/null; then
+      cp -f §D/boot.sh §D/boot.sh.pre-bypass-removal 2>/dev/null
+      grep -vi bypass §D/boot.sh > §D/boot.sh.new 2>/dev/null
+      if [ -f §D/boot.sh.pre-bypass-removal ] && [ -f §D/boot.sh.new ] && /system/bin/sh -n §D/boot.sh.new 2>/dev/null && cat §D/boot.sh.new > §D/boot.sh 2>/dev/null; then
+        note "removed legacy Bypass lines from boot.sh (copy: boot.sh.pre-bypass-removal)"
+      else
+        note "boot.sh still has legacy Bypass lines that could not be removed safely: edit it by hand"
+      fi
+      rm -f §D/boot.sh.new 2>/dev/null
+    fi
+    : > §D/.bypass-cleanup-done 2>/dev/null
   fi
-  rm -f §D/boot.sh.new 2>/dev/null
 fi
 if [ -f §D/boot.sh ]; then
-  if trusted §D/boot.sh; then runone §D/boot.sh; else note "skipped boot.sh: symlink or not owned by root"; fi
+  if trusted §D/boot.sh; then runone §D/boot.sh; else note "skipped boot.sh: §(why §D/boot.sh)"; fi
 else echo 'No MatchiTOOL boot tasks registered'; fi
 if [ -d §D/boot.d ]; then
   if trusted §D/boot.d; then
     for f in §D/boot.d/*.sh; do
       [ -f "§f" ] || continue
-      if trusted "§f"; then runone "§f"; else note "skipped §f: symlink or not owned by root"; fi
+      if trusted "§f"; then runone "§f"; else note "skipped §f: §(why "§f")"; fi
     done
-  else note "skipped boot.d: symlink or not owned by root"; fi
+  else note "skipped boot.d: §(why §D/boot.d)"; fi
 fi
 rm -f §D/boot.current 2>/dev/null
 true

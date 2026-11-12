@@ -43,7 +43,7 @@ The console (port **2334**) is meant for a trusted ZTE hotspot / USB-tether netw
 - Each command has a timeout, bounded output (in memory and a 1 MiB file cap, with a truncation notice) and bounded concurrency (up to 3 shells; jobs over 30 s use at most 2, so short status reads still get through). Over capacity, the caller gets a "capacity reached" reply.
 - The temp files live in the root-only `/data/local/matchitool/tmp`.
 - **The command filter (`shellDanger`) is not a security boundary.** It catches accidents. It can be bypassed (encoding, quoting, variables). The real protection is the sign-in and the root gate. The root terminal and the "Blocked" reply say so.
-- Boot scripts run only from root-owned files: `/data/local/matchitool`, `boot.sh`, `boot.d` and `boot.d/*.sh` must be real files or folders (no symlinks) owned by root; group/other write permission on a root-owned entry is removed first. Before `boot.sh` runs, lines naming "bypass" are removed once (see CHANGELOG 1.4.1); other firewall or TTL lines are not touched. Check `boot.sh` by hand if you used the old Bypass tool.
+- Boot scripts run only from root-owned files: `/data/local/matchitool`, `boot.sh`, `boot.d` and `boot.d/*.sh` must be real files or folders (no symlinks) owned by root; group/other write permission on a root-owned entry is removed first. Before `boot.sh` runs, lines naming "bypass" are removed one time only (marker `.bypass-cleanup-done`; see CHANGELOG 1.4.1), so lines a plugin writes later are not touched; other firewall or TTL lines are not touched. Check `boot.sh` by hand if you used the old Bypass tool.
 
 ## Plugins
 
