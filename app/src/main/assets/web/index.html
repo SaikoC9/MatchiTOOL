@@ -5340,7 +5340,10 @@ function renderPlugins(list){
       b.disabled=!free||at+dir<0||at+dir>=list.length;b.onclick=()=>pmMove(p.name,at+dir);return b};
     const apv=[];
     if(p.integrity&&p.integrity!=='ok'){
-      const ap=document.createElement('button');ap.type='button';ap.innerHTML=pmIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>')+'<span class="pm-t">Approve</span>';ap.title=p.integrity==='changed'?'The file differs from the version you approved':'Installed before changes were tracked';ap.setAttribute('aria-label','Approve '+p.name);
+      const ap=document.createElement('button');ap.type='button';
+      ap.innerHTML=pmIcon('<path d="M5 12.5l4.5 4.5L19 7.5"/>');
+      {const al=document.createElement('span');al.className='pm-t';al.textContent='Approve';ap.appendChild(al)}
+      ap.title=p.integrity==='changed'?'The file differs from the version you approved':'Installed before changes were tracked';ap.setAttribute('aria-label','Approve '+p.name);
       ap.onclick=async()=>{
         const why=p.integrity==='changed'?p.name+' is not the file you approved. It was changed outside the console, or by something running on this device. Export and read it before you approve it.':p.name+' was installed before MatchiTOOL tracked plugin changes, so nothing can tell whether it is still the file you installed.';
         if(!(await askConfirm(why+'\n\nApprove the file as it is now? The sign-in password is asked next.','Approve',p.integrity==='changed')))return;
