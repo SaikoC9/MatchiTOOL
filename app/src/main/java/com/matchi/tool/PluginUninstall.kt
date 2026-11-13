@@ -176,12 +176,12 @@ internal enum class StopMode { NONE, SKIP, RUN }
 
 /**
  * Step 4: which of the three the delete request is. A request without "stop", and a plan with nothing declared (no command and nothing refused)
- * and no process found by the sweep ([sweepFound], Phase 2), behave as today. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept (D3).
+ * and no process found by the sweep ([sweepFound], Phase 2) and nothing for the undo ([undoCount], Phase 3), behave as today. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept (D3).
  */
-internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan, sweepFound: Int = 0): StopMode = when {
+internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan, sweepFound: Int = 0, undoCount: Int = 0): StopMode = when {
     !stop -> StopMode.NONE
     skipStop -> StopMode.SKIP
-    plan.isEmpty && plan.refused.isEmpty() && sweepFound == 0 -> StopMode.NONE   // Phase 2 / Step 5 (D2): running processes found by the sweep also mean RUN
+    plan.isEmpty && plan.refused.isEmpty() && sweepFound == 0 && undoCount == 0 -> StopMode.NONE   // Phase 2 / Step 5 (D2): running processes found by the sweep also mean RUN; Phase 3 / Step 2: so does something the undo would remove
     else -> StopMode.RUN
 }
 

@@ -296,6 +296,10 @@ fi
 rm -f §D/boot.current 2>/dev/null
 true
 """
+        // REMOVE IN 1.4.2 (Phase 3, D5): the one-time cleanup of legacy "bypass" lines in boot.sh inside BOOT_SCRIPT below (the block that starts with the
+        // comment "Bypass was removed from MatchiTOOL" and ends at its closing "fi", marker file .bypass-cleanup-done). It was added in 1.4.1 and is kept for that
+        // one version only. After it, no app code names a specific plugin. scripts/check_repo.py fails once version.properties says 1.4.2 or later while this marker
+        // is still here; also remove the cleanup part of scripts/test_boot_tasks.sh, the README paragraph and the CHANGELOG line (docs/PLUGIN_STOP.md says which).
         private const val BOOT_SCRIPT = """
 D=/data/local/matchitool
 LOG=§D/events.log

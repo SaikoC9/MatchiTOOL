@@ -376,15 +376,19 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
     uri == "/api/plugins/delete" && s.method == Method.POST -> run {
         val req = body(s)
         val wantStop = req.optBoolean("stop", false)
+        val keep = req.optBoolean("keep", false) // Phase 3 / Step 5: "Disable and stop": the same stop, but the plugin and its data stay and it is switched off
         // Erasing plugin data and stopping both run root scripts; a plain delete of the plugin file does not.
         if (req.optBoolean("erase", false) || wantStop) rootGate(s)?.let { return@run it }
         // Deleting needs the password too: delete, then install under the same name, would otherwise skip the check on replacing.
-        pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it }
+        if (!keep) pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it } // Step 5 (owner): "Turn off and stop" asks no password, like a plain toggle; the root gate above still applies
         val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val ip = s.remoteIpAddress ?: "?"
         val stopPlanNow = if (wantStop) pluginStopPlan(name) else null // read from the file BEFORE it is deleted, like the erase plan
         val skipStop = req.optBoolean("skipStop", false)
+        // keep only makes sense with a real stop: never with skipStop (then the page just toggles) and never with erase (the data stays).
+        if (keep && (!wantStop || skipStop || req.optBoolean("erase", false))) throw IllegalArgumentException("keep needs stop, and no skipStop or erase")
+        if (keep && !File(pluginDir, name).isFile) throw IllegalArgumentException("no such plugin")
         if (req.has("hookRan")) auditShell(ip, hookAuditLine(name, req.optBoolean("hookRan", false), req.optString("hookStatus")), "plugin-hook") // Step 7: audit only; never read for the outcome
         // Phase 2 / Step 5: the process sweep is part of the request only when the page sends "sweepHash" (even an empty one). A page that does not
         // (Phase 1 behaviour) never gets a sweep, so it can not be refused for a hash it never had.
@@ -393,15 +397,21 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         // D3: what the person saw is what runs. A different process list now (a new match, or one that ended) keeps everything and opens the dialog again.
         if (sweepNow != null && !sweepHashMatches(req.optString("sweepHash"), sweepNow))
             return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The processes it started changed since you reviewed it; open the delete dialog again"))
+        // Phase 3 / Step 2: the undo (firewall chains and boot scripts the ledger saw the plugin create) is part of the request only when the page sends
+        // "undoHash" (even an empty one); a page that does not never gets an undo. The same hash rule as the sweep: what the person saw is what runs.
+        val undoNow = if (stopPlanNow != null && !skipStop && req.has("undoHash")) pluginUndo(name) else null // BEFORE anything runs
+        if (undoNow != null && req.optString("undoHash") != undoNow.hash)
+            return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "What it left behind in the system changed since you reviewed it; open the delete dialog again"))
+        val undoCount = undoNow?.items?.size ?: 0
         val sweepFound = sweepNow?.result?.found ?: 0
-        if (stopPlanNow != null && stopMode(true, skipStop, stopPlanNow, sweepFound) == StopMode.RUN) {
+        if (stopPlanNow != null && stopMode(true, skipStop, stopPlanNow, sweepFound, undoCount) == StopMode.RUN) {
             // The plan is recomputed from the file as it is now; the person reviewed the one in planHash.
             if (!stopHashMatches(req.optString("planHash"), stopPlanNow))
                 return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The plugin changed since you reviewed it; open the delete dialog again"))
-            val report = if ((stopPlanNow.commands.isNotEmpty() || sweepFound > 0) && !RootShell.status(ctx).granted) {
+            val report = if ((stopPlanNow.commands.isNotEmpty() || sweepFound > 0 || undoCount > 0) && !RootShell.status(ctx).granted) {
                 val off = stopPlanNow.commands.map { CommandOutcome(it, "notRun", "root not available") }
                 val offSweep = sweepNow?.let { v -> SweepStopResult(true, emptyList(), false, emptyList(), v.result.candidates.map { "not stopped (root not available): PID ${it.pid} ${it.args}" }) }
-                stopReport(stopPlanNow, off, StopVerify.NOT_RUN, "Could not stop: root not available", offSweep)
+                withUndo(stopReport(stopPlanNow, off, StopVerify.NOT_RUN, "Could not stop: root not available", offSweep), undoNow?.let { UndoStopResult.notRun(it, "root not available") })
             } else {
                 val t0 = System.currentTimeMillis()
                 val exec = { cmd: String, ms: Long -> RootShell.run(ctx, cmd, ms) }
@@ -414,12 +424,30 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                     val auditSweep = { line: String -> auditShell(ip, line, "plugin-sweep") }
                     runSweepStop(name, sweepNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, ledgerPaths, others, auditSweep, auditSweep)
                 } else null
+                // Phase 3 / Step 2: after the sweep (no watcher left to add the rules again), undo what the ledger saw it create: jump rules, then the chain, then the
+                // boot script. Same 60 s clock, one "plugin-undo" audit line per item. A stop that is blocked or has refused commands runs none of it, like the sweep.
+                val undoRes = if (undoNow != null && stopPlanNow.blocked == null && stopPlanNow.refused.isEmpty()) {
+                    runUndoStop(undoNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, onRun = { line -> auditShell(ip, line, "plugin-undo") })
+                } else undoNow?.let { UndoStopResult.notRun(it, "the stop was blocked or has refused commands") }
                 // Step 5 of Phase 1: the check command and the boot file test share what is left of the same 60 s. D6: a clean re-scan counts as a check.
-                val verify = withSweepVerify(verifyStop(stopPlanNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, audit), sweepRes)
-                stopReport(stopPlanNow, outcomes, verify, null, sweepRes)
+                // Phase 3 / Step 3: a separate read-only look at every undo item; "undone" needs it. A clean look counts as the check for those items (D7).
+                val undoVer = if (undoNow != null && undoNow.items.isNotEmpty()) {
+                    if (undoRes != null && undoRes.ran) verifyUndo(undoNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, onRun = { line -> auditShell(ip, line, "plugin-undo") })
+                    else UndoVerify.notRun(undoNow, "the undo did not run")
+                } else null
+                val verify = withUndoVerify(withSweepVerify(verifyStop(stopPlanNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, audit), sweepRes), undoVer)
+                withUndo(stopReport(stopPlanNow, outcomes, verify, null, sweepRes), undoRes)
             }
             stopOut = report.toJson()
             if (!report.success) return@run json(Response.Status.OK, JSONObject().put("ok", false).put("kept", true).put("stop", stopOut))
+        }
+        // Phase 3 / Step 5: a stop that did not fully succeed returned above and kept the plugin ON. Only now is it switched off; its file, data and ledger stay.
+        if (keep) {
+            Prefs.setEnabled(ctx, name, false)
+            auditShell(ip, "disable " + name, "plugin-disable")
+            val outKeep = JSONObject().put("ok", true).put("disabled", true)
+            if (stopOut != null) outKeep.put("stop", stopOut)
+            return@run json(Response.Status.OK, outKeep)
         }
         val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
         val ledger = if (plan != null) traceStore.read(name) else null

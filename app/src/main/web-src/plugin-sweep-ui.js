@@ -24,12 +24,13 @@ function sweepNorm(info){
 function sweepHowText(how){return how==='tag'?'found by tag':how==='pidfile'?'found by its pid file':how==='cmdline'?'found by command line, weakest match':'found'}
 function sweepProcLine(c){return 'PID '+c.pid+(c.args?' '+c.args:'')+' ('+sweepHowText(c.how)+')'}
 /* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = Phase 1;
-   toomany = more than 50 processes found, the host refuses to end them automatically. A refused declared command wins over everything. */
-function pluginDeleteMode(sp,sw,hasHook){
+   toomany = more than 50 processes found, the host refuses to end them automatically.
+   Phase 3: [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
+function pluginDeleteMode(sp,sw,hasHook,un){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   if(refused.length)return 'cannot';
   if(sw&&sw.overCap)return 'toomany';
-  if(!cmds.length)return sw&&sw.cands.length?'sweep':hasHook?'hook':'plain';
+  if(!cmds.length)return (sw&&sw.cands.length)||(un&&un.items&&un.items.length)?'sweep':hasHook?'hook':'plain';
   return shared.length?'shared':'stop';
 }
 /* The text the sweep adds to the delete dialog. [noRoot]: the data probe already said root is missing (its own sentence covers it, so it is not repeated). */

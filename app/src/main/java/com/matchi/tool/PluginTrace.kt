@@ -243,6 +243,23 @@ internal fun pluginChains(command: String): List<String> {
 internal fun pluginBootFiles(command: String): List<String> =
     pluginWriteTargets(command).filter { BOOT_D_FILE.matches(it) }.distinct()
 
+/**
+ * Keeps at most [max] ledger lines. The oldest "P" / "E" lines (and any unknown kind) go first; "C" (chains), "B" (boot scripts) and "U" (uploads) lines are
+ * dropped only when nothing else is left, because the undo and the erase need them and they are usually the OLDEST lines (written the first time a plugin runs).
+ * Order is kept.
+ */
+internal fun capLedger(lines: List<String>, max: Int): List<String> {
+    var drop = lines.size - max
+    if (drop <= 0) return lines
+    val out = ArrayList<String>(lines.size)
+    for (l in lines) {
+        val keep = l.startsWith("C ") || l.startsWith("B ") || l.startsWith("U ")
+        if (drop > 0 && !keep) { drop--; continue }
+        out.add(l)
+    }
+    return if (drop > 0) out.takeLast(max) else out
+}
+
 /** One small text ledger per plugin: lines "P /path", "E side effect", "U uploaded-file-name", "C table chain tool" (a firewall chain it created), "B /boot.d/file" (a boot script it wrote). */
 internal class PluginTraceStore(private val dir: File) {
     private val lock = Any()
@@ -275,7 +292,7 @@ internal class PluginTraceStore(private val dir: File) {
             for (c in chains) lines.add("C $c")
             for (b in bootFiles) lines.add("B $b")
             if (lines.size == before) return
-            f.writeText(lines.toList().takeLast(MAX_LINES).joinToString("\n") + "\n", Charsets.UTF_8)
+            f.writeText(capLedger(lines.toList(), MAX_LINES).joinToString("\n") + "\n", Charsets.UTF_8)
         }
     }
 
