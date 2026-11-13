@@ -213,9 +213,26 @@ PROGRESS  (update after every step)
            dialog itself is the test).
            If the owner later wants the UID back: print "stat -c 'MTUID|%n|%u'" lines straight to the output and join them in parseSweepProbe (no shell
            lookup); needs a parser change + tests.
+        STEP 8d DEVICE RESULT (owner, 12:07, new APK): PASS for the dialog. Sweep_Lab job A running (PID 1619, PPID 1); the Delete dialog listed it
+           "found by tag" with no "could not be checked" (the old probe timed out at 11:34). Seconds to open: NOT reported. Old job G (26600) was killed
+           by hand (ps for jobG empty). The probe-speed problem is closed unless it comes back.
+        TEST A AGAIN (owner, 12:09, APK with the probe fix): the dialog was right (PID 1619 found by tag), but "Delete and stop" FAILED: "Stop did not
+           finish ... sweep: NO ANSWER for PID 1619 (tag) ... / sweep TIMEOUT: [timeout after 20000ms]", "Still there: process still running: PID 1619",
+           plugin KEPT, nothing killed (the safe result, but the sweep did not work). Dialog + retry dialog texts work as designed.
+        STEP 8e - KILL SCRIPT FIX (same kind of bug as the probe; written, Kotlin NOT compiled, validate.sh exit 0, NOT yet on the device):
+           CAUSE: sweepKillScript tree() ran s=$(cat $d/stat) for EVERY /proc entry on every pass, 3 calls x 2+ passes = thousands of programs. Measured here
+           with a counting shim for cat: old script 1848 cat calls (5.2 s in dash on a quiet box); the F50 ran into the 20 s limit.
+           FIX: tree() reads all stat files with ONE cat into T and walks the lines with shell built-ins (heredoc MTKILL_EOF, the loop stays in the main
+           shell). New test itStartsNoProgramPerProcess (PluginSweepRunTest.kt): one "cat /proc/[0-9]*/stat", no "for d in /proc", no "$d/stat".
+           Run here against a REAL tree in dash and bash (400 extra processes, a watchdog that ignores TERM and respawns, an unrelated copy of it, a bystander,
+           a reused PID, a dead PID): new script = 12 cat calls, 2.2-2.4 s (2 s of it is the built-in wait after SIGTERM), statuses killed / changed / gone
+           right, the watchdog and its child dead, the unrelated copy and the bystander alive. Same statuses as the old script. NOT the F50's sh.
+           WATCH: a timeout AFTER the freeze step leaves the tree SIGSTOPped (nothing sends SIGCONT when RootShell kills the script). After the failed run
+           above, PID 1619 may be in state T. Check with ps -A -o PID,STAT,ARGS | grep 1619 and kill -9 it by hand before the next test.
+           Idea, not done: a safer order or a CONT in the timeout path.
       TO WATCH (prediction, not a finding): L1 Sandbox_Hook_Ok - the hook kills the loop, its "sleep 30" child is orphaned but keeps the tag, the re-scan
       may list it as a NEW process and reopen the dialog once. If seen, decide whether the page should ignore orphans of processes the hook ended.
-      NEXT: build the new APK (Actions), open the Delete dialog on a plugin with a running job: it must list it in a few seconds. Then G, H, and the rest in the order above.
+      NEXT: new APK with Step 8e, repeat A (Delete and stop must end the job in a few seconds), then G, H, B, C, E, D, K, L, J, I, M, and the rest in the order above.
 
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------

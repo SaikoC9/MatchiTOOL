@@ -471,6 +471,10 @@ private val SWEEP_KILL_STATUSES = setOf("ended", "killed", "gone", "changed", "p
  *   2. the whole tree below the roots is frozen (SIGSTOP; the tree is read again and frozen again, so nothing started in between escapes);
  *   3. SIGTERM to the tree, then SIGCONT, so the processes can end by themselves; wait [SWEEP_TERM_WAIT_MS];
  *   4. the tree is read again (a parent that respawned a child is found), frozen again, then SIGKILL to all of it.
+ * SPEED (device test, F50, 2026-11-13, 490 entries in /proc): the first version read /proc/PID/stat with "$(cat ...)" for EVERY process on every pass
+ * of tree() (three calls, two or more passes each), thousands of programs, and the script ran into its 20 s limit ("NO ANSWER", plugin kept, and the
+ * tree may have been left stopped). tree() now reads every stat file with ONE cat and walks the lines with shell built-ins. Never start a program per
+ * process in this script.
  * The MatchiTOOL app process is never touched, wherever it appears in a tree. One line per root: MTKILL|PID|ended|killed|gone|changed|protected.
  * Returns null when a candidate cannot be put in safely (the caller then does not run anything).
  */
@@ -493,16 +497,18 @@ done
 alive() { s=^(cat /proc/^1/stat 2>/dev/null) || return 1; case "^s" in *') '*) ;; *) return 1 ;; esac; s=^{s##*) }; case "^s" in Z*|X*) return 1 ;; esac; return 0; }
 tree() {
   all=" ^* "; c=1
+  T=^(cat /proc/[0-9]*/stat 2>/dev/null)
   while [ ^c = 1 ]; do
     c=0
-    for d in /proc/[0-9]*; do
-      s=^(cat ^d/stat 2>/dev/null) || continue
+    while IFS= read -r s; do
       case "^s" in *') '*) ;; *) continue ;; esac
-      pid=^{d#/proc/}
+      pid=^{s%% *}
       case "^all" in *" ^pid "*) continue ;; esac
       r=^{s##*) }; set -- ^r
       case "^all" in *" ^2 "*) all="^all^pid "; c=1 ;; esac
-    done
+    done <<MTKILL_EOF
+^T
+MTKILL_EOF
   done
   echo ^all
 }

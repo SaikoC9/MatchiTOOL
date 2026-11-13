@@ -81,6 +81,16 @@ class PluginSweepKillScriptTest {
         assertEquals(1, Regex("kill -KILL").findAll(s).count())
     }
 
+    @Test fun itStartsNoProgramPerProcess() {
+        // device test (F50, 490 entries in /proc): "$(cat $d/stat)" for every process, three times over, ran into the 20 s limit
+        val s = sweepKillScript(listOf(srCand(2001)))!!
+        assertTrue(s.contains("cat /proc/[0-9]*/stat"))                  // ONE cat for every stat file
+        assertEquals(1, Regex("cat /proc/\\[0-9\\]\\*/stat").findAll(s).count())
+        for (perProcess in listOf("for d in /proc", "cat \$d", "\$d/stat"))
+            assertFalse("per-process program: $perProcess", s.contains(perProcess))
+        assertTrue(s.contains("<<MTKILL_EOF"))                           // the walk runs in the main shell, so its result survives
+    }
+
     @Test fun itNeverTakesItselfItsParentsInitKernelOrTheApp() {
         val s = sweepKillScript(listOf(srCand(2001)))!!
         assertTrue(s.contains("prot=\" 1 2 \$me \""))   // PID 1, PID 2 and the script's own shell
