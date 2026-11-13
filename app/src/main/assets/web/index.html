@@ -5379,12 +5379,13 @@ function sweepNorm(info){
 function sweepHowText(how){return how==='tag'?'found by tag':how==='pidfile'?'found by its pid file':how==='cmdline'?'found by command line, weakest match':'found'}
 function sweepProcLine(c){return 'PID '+c.pid+(c.args?' '+c.args:'')+' ('+sweepHowText(c.how)+')'}
 /* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = Phase 1;
-   toomany = more than 50 processes found, the host refuses to end them automatically. A refused declared command wins over everything. */
-function pluginDeleteMode(sp,sw,hasHook){
+   toomany = more than 50 processes found, the host refuses to end them automatically.
+   Phase 3: [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
+function pluginDeleteMode(sp,sw,hasHook,un){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   if(refused.length)return 'cannot';
   if(sw&&sw.overCap)return 'toomany';
-  if(!cmds.length)return sw&&sw.cands.length?'sweep':hasHook?'hook':'plain';
+  if(!cmds.length)return (sw&&sw.cands.length)||(un&&un.items&&un.items.length)?'sweep':hasHook?'hook':'plain';
   return shared.length?'shared':'stop';
 }
 /* The text the sweep adds to the delete dialog. [noRoot]: the data probe already said root is missing (its own sentence covers it, so it is not repeated). */
@@ -5459,6 +5460,140 @@ function hookRequestFields(h){return h&&h.status&&h.status!=='none'?{hookRan:h.r
 if(typeof module!=='undefined'&&module.exports)module.exports={sweepNorm,sweepHowText,sweepProcLine,pluginDeleteMode,sweepDialogText,sweepRetryText,sweepRequestFields,hookDialogText,sweepSubset,hookAfterScan,hookFailureReport,hookBlindReport,hookRequestFields};
 
 /* @end-include web-src/plugin-sweep-ui.js */
+/* @include web-src/plugin-undo-ui.js */
+/* Delete dialog, what the plugin left in the system (Phase 3 / Step 4). Pure text and decision helpers; the dialog itself stays in the delete handler.
+   The host (/api/plugins/data) sends "undo": {items:[{kind,label}], notUndone:[...], hash}. The items are firewall chains and boot scripts the host SAW the
+   plugin create (ledger), after its shared-use guard. Rules the page keeps:
+   - What is listed is what is undone: the page sends back the undo hash it was shown whenever it sends stop:true (even "" when nothing is listed); the host
+     answers 409 "plan-changed" when the list is different now. "Delete without stopping" sends no undoHash and the host never undoes anything for it.
+   - The list comes from the ledger and does not check that the chain or file still exists, so the dialog says "if it is still there".
+   - Items are listed even when the stop will not run (blocked, too many processes): then the dialog says plainly that they are NOT undone.
+   - Nothing is called "undone" by the page: the host's report decides (undo script answered clean AND an independent re-check found nothing). */
+function undoNorm(info){
+  const u=(info&&info.undo)||{};
+  return{
+    items:Array.isArray(u.items)?u.items.filter(i=>i&&typeof i.label==='string'&&i.label).map(i=>({kind:String(i.kind||''),label:i.label})):[],
+    notUndone:Array.isArray(u.notUndone)?u.notUndone.map(String):[],
+    hash:typeof u.hash==='string'?u.hash:''
+  };
+}
+/* True when the delete modes below run the stop, and with it the undo. 'shared' only runs it when the person picks "Delete and stop anyway". */
+function undoModeRuns(mode){return mode==='stop'||mode==='sweep'||mode==='hook'}
+/* The text the undo adds to the delete dialog. [noRoot]: the data probe said root is missing. */
+function undoDialogText(un,mode,noRoot){
+  const bullets=a=>a.map(x=>'\n\u2022 '+x).join('');
+  let m='';
+  if(un.items.length){
+    const lines=un.items.map(i=>i.label);
+    if(mode==='stop'||mode==='sweep'||mode==='hook')m+='\n\nThen it also removes what this plugin left in the system, if it is still there (run as root):'+bullets(lines);
+    else if(mode==='shared')m+='\n\nIf the stop runs, it also removes what this plugin left in the system, if it is still there:'+bullets(lines);
+    else m+='\n\nThe stop does not run, so these stay in the system:'+bullets(lines);
+    if(undoModeRuns(mode)||mode==='shared'){
+      m+='\n\nOnly firewall chains and boot scripts that this plugin\'s own commands created are listed. Each is checked again afterwards; if one is still there, the plugin is kept.';
+      if(noRoot)m+='\n\nRoot is not available, so none of this can run and the plugin would be kept.';
+    }
+  }
+  if(un.notUndone.length)m+='\n\nNot undone:'+bullets(un.notUndone);
+  return m;
+}
+/* The retry dialog after a failed stop: what Try again would undo (the host's own report of what is still there is shown above it). */
+function undoRetryText(un){
+  if(!un.items.length)return '';
+  return '\n\nTry again would also remove, if still there:'+un.items.map(i=>'\n\u2022 '+i.label).join('');
+}
+/* The "changed things deleting cannot undo" sentence. When the undo runs, what it lists is not "cannot undo" any more. */
+function undoEffectsText(fx,undoRuns){
+  const f=(Array.isArray(fx)?fx:[]).map(String);
+  if(!f.length)return '';
+  if(undoRuns)return '\n\nIt also changed: '+f.join(', ')+'. Only the items listed above are undone; the rest stays until a reboot or until you clean it by hand.';
+  return '\n\nIt also changed things that deleting cannot undo: '+f.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.';
+}
+/* A boot file left behind runs again at every boot, so a restart is not offered for it (a restart clears processes and firewall rules only). */
+function leftHasBoot(left){
+  return (Array.isArray(left)?left:[]).some(x=>{const s=String(x);return s.indexOf('boot file still there')===0||/^(still there|not undone): boot script /.test(s)});
+}
+/* Fields added to the delete request. Only a request that stops carries the hash; the key is present even when empty, or the host runs no undo. */
+function undoRequestFields(un,stop){return stop?{undoHash:(un&&un.hash)||''}:{}}
+/* The toast suffix after a stop that succeeded: the host only says success when the re-check found nothing left. */
+function undoToastText(un,stopped){return stopped&&un&&un.items.length?' ('+un.items.length+' item'+(un.items.length>1?'s':'')+' no longer in the system)':''}
+if(typeof module!=='undefined'&&module.exports)module.exports={undoNorm,undoModeRuns,undoDialogText,undoRetryText,undoEffectsText,leftHasBoot,undoRequestFields,undoToastText};
+
+/* @end-include web-src/plugin-undo-ui.js */
+/* @include web-src/plugin-disable-ui.js */
+/* "Turn off and stop" (Phase 3 / Step 5). Switching a plugin OFF can also stop what it started and undo what it left in the system, WITHOUT deleting it or its data.
+   It is the same host stop as Delete: POST /api/plugins/delete with stop:true and keep:true (no erase). The host runs declared commands, the process sweep and the undo,
+   re-checks, and only when everything is clean switches the plugin off. A stop that does not finish keeps the plugin ON and answers {ok:false,kept:true,stop:{...}}.
+   Rules the page keeps (same as Delete):
+   - What is listed is what runs: sweepHash, undoHash and planHash from the dialog go with the request; the host answers 409 when any differs and the dialog opens again.
+   - A plugin with nothing to stop (mode "plain") is switched off at once, with no dialog, as before.
+   - "Turn off only" and every "without stopping" button switch the plugin off with the old toggle request, so a missing root or a failing stop never makes it impossible to turn a plugin off.
+   - The stop hook of a sandboxed plugin is NOT run here: the hook is the plugin's uninstall code, and the plugin is not being uninstalled. */
+function disableDialog(name,sp,sw,un,mode,noRoot){
+  const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
+  const swT=sweepDialogText(sw,mode,noRoot),unT=undoDialogText(un,mode,noRoot);
+  let msg='Turn off '+name+'? Its file and its data stay.',okText='Turn off and stop',extra=[{text:'Turn off only',value:'skip'}];
+  if(mode==='sweep')msg+='\n\nThis plugin declares no stop commands.'+swT+unT;
+  else if(mode==='toomany'){msg+=swT+unT;okText='Turn off without stopping';extra=[]}
+  else if(mode==='cannot'){
+    msg+='\n\nIts stop cannot run, so nothing it started will be stopped:\n'+refused.map(r=>'\u2022 '+r.command+' ('+r.reason+')').join('\n')+swT+unT;
+    okText='Turn off without stopping';extra=[];
+  }else{
+    msg+='\n\nTurning it off also stops what it started, with its uninstall commands, run as root:\n'+cmds.map(c=>'\u2022 '+c).join('\n')+swT+unT;
+    if(sp&&sp.check)msg+='\n\nThen it checks with:\n\u2022 '+sp.check;
+    if(mode==='shared'){msg+='\n\nWarning: '+shared.join(', ')+' declares the same stop command or boot file. Stopping now would probably break '+(shared.length>1?'them':'it')+', so the stop is skipped.';okText='Turn off, skip the stop';extra=[{text:'Turn off and stop anyway',value:'stop'}]}
+  }
+  return{title:'Turn off',message:msg,okText,extra};
+}
+/* Does this answer run the stop? [choice] is what the dialog returned. */
+function disableWantsStop(mode,choice,failure){
+  if(failure)return choice===true;
+  return choice==='stop'||(choice===true&&(mode==='stop'||mode==='sweep'||mode==='hook'));
+}
+/* The dialog after a stop that did not finish (the plugin is still ON). */
+function disableFailureDialog(name,failure,sw,un){
+  let msg=name+' was NOT turned off, because what it started could not be stopped completely.';
+  if(failure.log)msg+='\n\n'+failure.log;
+  const left=failure.leftovers||[],nc=failure.notChecked||[];
+  if(left.length)msg+='\n\nStill there:\n'+left.map(x=>'\u2022 '+x).join('\n');
+  if(nc.length)msg+='\n\nNot checked:\n'+nc.map(x=>'\u2022 '+x).join('\n');
+  msg+=sweepRetryText(sw)+undoRetryText(un);
+  const extra=[{text:'Turn off without stopping',value:'skip',danger:true}];
+  if(left.length&&!leftHasBoot(left)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
+  return{title:'Stop did not finish',message:msg,okText:'Try again',extra};
+}
+function disableRequestBody(name,sp,sw,un){
+  return Object.assign({name,stop:true,keep:true,planHash:(sp&&sp.planHash)||''},sweepRequestFields(sw,true),undoRequestFields(un,true));
+}
+function disableToast(name,r,un){
+  const stopped=!!(r&&r.stop&&r.stop.success===true);
+  return 'Turned off '+name+(stopped?', and stopped what it started'+undoToastText(un,true):'');
+}
+if(typeof module!=='undefined'&&module.exports)module.exports={disableDialog,disableWantsStop,disableFailureDialog,disableRequestBody,disableToast};
+
+/* @end-include web-src/plugin-disable-ui.js */
+/* Switch a plugin OFF, and stop what it started when there is something to stop (Phase 3 / Step 5, see web-src/plugin-disable-ui.js).
+   Returns 'plain' (nothing to stop, or the person chose to turn it off without stopping: the caller sends the old toggle request), 'done' (the host stopped it and switched it off)
+   or 'cancel'. A failed stop keeps the plugin ON and opens the dialog again with the report. */
+async function pluginTurnOff(p){
+  let failure=null;
+  while(true){
+    let info=null;try{info=await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:p.name})})}catch(_){}
+    const sp=(info&&info.stopPlan)||{},sw=sweepNorm(info),un=undoNorm(info),noRoot=!!(info&&info.rootOk===false);
+    const mode=pluginDeleteMode(sp,sw,false,un);   /* no hook: the plugin is not being uninstalled */
+    if(!failure&&mode==='plain')return 'plain';
+    const dlg=failure?disableFailureDialog(p.name,failure,sw,un):disableDialog(p.name,sp,sw,un,mode,noRoot);
+    const choice=await askDialog({title:dlg.title,message:dlg.message,okText:dlg.okText,danger:false,extra:dlg.extra,maxWidth:'460px'});
+    if(!choice)return 'cancel';
+    if(choice==='reboot'){document.getElementById('rebootbtn').click();return 'cancel'}
+    if(!disableWantsStop(mode,choice,failure))return 'plain';
+    let r;
+    try{r=await api('/api/plugins/delete',{method:'POST',body:JSON.stringify(disableRequestBody(p.name,sp,sw,un))})}
+    catch(e){if(/changed since you reviewed/.test(e.message||'')){createToast(e.message,'orange');failure=null;continue}throw e}
+    if(r&&r.ok===false&&r.kept&&r.stop){failure=r.stop;continue}
+    createToast(disableToast(p.name,r,un));
+    return 'done';
+  }
+}
 let pmFilter='all';
 function pmIcon(d){return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>'}
 function renderPlugins(list){
@@ -5476,7 +5611,7 @@ function renderPlugins(list){
     const meta=document.createElement('div');meta.className='pm-m';meta.textContent=[pmeta.version?'v'+pmeta.version:'',pmeta.author,`${Math.max(1,Math.ceil((p.code||'').length/1024))} KB`,p.risk==='block'?'\u26A0 risky code':p.risk==='warn'?'review code':'',p.mode==='sandbox'?'sandboxed':'',p.integrity==='changed'?'\u26A0 changed since approved':p.integrity==='untracked'?'not tracked':'',p.enabled?'On':'Off'].filter(Boolean).join(' · ');
     if(pmeta.description||pmeta.requires.length)meta.title=[pmeta.description,pmeta.requires.length?'Needs: '+pmeta.requires.join(', '):''].filter(Boolean).join(' \u2014 ');wrap.append(n,meta);
     const t=document.createElement('button');t.type='button';t.className='pm-sw';t.setAttribute('role','switch');t.setAttribute('aria-checked',p.enabled?'true':'false');t.setAttribute('aria-label',(p.enabled?'Disable ':'Enable ')+p.name);t.innerHTML='<i></i>';
-    t.onclick=async()=>{t.disabled=true;try{await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});await refreshPluginList();location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
+    t.onclick=async()=>{t.disabled=true;try{if(p.enabled){const o=await pluginTurnOff(p);if(o==='cancel'){t.disabled=false;return}if(o==='done'){await refreshPluginList();location.reload();return}}await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name:p.name,enabled:!p.enabled})});await refreshPluginList();location.reload()}catch(e){t.disabled=false;createToast(e.message,'red')}};
     const acts=document.createElement('div');acts.className='pm-acts';
     const ex=document.createElement('button');ex.type='button';ex.innerHTML=pmIcon('<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>')+'<span class="pm-t">Export</span>';ex.title='Export';ex.setAttribute('aria-label','Export '+p.name);ex.onclick=()=>p.kind==='html'?downloadText((p.title||p.name)+'.txt',ufiBuild([{title:p.title||p.name,content:p.code||''}]),'text/plain'):downloadText(p.name,p.code||'','text/javascript');
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
@@ -5492,7 +5627,7 @@ function renderPlugins(list){
         const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
         const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
         const sp=(info&&info.stopPlan)||{},cmds=sp.commands||[],refused=sp.refused||[],shared=sp.shared||[];
-        const sw=sweepNorm(info),ent=p.mode==='sandbox'?sbxEntries.get(p.name):null,hk=!!(ent&&ent.hook&&!ent.dead),mode=pluginDeleteMode(sp,sw,hk);   /* a hook exists only for a sandboxed plugin that is loaded now (D5 = b, D7) */
+        const sw=sweepNorm(info),un=undoNorm(info),ent=p.mode==='sandbox'?sbxEntries.get(p.name):null,hk=!!(ent&&ent.hook&&!ent.dead),mode=pluginDeleteMode(sp,sw,hk,un);   /* a hook exists only for a sandboxed plugin that is loaded now (D5 = b, D7) */
         let msg,okText='Delete',extra=[],title='Confirm';
         if(failure){
           title='Stop did not finish';okText='Try again';
@@ -5501,13 +5636,13 @@ function renderPlugins(list){
           const left=failure.leftovers||[],nc=failure.notChecked||[];
           if(left.length)msg+='\n\nStill there:\n'+left.map(x=>'\u2022 '+x).join('\n');
           if(nc.length)msg+='\n\nNot checked:\n'+nc.map(x=>'\u2022 '+x).join('\n');
-          msg+=sweepRetryText(sw);
+          msg+=sweepRetryText(sw)+undoRetryText(un);
           extra=[{text:'Delete without stopping',value:'skip',danger:true}];
-          if(left.length&&!left.some(x=>x.indexOf('boot file still there')===0)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
+          if(left.length&&!leftHasBoot(left)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
         }else{
           msg='Delete '+p.name+'? Export a backup first if you may need it again.';
           const noRoot=info&&info.rootOk===false;if(noRoot)msg+='\n\nRoot is not available, so it cannot be checked which data this plugin left behind. Nothing can be erased until root works.';if((!noRoot&&present.length)||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';if(!noRoot)for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
-          const swText=(hk?hookDialogText(ent.grant.map(sbxDescribe),mode):'')+sweepDialogText(sw,mode,noRoot);   /* the hook line only for a plugin that registered a hook */let swDone=false;
+          const swText=(hk?hookDialogText(ent.grant.map(sbxDescribe),mode):'')+sweepDialogText(sw,mode,noRoot),unText=undoDialogText(un,mode,noRoot);   /* the hook line only for a plugin that registered a hook */let swDone=false;
           if(mode==='plain')msg+='\n\nThis plugin declares no stop commands. Anything it started may keep running.';
           else if(mode==='toomany')okText='Delete without stopping';
           else if(mode==='sweep'||mode==='hook'){msg+='\n\nThis plugin declares no stop commands.';okText='Delete and stop'}
@@ -5516,13 +5651,13 @@ function renderPlugins(list){
             okText='Delete without stopping';
           }else{
             msg+='\n\nAll its files and data will be deleted, and what it started will be stopped by its uninstall commands, run as root:\n'+cmds.map(c=>'\u2022 '+c).join('\n');
-            msg+=swText;swDone=true;
+            msg+=swText+unText;swDone=true;
             if(sp.check)msg+='\n\nThen it checks with:\n\u2022 '+sp.check;
             if(mode==='shared'){msg+='\n\nWarning: '+shared.join(', ')+' declares the same stop command or boot file. Stopping now would probably break '+(shared.length>1?'them':'it')+', so the stop is skipped.';okText='Delete, skip the stop';extra=[{text:'Delete and stop anyway',value:'stop'}]}
             else okText='Delete and stop';
           }
-          if(!swDone)msg+=swText;
-          if(fx.length&&mode!=='stop')msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.';
+          if(!swDone)msg+=swText+unText;
+          if(mode!=='stop')msg+=undoEffectsText(fx,undoModeRuns(mode)&&un.items.length>0);
           if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased: '+info.rejected.map(r=>r.path+(r.reason?' ('+r.reason+')':'')).join('; ');
         }
         const choice=await askDialog({title,message:msg,okText,danger:!failure,extra,maxWidth:'460px'});
@@ -5531,7 +5666,7 @@ function renderPlugins(list){
         const stop=(!failure&&(mode==='stop'||mode==='sweep'||mode==='hook'))||choice==='stop'||(!!failure&&choice===true);
         const skip=choice==='skip'||(!failure&&(mode==='cannot'||mode==='toomany'));
         const body={name:p.name,erase:true};
-        if(stop){body.stop=true;body.planHash=sp.planHash||'';Object.assign(body,sweepRequestFields(sw,true))}
+        if(stop){body.stop=true;body.planHash=sp.planHash||'';Object.assign(body,sweepRequestFields(sw,true),undoRequestFields(un,true))}
         else if(skip){body.stop=true;body.skipStop=true}
         /* Step 7: the stop hook of a sandboxed plugin runs BEFORE the request. Its answer is not believed: it only decides whether to go on at all
            (a hook that failed or did not finish keeps the plugin), and a scan afterwards gives the sweepHash that is sent. */
@@ -5545,7 +5680,7 @@ function renderPlugins(list){
           d.disabled=false;
           if(after.kind==='blind'){failure=hookBlindReport(after.message);continue}
           if(after.kind==='changed'){createToast('A process that was not listed before is running now. Check the list and confirm again.','orange');failure=null;continue}
-          Object.assign(body,sweepRequestFields(after.sw,true));hookDone=true;
+          Object.assign(body,sweepRequestFields(after.sw,true),undoRequestFields(un,true));hookDone=true;
         }
         Object.assign(body,hookRequestFields(lastHook));
         d.disabled=true;
@@ -5560,7 +5695,7 @@ function renderPlugins(list){
         try{const pre=pluginLsPrefixes(p);if(window.caches){for(const k of await caches.keys()){if(pluginKeyMine(k,pre))await caches.delete(k)}}}catch(_){}
         const failed=r&&r.erase&&r.erase.success===false;
         const stopped=r&&r.stop&&r.stop.success===true;
-        createToast(failed?'Deleted '+p.name+', but some data could not be erased':(stopped?'Stopped and deleted ':'Deleted ')+p.name+(present.length||lsKeys.length||ssKeys.length||ups.length?' and its data':'')+(hookDone&&!stopped?'. Its stop code ran and a scan found nothing left running':''),failed?'orange':undefined);
+        createToast(failed?'Deleted '+p.name+', but some data could not be erased':(stopped?'Stopped and deleted ':'Deleted ')+p.name+undoToastText(un,stopped)+(present.length||lsKeys.length||ssKeys.length||ups.length?' and its data':'')+(hookDone&&!stopped?'. Its stop code ran and a scan found nothing left running':''),failed?'orange':undefined);
         await refreshPluginList();
         return;
       }
