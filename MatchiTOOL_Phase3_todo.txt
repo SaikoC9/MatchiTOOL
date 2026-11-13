@@ -1,0 +1,142 @@
+MatchiTOOL - PHASE 3 TO-DO  (written after reading code and the Phase 2 device results; Phase 2 closed 2026-11-13)
+"Delete plugin" also undoes what the plugin changed OUTSIDE its own files - even when it declared nothing
+=================================================================
+
+GOAL
+  Phase 2 ends what a plugin STARTED (processes). Phase 3 undoes what it LEFT BEHIND in the system.
+  Seen on the F50 (Phase 2 test M, Bypass without headers): the sweep ended both watchers, but these stayed until a reboot or by-hand cleanup:
+    - the firewall chain UFI_DPI (-N UFI_DPI, a jump from POSTROUTING, TCPMSS rules)
+    - the pin /sys/fs/bpf/ttl_bpf
+    - the boot entry /data/local/matchitool/boot.d/20-bypass-ttl.sh  (the watcher would start again at the next boot)
+    - its folders /data/local/ufi_ttl and /data/local/ufi_dpi (no ledger path, so nothing erased them)
+  With the @matchi-uninstall headers all of this was removed (M part 1). Phase 3 closes the same gap for a plugin WITHOUT headers, where the host can learn
+  what to undo. Phase 3 never guesses: it undoes only what the host SAW the plugin's own commands create.
+
+HOW TO READ THIS
+  [FACT]       = read in the repo (file named).
+  [DECISION]   = the owner must answer (section DECISIONS).
+  [UNVERIFIED] = needs a device check (F50). Nothing here was compiled or run.
+  Files read for this plan: PluginTrace.kt (all), PluginPaths.kt (checkPluginDataPath, declarations), PluginUninstall.kt (stop plan, verify, commandPaths),
+  HostService.kt (boot runner, lines 325-366). NOT read: WebRoutesPlugins.kt delete route, index.html, docs/*.md, the unit tests of the ledger.
+
+DELIVERY (owner's standing request): with every step the FULL project zip, a zip with ONLY the changed files (repo paths), and this txt.
+  EXCEPTION: when ONLY this txt changed, hand over the txt alone.
+
+PROGRESS  (update after every step)
+------------------------------------------------------------------
+  [x] D1, D2, D5, D6 answered by the owner (all as recommended, 2026-11-13). D3, D4, D7 NOT asked yet: the plan assumes the recommended answer, owner may change them.
+  [x] Step 0 - ledger lines for chains and boot files (pure, tested). WRITTEN AND COMPILED HERE (Gradle's Kotlin compiler, scripts/kotlin_pure_tests.sh via a scratch copy that
+      also skips files containing "org.json."): 386 tests OK (Phase 1-2 + 9 new in PluginTraceTest.kt). Mutation check: allowing built-in chains makes 2 tests fail,
+      loosening the boot file name makes 1 fail. validate.sh exit 0. Two call sites changed in files that need the Android build (WebServer.kt traceCommand,
+      WebRoutesPlugins.kt pluginCall): each is now ONE line, traceStore.recordCommand(plugin, command). Those two lines are NOT compiled here (GitHub Actions).
+      PluginTrace.kt: chainEntry / parseChainEntry (the safe "TABLE CHAIN TOOL" text; built-in chains, odd names, tables outside filter/nat/mangle/raw/security refused;
+      parse refuses any text that does not round-trip), pluginChains(command) (iptables / ip6tables [-t T] -N CHAIN, also inside sh -c / su -c / timeout / nohup / VAR=x),
+      pluginBootFiles(command) (a write target directly in /data/local/matchitool/boot.d named NN-name.sh), PluginTraceStore.recordCommand(), record() with chains and
+      bootFiles, Ledger.chains and Ledger.bootFiles (old ledger files still read). New ledger line kinds "C table chain tool" and "B /path".
+      DEVIATION from the design in this file: NO "J" (jump) lines. The undo script (Step 2) finds the jumps to a chain itself by reading iptables -S at delete time and
+      removing every rule that jumps to a chain this plugin created. That needs no extra ledger data and leaves less to go wrong.
+      FACT confirmed: a boot.d path never reaches the "P" lines (checkPluginDataPath refuses MatchiTOOL's own folder), so the new "B" line is the only record of it; a test checks it.
+      NOT seen: a command that builds the tool through a variable (IPT -N ...) or writes the chain inside a helper script: not recorded (LIMITS).
+      UNVERIFIED on the F50: that Bypass's own commands, as the page sends them, contain a plain "iptables -t mangle -N UFI_DPI" and write 20-bypass-ttl.sh with a literal path.
+      Check after the next build: reinstall the NoHeaders copy, Strong mode, then look at the ledger file (no UI yet; ask for the .trace file in the plugin's data folder).
+  [ ] Step 1 - undo plan: what the host would undo, shown in the Delete dialog
+  [ ] Step 2 - undo scripts (boot.d file, firewall chain), run on "Delete and stop"
+  [ ] Step 3 - verify + report (nothing is "undone" unless re-checked)
+  [ ] Step 4 - "Disable and stop"
+  [ ] Step 5 - HostService: the name-based "bypass" boot cleanup (F16 of Phase 1)
+  [ ] Step 6 - docs
+  [ ] Step 7 - device tests
+
+FACTS FOUND IN THE CODE
+------------------------------------------------------------------
+Q1  The ledger (PluginTrace.kt) has three line kinds: "P /path" (write targets read from command TEXT), "E side effect" (a plain word list), "U uploaded name".
+    The E line says only "firewall rules" or "boot script lines". It stores NO chain name, NO table, NO tool (iptables / ip6tables), NO boot file name.
+    So today the host cannot tell WHICH chain a plugin made. pluginSideEffects() is a regex on the command text.
+Q2  pluginWriteTargets() sees redirections, tee, mkdir, touch, cp / mv / install / ln, dd of=, curl -o, wget -O, unzip -d, tar -C, sqlite3. A path built inside a
+    script file the plugin wrote is NOT seen (same limit as Phase 2, P2). The Bypass boot file is written by a helper script, so it may or may not be in its ledger.
+Q3  checkPluginDataPath (PluginPaths.kt) refuses to erase anything under /data/local/matchitool ("MatchiTOOL's own folder is protected"), so a ledger path in
+    boot.d is never erased today even when it is the plugin's own file. Erasing is only allowed under /data/local (not protected names), /data/local/tmp, /sdcard.
+    [FACT] The Phase 1 doc comment says boot files "live in the shared boot.d folder" and are checked, not erased, by Phase 1 (@matchi-boot + a file test).
+Q4  The boot runner (HostService.kt ~360) runs boot.sh and then every boot.d/*.sh, each as root, with a 25 s limit. A leftover file there runs again at every boot.
+Q5  HostService.kt lines 338-354 hold a ONE-TIME cleanup that deletes lines containing the word "bypass" from boot.sh (marker .bypass-cleanup-done). It names a specific
+    plugin by text. The marker exists on the F50 (dated 2026-11-12), so it already ran there. [UNVERIFIED] on devices that update from a version older than the cleanup.
+Q6  /sys/fs/bpf/ttl_bpf is created by a program the plugin runs, not by a command whose text names the pin. The host sees no "write" to it. checkPluginDataPath would
+    refuse /sys anyway. Today only a plugin's own @matchi-uninstall can remove it.
+Q7  The shared-copy rule of Phases 1-2 (an old copy must not break a newer copy) applies here too: two copies of a plugin may both use chain UFI_DPI or the same
+    boot.d file. Undo must be skipped for anything another installed plugin also records or declares.
+Q8  A boot.d file is also a way to run code as root at every boot. Anything that DELETES or REWRITES boot files must be exact: this plugin's ledger, a safe file name,
+    a regular file (no symlink), owned by root, not named by another plugin or by MatchiTOOL.
+
+PROPOSED DESIGN (all [DECISION] until answered)
+------------------------------------------------------------------
+A  Ledger gets two new line kinds, written when a command passes through the host with a plugin name (same sites as the Phase 2 tag):
+     "C table chain tool"   from  iptables|ip6tables [-t TABLE] -N CHAIN   (chain name letters, digits, _ and -, at most 28 characters)
+     "J table parent chain tool"  from  -A|-I PARENT ... -j CHAIN  where CHAIN is a chain this plugin created (so a plugin cannot make the host touch a system chain)
+     "B /data/local/matchitool/boot.d/NN-name.sh"  from a write target in boot.d whose name matches ^[0-9]{2}-[A-Za-z0-9._-]{1,60}\.sh$
+   Only text the host SAW. A chain made inside a helper script is not recorded (stays in LIMITS).
+B  Undo of a recorded chain, run as root on "Delete and stop", AFTER the sweep (so no watcher re-adds rules): delete every rule that jumps to the chain
+     (iptables -t T -S | rules containing "-j CHAIN" -> -D), then -F CHAIN, then -X CHAIN. Both iptables and ip6tables if both were recorded.
+   The script is built by the host from the recorded names only (validated characters), like the sweep kill script; no plugin text is put in.
+C  Undo of a recorded boot.d file: remove it only when it passes Q8 (own ledger, safe name, regular file, no other plugin names it). Everything else is listed, not touched.
+D  The dialog lists every undo BEFORE it happens ("It will also remove the firewall chain UFI_DPI (iptables, mangle) and the boot file 20-bypass-ttl.sh"), and a hash
+   of the list is sent back like sweepHash: what you saw is what runs.
+E  Verify after: chain gone (iptables -S), boot file gone. The report says "undone" only when the re-check ran. Failure keeps the plugin (same rule as Phase 1/2).
+F  "Disable and stop": the plugin's toggle gets a stop (sweep + declared commands + the undo above) WITHOUT deleting the plugin or its data.
+
+DECISIONS - ANSWERED: D1 yes, D2 yes, D5 keep one more version then remove, D6 yes (after the undo passes on the device). OPEN (assumed as recommended): D3, D4, D7
+------------------------------------------------------------------
+D1  Firewall chains: undo the chains the host saw the plugin create (A, B)?  [Yes: only chains created with -N in the plugin's own commands, plus the jumps to them.]
+D2  Boot files: erase a boot.d file that the ledger shows the plugin wrote (A, C), under the Q8 rules?  [Yes. Exact name, regular file, not named by another plugin.]
+D3  The eBPF pin (Q6) and other kernel state: leave it, list it ("not undone: /sys/fs/bpf/ttl_bpf may remain until reboot")?  [Yes: do not touch /sys from a guess.
+    A plugin that wants it removed keeps using @matchi-uninstall.]
+D4  Folders the plugin made but the ledger did not see (Bypass: /data/local/ufi_ttl): leave them, as today?  [Yes. Only ledger paths are erased (Phase 1 rule).]
+D5  Remove the name-based "bypass" cleanup in HostService (Q5)?  [Keep it for one more version, then remove: removing it now could leave legacy lines on a device that
+    never ran it. Add a docs note and a removal date. The Phase 2 DONE rule "no app code names a plugin" is about Phase 2 code only.]
+D6  "Disable and stop" (F): build it in this phase?  [Yes, after A-E pass on the device; it reuses the same stop code, so it is small.]
+D7  Does a clean re-check of the chain and the boot file count as the "check" for a plugin with no @matchi-check (like D6 of Phase 2)?  [Yes, for those items only.]
+
+DO THE STEPS IN THIS ORDER
+------------------------------------------------------------------
+STEP 0 - Ledger lines (pure)                    Files: PluginTrace.kt (+ PluginTraceTest.kt)
+[ ] Parse iptables / ip6tables -N and -A/-I ... -j for chains the plugin created; parse boot.d writes. New record() kinds C, J, B; old ledgers still read.
+[ ] Tests: -t table forms, quoted names, bad names refused, a jump to a system chain (INPUT, POSTROUTING) is NOT recorded as a chain of the plugin, ip6tables,
+    a chain made and used in one sh -c, old ledger files.
+STEP 1 - Undo plan and dialog data              Files: PluginUninstall.kt (or a new PluginUndo.kt, pure), WebRoutesPlugins.kt (/api/plugins/data)
+[ ] undoPlan(plugin ledger, other plugins' ledgers + declarations) -> items + "not undone" + undoHash. Shared guard (Q7).
+STEP 2 - Run                                    Files: PluginUndo.kt, WebRoutesPlugins.kt (delete route)
+[ ] undoScript(items) root script, only validated names; order: declared commands -> sweep -> undo -> re-check. Same 60 s clock; one audit line per action ("plugin-undo").
+[ ] Test the generated script in a real sh with a fake iptables (like the Phase 2 kill script).
+STEP 3 - Verify and report                      Files: PluginUninstall.kt
+[ ] Re-check: chain absent, boot file absent. "Undone" only when the re-check ran. Failure keeps the plugin.
+STEP 4 - Page                                   Files: web-src (new plugin-undo-ui.js), index.html
+[ ] Dialog lines, retry dialog, node tests in validate.sh.
+STEP 5 - Disable and stop (if D6 = yes)         Files: WebRoutesPlugins.kt, index.html
+STEP 6 - HostService bypass cleanup (D5)        Files: HostService.kt, docs
+STEP 7 - Docs                                   Files: docs/PLUGIN_STOP.md, docs/CHANGELOG_DETAIL.md (README / SECURITY.md stay Phase 4)
+STEP 8 - Device tests (F50)
+[ ] A. Bypass copy WITHOUT headers, Strong mode, Delete and stop: no UFI_DPI chain, no 20-bypass-ttl.sh, no watcher; /sys/fs/bpf/ttl_bpf listed as "not undone" (D3).
+[ ] B. Same after a reboot WITHOUT cleanup: nothing comes back.
+[ ] C. Two copies using one chain: delete the old copy, the chain stays; delete the last, it goes.
+[ ] D. A boot.d file written by another plugin or by MatchiTOOL is never removed.
+[ ] E. A chain the plugin did NOT create (a system chain it only jumps into) is never flushed or deleted.
+[ ] F. Root missing / timeout: nothing undone, plugin kept, report says what did not run.
+
+DONE WHEN
+------------------------------------------------------------------
+[ ] A plugin with no headers leaves no firewall chain and no boot.d file that the host saw it create, or it is kept and the report says what is left.
+[ ] The dialog lists every undo before it happens; what you saw is what runs (undoHash).
+[ ] Nothing owned by another plugin, by MatchiTOOL or by Android is touched (shared guard, safe names, own-created chains only).
+[ ] The report never says "undone" when the re-check did not run.
+[ ] No app code names a specific plugin (after D5).
+
+LIMITS (say them in the docs)
+------------------------------------------------------------------
+  - Only what the host SAW in command text. A chain or boot file made inside a script file the plugin wrote is not recorded (same limit as Phase 2).
+  - Kernel state (eBPF pins, /sys, properties, routes) is listed, not undone, unless the plugin declares its own @matchi-uninstall.
+  - A plugin can lie about its name; this protects against a forgetful plugin, not a hostile one.
+
+NEXT (not in this phase)
+------------------------------------------------------------------
+Phase 4: docs: README, SECURITY.md, CHANGELOG, docs/PLUGIN_SANDBOX.md, docs/PLUGIN_STORE.md, plugin author guide
+
+Note: nothing here was compiled or run on a device.

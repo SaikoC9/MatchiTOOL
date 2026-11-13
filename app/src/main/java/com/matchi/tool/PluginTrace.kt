@@ -169,19 +169,98 @@ internal fun pluginSideEffects(command: String): Set<String> {
     return out
 }
 
-/** One small text ledger per plugin: lines "P /path", "E side effect", "U uploaded-file-name". */
+private val FW_TOOLS = setOf("iptables", "ip6tables")
+private val FW_TABLES = setOf("filter", "nat", "mangle", "raw", "security")
+private val FW_BUILTIN = setOf("INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING")
+private val CHAIN_NAME = Regex("^[A-Za-z0-9_-]{1,28}$")
+private val BOOT_D_FILE = Regex("^/data/local/matchitool/boot\\.d/[0-9]{2}-[A-Za-z0-9._-]{1,60}\\.sh$")
+
+/** One ledger "C" entry: "TABLE CHAIN TOOL" (for example "mangle UFI_DPI iptables"), or null when it is not a safe, plugin-made chain. */
+internal fun chainEntry(table: String, chain: String, tool: String): String? =
+    if (table in FW_TABLES && tool in FW_TOOLS && CHAIN_NAME.matches(chain) && chain !in FW_BUILTIN) "$table $chain $tool" else null
+
+/** Splits a ledger "C" entry back into (table, chain, tool); null when it does not pass [chainEntry] again (a hand-edited ledger cannot smuggle text in). */
+internal fun parseChainEntry(entry: String): Triple<String, String, String>? {
+    val p = entry.split(' ')
+    if (p.size != 3 || chainEntry(p[0], p[1], p[2]) != entry) return null
+    return Triple(p[0], p[1], p[2])
+}
+
+private fun scanChains(cmd: String, depth: Int, out: MutableSet<String>) {
+    if (depth > 3) return
+    var group = ArrayList<String>()
+    for (t in shellTokens(cmd) + SEP) {
+        if (t != SEP) { group.add(t); continue }
+        if (group.isNotEmpty()) scanChainGroup(group, depth, out)
+        group = ArrayList()
+    }
+}
+
+private fun scanChainGroup(words: List<String>, depth: Int, out: MutableSet<String>) {
+    val args = ArrayList(words.filter { REDIR.find(it) == null })
+    while (args.isNotEmpty() && ASSIGN.containsMatchIn(args[0])) args.removeAt(0)
+    while (args.isNotEmpty() && args[0].substringAfterLast('/') in SKIP_VERBS) args.removeAt(0)
+    if (args.isEmpty()) return
+    val verb = args[0].substringAfterLast('/')
+    val rest = args.drop(1)
+    if (verb == "sh" || verb == "bash" || verb == "ash" || verb == "su") {
+        val c = rest.indexOf("-c")
+        if (c >= 0 && c + 1 < rest.size) scanChains(rest[c + 1], depth + 1, out)
+        return
+    }
+    if (verb == "timeout") {
+        val r = rest.dropWhile { it.startsWith("-") }.drop(1)
+        if (r.isNotEmpty()) scanChainGroup(r, depth, out)
+        return
+    }
+    if (verb !in FW_TOOLS) return
+    var table = "filter"
+    var j = 0
+    while (j < rest.size) {
+        val a = rest[j]
+        if ((a == "-t" || a == "--table") && j + 1 < rest.size) { table = rest[j + 1]; j++ }
+        else if (a.startsWith("--table=")) table = a.removePrefix("--table=")
+        else if ((a == "-N" || a == "--new-chain") && j + 1 < rest.size) { chainEntry(table, rest[j + 1], verb)?.let { out.add(it) }; j++ }
+        j++
+    }
+}
+
+/**
+ * Firewall chains a command CREATES (iptables / ip6tables [-t TABLE] -N CHAIN), as ledger "C" entries. Only a plain -N is read: a chain made
+ * through a shell variable for the tool, or inside a script file the plugin wrote, is not seen (the same limit as the write targets).
+ * Built-in chains and names with odd characters are dropped, so a plugin cannot make the host touch a system chain.
+ */
+internal fun pluginChains(command: String): List<String> {
+    val out = LinkedHashSet<String>()
+    scanChains(command, 0, out)
+    return out.toList()
+}
+
+/** Boot scripts a command writes: only a file directly inside MatchiTOOL's boot.d folder with a name like 20-name.sh. Same safe-name rule Phase 3 uses to remove it. */
+internal fun pluginBootFiles(command: String): List<String> =
+    pluginWriteTargets(command).filter { BOOT_D_FILE.matches(it) }.distinct()
+
+/** One small text ledger per plugin: lines "P /path", "E side effect", "U uploaded-file-name", "C table chain tool" (a firewall chain it created), "B /boot.d/file" (a boot script it wrote). */
 internal class PluginTraceStore(private val dir: File) {
     private val lock = Any()
     private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.(js|html)$")
 
-    class Ledger(val paths: List<String>, val effects: List<String>, val uploads: List<String>)
+    class Ledger(val paths: List<String>, val effects: List<String>, val uploads: List<String>,
+                 val chains: List<String> = emptyList(), val bootFiles: List<String> = emptyList())
 
     private fun fileFor(plugin: String): File? =
         if (nameRx.matches(plugin) && !plugin.contains("..")) File(dir, "$plugin.trace") else null
 
-    fun record(plugin: String, paths: Collection<String>, effects: Collection<String>, uploads: Collection<String> = emptyList()) {
+    /** Everything the ledger learns from one command text (write targets, side effects, chains, boot scripts). */
+    fun recordCommand(plugin: String, command: String) {
+        record(plugin, pluginWriteTargets(command).filter { checkPluginDataPath(it, plugin) == null }, pluginSideEffects(command),
+            emptyList(), pluginChains(command), pluginBootFiles(command))
+    }
+
+    fun record(plugin: String, paths: Collection<String>, effects: Collection<String>, uploads: Collection<String> = emptyList(),
+               chains: Collection<String> = emptyList(), bootFiles: Collection<String> = emptyList()) {
         val f = fileFor(plugin) ?: return
-        if (paths.isEmpty() && effects.isEmpty() && uploads.isEmpty()) return
+        if (paths.isEmpty() && effects.isEmpty() && uploads.isEmpty() && chains.isEmpty() && bootFiles.isEmpty()) return
         synchronized(lock) {
             dir.mkdirs()
             val lines = LinkedHashSet<String>()
@@ -190,6 +269,8 @@ internal class PluginTraceStore(private val dir: File) {
             for (p in paths) lines.add("P $p")
             for (e in effects) lines.add("E $e")
             for (u in uploads) lines.add("U $u")
+            for (c in chains) lines.add("C $c")
+            for (b in bootFiles) lines.add("B $b")
             if (lines.size == before) return
             f.writeText(lines.toList().takeLast(MAX_LINES).joinToString("\n") + "\n", Charsets.UTF_8)
         }
@@ -197,10 +278,10 @@ internal class PluginTraceStore(private val dir: File) {
 
     fun read(plugin: String): Ledger {
         val f = fileFor(plugin)
-        if (f == null || !f.isFile) return Ledger(emptyList(), emptyList(), emptyList())
+        if (f == null || !f.isFile) return Ledger(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
         val lines = synchronized(lock) { f.readLines(Charsets.UTF_8) }
         fun pick(tag: String) = lines.filter { it.startsWith("$tag ") }.map { it.substring(2) }.distinct()
-        return Ledger(pick("P"), pick("E"), pick("U"))
+        return Ledger(pick("P"), pick("E"), pick("U"), pick("C"), pick("B"))
     }
 
     fun clear(plugin: String) {

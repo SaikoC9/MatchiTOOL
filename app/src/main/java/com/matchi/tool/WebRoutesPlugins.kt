@@ -513,7 +513,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                 }
                 auditShell(ip, command, "plugin-shell")
                 try {
-                    traceStore.record(name, pluginWriteTargets(command).filter { checkPluginDataPath(it, name) == null }, pluginSideEffects(command))
+                    traceStore.recordCommand(name, command)
                 } catch (e: Exception) { Quiet.note("WebRoutesPlugins.pluginCall", e) }
                 val r = RootShell.run(ctx, tagCommand(name, UfiPathMap.map(command, ctx.packageName)), 20_000)
                 json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))

@@ -79,4 +79,105 @@ class PluginTraceTest {
         assertEquals(emptyList<String>(), prunableParents("/data/local/xyz", "foo.js"))
         assertEquals(listOf("/data/local/matchitool/plugin_data/foo"), prunableParents("/data/local/matchitool/plugin_data/foo/a", "foo.js"))
     }
+
+    // ---- Phase 3, step 0: chains and boot scripts the plugin created ----
+
+    @Test fun chainsCreatedWithDashN() {
+        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables -t mangle -N UFI_DPI"))
+        assertEquals(listOf("filter MY_CHAIN iptables"), pluginChains("iptables -N MY_CHAIN"))
+        assertEquals(listOf("nat X1 ip6tables"), pluginChains("ip6tables --table nat --new-chain X1"))
+        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables --table=mangle -N UFI_DPI 2>/dev/null || true"))
+        assertEquals(listOf("mangle A iptables"), pluginChains("/system/bin/iptables -w 5 -t mangle -N A"))
+        assertEquals(listOf("mangle A iptables", "mangle A ip6tables"), pluginChains("iptables -t mangle -N A; ip6tables -t mangle -N A"))
+    }
+
+    @Test fun chainsInsideWrappersAreFound() {
+        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("su -c \"iptables -t mangle -N UFI_DPI\""))
+        assertEquals(listOf("raw R1 iptables"), pluginChains("timeout 5 iptables -t raw -N R1"))
+        assertEquals(listOf("mangle Q iptables"), pluginChains("nohup sh -c 'iptables -t mangle -N Q' &"))
+        assertEquals(listOf("mangle Z iptables"), pluginChains("FOO=1 iptables -t mangle -N Z"))
+    }
+
+    @Test fun onlyRealNewChainsAreRecorded() {
+        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -A POSTROUTING -j UFI_DPI"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -F UFI_DPI; iptables -t mangle -X UFI_DPI"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -S"))
+        assertEquals(emptyList<String>(), pluginChains("echo iptables -N FAKE"))
+        assertEquals(emptyList<String>(), pluginChains("nft add chain inet t c"))
+    }
+
+    @Test fun builtinChainsBadNamesAndBadTablesAreDropped() {
+        assertEquals(emptyList<String>(), pluginChains("iptables -N INPUT"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -N POSTROUTING"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -N 'a b'"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -N 'x;rm'"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -N ${'$'}CHAIN"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -N " + "A".repeat(29)))
+        assertEquals(listOf("filter " + "A".repeat(28) + " iptables"), pluginChains("iptables -N " + "A".repeat(28)))
+        assertEquals(emptyList<String>(), pluginChains("iptables -t bogus -N X"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -N"))
+    }
+
+    @Test fun chainEntriesRoundTripAndRefuseTampering() {
+        assertEquals(Triple("mangle", "UFI_DPI", "iptables"), parseChainEntry("mangle UFI_DPI iptables"))
+        assertNull(parseChainEntry("mangle UFI_DPI"))
+        assertNull(parseChainEntry("mangle UFI_DPI iptables extra"))
+        assertNull(parseChainEntry("mangle INPUT iptables"))
+        assertNull(parseChainEntry("mangle X;rm iptables"))
+        assertNull(parseChainEntry("mangle X nft"))
+        assertNull(parseChainEntry("mangle  X iptables"))
+    }
+
+    @Test fun bootScriptsInBootDAreRecorded() {
+        assertEquals(listOf("/data/local/matchitool/boot.d/20-bypass-ttl.sh"),
+            pluginBootFiles("echo 'sh /x &' > /data/local/matchitool/boot.d/20-bypass-ttl.sh"))
+        assertEquals(listOf("/data/local/matchitool/boot.d/30-a.sh"), pluginBootFiles("cp /data/local/tmp/a.sh /data/local/matchitool/boot.d/30-a.sh"))
+        assertEquals(listOf("/data/local/matchitool/boot.d/30-a.sh"),
+            pluginBootFiles("su -c \"D=/data/local/matchitool/boot.d; echo x > \$D/30-a.sh\""))
+    }
+
+    @Test fun otherBootPathsAreNotRecorded() {
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x >> /data/local/matchitool/boot.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/matchitool/boot.d/notnumbered.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/matchitool/boot.d/20-a.txt"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/matchitool/boot.d/sub/20-a.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/matchitool/boot.d/20-.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/matchitool/boot.d/2-a.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("echo x > /data/local/other/boot.d/20-a.sh"))
+        assertEquals(emptyList<String>(), pluginBootFiles("cat /data/local/matchitool/boot.d/20-a.sh"))
+    }
+
+    @Test fun ledgerKeepsChainsAndBootFilesAndStillReadsOldLedgers() {
+        val dir = Files.createTempDirectory("trace3").toFile()
+        try {
+            val s = PluginTraceStore(dir)
+            s.recordCommand("A.js", "iptables -t mangle -N UFI_DPI && echo x > /data/local/matchitool/boot.d/20-a.sh && echo y > /data/local/ufi_a/f.txt")
+            s.recordCommand("A.js", "iptables -t mangle -N UFI_DPI")
+            val a = s.read("A.js")
+            assertEquals(listOf("mangle UFI_DPI iptables"), a.chains)
+            assertEquals(listOf("/data/local/matchitool/boot.d/20-a.sh"), a.bootFiles)
+            assertEquals(listOf("/data/local/ufi_a/f.txt"), a.paths)
+            assertTrue("firewall rules" in a.effects)
+            assertEquals(emptyList<String>(), s.read("B.js").chains)
+            // an old ledger file (only P / E / U lines) still reads, chains and bootFiles are empty
+            java.io.File(dir, "Old.js.trace").writeText("P /sdcard/a\nE firewall rules\nU up.png\n")
+            val o = s.read("Old.js")
+            assertEquals(listOf("/sdcard/a"), o.paths); assertEquals(emptyList<String>(), o.chains); assertEquals(emptyList<String>(), o.bootFiles)
+            // a ledger for one plugin never shows in another's
+            s.recordCommand("B.js", "iptables -N OTHER")
+            assertEquals(listOf("filter OTHER iptables"), s.read("B.js").chains)
+            assertEquals(listOf("mangle UFI_DPI iptables"), s.read("A.js").chains)
+            // a boot.d path is not a data path to erase: it must NOT appear in "paths"
+            assertTrue(a.paths.none { it.contains("/boot.d/") })
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun badPluginNameRecordsNothing() {
+        val dir = Files.createTempDirectory("trace3b").toFile()
+        try {
+            val s = PluginTraceStore(dir)
+            s.recordCommand("../x.js", "iptables -N X")
+            assertEquals(0, dir.listFiles()?.size ?: 0)
+        } finally { dir.deleteRecursively() }
+    }
 }

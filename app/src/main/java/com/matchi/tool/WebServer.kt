@@ -33,8 +33,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
     internal fun traceCommand(s: IHTTPSession, command: String) {
         val plugin = tracePluginName(s.headers["x-matchi-plugin"]) ?: return
         try {
-            val targets = pluginWriteTargets(command).filter { checkPluginDataPath(it, plugin) == null }
-            traceStore.record(plugin, targets, pluginSideEffects(command))
+            traceStore.recordCommand(plugin, command)
         } catch (e: Exception) { Quiet.note("WebServer.traceCommand", e) }
     }
     /** Phase 2 Step 1: the command with the plugin tag in front, from the x-matchi-plugin header (best effort, see PluginSweep.kt). Use AFTER shellDanger/traceCommand. */
