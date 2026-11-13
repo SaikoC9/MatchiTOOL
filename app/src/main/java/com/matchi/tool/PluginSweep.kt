@@ -312,6 +312,9 @@ internal fun sweepNeverKill(procs: List<SweepProc>, selfPid: Int): Map<Int, Stri
     return out
 }
 
+/** F1: a process this plugin claims (how it was found) and the names of the other plugins that also use its files (empty = not guarded). */
+private class SweepClaim(val proc: SweepProc, val how: String, val used: List<String>)
+
 private val SWEEP_HOW_RANK = mapOf(SWEEP_HOW_TAG to 0, SWEEP_HOW_PIDFILE to 1, SWEEP_HOW_CMDLINE to 2)
 
 /**
@@ -328,6 +331,12 @@ private val SWEEP_HOW_RANK = mapOf(SWEEP_HOW_TAG to 0, SWEEP_HOW_PIDFILE to 1, S
  * A process tagged with ANOTHER plugin is never claimed by pidfile or cmdline: it belongs to that plugin.
  * After the rules: never-kill list (sweepNeverKill), then the shared guard for every way (a command line that names a path another
  * installed plugin uses is left alone and listed in [SweepResult.notStopped]), then the cap.
+ * F1 (device test D, F50, 2026-11-13): what a guarded process started is covered by the guard. A process with a GUARDED ancestor (a process
+ * this plugin claims and the shared guard leaves running on purpose) is neither a candidate nor a notStopped line of its own: it is not ended
+ * (it belongs to a process that must keep running), it is not counted by the re-scan after the stop, and the person sees one line for the
+ * parent. Before this, the loop "while :; do ...; sleep 30; done" of a guarded parent started a NEW tagged "sleep 30" after the listed one
+ * was ended; the re-scan found it as a leftover and "Delete and stop" could never succeed. Only a CLAIMED and guarded process covers its
+ * descendants: a parent that belongs to another plugin (its tag) or that this plugin does not claim covers nothing, and PID 1 never does.
  */
 internal fun classifySweep(
     plugin: String,
@@ -346,8 +355,8 @@ internal fun classifySweep(
     val pidfiles = sweepPidfilePaths(ledgerPaths).toSet()
     val pidfilePidSet = pidfilePids.filter { (path, pid) -> path.trimEnd('/') in pidfiles && pid > SWEEP_INIT_PID }.values.toSet()
 
-    val found = ArrayList<SweepCandidate>()
-    val notStopped = ArrayList<String>()
+    // Pass 1: every process this plugin claims (a way matched), with the plugins that also use its files (the shared guard, P8).
+    val claims = ArrayList<SweepClaim>()
     for (p in probe.procs.sortedBy { it.pid }) {
         if (p.pid in never) continue
         val mentions = filePaths.any { argsMentionsPath(p.args, it) }
@@ -360,19 +369,38 @@ internal fun classifySweep(
         } ?: continue
         val used = commandPaths(listOf(p.args), null)
             .flatMap { pluginsUsingPath(it, others) }.distinct().sorted()
-        if (used.isNotEmpty()) {
-            notStopped.add("PID ${p.pid} ${p.args}: also used by ${used.joinToString(", ")}")
+        claims.add(SweepClaim(p, how, used))
+    }
+    // F1: a claimed process that the guard leaves running covers everything below it.
+    val guardedPids = claims.filter { it.used.isNotEmpty() }.map { it.proc.pid }.toSet()
+    val ppidOf = probe.procs.associate { it.pid to it.ppid }
+    fun underGuarded(pid: Int): Boolean {
+        if (guardedPids.isEmpty()) return false
+        val seen = HashSet<Int>()
+        var cur = ppidOf[pid]
+        while (cur != null && cur > SWEEP_INIT_PID && seen.size < SWEEP_MAX_DEPTH && seen.add(cur)) {
+            if (cur in guardedPids) return true
+            cur = ppidOf[cur]
+        }
+        return false
+    }
+    // Pass 2: candidates, and the guarded ones as notStopped lines (once, for the parent only).
+    val found = ArrayList<SweepCandidate>()
+    val notStopped = ArrayList<String>()
+    for (c in claims) {
+        if (underGuarded(c.proc.pid)) continue
+        if (c.used.isNotEmpty()) {
+            notStopped.add("PID ${c.proc.pid} ${c.proc.args}: also used by ${c.used.joinToString(", ")}")
             continue
         }
-        found.add(SweepCandidate(p.pid, p.start, how, p.args))
+        found.add(SweepCandidate(c.proc.pid, c.proc.start, c.how, c.proc.args))
     }
     // Device test (F50, 2026-11-13): a job like "while :; do ...; sleep 30; done" starts a NEW child every 30 s, so a list that holds the
     // children changed between the dialog and the click, the hash no longer matched and the stop was refused (409) again and again. The kill
     // script ends the whole tree below a listed process anyway, so a process whose parent is also listed is covered by that parent and is
     // left out of the list and of the hash. Only the roots are shown and hashed.
     val listed = found.map { it.pid }.toSet()
-    val parentOf = probe.procs.associate { it.pid to it.ppid }
-    found.removeAll { c -> val pp = parentOf[c.pid]; pp != null && pp in listed }
+    found.removeAll { c -> val pp = ppidOf[c.pid]; pp != null && pp in listed }
     found.sortWith(compareBy({ SWEEP_HOW_RANK[it.how] ?: 9 }, { it.pid }))
     val over = found.size > SWEEP_MAX_CANDIDATES
     val notes = ArrayList<String>()

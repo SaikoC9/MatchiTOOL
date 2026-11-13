@@ -313,6 +313,81 @@ class PluginSweepTest {
         assertEquals(listOf(1234), pids(r)); assertTrue(r.notStopped.isEmpty())
     }
 
+    // ---- F1: what a guarded process started is covered by the guard (device test D, F50, 2026-11-13) ----
+    private val SHARED = mapOf("new.js" to listOf("/data/local/x/beat.sh"))                 // the NEW copy uses the same script
+    private val GUARDED_LEDGER = listOf("/data/local/x/beat.sh")
+
+    @Test fun aChildOfAGuardedProcessIsNotACandidate() {
+        // the loop is left running on purpose; its tagged "sleep 5" child must not be listed or ended (the loop would start a new one)
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1235, 1234, "sleep 5", PL)), ledger = GUARDED_LEDGER, others = SHARED)
+        assertTrue(pids(r).toString(), r.candidates.isEmpty()); assertEquals(0, r.found)
+        assertEquals(1, r.notStopped.size); assertTrue(r.notStopped[0], r.notStopped[0].contains("1234") && r.notStopped[0].contains("also used by new.js"))
+    }
+
+    @Test fun aRespawnedChildUnderAGuardedParentChangesNothing() {
+        // the re-scan after the stop sees a NEW child (other PID, other start time): the result must be the same as before the stop
+        val first = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1235, 1234, "sleep 5", PL, "200")), ledger = GUARDED_LEDGER, others = SHARED)
+        val again = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1399, 1234, "sleep 5", PL, "950")), ledger = GUARDED_LEDGER, others = SHARED)
+        assertTrue(again.candidates.isEmpty()); assertEquals(first.found, again.found); assertEquals(first.notStopped, again.notStopped)
+        assertEquals(sweepHash(first.candidates), sweepHash(again.candidates))
+        assertEquals("", sweepHash(again.candidates))                                           // nothing to stop, so no hash
+    }
+
+    @Test fun aDeeperChainUnderAGuardedProcessIsCovered() {
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1235, 1234, "sh -c step", PL), pr(1236, 1235, "sleep 5", PL)),
+            ledger = GUARDED_LEDGER, others = SHARED)
+        assertTrue(r.candidates.isEmpty()); assertEquals(1, r.notStopped.size)
+    }
+
+    @Test fun aGuardedChildIsListedOnceUnderItsGuardedParent() {
+        // the child names the shared script too: it would be a second notStopped line, but the parent's line already covers it
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1235, 1234, "sh /data/local/x/beat.sh again", PL)),
+            ledger = GUARDED_LEDGER, others = SHARED)
+        assertTrue(r.candidates.isEmpty()); assertEquals(1, r.notStopped.size); assertTrue(r.notStopped[0].contains("1234"))
+    }
+
+    @Test fun anUnrelatedTaggedProcessNextToAGuardedOneIsStillACandidate() {
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1235, 1234, "sleep 5", PL), pr(1400, 1, "sleep 77", PL)),
+            ledger = GUARDED_LEDGER, others = SHARED)
+        assertEquals(listOf(1400), pids(r)); assertEquals(1, r.found); assertEquals(1, r.notStopped.size)
+    }
+
+    @Test fun aTaggedChildWhoseParentIsNotGuardedStaysACandidate() {
+        val r = run(listOf(pr(1300, 1, "sh", null), pr(1301, 1300, "sleep 5", PL)), ledger = GUARDED_LEDGER, others = SHARED)
+        assertEquals(listOf(1301), pids(r)); assertTrue(r.notStopped.isEmpty())
+    }
+
+    @Test fun aParentThatBelongsToAnotherPluginCoversNothing() {
+        // the parent is tagged with another plugin, so this plugin does not claim it and it is not "guarded" here; the child is this plugin's
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", "other.js"), pr(1235, 1234, "sleep 5", PL)), ledger = GUARDED_LEDGER, others = SHARED)
+        assertEquals(listOf(1235), pids(r)); assertTrue(r.notStopped.isEmpty())
+    }
+
+    @Test fun aParentThePluginDoesNotClaimCoversNothing() {
+        // a shell that names the shared script but has no tag and no ledger match for this plugin is nobody's here: its tagged child stays listed
+        val r = run(listOf(pr(1234, 1, "sh /data/local/zzz/other.sh /data/local/x/beat.sh"), pr(1235, 1234, "sleep 5", PL)),
+            ledger = listOf("/data/local/y/none.sh"), others = SHARED)
+        assertEquals(listOf(1235), pids(r)); assertTrue(r.notStopped.isEmpty())
+    }
+
+    @Test fun initIsNeverAGuardedAncestor() {
+        // every orphan has PID 1 as parent; a guarded process whose parent is 1 must not make 1 "guarded"
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1500, 1, "sleep 9", PL)), ledger = GUARDED_LEDGER, others = SHARED)
+        assertEquals(listOf(1500), pids(r))
+    }
+
+    @Test fun aLoopInTheParentChainEndsTheWalk() {
+        // a cyclic PPID chain (bad probe data, cannot happen on a real system) must not hang the walk; the guarded parent still gets its line
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL), pr(1600, 1601, "sleep 1", PL), pr(1601, 1600, "sleep 2", PL)),
+            ledger = GUARDED_LEDGER, others = SHARED)
+        assertEquals(1, r.notStopped.size); assertTrue(r.notStopped[0].contains("1234"))
+    }
+
+    @Test fun theGuardedParentAloneStillGivesItsNotStoppedLine() {
+        val r = run(listOf(pr(1234, 1, "sh /data/local/x/beat.sh", PL)), ledger = GUARDED_LEDGER, others = SHARED)
+        assertTrue(r.candidates.isEmpty()); assertEquals(1, r.notStopped.size)
+    }
+
     @Test fun capRefusesMoreThanFifty() {
         val fifty = (1000 until 1050).map { pr(it, 1, "sleep $it", PL) }
         val ok = run(fifty)
