@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Plugin process sweep (Phase 2 of MatchiTOOL_Phase2_todo.txt). Plain Kotlin with NO android, org.json or NanoHTTPD imports, so
+ * Plugin process sweep (Phase 2 of MatchiTOOL_Phase2_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
  * scripts/kotlin_pure_tests.sh compiles it and its unit tests run without the Android SDK. WebRoutesPlugins.kt and WebRoutesRoot.kt
  * only call into this file; every rule that can be tested without a device (the tag prefix, the probe script and its parser, the
  * candidate rules, the never-kill list, the shared-path guard, the cap, the kill plan and the report text) is meant to live here.
@@ -161,3 +161,191 @@ internal fun parseSweepProbe(output: String): SweepProbe {
     return SweepProbe(procs, self, endCount != null && endCount == procs.size + skipped, skipped)
 }
 
+
+// ---- Step 3: candidate rules ----
+
+/**
+ * Step 3: what the rules found for ONE plugin. [candidates] are the processes that may be ended, strongest way first, then by PID (at most
+ * SWEEP_MAX_CANDIDATES are listed). [notStopped] are processes that matched but are left alone on purpose (the shared guard, P8), each
+ * as one line for the dialog. [found] is the number of candidates before the cap; [overCap] is true when it was above SWEEP_MAX_CANDIDATES:
+ * then the sweep must NOT stop anything automatically (Step 5 checks this). [complete] is the probe's flag: when false, "nothing found" must
+ * never be read as "nothing runs". [notes] are short lines for the dialog.
+ */
+internal class SweepResult(
+    val candidates: List<SweepCandidate>,
+    val notStopped: List<String>,
+    val found: Int,
+    val overCap: Boolean,
+    val complete: Boolean,
+    val notes: List<String>,
+)
+
+private const val SWEEP_MAX_DEPTH = 64
+private val SWEEP_WS = Regex("\\s+")
+private val SWEEP_SHELLS = setOf("sh", "ash", "bash", "mksh", "dash")
+
+private fun isSweepPathChar(c: Char) = c.isLetterOrDigit() || c == '.' || c == '_' || c == '-' || c == '/'
+
+/**
+ * Step 3: true when [path] appears in [args] as a whole path, not as a piece of a longer one ("/x/beat.sh" is not in "/x/beat.sh.bak" or
+ * "/y/x/beat.sh"). The characters before and after must not be path characters; "=", ":", quotes, spaces and ";" are fine.
+ */
+internal fun argsMentionsPath(args: String, path: String): Boolean {
+    val p = path.trimEnd('/')
+    if (p.isEmpty()) return false
+    var i = args.indexOf(p)
+    while (i >= 0) {
+        val before = if (i == 0) ' ' else args[i - 1]
+        val end = i + p.length
+        val after = if (end >= args.length) ' ' else args[end]
+        if (!isSweepPathChar(before) && !isSweepPathChar(after)) return true
+        i = args.indexOf(p, i + 1)
+    }
+    return false
+}
+
+private fun sweepSegments(p: String) = p.split('/').count { it.isNotEmpty() }
+
+/** True for a path at or under /system /vendor /apex /proc /dev (SWEEP_SYSTEM_PREFIXES). */
+internal fun isSweepSystemPath(p: String): Boolean = SWEEP_SYSTEM_PREFIXES.any { p == it || p.startsWith("$it/") }
+
+/** Step 3: a path with ".." or "." segments, or no leading "/", is never trusted. */
+private fun isPlainAbsolute(p: String): Boolean =
+    p.startsWith("/") && p.split('/').drop(1).none { it == "." || it == ".." }
+
+/**
+ * Step 3 (D1, cmdline): the ledger paths of this plugin that may be matched against a command line. The ledger holds write targets, folders
+ * included (mkdir), so a path counts only when it looks like a FILE: its last segment has an extension (a dot that is not the first or last
+ * character) and no other ledger path lies inside it. It needs [SWEEP_CMDLINE_MIN_SEGMENTS] segments, must not be under a system folder,
+ * and must not be used by another installed plugin ([others], pluginsUsingPath). A renamed binary without an extension is missed on purpose.
+ */
+internal fun sweepCmdlinePaths(ledgerPaths: List<String>, others: Map<String, List<String>>): List<String> {
+    val all = ledgerPaths.map { it.trim().trimEnd('/') }.filter { it.isNotEmpty() }.distinct()
+    return all.filter { p ->
+        val last = p.substringAfterLast('/')
+        val dot = last.lastIndexOf('.')
+        isPlainAbsolute(p) &&
+            sweepSegments(p) >= SWEEP_CMDLINE_MIN_SEGMENTS &&
+            !isSweepSystemPath(p) &&
+            dot > 0 && dot < last.length - 1 &&
+            all.none { it != p && it.startsWith("$p/") } &&
+            pluginsUsingPath(p, others).isEmpty()
+    }
+}
+
+/** Step 3 (pidfile): the ledger paths that may be read as a pidfile: absolute, plain, ending in ".pid", not under a system folder. */
+internal fun sweepPidfilePaths(ledgerPaths: List<String>): List<String> =
+    ledgerPaths.map { it.trim().trimEnd('/') }
+        .filter { it.length > 4 && isPlainAbsolute(it) && it.endsWith(".pid") && !isSweepSystemPath(it) }
+        .distinct()
+
+/** Step 3: "bare" = a shell with no script or -c text (an interactive session shell), or any "su". It is the shape of a root session. */
+internal fun isSweepSessionShell(args: String): Boolean {
+    val t = args.trim().split(SWEEP_WS).filter { it.isNotEmpty() }
+    if (t.isEmpty()) return false
+    val base = t[0].substringAfterLast('/')
+    if (base == "su") return true
+    return base in SWEEP_SHELLS && t.drop(1).all { it.startsWith("-") && it != "-c" }
+}
+
+/** Step 3: the app's own process is named by its first word only ("com.matchi.tool", or "com.matchi.tool:service"). A later word proves nothing. */
+internal fun isSweepAppProcess(args: String): Boolean {
+    val first = args.trim().split(SWEEP_WS).firstOrNull() ?: return false
+    return first == SWEEP_APP_PACKAGE || first.startsWith("$SWEEP_APP_PACKAGE:")
+}
+
+/**
+ * Step 3 (P5, D8): every process the sweep must never touch, as PID -> reason. It does not matter how the process matched or what its tag says.
+ *  - the sweep's own shell ([selfPid]), every PARENT of it (the su session, the shell, the app) and every CHILD it started;
+ *  - PID 1 and any PID <= 0;
+ *  - kernel threads (empty command line, PID 2, or a child of PID 2);
+ *  - the MatchiTOOL app process, and the root session shells below it (a bare shell or su). A plugin's own job below the app is NOT protected.
+ */
+internal fun sweepNeverKill(procs: List<SweepProc>, selfPid: Int): Map<Int, String> {
+    val byPid = HashMap<Int, SweepProc>()
+    for (p in procs) byPid[p.pid] = p
+    fun parents(pid: Int): List<Int> {
+        val seen = LinkedHashSet<Int>()
+        var cur = byPid[pid]?.ppid
+        while (cur != null && cur > 0 && seen.size < SWEEP_MAX_DEPTH && seen.add(cur)) cur = byPid[cur]?.ppid
+        return seen.toList()
+    }
+    val out = LinkedHashMap<Int, String>()
+    out[selfPid] = "the sweep itself"
+    for (a in parents(selfPid)) out.putIfAbsent(a, "the sweep runs below it")
+    val appPids = procs.filter { isSweepAppProcess(it.args) }.map { it.pid }.toSet()
+    for (p in procs) {
+        val up = parents(p.pid)
+        when {
+            p.pid <= 0 -> out.putIfAbsent(p.pid, "not a real process")
+            p.pid == SWEEP_INIT_PID -> out.putIfAbsent(p.pid, "init (PID 1)")
+            p.pid == 2 || p.ppid == 2 || p.args.isBlank() -> out.putIfAbsent(p.pid, "kernel thread or no command line")
+            p.pid in appPids -> out.putIfAbsent(p.pid, "the MatchiTOOL app")
+            selfPid in up -> out.putIfAbsent(p.pid, "started by the sweep itself")
+            isSweepSessionShell(p.args) && up.any { it in appPids } -> out.putIfAbsent(p.pid, "a root session of the app")
+        }
+    }
+    return out
+}
+
+private val SWEEP_HOW_RANK = mapOf(SWEEP_HOW_TAG to 0, SWEEP_HOW_PIDFILE to 1, SWEEP_HOW_CMDLINE to 2)
+
+/**
+ * Step 3: the candidate rules for plugin [plugin]. Pure; it reads nothing and kills nothing.
+ *  - [probe] is parseSweepProbe(...) of the read-only probe. Without the sweep's own PID the sweep cannot tell itself from a plugin's
+ *    process (P5), so it lists nothing and says so.
+ *  - [ledgerPaths] are the plugin's ledger "P" paths. [pidfilePids] is "pidfile path -> the PID it holds", read by the caller (Step 4);
+ *    only paths that sweepPidfilePaths accepts are used.
+ *  - [others] maps every OTHER installed plugin to the paths it uses (ledger, "@matchi-data", commandPaths): the shared guard (P8).
+ * Ways, strongest first (a process gets only the strongest):
+ *  tag      the process carries this plugin's MATCHI_PLUGIN marker.
+ *  pidfile  a pidfile holds its PID AND it still fits the plugin (PID reuse!): the command line names one of the plugin's file paths.
+ *  cmdline  the command line names one of the plugin's file paths (sweepCmdlinePaths).
+ * A process tagged with ANOTHER plugin is never claimed by pidfile or cmdline: it belongs to that plugin.
+ * After the rules: never-kill list (sweepNeverKill), then the shared guard for every way (a command line that names a path another
+ * installed plugin uses is left alone and listed in [SweepResult.notStopped]), then the cap.
+ */
+internal fun classifySweep(
+    plugin: String,
+    probe: SweepProbe,
+    ledgerPaths: List<String>,
+    pidfilePids: Map<String, Int>,
+    others: Map<String, List<String>>,
+): SweepResult {
+    val selfPid = probe.selfPid
+    if (selfPid == null) {
+        return SweepResult(emptyList(), emptyList(), 0, false, false,
+            listOf("could not tell which process is the sweep itself, so no process list was made"))
+    }
+    val never = sweepNeverKill(probe.procs, selfPid)
+    val filePaths = sweepCmdlinePaths(ledgerPaths, others)
+    val pidfiles = sweepPidfilePaths(ledgerPaths).toSet()
+    val pidfilePidSet = pidfilePids.filter { (path, pid) -> path.trimEnd('/') in pidfiles && pid > SWEEP_INIT_PID }.values.toSet()
+
+    val found = ArrayList<SweepCandidate>()
+    val notStopped = ArrayList<String>()
+    for (p in probe.procs.sortedBy { it.pid }) {
+        if (p.pid in never) continue
+        val mentions = filePaths.any { argsMentionsPath(p.args, it) }
+        val how = when {
+            p.tagged == plugin -> SWEEP_HOW_TAG
+            p.tagged != null -> null
+            p.pid in pidfilePidSet && mentions -> SWEEP_HOW_PIDFILE
+            mentions -> SWEEP_HOW_CMDLINE
+            else -> null
+        } ?: continue
+        val used = commandPaths(listOf(p.args), null)
+            .flatMap { pluginsUsingPath(it, others) }.distinct().sorted()
+        if (used.isNotEmpty()) {
+            notStopped.add("PID ${p.pid} ${p.args}: also used by ${used.joinToString(", ")}")
+            continue
+        }
+        found.add(SweepCandidate(p.pid, p.start, how, p.args))
+    }
+    found.sortWith(compareBy({ SWEEP_HOW_RANK[it.how] ?: 9 }, { it.pid }))
+    val over = found.size > SWEEP_MAX_CANDIDATES
+    val notes = ArrayList<String>()
+    if (!probe.complete) notes.add("the process list was cut short, so the sweep may have missed some processes")
+    if (over) notes.add("${found.size} processes found; more than $SWEEP_MAX_CANDIDATES, so they are not stopped automatically")
+    return SweepResult(found.take(SWEEP_MAX_CANDIDATES), notStopped, found.size, over, probe.complete, notes)
+}
