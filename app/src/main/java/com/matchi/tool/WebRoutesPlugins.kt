@@ -27,6 +27,28 @@ internal fun WebServer.pluginOtherPaths(name: String): Map<String, List<String>>
 }
 
 /**
+ * Phase 3 / Step 1: what "Delete and stop" would undo outside the plugin's own files (firewall chains and boot scripts the ledger saw it create), from the
+ * ledger alone. Nothing is run and no root is needed here. What another installed plugin records, declares or names in its uninstall commands is kept.
+ */
+internal fun WebServer.pluginUndo(name: String): UndoPlan {
+    val led = traceStore.read(name)
+    val others = HashMap<String, UndoUse>()
+    pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.forEach { o ->
+        val oc = try { o.readText() } catch (_: Exception) { "" }
+        val od = pluginUninstallDeclarations(oc)
+        val ol = traceStore.read(o.name)
+        others[o.name] = UndoUse(ol.chains, (ol.bootFiles + od.bootFiles).distinct(), (od.commands + listOfNotNull(od.check)).joinToString("\n"))
+    }
+    return undoPlan(led.chains, led.bootFiles, others)
+}
+
+internal fun UndoPlan.toJson(): JSONObject {
+    val arr = JSONArray()
+    for (i in items) arr.put(JSONObject().put("kind", i.kind).put("label", i.label))
+    return JSONObject().put("items", arr).put("notUndone", JSONArray(notUndone)).put("hash", hash)
+}
+
+/**
  * Phase 2 / Step 4: the processes the sweep would end for plugin [name] (read-only; nothing is killed here). One root probe of up to
  * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are mapped with UfiPathMap because the command lines of the processes
  * hold the mapped text (the ledger records what the plugin sent). Without root the answer is "cannot be checked", never a guessed list.
@@ -345,7 +367,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val led = traceStore.read(name)
         val ups = JSONArray(); for (u in led.uploads) if (File(uploadDir, u).isFile) ups.put(u)
         json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success)
-            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", pluginSweep(name).toJson()))
+            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", pluginSweep(name).toJson()).put("undo", pluginUndo(name).toJson()))
     }
     // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
     // Phase 1 / Step 4: {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).

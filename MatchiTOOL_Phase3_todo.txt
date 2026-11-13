@@ -39,7 +39,20 @@ PROGRESS  (update after every step)
       NOT seen: a command that builds the tool through a variable (IPT -N ...) or writes the chain inside a helper script: not recorded (LIMITS).
       UNVERIFIED on the F50: that Bypass's own commands, as the page sends them, contain a plain "iptables -t mangle -N UFI_DPI" and write 20-bypass-ttl.sh with a literal path.
       Check after the next build: reinstall the NoHeaders copy, Strong mode, then look at the ledger file (no UI yet; ask for the .trace file in the plugin's data folder).
-  [ ] Step 1 - undo plan: what the host would undo, shown in the Delete dialog
+  [x] Step 1 - undo plan: what the host would undo, shown in the Delete dialog data. WRITTEN; the pure part COMPILED AND RUN here (scripts/kotlin_pure_tests.sh via the
+      scratch copy): 397 tests OK (386 + 11 new in PluginUndoTest.kt). validate.sh exit 0; brace/paren balance of the 3 edited .kt files is 0.
+      NEW FILE PluginUndo.kt (pure): UndoUse, UndoItem, UndoPlan, undoPlan(chains, bootFiles, others), undoHash(). Rules: a chain is listed only if it is a valid "C" entry; kept
+      (listed under notUndone "also used by NAME, so it is kept") when another plugin's ledger has the same entry OR its uninstall / check commands name the chain as a WHOLE WORD;
+      iptables and ip6tables are separate entries. A boot script is listed only if isSafeBootFile (new, PluginTrace.kt); kept when another plugin's ledger or @matchi-boot lists it
+      or its commands contain the path. Caps: 20 chains, 10 boot scripts (the rest go to notUndone as "not listed"). Invalid / unsafe ledger lines are skipped and counted in ONE
+      notUndone line. undoHash = sha256 of the sorted item lines, "" when nothing would be undone.
+      ROUTE (WebRoutesPlugins.kt, NOT compiled here, needs the Android build): pluginUndo(name) builds the "others" from every other installed plugin (ledger chains + bootFiles +
+      @matchi-boot, uninstall/check command text), UndoPlan.toJson(), and /api/plugins/data now also returns "undo": {items:[{kind,label}], notUndone:[...], hash}.
+      No root probe: the plan comes from the ledger alone, so it appears even when root is missing. The dialog (Step 4) must say "if it still exists", because the list does not
+      check that the chain or file is still there; Step 3 verifies after the run.
+      Decisions I took (say if you want them different): (1) the guard also treats a chain NAMED in another plugin's uninstall / check commands as shared (more cautious than ledger
+      only; a chain name that is also a plain word in another plugin's commands keeps the chain); (2) the boot script guard compares the exact path, also against @matchi-boot of the
+      other plugins; (3) nothing is checked against the plugin's OWN @matchi-uninstall: if the declared commands already remove the chain, Step 2's script must simply find it gone.
   [ ] Step 2 - undo scripts (boot.d file, firewall chain), run on "Delete and stop"
   [ ] Step 3 - verify + report (nothing is "undone" unless re-checked)
   [ ] Step 4 - "Disable and stop"

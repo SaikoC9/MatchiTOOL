@@ -175,6 +175,9 @@ private val FW_BUILTIN = setOf("INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POST
 private val CHAIN_NAME = Regex("^[A-Za-z0-9_-]{1,28}$")
 private val BOOT_D_FILE = Regex("^/data/local/matchitool/boot\\.d/[0-9]{2}-[A-Za-z0-9._-]{1,60}\\.sh$")
 
+/** True for a boot script Phase 3 may remove: directly in /data/local/matchitool/boot.d, named like 20-name.sh. */
+internal fun isSafeBootFile(path: String): Boolean = BOOT_D_FILE.matches(path)
+
 /** One ledger "C" entry: "TABLE CHAIN TOOL" (for example "mangle UFI_DPI iptables"), or null when it is not a safe, plugin-made chain. */
 internal fun chainEntry(table: String, chain: String, tool: String): String? =
     if (table in FW_TABLES && tool in FW_TOOLS && CHAIN_NAME.matches(chain) && chain !in FW_BUILTIN) "$table $chain $tool" else null
