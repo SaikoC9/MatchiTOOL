@@ -301,4 +301,106 @@ class PluginSweepTest {
         val r = run(listOf(pr(3002, 1, "sleep 30"), pr(3003, 1, "/system/bin/logcat", "other.js")))
         assertTrue(r.candidates.isEmpty()); assertTrue(r.complete); assertEquals(0, r.found); assertTrue(r.notes.isEmpty())
     }
+
+    // ---- Step 4: the data for the dialog ----
+    @Test fun probeWithoutPidfilesIsUnchanged() {
+        assertEquals(sweepProbeScript(), sweepProbeScript(emptyList()))
+        assertFalse(sweepProbeScript().contains("MTSWEEP-PID"))
+        assertEquals(emptyList<String>(), sweepPidfileLines(emptyList()))
+        assertEquals(emptyList<String>(), sweepPidfileLines(listOf("/data/local/x/beat.txt", "/proc/1/a.pid")))   // nothing readable -> no lines
+    }
+
+    @Test fun pidfileLinesAreReadOnlyQuotedAndRegularFilesOnly() {
+        val sc = sweepProbeScript(listOf("/data/local/x/beat.pid", "/data/local/x/it's.pid", "/data/local/x/a b.pid", "/data/local/x/\$(id).pid"))
+        assertTrue(sc.contains("for f in '/data/local/x/beat.pid'; do"))                    // unsafe names were dropped
+        assertFalse(sc.contains("it's") || sc.contains("a b.pid") || sc.contains("\$(id)"))
+        assertTrue(sc.contains("[ -f \"\$f\" ] && [ ! -L \"\$f\" ]"))                    // a FIFO or a symlink is never opened
+        assertTrue(sc.contains("tr -cd '0-9'") && sc.contains("cut -c1-9") && sc.contains("head -n 1"))
+        for (bad in listOf("kill", "rm ", "mv ", "chmod", "mkdir", "touch", ">>", "tee ", "reboot", "svc "))
+            assertFalse("probe must not contain: $bad", sc.contains(bad))
+        assertFalse(sc.replace("2>/dev/null", "").contains(">"))
+        assertTrue(sc.startsWith("echo \"MTSWEEP-SELF ") && sc.trimEnd().endsWith("\"MTSWEEP-END \$n\""))
+        assertTrue(sc.indexOf("MTSWEEP-PID") < sc.indexOf("MTSWEEP-END"))                    // pidfiles are read before END
+    }
+
+    @Test fun pidfileLinesDoNotBreakTheProbeParser() {
+        val out = probeOut("MTSWEEP-SELF 9", "MTSWEEP|10|1|20|0||sh a", "MTSWEEP-PID|/data/local/x/beat.pid|10", "MTSWEEP-END 1")
+        val r = parseSweepProbe(out)
+        assertTrue(r.complete); assertEquals(1, r.procs.size); assertEquals(0, r.skipped)
+    }
+
+    @Test fun pidfileParserKeepsOnlyAskedGoodValues() {
+        val asked = listOf("/data/local/x/beat.pid", "/data/local/x/b.pid")
+        val out = probeOut("MTSWEEP-PID|/data/local/x/beat.pid|1234", "MTSWEEP-PID|/data/local/x/b.pid|", "MTSWEEP-PID|/etc/other.pid|55",
+            "MTSWEEP-PID|/data/local/x/beat.pid", "MTSWEEP-PID|/data/local/x/b.pid|0", "MTSWEEP-PID|/data/local/x/b.pid|99999999999", "noise")
+        assertEquals(mapOf("/data/local/x/beat.pid" to 1234), parseSweepPidfiles(out, asked))
+        assertEquals(emptyMap<String, Int>(), parseSweepPidfiles("", asked))
+        assertEquals(mapOf("/data/local/x/b.pid" to 7), parseSweepPidfiles("MTSWEEP-PID|/data/local/x/b.pid|7\r\n", asked))
+    }
+
+    private fun cand(pid: Int, start: String = "1", how: String = "tag", args: String = "sleep 1") = SweepCandidate(pid, start, how, args)
+
+    @Test fun hashCoversEveryShownField() {
+        val base = sweepHash(listOf(cand(10), cand(11)))
+        assertEquals(64, base.length)
+        assertEquals(base, sweepHash(listOf(cand(10), cand(11))))                             // stable
+        assertEquals("", sweepHash(emptyList()))
+        for (other in listOf(listOf(cand(10), cand(12)), listOf(cand(10, start = "2"), cand(11)), listOf(cand(10, how = "cmdline"), cand(11)),
+            listOf(cand(10, args = "sleep 2"), cand(11)), listOf(cand(10)), listOf(cand(11), cand(10)), listOf(cand(10), cand(11), cand(12))))
+            assertFalse(base == sweepHash(other))
+    }
+
+    private val pidfileOut = probeOut("MTSWEEP-SELF 900", "MTSWEEP|1|0|1|0||/init", "MTSWEEP|900|1|9|0||sh",
+        "MTSWEEP|2000|1|500|0||sh /data/local/x/beat.sh", "MTSWEEP|2001|1|501|0|beat.js|sleep 99",
+        "MTSWEEP-PID|/data/local/x/beat.pid|2000", "MTSWEEP-END 4")
+
+    @Test fun viewWithoutRootHasNoGuessedList() {
+        for (v in listOf(buildSweepView(PL, false, null, LEDGER, emptyMap()), buildSweepView(PL, true, null, LEDGER, emptyMap()),
+            buildSweepView(PL, false, ShellResult(true, pidfileOut), LEDGER, emptyMap()))) {
+            assertFalse(v.checked); assertTrue(v.result.candidates.isEmpty()); assertEquals("", v.hash); assertFalse(v.result.complete)
+            assertEquals(listOf("cannot be checked: root is not available"), v.result.notes)
+        }
+    }
+
+    @Test fun viewWhenTheProbeFailsOrTimesOut() {
+        val t = buildSweepView(PL, true, ShellResult(false, pidfileOut + "[timeout after 15s]"), LEDGER, emptyMap())
+        assertFalse(t.checked); assertTrue(t.result.candidates.isEmpty()); assertEquals("", t.hash); assertTrue(t.result.notes[0].contains("did not finish in time"))
+        val f = buildSweepView(PL, true, ShellResult(false, "su: denied"), LEDGER, emptyMap())
+        assertFalse(f.checked); assertTrue(f.result.notes[0].contains("failed")); assertEquals("", f.hash)
+    }
+
+    @Test fun viewListsTagAndPidfileMatchesAndHashesThem() {
+        val v = buildSweepView(PL, true, ShellResult(true, pidfileOut), LEDGER, emptyMap())
+        assertTrue(v.checked); assertTrue(v.result.complete)
+        assertEquals(listOf(2001, 2000), v.result.candidates.map { it.pid })                  // tag first, then pidfile
+        assertEquals(listOf("tag", "pidfile"), v.result.candidates.map { it.how })
+        assertEquals(sweepHash(v.result.candidates), v.hash); assertEquals(64, v.hash.length)
+        val again = buildSweepView(PL, true, ShellResult(true, pidfileOut), LEDGER, emptyMap())
+        assertEquals(v.hash, again.hash)                                                      // same run, same hash
+        val moved = buildSweepView(PL, true, ShellResult(true, pidfileOut.replace("|500|", "|777|")), LEDGER, emptyMap())
+        assertFalse(v.hash == moved.hash)                                                     // a new start time (reused PID) is a different plan
+    }
+
+    @Test fun viewCleanRunWithNothingFoundHasNoHash() {
+        val v = buildSweepView(PL, true, ShellResult(true, probeOut("MTSWEEP-SELF 900", "MTSWEEP|900|1|9|0||sh", "MTSWEEP-END 1")), LEDGER, emptyMap())
+        assertTrue(v.checked); assertTrue(v.result.complete); assertTrue(v.result.candidates.isEmpty()); assertEquals("", v.hash); assertTrue(v.result.notes.isEmpty())
+    }
+
+    @Test fun viewOverTheCapHasNoHash() {
+        val lines = (1000 until 1051).map { "MTSWEEP|$it|1|$it|0|beat.js|sleep $it" }
+        val out = probeOut("MTSWEEP-SELF 900", "MTSWEEP|900|1|9|0||sh", *lines.toTypedArray(), "MTSWEEP-END ${lines.size + 1}")
+        val v = buildSweepView(PL, true, ShellResult(true, out), LEDGER, emptyMap())
+        assertTrue(v.checked); assertTrue(v.result.overCap); assertEquals("", v.hash); assertEquals(50, v.result.candidates.size)
+    }
+
+    @Test fun viewSharedGuardAndCutOutput() {
+        val others = mapOf("new.js" to listOf("/data/local/x/beat.sh"))
+        val v = buildSweepView(PL, true, ShellResult(true, pidfileOut), LEDGER, others)
+        assertEquals(listOf(2001), v.result.candidates.map { it.pid })   // 2000 is only matched by a path the other plugin uses: left alone
+        val tagged = pidfileOut.replace("MTSWEEP|2001|1|501|0|beat.js|sleep 99", "MTSWEEP|2001|1|501|0|beat.js|sh /data/local/x/beat.sh")
+        val g = buildSweepView(PL, true, ShellResult(true, tagged), LEDGER, others)
+        assertTrue(g.result.candidates.isEmpty()); assertEquals(1, g.result.notStopped.size); assertEquals("", g.hash)   // a tagged one is listed as not stopped
+        val cut = buildSweepView(PL, true, ShellResult(true, pidfileOut.replace("MTSWEEP-END 4\n", "")), LEDGER, emptyMap())
+        assertTrue(cut.checked); assertFalse(cut.result.complete); assertTrue(cut.result.notes.any { it.contains("cut short") })
+    }
 }

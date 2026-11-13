@@ -110,9 +110,11 @@ internal class SweepProbe(
  * command line with NUL, newline and tab turned into spaces, cut at [SWEEP_ARGS_MAX] characters, so a line is always one line.
  * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have an empty ARGS and their environ is not read.
  * It writes nothing and kills nothing: the only redirects are inputs and 2>/dev/null. Needs root to read other users' environ.
+ * Step 4: [pidfiles] (paths from sweepPidfilePaths) are read too, before the END line, one line each: MTSWEEP-PID|PATH|DIGITS. Only a REGULAR file that
+ * is not a symlink is read (a FIFO would block the probe), only its first line, only digits, at most 9. parseSweepProbe ignores these lines.
  * [UNVERIFIED] on the F50: tr's NUL escape, "stat -c %u", "grep -m1", and the cost of the loop (a few hundred processes).
  */
-internal fun sweepProbeScript(): String = listOf(
+internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (listOf(
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
     "n=0",
     "for d in /proc/[0-9]*; do",
@@ -129,8 +131,7 @@ internal fun sweepProbeScript(): String = listOf(
     "  echo \"$SWEEP_LINE_PREFIX|\$p|\$pp|\$st|\$u|\$t|\$a\"",
     "  n=\$((n+1))",
     "done",
-    "echo \"$SWEEP_LINE_PREFIX-END \$n\""
-).joinToString("\n")
+) + sweepPidfileLines(pidfiles) + "echo \"$SWEEP_LINE_PREFIX-END \$n\"").joinToString("\n")
 
 /**
  * Step 2: pure parser for the probe's output. Lines that are not ours (shell noise, su banners) are ignored. A line of ours that is cut or has a
@@ -348,4 +349,70 @@ internal fun classifySweep(
     if (!probe.complete) notes.add("the process list was cut short, so the sweep may have missed some processes")
     if (over) notes.add("${found.size} processes found; more than $SWEEP_MAX_CANDIDATES, so they are not stopped automatically")
     return SweepResult(found.take(SWEEP_MAX_CANDIDATES), notStopped, found.size, over, probe.complete, notes)
+}
+
+// ---- Step 4: the data for the delete dialog ----
+
+private val SWEEP_PIDFILE_SAFE = Regex("^/[A-Za-z0-9._/-]{1,199}$")
+
+/** Step 4: the shell lines that read each pidfile (read-only). Only plain, quote-safe paths are put in; the rest are dropped. */
+internal fun sweepPidfileLines(paths: List<String>): List<String> {
+    val safe = sweepPidfilePaths(paths).filter { SWEEP_PIDFILE_SAFE.matches(it) }.take(SWEEP_MAX_CANDIDATES)
+    if (safe.isEmpty()) return emptyList()
+    return listOf(
+        "for f in " + safe.joinToString(" ") { "'$it'" } + "; do",
+        "  v=",
+        "  if [ -f \"\$f\" ] && [ ! -L \"\$f\" ]; then v=\$(head -n 1 \"\$f\" 2>/dev/null | tr -cd '0-9' | cut -c1-9); fi",
+        "  echo \"$SWEEP_LINE_PREFIX-PID|\$f|\$v\"",
+        "done",
+    )
+}
+
+/** Step 4: "pidfile path -> PID" from the probe output. Only paths in [asked] count; an empty, non-numeric or zero value is dropped. Never throws. */
+internal fun parseSweepPidfiles(output: String, asked: List<String>): Map<String, Int> {
+    val ok = asked.toSet()
+    val out = LinkedHashMap<String, Int>()
+    for (raw in output.split('\n')) {
+        val line = raw.trimEnd('\r')
+        if (!line.startsWith("$SWEEP_LINE_PREFIX-PID|")) continue
+        val f = line.split('|', limit = 3)
+        val path = f.getOrNull(1) ?: continue
+        val pid = f.getOrNull(2)?.trim()?.toIntOrNull() ?: continue
+        if (path in ok && pid > 0) out[path] = pid
+    }
+    return out
+}
+
+/**
+ * Step 4 (D3): sha256 over the shown candidates (PID, start time, way, command line), one labelled line each, in the order they are shown.
+ * "" when nothing would be stopped. Step 5 computes it again and refuses ("plan-changed") when it differs from what the person saw.
+ */
+internal fun sweepHash(candidates: List<SweepCandidate>): String {
+    if (candidates.isEmpty()) return ""
+    val sb = StringBuilder()
+    for (c in candidates) sb.append("proc:").append(c.pid).append('|').append(c.start).append('|').append(c.how).append('|').append(c.args).append('\n')
+    return sha256Hex(sb.toString().toByteArray(Charsets.UTF_8))
+}
+
+/**
+ * Step 4: what the dialog gets. [checked] is false when the probe could not run (no root, timeout, failure): then there is NO list, not a guessed
+ * one, and [result] only carries the reason in its notes. [hash] is sweepHash of the shown candidates, "" when unchecked, empty or over the cap
+ * (an over-cap list is never stopped automatically).
+ */
+internal class SweepView(val checked: Boolean, val result: SweepResult, val hash: String)
+
+private fun uncheckedSweep(why: String) = SweepView(false, SweepResult(emptyList(), emptyList(), 0, false, false, listOf(why)), "")
+
+/**
+ * Step 4: turns the probe's run into [SweepView]. Pure: the caller runs the probe ([run], null when it did not run) and passes [rootGranted],
+ * the plugin's ledger paths (already mapped with UfiPathMap, because the process command lines hold the mapped text) and [others] (the shared guard).
+ */
+internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResult?, ledgerPaths: List<String>, others: Map<String, List<String>>): SweepView {
+    if (!rootGranted || run == null) return uncheckedSweep("cannot be checked: root is not available")
+    if (!run.success) return uncheckedSweep(
+        if (run.content.contains("[timeout after")) "cannot be checked: the process check did not finish in time" else "cannot be checked: the process check failed")
+    val probe = parseSweepProbe(run.content)
+    val pidfiles = parseSweepPidfiles(run.content, sweepPidfilePaths(ledgerPaths))
+    val r = classifySweep(plugin, probe, ledgerPaths, pidfiles, others)
+    return SweepView(true, r, if (r.overCap) "" else sweepHash(r.candidates))
 }

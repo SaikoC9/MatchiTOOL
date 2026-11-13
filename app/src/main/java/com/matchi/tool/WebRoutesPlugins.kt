@@ -12,6 +12,42 @@ import org.json.JSONObject
 // Split out of WebServer.kt (route groups are extension functions; helpers moved with them). Each route function
 // returns null when the path is not one of its own, so WebServer.route() can ask the next group.
 
+/**
+ * The paths every OTHER installed plugin uses: what it declares with "@matchi-data", what its ledger recorded, and the absolute paths in its uninstall
+ * commands. The same-folder guard (test C) for erasing data, and the shared guard of the process sweep (Phase 2, P8), both read this.
+ */
+internal fun WebServer.pluginOtherPaths(name: String): Map<String, List<String>> {
+    val others = HashMap<String, List<String>>()
+    pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.forEach { o ->
+        val oc = try { o.readText() } catch (_: Exception) { "" }
+        val od = pluginUninstallDeclarations(oc)
+        others[o.name] = (pluginDataDeclarations(oc) + traceStore.read(o.name).paths + commandPaths(od.commands, od.check)).distinct()
+    }
+    return others
+}
+
+/**
+ * Phase 2 / Step 4: the processes the sweep would end for plugin [name] (read-only; nothing is killed here). One root probe of up to
+ * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are mapped with UfiPathMap because the command lines of the processes
+ * hold the mapped text (the ledger records what the plugin sent). Without root the answer is "cannot be checked", never a guessed list.
+ */
+internal fun WebServer.pluginSweep(name: String): SweepView {
+    val pkg = ctx.packageName
+    val ledger = traceStore.read(name).paths.map { UfiPathMap.map(it, pkg) }.distinct()
+    val others = pluginOtherPaths(name).mapValues { (_, v) -> v.map { UfiPathMap.map(it, pkg) } }
+    val granted = RootShell.status(ctx).granted
+    val run = if (granted) RootShell.run(ctx, sweepProbeScript(sweepPidfilePaths(ledger)), SWEEP_PROBE_TIMEOUT_MS) else null
+    return buildSweepView(name, granted, run, ledger, others)
+}
+
+internal fun SweepView.toJson(): JSONObject {
+    val cands = JSONArray()
+    for (c in result.candidates) cands.put(JSONObject().put("pid", c.pid).put("start", c.start).put("how", c.how).put("args", c.args))
+    return JSONObject().put("rootOk", checked).put("candidates", cands).put("notStopped", JSONArray(result.notStopped))
+        .put("notes", JSONArray(result.notes)).put("found", result.found).put("overCap", result.overCap)
+        .put("complete", result.complete).put("sweepHash", hash)
+}
+
 /** Paths to erase for a plugin: (allowed, rejected with reason). The plugin's own data folder is always included. */
 internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pair<String, String>>> {
     val f = File(pluginDir, name)
@@ -21,12 +57,7 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     ok.add(pluginDataDir(name))
     // A folder that another installed plugin declares or recorded in its ledger is NOT erased: deleting an old copy of a plugin must not take what a newer
     // copy under another name still needs (test C on the F50 showed the folder gone). It is listed as "not erased" with the reason.
-    val others = HashMap<String, List<String>>()
-    pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.forEach { o ->
-        val oc = try { o.readText() } catch (_: Exception) { "" }
-        val od = pluginUninstallDeclarations(oc)
-        others[o.name] = (pluginDataDeclarations(oc) + traceStore.read(o.name).paths + commandPaths(od.commands, od.check)).distinct()
-    }
+    val others = pluginOtherPaths(name)
     fun shareNote(d: String): String? = pluginsUsingPath(d, others).takeIf { it.isNotEmpty() }?.let { "also used by " + it.joinToString(", ") + ", so it is kept" }
     // Folders named after the plugin are erased too, without a header line. They pass the same strict check and are listed in the dialog (only when they exist).
     for (d in implicitPluginPaths(name)) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
@@ -309,7 +340,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val led = traceStore.read(name)
         val ups = JSONArray(); for (u in led.uploads) if (File(uploadDir, u).isFile) ups.put(u)
         json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success)
-            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()))
+            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", pluginSweep(name).toJson()))
     }
     // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
     // Phase 1 / Step 4: {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).
