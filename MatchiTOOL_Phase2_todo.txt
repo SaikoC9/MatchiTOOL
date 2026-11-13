@@ -22,6 +22,7 @@ HOW TO READ THIS
 
 DELIVERY (owner's standing request): with every step, hand over (1) the FULL updated project zip, (2) a zip with ONLY the changed files, same paths,
   ready to copy into the GitHub repo, and (3) this txt updated.
+  EXCEPTION (owner, 2026-11-13): when ONLY this txt changed, hand over the txt alone. No full zip, no changed-files zip.
 
 PROGRESS  (update after every step)
 ------------------------------------------------------------------
@@ -159,6 +160,62 @@ PROGRESS  (update after every step)
           busy for 15 s (Live Status polls every ~10 s), or something specific to how RootShell runs the script.
         - Dialog opening was slow (the owner noticed) while the probe took 19 s; expect a few seconds now. NOT yet timed on the new build.
       NEXT: build, install, run test A again (retest list in the chat). Then B-M from the test pack (test_pack/TEST_COMMANDS.txt).
+
+  [~] Step 9 - TESTS (in progress, F50, 2026-11-13, APK built after Step 8c; build number not noted).
+      Test plan files (uploaded by the owner, not in the repo): Sweep_Lab.js (trusted, declares nothing; buttons A,B,C,E,G,H), Sweep_Slow.js (J),
+      Sandbox_Tag_Only.js (K), Sandbox_Hook_Ok.js / _Noop.js / _Hang.js (L). Sandboxed ones: press the shield and approve first.
+      D needs a copy of Sweep_Lab.js under another name (press A in BOTH, so both ledgers hold beat.txt); I, M are by hand.
+      Order chosen: A, G, H, B, C, E, D, K, L (Ok, Noop, Hang, hook-only), J, I, M. Reinstall the plugin before each test (the delete IS the test).
+      Terminal helpers: check = ps -A -o PID,PPID,ARGS | grep -E '[s]weep_lab|[t]ag_only|[h]ook_(ok|hang|noop)|[s]leep 999|[s]leep 1000'
+      Reset = pkill -9 -f 'sweep_la[b]'; ... ; true   (pkill and grep return 1 when nothing matches: the console prints "[failed]" and that
+      means EMPTY, which is the good result for a "gone" check). A placeholder like PID must be replaced by a real number.
+      RESULTS:
+        A  PASS (11:26-11:28). Dialog listed ONE process, PID 23883 "sh -c while :; do date > /data/local/sweep_lab/beat.txt; sleep 30; done"
+           (found by tag), no "sleep 30" children (the 8c classifySweep fix works). Delete and stop: toast "Stopped and deleted Sweep_Lab.js and its
+           data", plugin gone from the list, Bypass_v65_17 untouched, ps for sweep_lab empty afterwards.
+           NOT recorded: how long the dialog took to open; whether shell_audit.log has the "plugin-sweep" line; whether "could not be checked" appeared
+           (it did not in the screenshot). The 8c "could not be checked" mystery stays open until a slow case is seen again.
+        G  NOT RUN YET - blocked by the probe (11:34). Job G was running (PID 26600 "sh /data/local/sweep_lab/jobG.sh", PPID 1, started without nohup).
+           Dialog said: "declares no stop commands. Anything it started may keep running" + "could not be checked ... (the process check did not
+           finish in time (last output: [timeout after 15000ms]))". Only "Cancel" / "Delete" (= without stopping) were offered. The probe worked at 11:26
+           (test A) and timed out at 11:34: the "could not be checked" problem is INTERMITTENT, seen 3 times now (19 s old probe, 11:01, 11:34).
+           FINDING: the "(last output: ...)" diagnostic added in 8c is BLIND. RootShell.runOn writes the script's output to a temp file and reads it only at
+           the end, so on a timeout the text is always empty. It cannot show how far the probe got. Fix idea (not written; no Kotlin compiler in this session):
+           on timeout, read the temp file before killScriptTree removes it; or let the probe write progress to a second file.
+           Suspects, not yet separated: (a) the 2-session root pool is busy for 15 s (Live Status polls) and the probe only waits; (b) the probe really hangs
+           on the device (only the three bulk commands were timed by hand, 1 s; the whole probe incl. the while-read loop never was).
+           Next, by hand: reopen the dialog 3 times with Live Status closed and note time + result; check for a leftover grep/sh from a hung probe.
+           BY HAND (owner, Terminal, 11:3x): no leftover grep / stat / MTSWEEP process (nothing stuck). The three bulk commands of the probe each took
+           0.03 s (149 command lines, 2 tagged environ hits, 490 /proc entries). So the bulk part is NOT the slow part. Left: the while-read loop, the
+           root session pool being busy, or something about how RootShell runs the script. The owner has not yet reported the dialog retries.
+           TOOL BUILT: Probe_Time.js (trusted, declares nothing, NOT part of the repo). It runs the exact probe text through runShellWithRoot with stage
+           markers (uptime in s after: self, cmdline grep, environ grep, stat, loop) and 3 buttons: trivial echo x3 (queue latency), full probe x3 with a
+           30 s limit (so a 17 s run still finishes and shows its stages), full probe with the app's 15 s limit. Script rebuilt from PluginSweep.kt and run
+           locally in dash and bash (END line right). Reading the result: echo slow -> pool busy; echo fast but probe slow -> the stage list shows where.
+           PROBE_TIME RESULT (owner, 11:4x): echo 130-310 ms (root queue is NOT busy). Full probe: run 1 TIMED OUT at 30 s (38.7 s wall, only "MTT start"
+           came back), run 2 = 29.2 s, run 3 = 27.6 s (146 / 144 process lines, END line right). Stage times: self, cmdline grep, environ grep and stat
+           are done within 0.06 s of the start; the WHILE-READ LOOP takes 27-29 s (about 0.2 s per process). ROOT CAUSE FOUND: the loop, not the bulk
+           commands, not the root pool. The app limit is 15 s, so the probe fails every time (it passed at 11:26 only when few processes were running).
+           Likely line (not yet proven): x=${U#*"/proc/$p "} - a prefix pattern on a ~15 KB string for every process (quadratic in the F50's sh).
+           Probe_Time.js v2 adds button 4: three variants (no UID lookup / no tag lookup / neither), each timed, to prove which line it is.
+           FIX PLAN (not written yet): no per-process search in big strings. Let the shell print the raw bulk output with labels (cmdline, environ-tag,
+           stat, uid, each line carries the PID) and do the joining in Kotlin (parseSweepProbe). Needs the Kotlin change + tests; Actions compile.
+           PROBE_TIME BUTTON 4 (owner, 11:5x) - PROVEN: variant without the UID lookup: loop 0.21 s (total 0.55 s); without the TAG lookup: 24 s (still
+           slow); without both: 0.09 s. The slow line is x=${U#*"/proc/$p "} (the UID lookup in the ~15 KB "stat -c '%n %u'" string, once per process).
+           The tag lookup is fine. (Probe_Time.js is a test tool, not part of the repo; delete it from the phone when done.)
+        STEP 8d - PROBE FIX (written after the finding; Kotlin NOT compiled here, validate.sh exit 0, NOT yet on the device):
+           PluginSweep.kt sweepProbeScript(): removed U=$(stat -c ...), removed x=${U#...}, cu is now always empty. The UID column stays in the format
+           (MTSWEEP|PID|PPID|START|UID|TAG|ARGS) and parses as -1; SweepProc.uid is used by NO rule in the app (checked: no ".uid" use outside the parser), so
+           nothing changes in the dialog or the kill. Two bulk commands remain. KDoc updated with the measured numbers and the rule "never search a big
+           string once per process in this loop". PluginSweepTest.kt: the "stat -c" assertion is replaced by assertFalse for "stat -c", "${U#", "${x%%".
+           Checked here: the probe text rebuilt from the Kotlin source runs in dash and bash (END line right); 300 extra processes: 0.08 s in dash (dash is
+           not the F50's sh, so the F50 time still has to be measured: Probe_Time.js button 2 shows it only for the OLD text; after the new APK the Delete
+           dialog itself is the test).
+           If the owner later wants the UID back: print "stat -c 'MTUID|%n|%u'" lines straight to the output and join them in parseSweepProbe (no shell
+           lookup); needs a parser change + tests.
+      TO WATCH (prediction, not a finding): L1 Sandbox_Hook_Ok - the hook kills the loop, its "sleep 30" child is orphaned but keeps the tag, the re-scan
+      may list it as a NEW process and reopen the dialog once. If seen, decide whether the page should ignore orphans of processes the hook ended.
+      NEXT: build the new APK (Actions), open the Delete dialog on a plugin with a running job: it must list it in a few seconds. Then G, H, and the rest in the order above.
 
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
@@ -388,8 +445,8 @@ STEP 9 - Tests
 Unit tests (scripts/kotlin_pure_tests.sh; GitHub Actions):
 [ ] tag prefix / probe parser / classification / exclusions / shared guard / cap / run / report.
 On the device (F50, debug APK from GitHub Actions; use small test plugins, F2 in Phase 1):
-[~] A. (dialog part PASS 2026-11-13; Delete and stop FAILED, fix in Step 8c, retest pending) Plugin with NO headers starts a background job (nohup): dialog lists it (found by tag);
-       Delete and stop: process gone, plugin deleted.
+[x] A. (PASS 2026-11-13 after the 8c fix; dialog lists one process found by tag, Delete and stop removed the plugin and the job) Plugin with NO headers starts a
+       background job (nohup): dialog lists it (found by tag); Delete and stop: process gone, plugin deleted.
 [ ] B. Job started through a pidfile only (written by a script the plugin made): pidfile match.
 [ ] C. Job started BEFORE this build (no tag): cmdline match only, shown and killed only if shown.
 [ ] D. Old copy / new copy (Phase 1 test C again): delete the old one, the process the new copy

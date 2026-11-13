@@ -81,7 +81,8 @@ class PluginSweepTest {
         val sc = sweepProbeScript()
         assertTrue(sc.contains("grep -a -H '' /proc/[0-9]*/cmdline"))                    // one bulk read of every command line
         assertTrue(sc.contains("grep -a -o -H -E") && sc.contains("/proc/[0-9]*/environ")) // one bulk read of every environ (the tag)
-        assertTrue(sc.contains("stat -c '%n %u' /proc/[0-9]*"))                           // one bulk owner list
+        // device test 2026-11-13: a per-process search in one big string (the owner list) made the loop take 28 s; it must not come back
+        assertFalse(sc.contains("stat -c")); assertFalse(sc.contains("\${U#")); assertFalse(sc.contains("\${x%%"))
         for (perProcess in listOf("cat \$d", "stat -c %u \$d", "<\$d/cmdline", "<\$d/environ"))
             assertFalse("per-process program: $perProcess", sc.contains(perProcess))
         assertTrue(sc.contains("<<${SWEEP_LINE_PREFIX}_EOF"))                              // the loop runs in the main shell, so the count survives

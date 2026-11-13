@@ -111,13 +111,16 @@ internal class SweepProbe(
  * SWEEP_ARGS_MAX + 60 characters per line and parseSweepProbe cuts ARGS at [SWEEP_ARGS_MAX], so a line is always one line.
  * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have no command line and are NOT listed (they are never candidates).
  * SPEED (device test, F50, 496 processes): the first version started about 8 programs per process and took 19 s, over the 15 s limit.
- * This version reads everything with THREE bulk commands (one grep over every cmdline, one grep over every environ, one stat for the owner)
- * and then walks the result with shell built-ins only, so it starts no program per process. The first-line match of environ needs a name
+ * This version reads everything with TWO bulk commands (one grep over every cmdline, one grep over every environ)
+ * and then walks the result with shell built-ins only, so it starts no program per process. The UID column is always EMPTY (parsed as -1): nothing
+ * uses it. SPEED (device test, F50, 150 processes with a command line, 490 in /proc): a lookup of each PID in one 15 KB "stat -c %n %u" string
+ * (a prefix pattern on that string, once per process) made the loop take 27-29 s, over the 15 s limit; without it the loop takes 0.2 s.
+ * Never search a big string once per process in this loop. The first-line match of environ needs a name
  * boundary in front of MATCHI_PLUGIN= so a longer variable name does not count.
  * It writes nothing and kills nothing: the only redirects are inputs and 2>/dev/null. Needs root to read other users' environ.
  * Step 4: [pidfiles] (paths from sweepPidfilePaths) are read too, before the END line, one line each: MTSWEEP-PID|PATH|DIGITS. Only a REGULAR file that
  * is not a symlink is read (a FIFO would block the probe), only its first line, only digits, at most 9. parseSweepProbe ignores these lines.
- * [UNVERIFIED] on the F50: the whole script as one (the three bulk commands were timed there by hand and are fast).
+ * [UNVERIFIED] on the F50: the whole script as one after this change (before it: bulk part 0.06 s, loop 28 s; the variant without the UID lookup ran in 0.5 s).
  */
 internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (listOf(
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
@@ -125,7 +128,6 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
     "cp=",
     "C=\$(grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
     "E=\$(grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | tr '\\000' ' ')",
-    "U=\$(stat -c '%n %u' /proc/[0-9]* 2>/dev/null)",
     "flush() {",
     "  [ -n \"\$cp\" ] || return 0",
     "  echo \"$SWEEP_LINE_PREFIX|\$cp|\$cpp|\$cst|\$cu|\$ct|\$ca\"",
@@ -145,10 +147,9 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
     "  case \"\$s\" in *') '*) ;; *) continue ;; esac",
     "  s=\${s##*) }",
     "  set -- \$s",
-    "  x=\${U#*\"/proc/\$p \"}",
     "  t=",
     "  case \"\$E\" in *\"/proc/\$p/environ:\"*) y=\${E#*\"/proc/\$p/environ:\"}; y=\${y#*$SWEEP_TAG_VAR=}; t=\${y%%[!A-Za-z0-9._-]*} ;; esac",
-    "  cp=\$p; cpp=\$2; cst=\${20}; cu=\${x%%[!0-9]*}; ct=\$t; ca=\$a",
+    "  cp=\$p; cpp=\$2; cst=\${20}; cu=; ct=\$t; ca=\$a",
     "done <<${SWEEP_LINE_PREFIX}_EOF",
     "\$C",
     "${SWEEP_LINE_PREFIX}_EOF",
