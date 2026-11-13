@@ -365,6 +365,13 @@ internal fun classifySweep(
         }
         found.add(SweepCandidate(p.pid, p.start, how, p.args))
     }
+    // Device test (F50, 2026-11-13): a job like "while :; do ...; sleep 30; done" starts a NEW child every 30 s, so a list that holds the
+    // children changed between the dialog and the click, the hash no longer matched and the stop was refused (409) again and again. The kill
+    // script ends the whole tree below a listed process anyway, so a process whose parent is also listed is covered by that parent and is
+    // left out of the list and of the hash. Only the roots are shown and hashed.
+    val listed = found.map { it.pid }.toSet()
+    val parentOf = probe.procs.associate { it.pid to it.ppid }
+    found.removeAll { c -> val pp = parentOf[c.pid]; pp != null && pp in listed }
     found.sortWith(compareBy({ SWEEP_HOW_RANK[it.how] ?: 9 }, { it.pid }))
     val over = found.size > SWEEP_MAX_CANDIDATES
     val notes = ArrayList<String>()
@@ -431,8 +438,12 @@ private fun uncheckedSweep(why: String) = SweepView(false, SweepResult(emptyList
  */
 internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResult?, ledgerPaths: List<String>, others: Map<String, List<String>>): SweepView {
     if (!rootGranted || run == null) return uncheckedSweep("cannot be checked: root is not available")
-    if (!run.success) return uncheckedSweep(
-        if (run.content.contains("[timeout after")) "cannot be checked: the process check did not finish in time" else "cannot be checked: the process check failed")
+    if (!run.success) {
+        // the end of what the probe printed is kept (at most 160 characters, one line) so the next device test shows how far it got
+        val tail = run.content.replace('\r', ' ').replace('\n', ' ').trim().takeLast(160)
+        val why = if (run.content.contains("[timeout after")) "cannot be checked: the process check did not finish in time" else "cannot be checked: the process check failed"
+        return uncheckedSweep(if (tail.isEmpty()) why else "$why (last output: $tail)")
+    }
     val probe = parseSweepProbe(run.content)
     val pidfiles = parseSweepPidfiles(run.content, sweepPidfilePaths(ledgerPaths))
     val r = classifySweep(plugin, probe, ledgerPaths, pidfiles, others)

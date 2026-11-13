@@ -256,6 +256,24 @@ class PluginSweepTest {
         assertEquals(listOf(3000), pids(r)); assertEquals(SWEEP_HOW_CMDLINE, r.candidates[0].how)
     }
 
+    @Test fun childrenOfAListedProcessAreCoveredByIt() {
+        // the F50 loop job: a shell that starts a new "sleep 30" every 30 s; only the shell is listed, and the hash does not change with the child
+        val a = run(listOf(pr(3100, 1, "sh -c while :; do date > /data/local/x/beat.txt; sleep 30; done", PL), pr(3101, 3100, "sleep 30", PL)))
+        val b = run(listOf(pr(3100, 1, "sh -c while :; do date > /data/local/x/beat.txt; sleep 30; done", PL), pr(3150, 3100, "sleep 30", PL)))
+        assertEquals(listOf(3100), pids(a)); assertEquals(1, a.found)
+        assertEquals(sweepHash(a.candidates), sweepHash(b.candidates))
+    }
+
+    @Test fun aChildWhoseParentIsNotListedStaysListed() {
+        val r = run(listOf(pr(3200, 1, "sh", null), pr(3201, 3200, "sleep 30", PL)))
+        assertEquals(listOf(3201), pids(r))
+    }
+
+    @Test fun aChainOfListedProcessesShowsOnlyTheTop() {
+        val r = run(listOf(pr(3300, 1, "sh a", PL), pr(3301, 3300, "sh b", PL), pr(3302, 3301, "sleep 30", PL)))
+        assertEquals(listOf(3300), pids(r)); assertEquals(1, r.found)
+    }
+
     @Test fun exclusionsBeatEveryWay() {
         val r = run(listOf(
             pr(950, 500, "sh", PL), pr(952, 500, "su", PL),                                   // root sessions, even if tagged

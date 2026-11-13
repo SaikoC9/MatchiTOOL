@@ -135,7 +135,30 @@ PROGRESS  (update after every step)
       OPEN QUESTION (ask the owner): the tag was found on TWO processes, 30356 (the job, expected) and 8182 (older PID, not yet identified).
       If 8182 is a pooled root session shell, then "export MATCHI_PLUGIN" LEAKED into the session and later commands (other plugins, Terminal) could be
       mis-tagged. Check: in the Terminal run   echo "[$MATCHI_PLUGIN]"   and   ps -A -o PID,PPID,ARGS | grep -E '^ *8182 '
-      NOT YET RETESTED on the device with the new probe.
+      ANSWERED (see Step 9 results below): no leak, PID 8182 was gone.
+
+  [x] Step 8c - DEVICE RESULTS SO FAR (owner, F50, 2026-11-13, build with Step 8b probe) AND THE FIX.
+      PASSED:
+        - Kotlin of Steps 5-7 compiles; Actions build green (3 min 46 s).
+        - Tag is set on the plugin's job: MATCHI_PLUGIN=Sweep_Lab.js in /proc/PID/environ (root can read it).
+        - Terminal commands are NOT tagged: echo "[$MATCHI_PLUGIN]" printed []. The "export leaks into the session" worry (UNVERIFIED list) is
+          answered: no leak seen. PID 8182 (second tagged process) was gone when asked, never identified.
+        - grep -a -H, grep -a -o -H -E and stat -c '%n %u' exist on the F50; the three bulk commands take 1 s for ~490 processes.
+        - Test A, first half PASS: the Delete dialog (after the faster probe) lists the job "found by tag" (PIDs 16621, 30356 and their
+          "sleep 30" children 16932, 16940), the line "ends them as root, and everything they started", and the shared-path line.
+      FAILED / OPEN:
+        - Test A, second half FAIL: after "Delete and stop" the plugin was KEPT and both jobs kept running. shell_audit.log has NO "plugin-sweep"
+          line, so the kill script never ran; the stop was refused before it (the report text was not captured).
+          Likely cause (found in the code, fix written, NOT yet retested): the list and sweepHash contained the "sleep 30" CHILDREN of the loop
+          job; a new child starts every 30 s, so the fresh scan at click time never matched what the dialog showed -> 409 plan-changed, again and again.
+          FIX (PluginSweep.kt classifySweep): a process whose parent is also listed is left out of the list and of the hash (the kill script ends
+          the whole tree below a listed process anyway). 3 new tests (PluginSweepTest.kt): child covered, child with unlisted parent stays, chain.
+        - The dialog said "could not be checked (did not finish in time)" TWICE: on the first build (19 s probe, explained) and once more at
+          11:01 on the new build, although the same three bulk commands take 1 s by hand. NOT explained. Added a diagnostic: the reason now ends with
+          "(last output: ...)" (160 characters of what the probe printed) so the next screenshot shows how far it got. Suspects: the 2-session root pool
+          busy for 15 s (Live Status polls every ~10 s), or something specific to how RootShell runs the script.
+        - Dialog opening was slow (the owner noticed) while the probe took 19 s; expect a few seconds now. NOT yet timed on the new build.
+      NEXT: build, install, run test A again (retest list in the chat). Then B-M from the test pack (test_pack/TEST_COMMANDS.txt).
 
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
@@ -365,7 +388,7 @@ STEP 9 - Tests
 Unit tests (scripts/kotlin_pure_tests.sh; GitHub Actions):
 [ ] tag prefix / probe parser / classification / exclusions / shared guard / cap / run / report.
 On the device (F50, debug APK from GitHub Actions; use small test plugins, F2 in Phase 1):
-[ ] A. Plugin with NO headers starts a background job (nohup): dialog lists it (found by tag);
+[~] A. (dialog part PASS 2026-11-13; Delete and stop FAILED, fix in Step 8c, retest pending) Plugin with NO headers starts a background job (nohup): dialog lists it (found by tag);
        Delete and stop: process gone, plugin deleted.
 [ ] B. Job started through a pidfile only (written by a script the plugin made): pidfile match.
 [ ] C. Job started BEFORE this build (no tag): cmdline match only, shown and killed only if shown.
