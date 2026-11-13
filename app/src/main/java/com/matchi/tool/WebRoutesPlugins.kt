@@ -363,6 +363,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val ip = s.remoteIpAddress ?: "?"
         val stopPlanNow = if (wantStop) pluginStopPlan(name) else null // read from the file BEFORE it is deleted, like the erase plan
         val skipStop = req.optBoolean("skipStop", false)
+        if (req.has("hookRan")) auditShell(ip, hookAuditLine(name, req.optBoolean("hookRan", false), req.optString("hookStatus")), "plugin-hook") // Step 7: audit only; never read for the outcome
         // Phase 2 / Step 5: the process sweep is part of the request only when the page sends "sweepHash" (even an empty one). A page that does not
         // (Phase 1 behaviour) never gets a sweep, so it can not be refused for a hash it never had.
         val sweepNow = if (stopPlanNow != null && !skipStop && req.has("sweepHash")) pluginSweep(name) else null // BEFORE anything runs

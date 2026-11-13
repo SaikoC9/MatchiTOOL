@@ -81,6 +81,37 @@ PROGRESS  (update after every step)
       Decisions I took (say if you want them different): over 50 processes -> only "Delete without stopping" (the host would run the declared commands, refuse
       the sweep and keep the plugin anyway); "Delete, skip the stop" in the shared case sends no sweepHash (no stop, so no scan).
 
+  [x] Step 7 - JavaScript hook, SANDBOXED plugins only (D5 = b, D7). Written and tested in node; Kotlin NOT compiled (no compiler here); nothing run on a device.
+      NOTE: D5 said "built LAST, after the sweep passes on the device". It was built on request BEFORE tests A-K ran on the F50. If a device test
+      changes the sweep, re-check the hook flow (hash handling after the hook).
+      Bridge (web-src/plugin-sandbox.js): matchi.onUninstall(fn) -> bridge op "hook.register" (no grant needed, no arguments, page-only: NOT relayed to the
+      host, sandboxCallError unchanged). The page asks the frame to run it with a message {run:'uninstall', token}; the frame answers "hook.done"
+      [token, ok, error<=200]. Only the answer with the CURRENT token counts (random, sent only over the port); a late, wrong or invented answer is ignored.
+      sbxHookRun(entry, 15 s): none | ok | failed | timeout | dead (never rejects). The hook can use only what the person approved (every call it makes
+      goes through the same sbxAuthorize + host check as any other call), so it gains no new power.
+      Page (index.html delete handler + web-src/plugin-sweep-ui.js): new mode "hook" (no commands, nothing found, but a hook is registered -> "Delete and stop").
+      Dialog line "It also runs its own stop code first, inside its sandbox (15 s at most). That code can only do what you approved ..." + "not believed,
+      a scan afterwards decides, if its code fails or does not finish, the plugin is kept". Order on "Delete and stop": hook -> (failed / timeout / dead:
+      NO request is sent, retry dialog with the reason) -> scan again via /api/plugins/data -> (scan did not run / cut short / over 50: NO request, "nothing
+      shows that it worked") -> (a process that was not listed before: toast, dialog opens again) -> request with the NEW sweepHash (a subset of what the
+      person saw, same PID + start + command line) -> host sweep + re-scan as in Step 5. "Delete without stopping" never runs the hook.
+      Host (Kotlin, not compiled): hookAuditLine() in PluginUninstall.kt + one line in the delete route: hookRan / hookStatus go to the audit log ("plugin-hook")
+      and are never read for the outcome; the status is cut to ok|failed|timeout|dead|none else "unknown". PluginHookTest.kt (4 tests, not run).
+      Tests: scripts/test_plugin_hook.js (40, in validate.sh): the REAL bridge text in a fake frame, sbxHookRun with fake timers, authorization, dialog
+      helpers, and the REAL delete handler driven with scripted stubs (hook ok / fails / times out then skip / try again / scan blind / new process /
+      not sandboxed / no hook / dead bridge / declared commands / refused). 6 mutations make tests fail (failed hook not keeping the plugin, blind scan
+      ignored, old hash, token unchecked, new process allowed, hook for skip). The handler test found a bug on the way (the hook line was shown for every
+      plugin in a stopping mode); fixed. Step 6 tests updated for the new handler text. validate.sh exit 0.
+      Decisions I took (say if you want them different): (1) a plugin with a registered hook and nothing else gets "Delete and stop" (mode "hook"), because
+      a plugin whose job the sweep cannot see is exactly the one that needs its own code; (2) the hook runs BEFORE the declared commands and the sweep;
+      (3) a failed / timed-out hook keeps the plugin on the PAGE side (the host cannot see the hook, so no request is sent at all) - the audit line is
+      sent only when a later request goes out (for example "Delete without stopping" after a failed hook); (4) the extra scan after the hook uses
+      /api/plugins/data (one more root probe, up to 15 s, outside the 60 s); (5) the toast after a hook-only delete says "Its stop code ran and a scan
+      found nothing left running", never "Stopped".
+      UNVERIFIED on the F50: a real sandboxed plugin registering a hook and a hook running a granted pkill; the 15 s limit in a real browser; the extra
+      probe time; what a hook that hangs does to the frame (it keeps running in its frame until the page is reloaded; the plugin is kept).
+      Still open: docs/PLUGIN_SANDBOX.md (bridge list: add onUninstall) is Step 8; example hook plugin is Step 8.
+
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
 P1  Attribution is best effort. A trusted plugin's root commands carry the header
@@ -291,13 +322,13 @@ STEP 6 - Page                                   File: index.html (delete handler
 [x] Run scripts/validate.sh and build-web --check.
 
 STEP 7 - JavaScript hook (only if D5 = b or c)  Files: index.html, WebRoutesPlugins.kt
-[ ] New bridge op for sandboxed plugins, e.g. matchi.onUninstall(fn); the page keeps a
+[x] New bridge op for sandboxed plugins, e.g. matchi.onUninstall(fn); the page keeps a
     registry per plugin (trusted: window-level registration, only for c).
-[ ] The delete handler runs the hook BEFORE the request, 15 s limit, then sends a flag
+[x] The delete handler runs the hook BEFORE the request, 15 s limit, then sends a flag
     "hookRan": true|false. The host ignores it for success and only adds it to the log.
-[ ] Dialog line: "It also runs its own stop code" (sandboxed: only granted commands; trusted:
+[x] Dialog line: "It also runs its own stop code" (sandboxed: only granted commands; trusted:
     "cannot be listed").
-[ ] Tests: registry, timeout, a hook that throws, a plugin that never loaded.
+[x] Tests: registry, timeout, a hook that throws, a plugin that never loaded.
 
 STEP 8 - Docs
 [ ] docs/PLUGIN_STOP.md: what the sweep does and does NOT catch (double-fork with a cleared
@@ -323,7 +354,7 @@ On the device (F50, debug APK from GitHub Actions; use small test plugins, F2 in
 [ ] I. Root unavailable: nothing killed, plugin kept, dialog opens again.
 [ ] J. 60 s ran out: plugin kept, report says what did not run.
 [ ] K. Sandboxed plugin: its shell command is tagged by the host; sweep finds it.
-[ ] L. (hook) sandboxed hook ends a job; a hook that hangs keeps the plugin; the re-scan, not the
+[ ] L. (hook; code written in Step 7, needs the device) sandboxed hook ends a job; a hook that hangs keeps the plugin; the re-scan, not the
        hook, decides success.
 [ ] M. Bypass v65_17 again (deleted with its headers, then with the headers removed): nothing
        left running, hotspot still works after reboot.

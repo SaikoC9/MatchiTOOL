@@ -118,11 +118,11 @@ t('request: the hash goes with stop only; "Delete without stopping" sends none',
 
 // The page handler: the included block is in sync (build-web --check also does this) and the handler uses the helpers.
 t('page: handler wired to the helpers', () => {
-  const h = page.slice(page.indexOf('d.onclick=async()=>{\n      let failure=null;'));
+  const h = page.slice(page.indexOf('d.onclick=async()=>{\n      let failure=null'));
   assert.ok(h.length > 1000);
-  for (const needle of ['sweepNorm(info)', 'pluginDeleteMode(sp,sw)', 'sweepDialogText(sw,mode,noRoot)', 'sweepRetryText(sw)', 'sweepRequestFields(sw,true)'])
+  for (const needle of ['sweepNorm(info)', 'pluginDeleteMode(sp,sw,hk)', 'sweepDialogText(sw,mode,noRoot)', 'sweepRetryText(sw)', 'sweepRequestFields(sw,true)'])
     assert.ok(h.includes(needle), 'handler lacks ' + needle);
-  assert.ok(/stop=\(!failure&&\(mode==='stop'\|\|mode==='sweep'\)\)/.test(h), 'sweep mode must send stop');
+  assert.ok(/stop=\(!failure&&\(mode==='stop'\|\|mode==='sweep'(\|\|mode==='hook')?\)\)/.test(h), 'sweep mode must send stop');
   assert.ok(/skip=choice==='skip'\|\|\(!failure&&\(mode==='cannot'\|\|mode==='toomany'\)\)/.test(h), 'toomany must skip the stop');
   // the skip branch sends no sweepHash
   const skipLine = h.slice(h.indexOf('else if(skip)'), h.indexOf('else if(skip)') + 60);

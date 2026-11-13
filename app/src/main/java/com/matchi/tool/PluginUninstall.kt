@@ -185,6 +185,17 @@ internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan, sweepFou
     else -> StopMode.RUN
 }
 
+/**
+ * Phase 2 / Step 7: the audit line for the stop hook of a sandboxed plugin. The page runs the hook in the browser BEFORE the delete request and only tells
+ * the host how it went ([ran], [status]). The host never believes it: this line goes to the audit log and nothing else reads it, so a hook can not make a
+ * failed stop look successful (the re-scan decides, D6). [status] is cut down to the five words the page uses, so nothing else can be written into the log.
+ * [name] has passed the plugin name check before this is called.
+ */
+internal val HOOK_STATUSES = setOf("ok", "failed", "timeout", "dead", "none")
+
+internal fun hookAuditLine(name: String, ran: Boolean, status: String): String =
+    "hook " + name + " ran=" + ran + " status=" + (if (status in HOOK_STATUSES) status else "unknown")
+
 /** True when the plan the person reviewed ([sent]) is the plan the file gives now. A plan with nothing to run has the hash "". */
 internal fun stopHashMatches(sent: String, plan: StopPlan): Boolean = sent == plan.planHash
 

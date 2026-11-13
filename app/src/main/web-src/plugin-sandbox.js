@@ -10,6 +10,9 @@
  *   router: a,b  router.get(['a','b'])  only these router fields, read-only
  *   shell: CMD   shell(command)         only this exact command, nothing added to it
  *   net: host    (no call)              the frame's own Content-Security-Policy lets it contact https://host
+ *   always:      onUninstall(fn)        (Phase 2 / Step 7) registers a stop hook. The page runs it, 15 s at most, when the person chooses "Delete and stop".
+ *                                       It can use only what was approved for the plugin (the same checks as any other call). Its result is never believed:
+ *                                       a scan afterwards decides, and a hook that fails or does not finish keeps the plugin.
  * Every bridge call is checked here against the grant first (early, clear errors), then relayed to the host, which checks the stored approval again
  * on every call (POST /api/plugins/call, sandboxCallError in PluginSandbox.kt), so a bug here or a file changed after the page loaded cannot grant
  * more. Limits, stated plainly: the host cannot tell which page code relays a call, so a trusted plugin (already root) could name a sandboxed one
@@ -48,25 +51,32 @@ function sbxCsp(g){
 /* The bridge, as it runs inside the frame. Written as a function so the editor and node --check see it; its text is what goes into the frame. */
 function sbxPreludeMain(){
   'use strict';
-  var port=null,queue=[],seq=0,pending=new Map(),parentWin=window.parent;
+  var port=null,queue=[],seq=0,pending=new Map(),parentWin=window.parent,hookFn=null;
   function post(m){if(port)port.postMessage(m);else queue.push(m)}
   function call(op,args){return new Promise(function(resolve,reject){var id=++seq;pending.set(id,{resolve:resolve,reject:reject});post({id:id,op:op,args:args})})}
   window.addEventListener('message',function(ev){
     if(port||ev.source!==parentWin||!ev.data||ev.data.matchi!=='init'||!ev.ports||!ev.ports[0])return;
     port=ev.ports[0];
     port.onmessage=function(e){
-      var d=e.data;if(!d||typeof d.id!=='number')return;
+      var d=e.data;
+      if(d&&d.run==='uninstall'&&typeof d.token==='string'){runHook(d.token);return}   /* the page asks the stop hook to run (Phase 2 / Step 7) */
+      if(!d||typeof d.id!=='number')return;
       var p=pending.get(d.id);if(!p)return;pending.delete(d.id);
       if(d.ok)p.resolve(d.value);else p.reject(new Error(String(d.error||'failed')));
     };
     var q=queue;queue=[];for(var i=0;i<q.length;i++)port.postMessage(q[i]);
   });
+  function runHook(token){
+    var ok=true,err='';
+    Promise.resolve().then(function(){return hookFn?hookFn():undefined}).then(function(){},function(e){ok=false;err=String((e&&e.message)||e)}).then(function(){post({id:0,op:'hook.done',args:[token,ok,err.slice(0,200)]})});
+  }
   window.addEventListener('error',function(e){post({id:0,op:'error',args:[String((e&&e.message)||'error')]})});
   window.addEventListener('unhandledrejection',function(e){post({id:0,op:'error',args:[String((e&&e.reason&&e.reason.message)||(e&&e.reason)||'rejected')]})});
   var api={
     toast:function(text,color){return call('toast',[String(text),color===undefined?'':String(color)])},
     info:function(){return call('info',[])},
     close:function(){return call('close',[])},
+    onUninstall:function(fn){if(typeof fn!=='function')return Promise.reject(new Error('onUninstall needs a function'));hookFn=fn;return call('hook.register',[])},
     at:function(command){return call('at',[String(command)])},
     router:{get:function(fields){return call('router.get',[Array.isArray(fields)?fields.map(String):String(fields).split(',')])}},
     shell:function(command){return call('shell',[String(command)])},
@@ -105,6 +115,8 @@ function sbxAuthorize(g,op,args,atIsRead){
     }
     case 'info':case 'close':case 'storage.keys':return {ok:true,op,args:[]};
     case 'error':return {ok:true,op,args:[String(args[0]==null?'':args[0]).slice(0,SBX_MAX_TEXT)]};
+    case 'hook.register':return {ok:true,op,args:[]};
+    case 'hook.done':return str(args[0],40)?{ok:true,op,args:[args[0],args[1]===true,String(args[2]==null?'':args[2]).slice(0,200)]}:{ok:false,error:'bad hook answer'};
     case 'storage.get':case 'storage.remove':return str(args[0],64)?{ok:true,op,args:[args[0]]}:{ok:false,error:'bad storage key'};
     case 'storage.set':return str(args[0],64)&&typeof args[1]==='string'?{ok:true,op,args:[args[0],args[1]]}:{ok:false,error:'bad storage key or value'};
     case 'at':{
@@ -167,6 +179,12 @@ async function sbxRun(entry,a){
     case 'info':return {name:entry.name,title:entry.title,granted:entry.grant.slice()};
     case 'close':sbxHide(entry);return true;
     case 'error':{const now=Date.now();console.warn('[sandbox '+entry.name+']',a.args[0]);if(now-(entry.errAt||0)>10000){entry.errAt=now;createToast('['+entry.title+'] error: '+a.args[0],'red')}return null}
+    case 'hook.register':entry.hook=true;return true;
+    case 'hook.done':{   /* only the answer to the run the page asked for counts; a late or invented one is ignored */
+      const w=entry.hookWait;
+      if(w&&w.token===a.args[0])w.done(a.args[1]?{status:'ok',ran:true}:{status:'failed',ran:true,error:a.args[2]||'the stop code threw an error'});
+      return true;
+    }
     case 'storage.keys':return entry.store.keys();
     case 'storage.get':return entry.store.get(a.args[0]);
     case 'storage.set':return entry.store.set(a.args[0],a.args[1]);
@@ -196,6 +214,26 @@ function sbxOnMessage(entry,m){
   if(!a.ok)return reply(false,a.error);
   sbxRun(entry,a).then((v)=>reply(true,v),(e)=>reply(false,(e&&e.message)||'failed'));
 }
+/* Phase 2 / Step 7: run the stop hook a sandboxed plugin registered with matchi.onUninstall. Resolves, never rejects, with {status, ran, error?}:
+     none     no hook registered (or the plugin is not mounted in this session: a disabled plugin never ran, so it has no hook)
+     ok       the hook finished without an error      failed   the hook threw or rejected      timeout  no answer within [ms]
+     dead     the bridge is closed (the frame left its page)
+   ran is true for ok and failed. NOTHING here proves that a process ended: only the scan the page runs afterwards can. [timers] is for tests. */
+const SBX_HOOK_MS=15000;
+function sbxHookRun(entry,ms,timers){
+  const T=timers||{set:(f,n)=>setTimeout(f,n),clear:(t)=>clearTimeout(t)};
+  return new Promise((resolve)=>{
+    if(!entry||!entry.hook)return resolve({status:'none',ran:false});
+    if(entry.dead||!entry.port)return resolve({status:'dead',ran:false,error:'its window was closed'});
+    if(entry.hookWait)return resolve({status:'failed',ran:false,error:'its stop code is already running'});
+    const token='h'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+    let tm=null;
+    const done=(r)=>{if(!entry.hookWait||entry.hookWait.token!==token)return;T.clear(tm);entry.hookWait=null;resolve(r)};
+    entry.hookWait={token,done};
+    tm=T.set(()=>done({status:'timeout',ran:false,error:'no answer in '+Math.round(ms/1000)+' s'}),ms);
+    try{entry.port.postMessage({run:'uninstall',token})}catch(e){done({status:'dead',ran:false,error:'the message could not be sent'})}
+  });
+}
 function sbxTheme(){try{return {fg:getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()}}catch(_){return {}}}
 /* Start one sandboxed plugin (p from GET /api/plugins). It runs hidden in the background; a button in the plugin menu opens its window. */
 function sbxMount(p){
@@ -203,7 +241,7 @@ function sbxMount(p){
   const grant=Array.isArray(p.grant)?p.grant.filter((x)=>typeof x==='string'):[];
   const g=sbxGrants(grant);
   const modalId='sbx_'+String(name).replace(/[^A-Za-z0-9_]/g,'_');
-  const entry={name,title,grant,g,modalId,port:null,dead:false,loaded:false,busy:0,rate:{t:0,n:0},store:sbxStore(sbxStorage(),name)};
+  const entry={name,title,grant,g,modalId,port:null,dead:false,loaded:false,busy:0,hook:false,hookWait:null,rate:{t:0,n:0},store:sbxStore(sbxStorage(),name)};
   const frame=document.createElement('iframe');
   frame.setAttribute('sandbox','allow-scripts');   // never allow-same-origin: that would give the plugin this page back
   frame.setAttribute('referrerpolicy','no-referrer');
