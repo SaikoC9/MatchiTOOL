@@ -5407,7 +5407,7 @@ function sweepDialogText(sw,mode,noRoot){
     else if(mode==='shared')m+='\n\nThese processes are running now. If the stop runs, it also ends them and everything they started:'+bullets(lines);
     else m+='\n\nThen it ends these processes, which are running now, and everything they started:'+bullets(lines);
   }else if(mode==='plain'||mode==='hook'){
-    m+='\n\nNo running process was found for it.';
+    m+=sw.notStopped.length?'\n\nNothing will be ended, because the processes found are used by another plugin too.':'\n\nNo running process was found for it.';
   }else if(mode==='stop'||mode==='shared'){
     m+='\n\nAfter the stop it scans for running processes it started and reports any that are left.';
   }

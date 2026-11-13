@@ -66,6 +66,13 @@ t('text plain: nothing found says so (D2); the old sentence stays in the handler
   assert.ok(m.includes('No running process was found for it.'));
   assert.ok(page.includes('This plugin declares no stop commands. Anything it started may keep running.'));
 });
+t('text plain with only guarded processes: says nothing will be ended, not "no process found"', () => {
+  const w = ui.sweepNorm({ sweep: { rootOk: true, complete: true, candidates: [], notStopped: ['PID 4031 sh -c loop: also used by Other.js'] } });
+  const m = ui.sweepDialogText(w, 'plain', false);
+  assert.ok(m.includes('Nothing will be ended')); assert.ok(m.includes('Left running on purpose')); assert.ok(m.includes('also used by Other.js'));
+  assert.ok(!m.includes('No running process was found'));
+  assert.ok(ui.sweepDialogText(w, 'hook', false).includes('Nothing will be ended'));
+});
 t('text unchecked: says it could not be checked, lists nothing, with the reason', () => {
   const w = ui.sweepNorm({ sweep: { rootOk: false, notes: ['cannot be checked: the process check did not finish in time'] } });
   const m = ui.sweepDialogText(w, 'plain', false);
