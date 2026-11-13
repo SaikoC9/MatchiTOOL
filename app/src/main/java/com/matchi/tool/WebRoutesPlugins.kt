@@ -31,10 +31,15 @@ internal fun WebServer.pluginOtherPaths(name: String): Map<String, List<String>>
  * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are mapped with UfiPathMap because the command lines of the processes
  * hold the mapped text (the ledger records what the plugin sent). Without root the answer is "cannot be checked", never a guessed list.
  */
-internal fun WebServer.pluginSweep(name: String): SweepView {
+internal fun WebServer.pluginSweepInputs(name: String): Pair<List<String>, Map<String, List<String>>> {
     val pkg = ctx.packageName
     val ledger = traceStore.read(name).paths.map { UfiPathMap.map(it, pkg) }.distinct()
     val others = pluginOtherPaths(name).mapValues { (_, v) -> v.map { UfiPathMap.map(it, pkg) } }
+    return ledger to others
+}
+
+internal fun WebServer.pluginSweep(name: String): SweepView {
+    val (ledger, others) = pluginSweepInputs(name)
     val granted = RootShell.status(ctx).granted
     val run = if (granted) RootShell.run(ctx, sweepProbeScript(sweepPidfilePaths(ledger)), SWEEP_PROBE_TIMEOUT_MS) else null
     return buildSweepView(name, granted, run, ledger, others)
@@ -357,22 +362,38 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val ip = s.remoteIpAddress ?: "?"
         val stopPlanNow = if (wantStop) pluginStopPlan(name) else null // read from the file BEFORE it is deleted, like the erase plan
+        val skipStop = req.optBoolean("skipStop", false)
+        // Phase 2 / Step 5: the process sweep is part of the request only when the page sends "sweepHash" (even an empty one). A page that does not
+        // (Phase 1 behaviour) never gets a sweep, so it can not be refused for a hash it never had.
+        val sweepNow = if (stopPlanNow != null && !skipStop && req.has("sweepHash")) pluginSweep(name) else null // BEFORE anything runs
         var stopOut: JSONObject? = null
-        if (stopPlanNow != null && stopMode(true, req.optBoolean("skipStop", false), stopPlanNow) == StopMode.RUN) {
+        // D3: what the person saw is what runs. A different process list now (a new match, or one that ended) keeps everything and opens the dialog again.
+        if (sweepNow != null && !sweepHashMatches(req.optString("sweepHash"), sweepNow))
+            return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The processes it started changed since you reviewed it; open the delete dialog again"))
+        val sweepFound = sweepNow?.result?.found ?: 0
+        if (stopPlanNow != null && stopMode(true, skipStop, stopPlanNow, sweepFound) == StopMode.RUN) {
             // The plan is recomputed from the file as it is now; the person reviewed the one in planHash.
             if (!stopHashMatches(req.optString("planHash"), stopPlanNow))
                 return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The plugin changed since you reviewed it; open the delete dialog again"))
-            val report = if (stopPlanNow.commands.isNotEmpty() && !RootShell.status(ctx).granted) {
+            val report = if ((stopPlanNow.commands.isNotEmpty() || sweepFound > 0) && !RootShell.status(ctx).granted) {
                 val off = stopPlanNow.commands.map { CommandOutcome(it, "notRun", "root not available") }
-                stopReport(stopPlanNow, off, StopVerify.NOT_RUN, "Could not stop: root not available")
+                val offSweep = sweepNow?.let { v -> SweepStopResult(true, emptyList(), false, emptyList(), v.result.candidates.map { "not stopped (root not available): PID ${it.pid} ${it.args}" }) }
+                stopReport(stopPlanNow, off, StopVerify.NOT_RUN, "Could not stop: root not available", offSweep)
             } else {
                 val t0 = System.currentTimeMillis()
                 val exec = { cmd: String, ms: Long -> RootShell.run(ctx, cmd, ms) }
                 val audit = { cmd: String -> auditShell(ip, cmd, "plugin-uninstall") }
                 val outcomes = runStopCommands(stopPlanNow.commands, STOP_TOTAL_MS, System::currentTimeMillis, exec, audit, t0)
-                // Step 5: the check command and the boot file test share what is left of the same 60 s.
-                val verify = verifyStop(stopPlanNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, audit)
-                stopReport(stopPlanNow, outcomes, verify)
+                // Phase 2 / Step 5 (D4): after the declared commands, end the processes that were shown, then scan again. Same 60 s clock. A stop that is
+                // blocked or has refused commands cannot succeed and runs nothing of the sweep either (the file is not the one the person approved).
+                val sweepRes = if (sweepNow != null && stopPlanNow.blocked == null && stopPlanNow.refused.isEmpty()) {
+                    val (ledgerPaths, others) = pluginSweepInputs(name)
+                    val auditSweep = { line: String -> auditShell(ip, line, "plugin-sweep") }
+                    runSweepStop(name, sweepNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, ledgerPaths, others, auditSweep, auditSweep)
+                } else null
+                // Step 5 of Phase 1: the check command and the boot file test share what is left of the same 60 s. D6: a clean re-scan counts as a check.
+                val verify = withSweepVerify(verifyStop(stopPlanNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, audit), sweepRes)
+                stopReport(stopPlanNow, outcomes, verify, null, sweepRes)
             }
             stopOut = report.toJson()
             if (!report.success) return@run json(Response.Status.OK, JSONObject().put("ok", false).put("kept", true).put("stop", stopOut))

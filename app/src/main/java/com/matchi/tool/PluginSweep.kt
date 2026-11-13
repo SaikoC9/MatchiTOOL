@@ -416,3 +416,215 @@ internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResu
     val r = classifySweep(plugin, probe, ledgerPaths, pidfiles, others)
     return SweepView(true, r, if (r.overCap) "" else sweepHash(r.candidates))
 }
+
+// ---- Step 5: ending the processes and checking again ----
+
+/** Step 5: the sweep step is not started with less than this left of the 60 s (its own wait is [SWEEP_TERM_WAIT_MS], plus the work around it). */
+internal const val SWEEP_MIN_MS = 6_000L
+
+/** Step 5: the kill script gets at most this long (it needs about 3 s); a shorter limit keeps it out of the "long" root slots (F9 of Phase 1). */
+internal const val SWEEP_KILL_TIMEOUT_MS = 20_000L
+
+/** Step 5: how the kill script may report one process. */
+private val SWEEP_KILL_STATUSES = setOf("ended", "killed", "gone", "changed", "protected")
+
+/**
+ * Step 5 (D3, D4): the root script that ends the shown candidates. Only digits go into it (PID and start time, both checked here); the command
+ * lines are NOT put in, because they come from other processes. The caller has already compared the fresh scan with what the person saw
+ * (sweepHash), so "what you saw is what runs"; the script checks PID + start time once more right before it acts.
+ * Order (deviation from the wording of D4: SIGCONT is added, because a stopped process never acts on SIGTERM):
+ *   1. every root whose PID, start time and state still fit is taken; the sweep's own shell and its parents, PID 1, PID 2 are never taken;
+ *   2. the whole tree below the roots is frozen (SIGSTOP; the tree is read again and frozen again, so nothing started in between escapes);
+ *   3. SIGTERM to the tree, then SIGCONT, so the processes can end by themselves; wait [SWEEP_TERM_WAIT_MS];
+ *   4. the tree is read again (a parent that respawned a child is found), frozen again, then SIGKILL to all of it.
+ * The MatchiTOOL app process is never touched, wherever it appears in a tree. One line per root: MTKILL|PID|ended|killed|gone|changed|protected.
+ * Returns null when a candidate cannot be put in safely (the caller then does not run anything).
+ */
+internal fun sweepKillScript(candidates: List<SweepCandidate>): String? {
+    val ok = candidates.filter { it.pid > SWEEP_INIT_PID && it.start.isNotEmpty() && it.start.all { c -> c in '0'..'9' } }
+    if (ok.isEmpty() || ok.size != candidates.size) return null
+    val pairs = ok.joinToString(" ") { "'${it.pid}:${it.start}'" }
+    // ^ stands for the dollar sign (replaced below), so the Kotlin raw string needs no escapes.
+    val template = """
+me=^^
+prot=" 1 2 ^me "
+q=^me; i=0
+while [ ^i -lt 64 ]; do
+  s=^(cat /proc/^q/stat 2>/dev/null) || break
+  case "^s" in *') '*) ;; *) break ;; esac
+  r=^{s##*) }; set -- ^r; q=^2
+  [ "^q" -gt 0 ] 2>/dev/null || break
+  prot="^prot^q "; i=^((i+1))
+done
+alive() { s=^(cat /proc/^1/stat 2>/dev/null) || return 1; case "^s" in *') '*) ;; *) return 1 ;; esac; s=^{s##*) }; case "^s" in Z*|X*) return 1 ;; esac; return 0; }
+tree() {
+  all=" ^* "; c=1
+  while [ ^c = 1 ]; do
+    c=0
+    for d in /proc/[0-9]*; do
+      s=^(cat ^d/stat 2>/dev/null) || continue
+      case "^s" in *') '*) ;; *) continue ;; esac
+      pid=^{d#/proc/}
+      case "^all" in *" ^pid "*) continue ;; esac
+      r=^{s##*) }; set -- ^r
+      case "^all" in *" ^2 "*) all="^all^pid "; c=1 ;; esac
+    done
+  done
+  echo ^all
+}
+keep() {
+  out=
+  for p in ^*; do
+    case "^prot" in *" ^p "*) continue ;; esac
+    a=^(tr '\000' ' ' 2>/dev/null </proc/^p/cmdline)
+    case "^a" in 'com.matchi.tool'|'com.matchi.tool '*|'com.matchi.tool:'*) continue ;; esac
+    out="^out ^p"
+  done
+  echo ^out
+}
+roots=
+for pair in @PAIRS@; do
+  p=^{pair%%:*}; st=^{pair##*:}
+  s=^(cat /proc/^p/stat 2>/dev/null) || { echo "MTKILL|^p|gone"; continue; }
+  case "^s" in *') '*) ;; *) echo "MTKILL|^p|gone"; continue ;; esac
+  r=^{s##*) }; set -- ^r
+  if [ "^{20}" != "^st" ]; then echo "MTKILL|^p|changed"; continue; fi
+  alive ^p || { echo "MTKILL|^p|gone"; continue; }
+  case "^prot" in *" ^p "*) echo "MTKILL|^p|protected"; continue ;; esac
+  roots="^roots ^p"
+done
+[ -n "^roots" ] || { echo "MTKILL-END"; exit 0; }
+set1=^(keep ^(tree ^roots))
+for p in ^set1; do kill -STOP ^p 2>/dev/null; done
+set2=^(keep ^(tree ^set1))
+for p in ^set2; do kill -STOP ^p 2>/dev/null; done
+for p in ^set2; do kill -TERM ^p 2>/dev/null; done
+for p in ^set2; do kill -CONT ^p 2>/dev/null; done
+sleep @WAIT@
+for p in ^roots; do if alive ^p; then echo "MTKILL|^p|killed"; else echo "MTKILL|^p|ended"; fi; done
+set3=^(keep ^(tree ^set2))
+for p in ^set3; do kill -STOP ^p 2>/dev/null; done
+for p in ^set3; do kill -KILL ^p 2>/dev/null; done
+echo "MTKILL-END"
+""".trimIndent()
+    return template.replace('^', '$').replace("@PAIRS@", pairs).replace("@WAIT@", (SWEEP_TERM_WAIT_MS / 1000).toString())
+}
+
+/** Step 5: pure parser of the kill script's output: PID -> status. Only the known statuses count; anything else is ignored. Never throws. */
+internal fun parseSweepKill(output: String): Map<Int, String> {
+    val out = LinkedHashMap<Int, String>()
+    for (raw in output.split('\n')) {
+        val f = raw.trimEnd('\r').split('|')
+        if (f.size != 3 || f[0] != "MTKILL") continue
+        val pid = f[1].toIntOrNull() ?: continue
+        if (f[2] in SWEEP_KILL_STATUSES) out[pid] = f[2]
+    }
+    return out
+}
+
+private fun sweepKillLine(c: SweepCandidate, status: String?): String {
+    val who = "PID ${c.pid} (${c.how}) ${c.args}".trim()
+    return when (status) {
+        "ended" -> "sweep: ended after SIGTERM: $who"
+        "killed" -> "sweep: needed SIGKILL: $who"
+        "gone" -> "sweep: already gone: $who"
+        "changed" -> "sweep: skipped, the PID now belongs to another process: $who"
+        "protected" -> "sweep: skipped, protected: $who"
+        else -> "sweep: NO ANSWER for $who"
+    }
+}
+
+/** Step 5 (D3): true when the sweep list the person reviewed ([sent]) is the list a fresh scan gives now. An unchecked or empty scan has the hash "". */
+internal fun sweepHashMatches(sent: String, view: SweepView): Boolean = sent == view.hash
+
+/**
+ * Step 5: what the sweep step did. [counts] is true when the first scan could run: the re-scan is then a required check (D6, for processes
+ * only), so success needs [rescanRan] and no [leftovers]. [killLog] are the lines for the stop log, [notChecked] the lines for "Not checked"
+ * (shared processes that were left alone, a step that did not run). [leftovers] are processes still running (or not stopped).
+ */
+internal class SweepStopResult(
+    val counts: Boolean,
+    val killLog: List<String>,
+    val rescanRan: Boolean,
+    val leftovers: List<String>,
+    val notChecked: List<String>,
+) {
+    val clean: Boolean get() = counts && rescanRan && leftovers.isEmpty()
+}
+
+/**
+ * Step 5 (D2-D4, D6): the sweep step of a stop. [view] is the scan made just before anything ran and already compared with what the person saw.
+ * Order inside the stop: the declared uninstall commands ran first (the caller), then this: end the shown candidates, then scan again.
+ * Shares the 60 s clock ([totalMs], [start], [now]); the kill script is not started with under [SWEEP_MIN_MS] left; the re-scan needs a second.
+ * No retry. [onKill] is called once per candidate right before the script starts (the route writes one "plugin-sweep" audit line each);
+ * [onProbe] once before the re-scan. Pure: the shell is passed in, so the tests use fakes.
+ *  - an unchecked first scan: nothing is ended, [SweepStopResult.counts] is false and the reason goes to notChecked;
+ *  - more than the cap: nothing is ended, the processes are leftovers;
+ *  - the re-scan decides: success needs it to RUN, to be complete, and to find nothing. A respawned process shows up there.
+ */
+internal fun runSweepStop(
+    plugin: String,
+    view: SweepView,
+    totalMs: Long,
+    start: Long,
+    now: () -> Long,
+    exec: (String, Long) -> ShellResult,
+    ledgerPaths: List<String>,
+    others: Map<String, List<String>>,
+    onKill: (String) -> Unit = {},
+    onProbe: (String) -> Unit = {},
+): SweepStopResult {
+    val log = ArrayList<String>(); val notes = ArrayList<String>(); val left = ArrayList<String>()
+    fun timeLeft() = totalMs - (now() - start)
+    fun shell(script: String, ms: Long): ShellResult =
+        try { exec(script, ms) } catch (e: Exception) { ShellResult(false, "could not run: ${e.message ?: e.javaClass.simpleName}") }
+    if (!view.checked) {
+        for (n in view.result.notes) notes.add("processes: $n")
+        return SweepStopResult(false, log, false, left, notes)
+    }
+    for (s in view.result.notStopped) notes.add("not stopped: $s")
+    if (!view.result.complete) notes.add("processes: the first scan was cut short, so some processes may have been missed")
+    val cands = view.result.candidates
+    if (view.result.overCap) {
+        left.add("${view.result.found} processes found; more than $SWEEP_MAX_CANDIDATES, so they are not stopped automatically")
+        return SweepStopResult(true, log, false, left, notes)
+    }
+    var killRan = false
+    if (cands.isNotEmpty()) {
+        val script = sweepKillScript(cands)
+        val t = timeLeft()
+        if (script == null) {
+            notes.add("sweep did not run: a process entry could not be used safely")
+        } else if (t < SWEEP_MIN_MS) {
+            notes.add("sweep did not run (the ${totalMs / 1000} s total ran out)")
+            for (c in cands) log.add("NOT RUN: end PID ${c.pid} (${c.how}) ${c.args}")
+        } else {
+            for (c in cands) onKill("sweep end PID ${c.pid} (${c.how}) ${c.args}")
+            val r = shell(script, minOf(t, SWEEP_KILL_TIMEOUT_MS))
+            killRan = true
+            val st = parseSweepKill(r.content)
+            for (c in cands) log.add(sweepKillLine(c, st[c.pid]))
+            if (!r.success) log.add((if (r.content.contains("[timeout after")) "sweep TIMEOUT: " else "sweep FAILED: ") + r.content.trim().take(STOP_OUTPUT_MAX).replace('\n', ' '))
+        }
+        if (!killRan) for (c in cands) left.add("process not stopped: PID ${c.pid} ${c.args} (found by ${c.how})")
+    }
+    val t2 = timeLeft()
+    if (t2 < MIN_STOP_COMMAND_MS) {
+        notes.add("process re-scan did not run (the ${totalMs / 1000} s total ran out)")
+        return SweepStopResult(true, log, false, left, notes)
+    }
+    onProbe("sweep re-scan (read-only process list)")
+    val r2 = shell(sweepProbeScript(sweepPidfilePaths(ledgerPaths)), minOf(t2, SWEEP_PROBE_TIMEOUT_MS))
+    val v2 = buildSweepView(plugin, true, r2, ledgerPaths, others)
+    var ran = false
+    if (!v2.checked) {
+        notes.add("process re-scan did not run (" + (v2.result.notes.firstOrNull() ?: "no answer").removePrefix("cannot be checked: ") + ")")
+    } else {
+        // What is still there is reported even when the list is cut short, but only a complete clean list proves that nothing is left.
+        // A candidate the first scan already listed as not stopped (killRan false) is already in [left]; the re-scan would repeat it.
+        if (killRan || cands.isEmpty()) for (c in v2.result.candidates) left.add("process still running: PID ${c.pid} ${c.args} (found by ${c.how})")
+        if (v2.result.overCap) left.add("${v2.result.found} processes found again; more than $SWEEP_MAX_CANDIDATES")
+        if (v2.result.complete) ran = true else notes.add("process re-scan was cut short, so it cannot show that nothing is left")
+    }
+    return SweepStopResult(true, log, ran, left, notes)
+}

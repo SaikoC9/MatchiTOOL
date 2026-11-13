@@ -31,10 +31,41 @@ PROGRESS  (update after every step)
       MTSWEEP|PID|PPID|START|UID|TAG|ARGS, START = field 22 of /proc/PID/stat, first line SELF pid, last line END count),
       parseSweepProbe() -> SweepProbe(procs, selfPid, complete, skipped). "complete" only when END arrived and its count matches,
       so a cut output is never read as "nothing else runs". 9 new tests in PluginSweepTest.kt.
-  [ ] Step 3 - next to do (candidate rules: classify, exclusions, shared guard, cap).
-  Nothing compiled here (no Kotlin compiler in this session): run scripts/kotlin_pure_tests.sh or push to GitHub Actions.
-  Nothing run on a device.
+  [x] Step 3 - candidate rules written (PluginSweep.kt): classifySweep(plugin, probe, ledgerPaths, pidfilePids, others) -> SweepResult(candidates,
+      notStopped, found, overCap, complete, notes). Helpers: sweepNeverKill, sweepCmdlinePaths, sweepPidfilePaths, argsMentionsPath,
+      isSweepSessionShell, isSweepAppProcess. 22 new tests in PluginSweepTest.kt.
+      COMPILED AND RUN this time (Gradle's Kotlin compiler, pure tests): 298 tests OK (Phase 1 + Steps 0-3). Mutation check: breaking the
+      shared guard / exclusions makes 3 tests fail. Still nothing run on a device.
+      Step 4 must supply: pidfilePids (a read-only root probe that cats the pidfile paths from sweepPidfilePaths(ledger)) and `others`
+      (every other plugin -> ledger paths + @matchi-data + commandPaths).
+      Found and fixed on the way: scripts/kotlin_pure_tests.sh skipped any file whose TEXT contains "NanoHTTPD". The header comments of
+      PluginSweep.kt and PluginUninstall.kt said so, so both files and their tests were never compiled by the script. Comments reworded.
+      NOT fixed (not ours): PluginGuard.kt uses org.json.JSONArray without an import, so the script stops with "main sources do not compile".
+      Tested with a scratch copy of the script that also skips files containing "org.json.". Suggest anchoring the script's grep on imports only.
 
+  [x] Step 4 - dialog data: /api/plugins/data now returns "sweep" {rootOk, candidates[{pid,start,how,args}], notStopped, notes, found, overCap,
+      complete, sweepHash}. Pure part in PluginSweep.kt: sweepProbeScript(pidfiles) (reads pidfiles in the SAME root call: regular files only,
+      no symlink, no FIFO, digits only), parseSweepPidfiles, sweepHash, buildSweepView(plugin, rootGranted, run, ledger, others) -> SweepView.
+      Route part (WebRoutesPlugins.kt, NOT compiled here, needs the Android build): pluginOtherPaths (the "others" loop moved out of
+      pluginDataPlan, same behaviour), pluginSweep(name), SweepView.toJson(). Ledger paths are mapped with UfiPathMap (process command lines
+      hold the mapped text). No root / timeout / probe failure -> rootOk=false, "cannot be checked", no list, no hash.
+      sweepHash = "" when unchecked, nothing found, or over the cap. 11 new tests; pure run: 309 tests OK.
+      Also ran the generated probe in a real sh on Linux: SELF/END/count right, tag read from environ, pidfile read, FIFO/symlink/missing -> empty.
+      Behaviour to know: a path another plugin uses is not a cmdline match at all, so an UNTAGGED process found only by that path is left alone
+      without a "not stopped" line; a TAGGED one is listed in notStopped. Step 6 may want one generic line for this.
+      Still unverified on the F50: probe time, /proc/PID/environ readable, "${20}", tr NUL escapes.
+  [x] Step 5 - run the sweep on delete (written, NOT compiled: no Kotlin compiler in this session; the kill script WAS run, see below).
+      PluginSweep.kt: sweepKillScript(candidates) (root script, only PID + start time go in), parseSweepKill(), sweepHashMatches(),
+      SweepStopResult, runSweepStop() (kill step + re-scan, shares the 60 s clock), SWEEP_MIN_MS 6 s, SWEEP_KILL_TIMEOUT_MS 20 s.
+      PluginUninstall.kt: stopMode(..., sweepFound), StopVerify.declared, withSweepVerify(), stopReport(..., sweep).
+      WebRoutesPlugins.kt: pluginSweepInputs(), delete route runs declared commands -> sweep -> re-scan + check + boot files.
+      PluginSweepRunTest.kt (new): 3 classes (PluginSweepKillScriptTest, PluginSweepRunTest, PluginSweepVerifyAndReportTest).
+      Checked here: validate.sh exit 0, test_route_gates.py passes (gates unchanged), brace/paren/comment balance of the 4 edited files.
+      NOT checked here: Kotlin compile, unit tests (GitHub Actions must run them), anything on a device.
+      The generated kill script was run in a real dash and bash against a real tree (a watchdog that ignores TERM and respawns a child,
+      plus a bystander, plus a stale PID): root reported "killed", its child died, the bystander and an unrelated copy of the watchdog
+      survived, the stale PID said "gone", about 3 s. Not run in the F50's sh (mksh/toybox): see UNVERIFIED.
+  [ ] Step 6 - next (page). MUST send "sweepHash" whenever it sends "stop":true (see Step 5 notes).
 
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
@@ -163,36 +194,81 @@ STEP 2 - The probe (read-only)                  File: PluginSweep.kt
     spaces, truncated line, empty output, garbage.
 
 STEP 3 - Candidate rules                        File: PluginSweep.kt
-[ ] classify(): "tag" | "pidfile" | "cmdline" | none.
+[x] classify(): "tag" | "pidfile" | "cmdline" | none.
       tag      environ holds this plugin's marker.
       pidfile  a ledger "P" path ending in .pid (or the pidfile named in the dialog) holds a
                PID; accepted only if that process's command line or marker still fits the
                plugin (PID reuse!).
       cmdline  ARGS contains a ledger file path of this plugin: a FILE path, 3+ segments,
                not under /system /vendor /apex /proc /dev, not a folder another plugin uses.
-[ ] Exclusions (P5): own PID chain, PID 1, kernel threads, com.matchi.tool, the su pool.
-[ ] Shared guard (P8): drop a candidate whose command line contains a path used by another
+[x] Exclusions (P5): own PID chain, PID 1, kernel threads, com.matchi.tool, the su pool.
+[x] Shared guard (P8): drop a candidate whose command line contains a path used by another
     installed plugin (reuse pluginsUsingPath / commandPaths); list it as "Not stopped:
     ... also used by NAME".
-[ ] Cap: at most 50 candidates; more -> refuse to auto-stop and say so.
-[ ] Tests: every class, every exclusion, the shared guard, the cap, PID reuse.
+[x] Cap: at most 50 candidates; more -> refuse to auto-stop and say so.
+[x] Tests: every class, every exclusion, the shared guard, the cap, PID reuse.
+    Decisions taken inside Step 3 (none changes D1-D8):
+      - A process tagged with ANOTHER plugin is never claimed by pidfile or cmdline.
+      - pidfile "still fits" = the command line names one of this plugin's eligible FILE paths (or the tag matches). A reused PID fails this.
+      - "FILE path" = last segment has an extension and no other ledger path lies inside it (the ledger also holds mkdir folders).
+        A renamed binary without extension is missed on purpose (already in LIMITS).
+      - Shared guard applies to ALL ways, tag included; a hit is listed in notStopped ("PID n ARGS: also used by NAME").
+      - Protected: own PID, its parents and children, PID 1, kernel threads, the app process (first word of its command line only),
+        root session shells (bare sh / su) below the app. A plugin's own job below the app is NOT protected.
+      - No sweep PID in the probe -> nothing is listed. Incomplete probe -> still lists, flags complete=false.
+      - More than 50 -> overCap=true, first 50 shown, Step 5 must refuse to stop automatically.
 
 STEP 4 - Show it in the dialog data             Files: WebRoutesPlugins.kt (/api/plugins/data)
-[ ] /api/plugins/data returns "sweep": {rootOk, candidates:[{pid, start, how, args}], notes,
+[x] /api/plugins/data returns "sweep": {rootOk, candidates:[{pid, start, how, args}], notes,
     sweepHash}. It needs a root probe, like the existing data probe (15 s, not part of the 60 s).
     No root: "cannot be checked", no guessed list (same wording rule as the Phase 1 fix).
-[ ] sweepHash covers the shown candidates (D3). Nothing is killed here.
+[x] sweepHash covers the shown candidates (D3). Nothing is killed here.
 
 STEP 5 - Run the sweep on delete                Files: PluginUninstall.kt, WebRoutesPlugins.kt
-[ ] stopMode(): RUN also when the sweep has candidates (D2), with the same gates as Phase 1
+[x] stopMode(): RUN also when the sweep has candidates (D2), with the same gates as Phase 1
     (rootGate + password), 409 "plan-changed" when sweepHash differs.
-[ ] Order: declared uninstall commands -> sweep (D4) -> re-scan + check command + boot files
+[x] Order: declared uninstall commands -> sweep (D4) -> re-scan + check command + boot files
     (verifyStop). One auditShell "plugin-sweep" line per kill action. Same 60 s clock.
-[ ] Report: "process still running: PID ARGS" in leftovers; the skipped shared ones in
+[x] Report: "process still running: PID ARGS" in leftovers; the skipped shared ones in
     notChecked. success only when the re-scan RAN and found nothing (D6). Failure keeps the
     plugin (D3 of Phase 1), buttons as in Phase 1.
-[ ] Tests (class PluginSweepRunTest): TERM-resistant process needs KILL; respawning parent is
+[x] Tests (class PluginSweepRunTest): TERM-resistant process needs KILL; respawning parent is
     frozen first; timeout mid-sweep; root missing; nothing found; capacity reached.
+
+    DONE NOTES (Step 5):
+      - Request: the page now also sends "sweepHash" (the hash it was shown, "" when it was shown nothing). The route scans again BEFORE anything
+        runs (pluginSweep) and compares: different -> HTTP 409 {"code":"plan-changed"}, nothing runs (D3). A request WITHOUT a "sweepHash" key at all
+        (the Phase 1 page) gets no sweep, no re-scan and no 409, so Step 5 can be installed before Step 6 without breaking the page that exists today.
+      - stopMode(stop, skipStop, plan, sweepFound): RUN also when sweepFound > 0 (D2). "Delete without stopping" (skipStop) and a request without
+        "stop" never scan and never kill.
+      - Order inside the 60 s: declared uninstall commands -> sweep kill (one root script) -> re-scan -> check command + boot file test. A stop that is
+        blocked (changed file) or has refused commands cannot succeed and runs no sweep either.
+      - Kill script, DEVIATION from D4's wording: SIGSTOP the tree, SIGTERM, SIGCONT, wait 2 s, read the tree again (a respawned child is found),
+        SIGSTOP again, SIGKILL. SIGCONT is added because a stopped process never acts on SIGTERM. Descendants of a shown process are ended too
+        (the tree is what is frozen); the dialog (Step 6) should say "and everything those processes started".
+        Never touched, in the script itself: PID 1, PID 2, the script's own shell and every parent of it, and any process whose command line starts
+        with com.matchi.tool. PID + start time are checked again right before acting ("changed" = reused PID, skipped).
+      - Only digits go into the script (PID, start time). The command lines come from other processes and are never put in, so they cannot inject
+        anything; they are compared through sweepHash instead.
+      - The kill step is not started with under 6 s left (SWEEP_MIN_MS) so a timeout cannot cut it while processes are frozen. The script is limited to
+        20 s (not the 60 s) to stay out of the "long" root slots (F9 of Phase 1).
+      - Audit: one "plugin-sweep" line per candidate right before the script runs ("sweep end PID n (how) args"), one for the re-scan.
+      - D6, how it is built: when the first scan could run, the re-scan is ONE MORE REQUIRED CHECK. Success needs every check the plugin declared to
+        pass AND the re-scan to have run (complete) and found nothing. A clean re-scan also counts as "a check ran" for a plugin with no check and no
+        boot file. The report still says "no check command declared" / "no boot file declared" under Not checked.
+        CHANGE to confirm: a plugin that declares uninstall commands but no @matchi-check and no @matchi-boot used to be unable to succeed (Phase 1);
+        with a clean re-scan it now can. Say if you want that kept strict.
+      - If the first scan could NOT run (probe failed / timed out) the sweep does not count: nothing is killed, the reason is under Not checked, and
+        the Phase 1 rules decide alone. Decision I took, say if you want it stricter.
+      - A re-scan that did not run, was cut short, or timed out is never proof: success is false, the reason is under Not checked.
+      - More than 50 found: nothing is killed, the processes are leftovers, plugin kept (the owner can use "Delete without stopping").
+      - Shared ones (P8) are never put in the script; they are listed under Not checked ("not stopped: PID n ...: also used by NAME").
+      - Root missing at delete time: report "Could not stop: root not available", the shown processes are listed under Not checked, plugin kept.
+      - UNVERIFIED on the F50: the kill script in the device's sh (it uses ${20}, case patterns, "sleep 2", $(...) nesting, "kill -STOP/-CONT");
+        that SIGSTOP/SIGKILL work on the processes the app's root session starts; that the whole step stays well inside 60 s; what happens to a
+        process in uninterruptible sleep. The probe still has its harmless "cannot open /proc/PID/cmdline" noise when a process exits during the
+        scan (redirect order, Step 2 code, ignored by the parser); the kill script does not have it.
+
 
 STEP 6 - Page                                   File: index.html (delete handler ~5341)
 [ ] New lines in the existing four cases: "Running now: PID 1234 beat.sh (found by tag)".

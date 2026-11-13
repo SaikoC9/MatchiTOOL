@@ -175,13 +175,13 @@ internal fun runStopCommands(
 internal enum class StopMode { NONE, SKIP, RUN }
 
 /**
- * Step 4: which of the three the delete request is. A request without "stop", and a plan with nothing declared (no command and nothing refused),
- * behave as today. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept (D3).
+ * Step 4: which of the three the delete request is. A request without "stop", and a plan with nothing declared (no command and nothing refused)
+ * and no process found by the sweep ([sweepFound], Phase 2), behave as today. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept (D3).
  */
-internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan): StopMode = when {
+internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan, sweepFound: Int = 0): StopMode = when {
     !stop -> StopMode.NONE
     skipStop -> StopMode.SKIP
-    plan.isEmpty && plan.refused.isEmpty() -> StopMode.NONE
+    plan.isEmpty && plan.refused.isEmpty() && sweepFound == 0 -> StopMode.NONE   // Phase 2 / Step 5 (D2): running processes found by the sweep also mean RUN
     else -> StopMode.RUN
 }
 
@@ -191,9 +191,10 @@ internal fun stopHashMatches(sent: String, plan: StopPlan): Boolean = sent == pl
 /**
  * Step 5: what the verification found. [checkRan]: at least one check (the check command or the boot file test) ran. [checkPassed]: every check ran
  * and passed, and none that the plugin declared was left out. [leftovers] is what is still there. [notes] says why a declared check did not run.
- * [NOT_RUN] = nothing was verified.
+ * [NOT_RUN] = nothing was verified. [declared] (Phase 2) is how many checks the plugin declared (0 = none): withSweepVerify needs it to tell "nothing declared"
+ * from "declared but failed".
  */
-internal class StopVerify(val checkRan: Boolean, val checkPassed: Boolean, val leftovers: List<String>, val notes: List<String> = emptyList()) {
+internal class StopVerify(val checkRan: Boolean, val checkPassed: Boolean, val leftovers: List<String>, val notes: List<String> = emptyList(), val declared: Int = 0) {
     companion object { val NOT_RUN = StopVerify(false, false, emptyList()) }
 }
 
@@ -259,23 +260,43 @@ internal fun verifyStop(
             if (still.isEmpty()) passed++ else for (b in still) leftovers.add("boot file still there: $b")
         }
     }
-    return StopVerify(done > 0, done > 0 && done == declared && passed == done, leftovers, notes)
+    return StopVerify(done > 0, done > 0 && done == declared && passed == done, leftovers, notes, declared)
+}
+
+/**
+ * Phase 2 / Step 5 (D6): folds the sweep step into the verification. When the first scan could run ([SweepStopResult.counts]) the re-scan is one more
+ * required check, for processes only: success needs every check the plugin declared to pass (if it declared any) AND the re-scan to have run complete and
+ * found nothing. A clean re-scan also counts as "a check ran" for a plugin that declared no check and no boot file (D6). When the first scan could not
+ * run, or there was no sweep step, [base] is returned unchanged (the reason is in [SweepStopResult.notChecked]).
+ */
+internal fun withSweepVerify(base: StopVerify, sweep: SweepStopResult?): StopVerify {
+    if (sweep == null || !sweep.counts) return base
+    val baseOk = base.declared == 0 || base.checkPassed
+    return StopVerify(
+        base.checkRan || sweep.rescanRan,
+        baseOk && sweep.rescanRan && sweep.leftovers.isEmpty(),
+        base.leftovers + sweep.leftovers,
+        base.notes,
+        base.declared + 1,
+    )
 }
 
 /** The result shown to the person. [success] never says "stopped" unless every command ran and exited 0 AND a check ran and passed. */
 internal class StopReport(val success: Boolean, val log: String, val leftovers: List<String>, val notChecked: List<String>, val outcomes: List<CommandOutcome>)
 
-/** Step 4: builds the report from the plan, what happened and the verification. [headline] goes first in the log (for example "Could not stop: root not available"). */
-internal fun stopReport(plan: StopPlan, outcomes: List<CommandOutcome>, verify: StopVerify, headline: String? = null): StopReport {
+/** Step 4: builds the report from the plan, what happened and the verification. [headline] goes first in the log (for example "Could not stop: root not available"). [sweep] (Phase 2) adds its log lines and its "not checked" lines. */
+internal fun stopReport(plan: StopPlan, outcomes: List<CommandOutcome>, verify: StopVerify, headline: String? = null, sweep: SweepStopResult? = null): StopReport {
     val notChecked = ArrayList<String>()
     for ((c, why) in plan.refused) notChecked.add("refused: $c ($why)")
     for (o in outcomes) if (o.status == "notRun") notChecked.add("not run: ${o.command} (${o.output})")
     notChecked.addAll(verify.notes)
+    if (sweep != null) notChecked.addAll(sweep.notChecked)
     if (plan.check == null) notChecked.add("no check command declared")
     else if (!verify.checkRan && verify.notes.none { it.startsWith("check command") }) notChecked.add("check command did not run")
     if (plan.bootFiles.isEmpty()) notChecked.add("no boot file declared")
     val allRan = outcomes.size == plan.commands.size && outcomes.all { it.status == "ok" }
-    val success = allRan && plan.refused.isEmpty() && plan.blocked == null && verify.checkRan && verify.checkPassed && verify.leftovers.isEmpty()
+    val success = allRan && plan.refused.isEmpty() && plan.blocked == null && verify.checkRan && verify.checkPassed && verify.leftovers.isEmpty() &&
+        (sweep == null || !sweep.counts || sweep.clean)
     val sb = StringBuilder()
     if (headline != null) sb.append(headline).append('\n')
     for (o in outcomes) {
@@ -284,6 +305,7 @@ internal fun stopReport(plan: StopPlan, outcomes: List<CommandOutcome>, verify: 
         if (o.status != "ok" && o.output.isNotEmpty()) sb.append(" - ").append(o.output.replace('\n', ' '))
         sb.append('\n')
     }
+    if (sweep != null) for (l in sweep.killLog) sb.append(l.replace('\n', ' ')).append('\n')
     return StopReport(success, sb.toString().trimEnd().take(2000), verify.leftovers, notChecked, outcomes)
 }
 
