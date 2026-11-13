@@ -20,6 +20,9 @@ HOW TO READ THIS
   WebRoutesPlugins.kt, WebServer.kt, WebRoutesRoot.kt (call sites), index.html (page trace
   code, loadPlugins, sandbox bridge text). NOT read: HostService.kt, docs/*.md.
 
+DELIVERY (owner's standing request): with every step, hand over (1) the FULL updated project zip, (2) a zip with ONLY the changed files, same paths,
+  ready to copy into the GitHub repo, and (3) this txt updated.
+
 PROGRESS  (update after every step)
 ------------------------------------------------------------------
   [x] D1-D8 answered by the owner (all as recommended; D5 = b). See DECISIONS below.
@@ -65,7 +68,18 @@ PROGRESS  (update after every step)
       The generated kill script was run in a real dash and bash against a real tree (a watchdog that ignores TERM and respawns a child,
       plus a bystander, plus a stale PID): root reported "killed", its child died, the bystander and an unrelated copy of the watchdog
       survived, the stale PID said "gone", about 3 s. Not run in the F50's sh (mksh/toybox): see UNVERIFIED.
-  [ ] Step 6 - next (page). MUST send "sweepHash" whenever it sends "stop":true (see Step 5 notes).
+  [x] Step 6 - page (index.html delete handler). New pure file web-src/plugin-sweep-ui.js (included before renderPlugins): sweepNorm, sweepProcLine,
+      pluginDeleteMode, sweepDialogText, sweepRetryText, sweepRequestFields. New test scripts/test_plugin_sweep_ui.js (22 tests, registered in validate.sh).
+      Modes: plain | sweep (NEW: no declared commands, processes found -> "Delete and stop") | stop | shared | cannot | toomany (NEW: over 50, only
+      "Delete without stopping", no stop is sent). A refused declared command still wins. Every stop request now carries "sweepHash" (the key is present
+      even when ""); "Delete without stopping" sends none. The 409 text of the host ("changed since you reviewed") reopens the dialog, as before.
+      Dialog lines: "Running now ... PID n args (found by tag / its pid file / command line, weakest match)", "and everything they started", "No running
+      process was found for it." (plain, D2), "could not be checked ... (reason)" with no list, "Left running on purpose" (shared guard, one generic line when
+      none is listed), "cut short" flag. Retry dialog: adds what "Try again" would end.
+      CHECKED: build-web --check, validate.sh exit 0, 4 mutations make the new tests fail. NOT CHECKED: the dialog in a real browser / on the F50
+      (text only exercised through node), Kotlin compile of Step 5 (GitHub Actions).
+      Decisions I took (say if you want them different): over 50 processes -> only "Delete without stopping" (the host would run the declared commands, refuse
+      the sweep and keep the plugin anyway); "Delete, skip the stop" in the shared case sends no sweepHash (no stop, so no scan).
 
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
@@ -271,10 +285,10 @@ STEP 5 - Run the sweep on delete                Files: PluginUninstall.kt, WebRo
 
 
 STEP 6 - Page                                   File: index.html (delete handler ~5341)
-[ ] New lines in the existing four cases: "Running now: PID 1234 beat.sh (found by tag)".
+[x] New lines in the existing four cases: "Running now: PID 1234 beat.sh (found by tag)".
     The "plain" case becomes "declares no stop commands" + the found processes, or + "no
     running process found". Retry dialog lists the new leftovers.
-[ ] Run scripts/validate.sh and build-web --check.
+[x] Run scripts/validate.sh and build-web --check.
 
 STEP 7 - JavaScript hook (only if D5 = b or c)  Files: index.html, WebRoutesPlugins.kt
 [ ] New bridge op for sandboxed plugins, e.g. matchi.onUninstall(fn); the page keeps a

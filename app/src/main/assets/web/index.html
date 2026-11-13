@@ -5314,6 +5314,77 @@ function downloadText(name,text,type='application/json'){
   const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
+/* @include web-src/plugin-sweep-ui.js */
+/* Delete dialog, process sweep (Phase 2 / Step 6). Pure text and decision helpers for the "Delete plugin" dialog; the dialog itself stays in the delete handler.
+   The host (/api/plugins/data) sends "sweep": {rootOk, candidates:[{pid,start,how,args}], notStopped, notes, found, overCap, complete, sweepHash}.
+   Rules the page keeps:
+   - What is listed is what is ended: the page sends back the sweepHash it was shown whenever it sends stop:true (the host scans again and answers 409
+     "plan-changed" when the list is different).
+   - "Delete without stopping" sends no sweepHash and the host never scans for it.
+   - No list is ever guessed: when the check did not run, the dialog says so and lists nothing. */
+function sweepNorm(info){
+  const s=(info&&info.sweep)||{};
+  return{
+    checked:s.rootOk===true,
+    cands:Array.isArray(s.candidates)?s.candidates.filter(c=>c&&Number.isFinite(Number(c.pid))):[],
+    notStopped:Array.isArray(s.notStopped)?s.notStopped.map(String):[],
+    notes:Array.isArray(s.notes)?s.notes.map(String):[],
+    found:Number(s.found)||0,
+    overCap:s.overCap===true,
+    complete:s.complete!==false,
+    hash:typeof s.sweepHash==='string'?s.sweepHash:''
+  };
+}
+function sweepHowText(how){return how==='tag'?'found by tag':how==='pidfile'?'found by its pid file':how==='cmdline'?'found by command line, weakest match':'found'}
+function sweepProcLine(c){return 'PID '+c.pid+(c.args?' '+c.args:'')+' ('+sweepHowText(c.how)+')'}
+/* plain = nothing to stop (as before); sweep = no declared commands, but running processes were found; stop / shared / cannot = Phase 1;
+   toomany = more than 50 processes found, the host refuses to end them automatically. A refused declared command wins over everything. */
+function pluginDeleteMode(sp,sw){
+  const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
+  if(refused.length)return 'cannot';
+  if(sw&&sw.overCap)return 'toomany';
+  if(!cmds.length)return sw&&sw.cands.length?'sweep':'plain';
+  return shared.length?'shared':'stop';
+}
+/* The text the sweep adds to the delete dialog. [noRoot]: the data probe already said root is missing (its own sentence covers it, so it is not repeated). */
+function sweepDialogText(sw,mode,noRoot){
+  const bullets=a=>a.map(x=>'\n\u2022 '+x).join('');
+  let m='';
+  if(!sw.checked){
+    if(!noRoot){
+      const why=(sw.notes[0]||'').replace(/^cannot be checked:\s*/,'');
+      m+='\n\nIt could not be checked whether anything it started is still running'+(why?' ('+why+')':'')+'. Nothing will be listed or ended by a scan.';
+    }
+    return m;
+  }
+  const lines=sw.cands.map(sweepProcLine);
+  if(mode==='toomany'){
+    m+='\n\nMore than 50 running processes match what it started ('+sw.found+' found). That is too many to end automatically, so nothing will be stopped. The first ones:'+bullets(lines)+'\n\nStop them by hand, or delete without stopping.';
+  }else if(lines.length){
+    if(mode==='sweep')m+='\n\nThese processes are running now and match what this plugin started:'+bullets(lines)+'\n\nDeleting and stopping ends them as root, and everything they started. Forcefully, if they do not stop.';
+    else if(mode==='cannot')m+='\n\nThese processes are running now and will keep running:'+bullets(lines);
+    else if(mode==='shared')m+='\n\nThese processes are running now. If the stop runs, it also ends them and everything they started:'+bullets(lines);
+    else m+='\n\nThen it ends these processes, which are running now, and everything they started:'+bullets(lines);
+  }else if(mode==='plain'){
+    m+='\n\nNo running process was found for it.';
+  }else if(mode==='stop'||mode==='shared'){
+    m+='\n\nAfter the stop it scans for running processes it started and reports any that are left.';
+  }
+  if(sw.notStopped.length)m+='\n\nLeft running on purpose, because another plugin also uses their files:'+bullets(sw.notStopped);
+  if(!sw.complete)m+='\n\nThe process list was cut short, so it may be incomplete.';
+  if(sw.cands.length&&!sw.notStopped.length&&mode!=='cannot'&&mode!=='toomany')m+='\n\nProcesses that use files another plugin also uses are never ended.';
+  return m;
+}
+/* The retry dialog after a failed stop: what is running right now and would be ended by "Try again". */
+function sweepRetryText(sw){
+  if(!sw.checked||!sw.cands.length)return '';
+  return '\n\nRunning now, and ended if you try again (with everything they started):'+sw.cands.map(c=>'\n\u2022 '+sweepProcLine(c)).join('');
+}
+/* Fields added to the delete request. Only a request that stops (not "Delete without stopping") carries the hash. */
+function sweepRequestFields(sw,stop){return stop?{sweepHash:(sw&&sw.hash)||''}:{}}
+if(typeof module!=='undefined'&&module.exports)module.exports={sweepNorm,sweepHowText,sweepProcLine,pluginDeleteMode,sweepDialogText,sweepRetryText,sweepRequestFields};
+
+/* @end-include web-src/plugin-sweep-ui.js */
 let pmFilter='all';
 function pmIcon(d){return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+d+'</svg>'}
 function renderPlugins(list){
@@ -5337,7 +5408,9 @@ function renderPlugins(list){
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
     /* Delete (Phase 1): the dialog lists what is erased and what the plugin's own uninstall commands will stop (stopPlan from /api/plugins/data).
        A stop that does not finish keeps the plugin: the host answers {ok:false,kept:true,stop:{...}} and this dialog opens again with the report
-       (try again, delete without stopping, restart the device). A plugin that declares no stop commands is deleted as before. */
+       (try again, delete without stopping, restart the device). A plugin that declares no stop commands is deleted as before.
+       Phase 2 (Step 6): the same data also holds "sweep", the running processes found for the plugin (tag, pid file, command line). They are listed
+       before anything is ended, and the page sends the sweepHash it was shown with every request that stops; the host answers 409 when the list changed. */
     d.onclick=async()=>{
       let failure=null;
       while(true){
@@ -5345,7 +5418,7 @@ function renderPlugins(list){
         const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
         const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
         const sp=(info&&info.stopPlan)||{},cmds=sp.commands||[],refused=sp.refused||[],shared=sp.shared||[];
-        const mode=!cmds.length&&!refused.length?'plain':refused.length?'cannot':shared.length?'shared':'stop';
+        const sw=sweepNorm(info),mode=pluginDeleteMode(sp,sw);
         let msg,okText='Delete',extra=[],title='Confirm';
         if(failure){
           title='Stop did not finish';okText='Try again';
@@ -5354,31 +5427,37 @@ function renderPlugins(list){
           const left=failure.leftovers||[],nc=failure.notChecked||[];
           if(left.length)msg+='\n\nStill there:\n'+left.map(x=>'\u2022 '+x).join('\n');
           if(nc.length)msg+='\n\nNot checked:\n'+nc.map(x=>'\u2022 '+x).join('\n');
+          msg+=sweepRetryText(sw);
           extra=[{text:'Delete without stopping',value:'skip',danger:true}];
           if(left.length&&!left.some(x=>x.indexOf('boot file still there')===0)){msg+='\n\nA restart of the device clears running processes and firewall rules.';extra.unshift({text:'Restart device',value:'reboot'})}
         }else{
           msg='Delete '+p.name+'? Export a backup first if you may need it again.';
           const noRoot=info&&info.rootOk===false;if(noRoot)msg+='\n\nRoot is not available, so it cannot be checked which data this plugin left behind. Nothing can be erased until root works.';if((!noRoot&&present.length)||lsKeys.length||ssKeys.length||ups.length){msg+='\n\nThis also erases the data it left behind:';if(!noRoot)for(const it of present)msg+='\n\u2022 '+it.path+(it.kb!=null?' ('+it.kb+' KB)':'');if(ups.length)msg+='\n\u2022 '+ups.length+' uploaded file'+(ups.length>1?'s':'');if(lsKeys.length+ssKeys.length)msg+='\n\u2022 '+(lsKeys.length+ssKeys.length)+' saved browser setting'+(lsKeys.length+ssKeys.length>1?'s':'')}
+          const swText=sweepDialogText(sw,mode,noRoot);let swDone=false;
           if(mode==='plain')msg+='\n\nThis plugin declares no stop commands. Anything it started may keep running.';
+          else if(mode==='toomany')okText='Delete without stopping';
+          else if(mode==='sweep'){msg+='\n\nThis plugin declares no stop commands.';okText='Delete and stop'}
           else if(mode==='cannot'){
             msg+='\n\nIts stop cannot run, so nothing it started will be stopped:\n'+refused.map(r=>'\u2022 '+r.command+' ('+r.reason+')').join('\n');
             okText='Delete without stopping';
           }else{
             msg+='\n\nAll its files and data will be deleted, and what it started will be stopped by its uninstall commands, run as root:\n'+cmds.map(c=>'\u2022 '+c).join('\n');
+            msg+=swText;swDone=true;
             if(sp.check)msg+='\n\nThen it checks with:\n\u2022 '+sp.check;
             if(mode==='shared'){msg+='\n\nWarning: '+shared.join(', ')+' declares the same stop command or boot file. Stopping now would probably break '+(shared.length>1?'them':'it')+', so the stop is skipped.';okText='Delete, skip the stop';extra=[{text:'Delete and stop anyway',value:'stop'}]}
             else okText='Delete and stop';
           }
+          if(!swDone)msg+=swText;
           if(fx.length&&mode!=='stop')msg+='\n\nIt also changed things that deleting cannot undo: '+fx.join(', ')+'. A reboot clears firewall rules, properties and background processes; check boot-script lines by hand.';
           if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased: '+info.rejected.map(r=>r.path+(r.reason?' ('+r.reason+')':'')).join('; ');
         }
         const choice=await askDialog({title,message:msg,okText,danger:!failure,extra,maxWidth:'460px'});
         if(!choice)return;
         if(choice==='reboot'){document.getElementById('rebootbtn').click();return}
-        const stop=(!failure&&mode==='stop')||choice==='stop'||(!!failure&&choice===true);
-        const skip=choice==='skip'||(!failure&&mode==='cannot');
+        const stop=(!failure&&(mode==='stop'||mode==='sweep'))||choice==='stop'||(!!failure&&choice===true);
+        const skip=choice==='skip'||(!failure&&(mode==='cannot'||mode==='toomany'));
         const body={name:p.name,erase:true};
-        if(stop){body.stop=true;body.planHash=sp.planHash||''}
+        if(stop){body.stop=true;body.planHash=sp.planHash||'';Object.assign(body,sweepRequestFields(sw,true))}
         else if(skip){body.stop=true;body.skipStop=true}
         d.disabled=true;
         let r;
