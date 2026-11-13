@@ -72,8 +72,26 @@ class PluginSweepTest {
             assertFalse("probe must not contain: $bad", sc.contains(bad))
         // the only ">" allowed is the 2>/dev/null of a read; every other redirect is an input
         assertFalse(sc.replace("2>/dev/null", "").contains(">"))
-        assertTrue(sc.contains("/proc/[0-9]*") && sc.contains("MATCHI_PLUGIN") && sc.contains("cut -c1-200"))
+        assertTrue(sc.contains("/proc/[0-9]*") && sc.contains("MATCHI_PLUGIN") && sc.contains("cut -c1-260"))
         assertTrue(sc.startsWith("echo \"MTSWEEP-SELF ") && sc.trimEnd().endsWith("\"MTSWEEP-END \$n\""))
+    }
+
+    @Test fun theProbeStartsNoProgramPerProcess() {
+        // device test (F50, 496 processes): the first version took 19 s (over the 15 s limit) because it started ~8 programs per process
+        val sc = sweepProbeScript()
+        assertTrue(sc.contains("grep -a -H '' /proc/[0-9]*/cmdline"))                    // one bulk read of every command line
+        assertTrue(sc.contains("grep -a -o -H -E") && sc.contains("/proc/[0-9]*/environ")) // one bulk read of every environ (the tag)
+        assertTrue(sc.contains("stat -c '%n %u' /proc/[0-9]*"))                           // one bulk owner list
+        for (perProcess in listOf("cat \$d", "stat -c %u \$d", "<\$d/cmdline", "<\$d/environ"))
+            assertFalse("per-process program: $perProcess", sc.contains(perProcess))
+        assertTrue(sc.contains("<<${SWEEP_LINE_PREFIX}_EOF"))                              // the loop runs in the main shell, so the count survives
+        assertTrue(sc.contains("_EOF\nflush\n"))                                          // the last process is written before the pidfile lines and END
+    }
+
+    @Test fun parserCutsLongArgsAtTheLimit() {
+        val long = "x".repeat(SWEEP_ARGS_MAX + 90)
+        val r = parseSweepProbe(probeOut("MTSWEEP-SELF 9", "MTSWEEP|10|1|20|0||$long", "MTSWEEP-END 1"))
+        assertTrue(r.complete); assertEquals(SWEEP_ARGS_MAX, r.procs[0].args.length)
     }
 
     @Test fun normalOutputParses() {

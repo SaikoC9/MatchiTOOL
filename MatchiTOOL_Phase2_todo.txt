@@ -112,6 +112,31 @@ PROGRESS  (update after every step)
       probe time; what a hook that hangs does to the frame (it keeps running in its frame until the page is reloaded; the plugin is kept).
       Still open: docs/PLUGIN_SANDBOX.md (bridge list: add onUninstall) is Step 8; example hook plugin is Step 8.
 
+  [x] Step 8 - docs (text only, no code changed). docs/PLUGIN_STOP.md: "how much has been checked" block at the top (Phase 1 headers tried on the F50;
+      sweep and hook only unit-tested, nothing run on the device), new sections "Plugins without headers: the process sweep" (three ways to find,
+      what the dialog does, what Delete and stop does, never touched, two plugins one job, what it does NOT catch, not a security boundary) and
+      "The stop hook". docs/PLUGIN_SANDBOX.md: matchi.onUninstall added to the "Always" list. docs/CHANGELOG_DETAIL.md: new Phase 2 entry on top.
+      New examples: docs/examples/No_Headers_Example.js (trusted, no headers, nohup job) and docs/examples/Sandbox_Hook_Example.js (sandboxed,
+      two granted shell commands + matchi.onUninstall). Both pass node --check; NOT tried in the app or on the F50.
+      Checked: validate.sh exit 0. The old changelog entries are byte-identical to before.
+      Not done on purpose: README, SECURITY.md, CHANGELOG.md, PLUGIN_STORE.md (Phase 4).
+      To check on the device: that the granted shell texts in Sandbox_Hook_Example.js (";" and "&" inside) pass shellDanger and the exact-match grant,
+      and that the pkill pattern with [e] does not kill its own shell.
+
+  [x] Step 8b - FIRST DEVICE FINDINGS (F50, 2026-11-13, debug APK build 317 from GitHub Actions; Kotlin of Steps 5-7 COMPILED, build green).
+      FOUND: test A dialog said "could not be checked (the process check did not finish in time)". Timed by hand in the Terminal: 496 processes,
+      the old probe took 19 s (limit 15 s). Cause: ~8 programs started per process. FIX (PluginSweep.kt sweepProbeScript): three bulk commands
+      (grep -a -H '' over every cmdline, grep -a -o -H -E over every environ for the tag, one stat -c '%n %u') and a loop with shell built-ins only.
+      Output format and parser unchanged except: ARGS cut at 200 in parseSweepProbe, kernel threads (no command line) are no longer listed,
+      the lines of a multi-line command line are joined with one space. Tested here in real dash and bash (tag found, multi-line joined, no
+      duplicate PIDs); the Kotlin string was checked to unescape to exactly the tested script. New tests in PluginSweepTest.kt (2). validate.sh exit 0.
+      Device facts now KNOWN: /proc/PID/environ is readable by root and the tag is there (MATCHI_PLUGIN=Sweep_Lab.js, the name includes ".js");
+      grep -a -H, grep -o -E and stat -c '%n %u' exist and are fast on the F50.
+      OPEN QUESTION (ask the owner): the tag was found on TWO processes, 30356 (the job, expected) and 8182 (older PID, not yet identified).
+      If 8182 is a pooled root session shell, then "export MATCHI_PLUGIN" LEAKED into the session and later commands (other plugins, Terminal) could be
+      mis-tagged. Check: in the Terminal run   echo "[$MATCHI_PLUGIN]"   and   ps -A -o PID,PPID,ARGS | grep -E '^ *8182 '
+      NOT YET RETESTED on the device with the new probe.
+
 FACTS FOUND IN THE CODE
 ------------------------------------------------------------------
 P1  Attribution is best effort. A trusted plugin's root commands carry the header
@@ -331,10 +356,10 @@ STEP 7 - JavaScript hook (only if D5 = b or c)  Files: index.html, WebRoutesPlug
 [x] Tests: registry, timeout, a hook that throws, a plugin that never loaded.
 
 STEP 8 - Docs
-[ ] docs/PLUGIN_STOP.md: what the sweep does and does NOT catch (double-fork with a cleared
+[x] docs/PLUGIN_STOP.md: what the sweep does and does NOT catch (double-fork with a cleared
     environment, services started through Android, a process started before this update has no
     tag). Say plainly that it is not a security boundary. Example plugin without headers.
-[ ] docs/CHANGELOG_DETAIL.md entry. README/SECURITY.md wording is Phase 4.
+[x] docs/CHANGELOG_DETAIL.md entry. README/SECURITY.md wording is Phase 4.
 
 STEP 9 - Tests
 Unit tests (scripts/kotlin_pure_tests.sh; GitHub Actions):

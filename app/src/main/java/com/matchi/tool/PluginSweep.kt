@@ -103,34 +103,56 @@ internal class SweepProbe(
 )
 
 /**
- * Step 2: the READ-ONLY probe script. It lists /proc and prints one line per process:
+ * Step 2: the READ-ONLY probe script. It lists the processes that have a command line and prints one line per process:
  *   MTSWEEP|PID|PPID|START|UID|TAG|ARGS
  * START is field 22 of /proc/PID/stat (start time in clock ticks since boot): one token, and with PID it tells a reused PID from the
  * old process (D3). TAG is the value of MATCHI_PLUGIN in /proc/PID/environ ("" when there is none or it cannot be read). ARGS is the
- * command line with NUL, newline and tab turned into spaces, cut at [SWEEP_ARGS_MAX] characters, so a line is always one line.
- * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have an empty ARGS and their environ is not read.
+ * command line with NUL and tab turned into spaces, the lines of a multi-line command joined with one space; the script keeps about
+ * SWEEP_ARGS_MAX + 60 characters per line and parseSweepProbe cuts ARGS at [SWEEP_ARGS_MAX], so a line is always one line.
+ * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have no command line and are NOT listed (they are never candidates).
+ * SPEED (device test, F50, 496 processes): the first version started about 8 programs per process and took 19 s, over the 15 s limit.
+ * This version reads everything with THREE bulk commands (one grep over every cmdline, one grep over every environ, one stat for the owner)
+ * and then walks the result with shell built-ins only, so it starts no program per process. The first-line match of environ needs a name
+ * boundary in front of MATCHI_PLUGIN= so a longer variable name does not count.
  * It writes nothing and kills nothing: the only redirects are inputs and 2>/dev/null. Needs root to read other users' environ.
  * Step 4: [pidfiles] (paths from sweepPidfilePaths) are read too, before the END line, one line each: MTSWEEP-PID|PATH|DIGITS. Only a REGULAR file that
  * is not a symlink is read (a FIFO would block the probe), only its first line, only digits, at most 9. parseSweepProbe ignores these lines.
- * [UNVERIFIED] on the F50: tr's NUL escape, "stat -c %u", "grep -m1", and the cost of the loop (a few hundred processes).
+ * [UNVERIFIED] on the F50: the whole script as one (the three bulk commands were timed there by hand and are fast).
  */
 internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (listOf(
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
     "n=0",
-    "for d in /proc/[0-9]*; do",
-    "  p=\${d#/proc/}",
-    "  s=\$(cat \$d/stat 2>/dev/null) || continue",
+    "cp=",
+    "C=\$(grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
+    "E=\$(grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | tr '\\000' ' ')",
+    "U=\$(stat -c '%n %u' /proc/[0-9]* 2>/dev/null)",
+    "flush() {",
+    "  [ -n \"\$cp\" ] || return 0",
+    "  echo \"$SWEEP_LINE_PREFIX|\$cp|\$cpp|\$cst|\$cu|\$ct|\$ca\"",
+    "  n=\$((n+1))",
+    "  cp=",
+    "}",
+    "while IFS= read -r l; do",
+    "  case \"\$l\" in /proc/[0-9]*/cmdline:*) ;; *) continue ;; esac",
+    "  p=\${l#/proc/}; p=\${p%%/*}",
+    "  a=\${l#*/cmdline:}",
+    "  if [ \"\$p\" = \"\$cp\" ]; then",
+    "    [ \${#ca} -lt 300 ] && ca=\"\$ca \$a\"",
+    "    continue",
+    "  fi",
+    "  flush",
+    "  { read -r s < /proc/\$p/stat; } 2>/dev/null || continue",
     "  case \"\$s\" in *') '*) ;; *) continue ;; esac",
     "  s=\${s##*) }",
     "  set -- \$s",
-    "  pp=\$2; st=\${20}",
-    "  u=\$(stat -c %u \$d 2>/dev/null) || u=",
-    "  a=\$(tr '\\000\\n\\t' '   ' <\$d/cmdline 2>/dev/null | cut -c1-$SWEEP_ARGS_MAX)",
+    "  x=\${U#*\"/proc/\$p \"}",
     "  t=",
-    "  if [ -n \"\$a\" ]; then t=\$(tr '\\000' '\\n' <\$d/environ 2>/dev/null | grep -m1 '^$SWEEP_TAG_VAR=') || t=; t=\${t#$SWEEP_TAG_VAR=}; fi",
-    "  echo \"$SWEEP_LINE_PREFIX|\$p|\$pp|\$st|\$u|\$t|\$a\"",
-    "  n=\$((n+1))",
-    "done",
+    "  case \"\$E\" in *\"/proc/\$p/environ:\"*) y=\${E#*\"/proc/\$p/environ:\"}; y=\${y#*$SWEEP_TAG_VAR=}; t=\${y%%[!A-Za-z0-9._-]*} ;; esac",
+    "  cp=\$p; cpp=\$2; cst=\${20}; cu=\${x%%[!0-9]*}; ct=\$t; ca=\$a",
+    "done <<${SWEEP_LINE_PREFIX}_EOF",
+    "\$C",
+    "${SWEEP_LINE_PREFIX}_EOF",
+    "flush",
 ) + sweepPidfileLines(pidfiles) + "echo \"$SWEEP_LINE_PREFIX-END \$n\"").joinToString("\n")
 
 /**
@@ -153,7 +175,7 @@ internal fun parseSweepProbe(output: String): SweepProbe {
                 val start = f.getOrNull(3)
                 if (f.size < 7 || pid == null || ppid == null || start.isNullOrEmpty() || !start.all { it.isDigit() }) { skipped++; continue }
                 val tag = tracePluginName(f[5].takeIf { it.isNotEmpty() })
-                procs.add(SweepProc(pid, ppid, start, f[4].toIntOrNull() ?: -1, f[6].trim(), tag))
+                procs.add(SweepProc(pid, ppid, start, f[4].toIntOrNull() ?: -1, f[6].trim().take(SWEEP_ARGS_MAX), tag))
             }
             line.startsWith("$SWEEP_LINE_PREFIX-SELF ") -> self = line.substringAfter(' ').trim().toIntOrNull()
             line.startsWith("$SWEEP_LINE_PREFIX-END ") -> endCount = line.substringAfter(' ').trim().toIntOrNull()
