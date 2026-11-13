@@ -1,0 +1,118 @@
+MatchiTOOL - PHASE 4 TO-DO  (written 2026-11-13 after reading README.md, SECURITY.md, CHANGELOG.md, docs/PLUGIN_SANDBOX.md, docs/PLUGIN_STORE.md, docs/PLUGIN_STOP.md headings)
+Docs only: bring README, SECURITY, CHANGELOG, the sandbox and store docs in line with Phases 1-3 ("Delete plugin" / "Turn off" stop what a plugin started and undo what it left)
+=================================================================
+
+GOAL
+  Phases 1-3 changed what Delete and Turn off do. Only docs/PLUGIN_STOP.md and docs/CHANGELOG_DETAIL.md were updated (Phase 3, Step 7). The pages people read first still describe the OLD behaviour.
+  Phase 4 makes every doc say the same true thing, and says plainly what was run on the F50 and what was not. NO code changes (one exception, see FOUND 5, only if the owner says yes).
+
+HOW TO READ THIS
+  [FACT]       = read in the repo (file named).   [DECISION] = the owner answers (section DECISIONS).   [UNVERIFIED] = not checked.
+  Not read in full for this plan: docs/CHANGELOG_DETAIL.md (1417 lines), docs/TESTING.md, docs/F50_CHECKLIST_1.4.1.md, MatchiTOOL_plugin_security_plan.txt. Nothing here was run.
+
+DELIVERY (owner's standing request): with every step the FULL project zip, a zip with ONLY the changed files (repo paths), and this txt.
+  EXCEPTION: when ONLY this txt changed, hand over the txt alone.
+
+PROGRESS  (update after every step)
+------------------------------------------------------------------
+  [x] Phase 3 closed 2026-11-13 (test F and the "no app code names a plugin" item waived by the owner; legacy bypass cleanup removal stays for 1.4.2).
+  [x] Plan written (this file). Waiting for decisions D1-D5.
+  [x] Step 0 - stray copies removed (owner deleted docs/docs/ and docs/MatchiTOOL_Phase2_todo.txt on GitHub 2026-11-13, D1 and D1b yes; removed in my copy too, validate.sh exit 0). Not re-checked on GitHub after the commit.
+  [x] Step 1 - README.md (done 2026-11-13, validate.sh exit 0). Only README.md changed; the README link to docs/PLUGIN_HEADERS.md is added in Step 5 (the file does not exist yet).
+  [ ] Step 2 - SECURITY.md
+  [ ] Step 3 - CHANGELOG.md
+  [ ] Step 4 - docs/PLUGIN_SANDBOX.md and docs/PLUGIN_STORE.md
+  [ ] Step 5 - plugin author guide (one page)
+  [ ] Step 6 - checks (validate.sh, links, version lines) and the final read-through
+
+STEP 1 RESULT (2026-11-13)
+  README.md: the two wrong bullets ("Side effects are listed, not undone" / "Not covered: processes ... firewall rules, uploaded files") are replaced by: one bullet pointing on, a paragraph "Delete and stop, Turn off and stop (1.4.1)"
+  (order: declared commands, process sweep, undo of firewall chains and boot.d scripts, re-check; all as root; Delete asks root gate + password), a paragraph on Turn off and stop (NO password, root gate and approved-file rule still apply),
+  a paragraph "what is not undone" (boot.sh lines by hand, eBPF pins, routes, properties, mounts, helper scripts, services via Android; forgetful not hostile), and one "Checked so far" sentence + link to docs/PLUGIN_STOP.md.
+  [!] DISCREPANCY for the owner (D3): the MatchiTOOL_Phase3_todo.txt inside the zip I was given still shows device tests A-F UNCHECKED and ends "nothing here was run on a device", but this plan says Phase 3 was closed with F50 checks
+      (Delete and stop, Turn off and stop, undo, shared guards; test F waived). I could not see those results, so the README says only: Phases 1-2 were run on the F50; Phase 3 is compiled and unit-tested in CI and its device
+      results are "recorded in MatchiTOOL_Phase3_todo.txt". Please upload the CURRENT Phase 3 txt (or tell me the per-test results) before Step 3/4, so D3 can name them. Until then I will not write "checked on the F50" for Phase 3 items.
+  Also still stale and queued: docs/PLUGIN_STOP.md line 8 and its Phase 3 bullet ("not compiled", "none run on the F50") -> Step 4 (F8).
+
+FOUND IN THE DOCS (what is stale or missing)
+------------------------------------------------------------------
+F1  README.md, "Plugin data is erased when you delete the plugin": the last two bullets are WRONG now.
+    "Side effects are listed, not undone: firewall rules ... background processes ... boot-script lines" and
+    "Not covered: processes the plugin started, firewall rules, uploaded files, anything outside the allowed folders".
+    Since Phases 1-3: declared stop commands run, processes are swept, firewall chains and boot.d files the host SAW the plugin create are undone, uploaded files are removed (1.4.1 trace),
+    "Turn off and stop" exists. README never mentions "Delete and stop", "Turn off and stop", @matchi-uninstall, @matchi-check, @matchi-boot, or docs/PLUGIN_STOP.md.
+    It also says boot-script lines "must be removed by hand" (true for lines in boot.sh; a boot.d/NN-name.sh file the plugin wrote is now removed).
+F2  SECURITY.md: the Plugins section says Delete "erases the plugin's data only inside strictly checked paths" and nothing about stop commands, the process sweep, the undo, or Turn off.
+    Security-relevant facts that are only in docs/PLUGIN_STOP.md: the stop and undo run AS ROOT; "Turn off and stop" asks NO password (owner decision 2026-11-13; risk: a page holding the session
+    token can run the plugin's own approved stop commands as root without the password; the stop is refused when the file differs from the approved one; the root gate still applies);
+    the undo script is built from validated names only and never runs plugin text; boot.d files are removed only under strict rules (root-owned, regular file, no symlink, not named by another plugin).
+    The Delete route in the security list is also not in the "route table / root gate" sentence. Also stale: "Not done (open items): ... plugin sandboxing" (the opt-in sandbox exists, see the same file above).
+F3  CHANGELOG.md 1.4.1 entry has NO bullet for Phases 1-3 (stop, sweep, undo, Turn off). Its "Plugins" bullet ends at "complete erase on delete, traced writes". The Bypass bullet says the cleanup is removed in 1.4.2 (good).
+    Several bullets say "not compiled" / "unreleased" which is out of date: CI is green (Validate, Unit tests, Build debug+release). Device status must be stated per item (see D3).
+F4  docs/PLUGIN_SANDBOX.md: header says "Kotlin not compiled, nothing run on a device" (CI compiles it now); the stop hook paragraph says "not yet run on the F50"; it does not say that "Turn off and stop" does NOT run the
+    hook of a sandboxed plugin (Phase 3 decision), nor that the hook plugin still gets the process sweep and undo on Delete and stop.
+    docs/PLUGIN_STORE.md: says nothing about the header lines a store plugin can carry (@matchi-uninstall etc.) or that the install dialog could show them; the "What you see before installing" list has no line for them. [UNVERIFIED] whether the page shows them.
+F5  STRAY COPY: docs/docs/ exists (CHANGELOG_DETAIL.md, PLUGIN_SANDBOX.md, PLUGIN_STOP.md, examples/) and is OLDER than docs/ (CHANGELOG_DETAIL.md and PLUGIN_STOP.md differ; docs/docs/examples has 2 of the 4 example files).
+    Anyone who opens the wrong copy reads outdated stop rules. Almost certainly a zip or copy mistake. Nothing links to it [UNVERIFIED: only a plain text search was done].
+F6  No single "plugin author guide". docs/PLUGIN_STOP.md calls itself "(author guide)" but covers only stopping and undoing. The header lines are spread over README (@matchi-data, @matchi-localstorage,
+    name/version/author/description/requires), PLUGIN_SANDBOX.md (@matchi-needs), PLUGIN_STOP.md (@matchi-uninstall, @matchi-check, @matchi-boot). No file lists them all.
+F7  Wording nit left from Phase 3 test H: the Turn off dialog says "Its file and its data stay" while a plugin's own declared uninstall commands may delete the plugin's runtime folders (e.g. /data/local/ufi_*).
+    That is a PAGE string, not a doc (needs a code change, see D5).
+
+F8  [FACT, found in Step 0] docs/PLUGIN_STOP.md (the real one, line 8) STILL says the Android parts "were not compiled in the session that wrote them" and "none of it has been run on the F50 yet (tests A-M in MatchiTOOL_Phase2_todo.txt)".
+    That is out of date (CI is green; Phase 3 ran tests on the F50). Same kind of old sentence: docs/CHANGELOG_DETAIL.md line 64 ("Kotlin of Steps 5-7 was not compiled ... nothing of Phase 2 has run on the F50").
+    Line 64 is a dated Phase 2 entry (history), so it may stay if it is marked as the state at that time; line 8 of PLUGIN_STOP.md is a live status line and must change (D3). Goes into Step 4 (not Step 0).
+F9  [FACT, found in Step 0] Second stray copy: docs/MatchiTOOL_Phase2_todo.txt (403 lines) next to the root MatchiTOOL_Phase2_todo.txt (937 lines). The docs/ one is the older, shorter file (it lacks Step 8b, the first device findings).
+    Nothing links to docs/MatchiTOOL_Phase2_todo.txt; the references in PluginSweep.kt, PLUGIN_STOP.md and CHANGELOG_DETAIL.md use the bare file name (the root file is the one meant).
+
+DECISIONS (all open; the recommendation is in the square brackets)
+------------------------------------------------------------------
+D1  Delete the stray docs/docs/ folder?  [Yes. It is older than docs/, nothing links to it. I check once more with grep for "docs/docs" before deleting, and say what was in it. Deleting a folder is only done on your yes.]
+D1b Delete the stray docs/MatchiTOOL_Phase2_todo.txt (F9) too?  [Yes, same reason: older copy of the root file, nothing links to it. Only on your yes.]
+D2  Where do Phases 1-3 go in CHANGELOG.md?  [In the 1.4.1 entry as ONE new bullet "Plugin stop and undo", short, pointing to docs/PLUGIN_STOP.md. Reason: 1.4.1 is the current, unreleased version; the legacy cleanup still says 1.4.2.]
+D3  How do the docs state what was run on a device?  [Per item, in one sentence each: "checked on the F50 (13 Nov 2026): Delete and stop, Turn off and stop, undo of firewall chains and boot files, shared guards"; "not run on the device: no-root and timeout paths (test F waived)".
+    Replace the old "not compiled" notes with "compiled and unit-tested in CI (green run)". Do not claim more than the Phase 3 file records.]
+D4  The author guide (F6): new file docs/PLUGIN_HEADERS.md (one table of every header line, one line each, with links to the detail docs), and PLUGIN_STOP.md keeps its details?  [Yes, a short table only; no duplicate rules.]
+D5  The wording nit (F7) and the "no app code names a plugin" waiver: fix the dialog string in the page now?  [No. This phase is docs only. I put the nit in the 1.4.2 list next to the legacy cleanup removal, so both are done in one code change.]
+
+DO THE STEPS IN THIS ORDER
+------------------------------------------------------------------
+STEP 0 - Stray and stale                                 Files: docs/docs/ (D1), nothing else
+[x] grep for "docs/docs" in the whole repo (all text files, scripts/, .github/, both gradle files): 0 hits. Nothing in scripts/ walks docs/ (only check_sources.py names docs/PLUGIN_STORE.md; check_repo.py and bootstrap-build.sh name single files, none of them inside docs/docs).
+[x] What is in docs/docs/ (5 files, ~240 KB): CHANGELOG_DETAIL.md (1368 lines vs 1417 in docs/), PLUGIN_STOP.md (134 lines vs 226 in docs/; it has "Delete and stop" but older text), PLUGIN_SANDBOX.md (54 lines, IDENTICAL to docs/PLUGIN_SANDBOX.md), examples/No_Headers_Example.js and Sandbox_Hook_Example.js (both IDENTICAL to docs/examples/). So only 2 files differ, and in both the docs/ copy is the newer one.
+[ ] Remove docs/docs/ (D1) and docs/MatchiTOOL_Phase2_todo.txt (D1b) - ONLY after the owner says yes. Then re-run scripts/validate.sh and hand over the zips.
+STEP 1 - README.md
+[x] Rewrite the delete-data section's last two bullets (F1): what is stopped, what is undone, what is still listed only; add "Turn off and stop"; link docs/PLUGIN_STOP.md (done) and docs/PLUGIN_HEADERS.md (Step 5).
+[x] Keep the Bypass cleanup paragraph as is (1.4.2 removal already stated). Version line stays 1.4.1 (validate.sh checks it).
+STEP 2 - SECURITY.md
+[ ] Plugins section: new bullet "Delete and stop / Turn off and stop" (runs as root, what is validated, undo limits, the no-password decision and its risk, the re-check rule).
+[ ] Replace "plugin sandboxing" in "Not done" (F2) with what is really open (host-enforced permissions for trusted plugins; what Phase 3 cannot see).
+[ ] Make sure the new route behaviour (keep:true, undoHash, 409) matches scripts/test_route_gates.py and say nothing the table does not support.
+STEP 3 - CHANGELOG.md
+[ ] One bullet in 1.4.1 (D2) + replace "not compiled" wording where CI answered it (D3). Check the top entry still names 1.4.1 (validate.sh).
+STEP 4 - PLUGIN_SANDBOX.md and PLUGIN_STORE.md
+[ ] Sandbox: status line (F4), the hook "not yet run on the F50" sentence, one paragraph "Turn off and stop does not run the hook".
+[ ] Store: one short section on header lines and the dialog; first read web-src to see what the install dialog really shows ([UNVERIFIED] today), and write only that.
+STEP 5 - docs/PLUGIN_HEADERS.md (D4)
+[ ] One table: every header line, what it does, first N lines limit, where the detail is. Read the header parser (PluginHeader / plugin-sweep code) to get the limits right; do not copy numbers from memory.
+STEP 6 - Checks
+[ ] scripts/validate.sh exit 0; README/CHANGELOG version check; every relative link in the edited docs points to a file that exists (a small script or grep, run once); read the edited sections once against PLUGIN_STOP.md for contradictions.
+
+DONE WHEN
+------------------------------------------------------------------
+[ ] No doc says Delete "does not stop processes", "does not undo firewall rules" or "must be removed by hand" for a boot.d file the plugin made.
+[ ] README, SECURITY, CHANGELOG and PLUGIN_STOP.md agree on: what runs, as root, what is undone, what is not, what asks a password (Delete asks, Turn off and stop does not).
+[ ] Each doc says what was run on the F50 and what was not, matching the Phase 3 file.
+[ ] A plugin author finds every header line in one place.
+[ ] validate.sh passes; no stray older copy of a doc is left.
+
+LIMITS
+------------------------------------------------------------------
+  - Docs only. If a doc check finds the code does something the docs cannot say truthfully (for example the store dialog does not show the headers), I write what the code does and list the gap for 1.4.2; I do not change the code in this phase.
+  - Phase 3's waived items stay waived: test F not run on the device; the legacy bypass cleanup is still in HostService.kt until 1.4.2.
+
+NEXT (not in this phase)
+------------------------------------------------------------------
+1.4.2: remove the legacy Bypass boot cleanup (removal list in the Phase 3 file, Step 6), fix the Turn off dialog wording (F7), optional: name the eBPF pin in a ledger line.
+
+Note: nothing here was run. This plan is based on reading the docs listed at the top.
