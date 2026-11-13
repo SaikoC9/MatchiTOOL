@@ -180,4 +180,20 @@ class PluginTraceTest {
             assertEquals(0, dir.listFiles()?.size ?: 0)
         } finally { dir.deleteRecursively() }
     }
+
+    @Test fun theLedgerCapDropsOldPathsBeforeChainsAndBootScripts() {
+        val lines = listOf("C mangle UFI_DPI iptables", "B /data/local/matchitool/boot.d/20-x.sh", "U up.png") + (1..10).map { "P /data/local/tmp/f$it" } + listOf("E firewall rules")
+        val out = capLedger(lines, 8)
+        assertEquals(8, out.size)
+        assertTrue("C mangle UFI_DPI iptables" in out && "B /data/local/matchitool/boot.d/20-x.sh" in out && "U up.png" in out)   // never the first to go
+        assertEquals("E firewall rules", out.last())                                                                           // the newest line stays
+        assertEquals(lines, capLedger(lines, 100))                                                                              // under the cap: unchanged
+        assertEquals(listOf("P /a", "P /b"), capLedger(listOf("P /a", "P /b"), 2))
+    }
+
+    @Test fun theLedgerCapKeepsTheNewestOfTheProtectedLinesOnlyWhenNothingElseIsLeft() {
+        val lines = (1..6).map { "C nat CH$it iptables" } + listOf("P /x")
+        val out = capLedger(lines, 4)
+        assertEquals((3..6).map { "C nat CH$it iptables" }, out)   // the path line went first, then the oldest chains
+    }
 }
