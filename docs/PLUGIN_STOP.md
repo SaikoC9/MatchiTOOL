@@ -189,7 +189,7 @@ So "install a new copy under a new name, then delete the old one" leaves the cha
 
 ### Never touched
 
-A chain the plugin did not create (a system chain it only adds a jump into) is never flushed or deleted; the jump rule it added is removed only when it points at a chain this plugin created. A boot script written by another plugin or by MatchiTOOL is never removed. Files outside `boot.d`, folders the ledger did not see (a plugin that creates `/data/local/NAME` through a helper script), eBPF pins under `/sys/fs/bpf`, properties, routes and mounts are left as they are.
+A chain the plugin did not create is never flushed or deleted: Android's own chains (names starting `tetherctrl`, `bw_`, `fw_`, `oem`, `natctrl`, `st_`, `idletimer`, `clat`, `routectrl`, `wakeup`) are refused by the ledger even when the plugin ran `-N` on one that already existed, and a built-in or system chain it only adds a jump into is never flushed or deleted; the jump rule it added is removed only when it points at a chain this plugin created. A boot script written by another plugin or by MatchiTOOL is never removed. Files outside `boot.d`, folders the ledger did not see (a plugin that creates `/data/local/NAME` through a helper script), eBPF pins under `/sys/fs/bpf`, properties, routes and mounts are left as they are.
 
 ## Turn off and stop (Phase 3)
 

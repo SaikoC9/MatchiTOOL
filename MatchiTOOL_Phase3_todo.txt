@@ -169,6 +169,15 @@ PROGRESS  (update after every step)
       STILL OPEN (review finding, owner did not ask for it yet): a failed "iptables -N NAME" on an EXISTING chain (Android's tetherctrl_FORWARD, bw_*, fw_*, oem_*, natctrl_*, st_*) is still
       recorded as the plugin's own chain, so Delete could flush and delete a system chain. Fix idea: refuse those prefixes in chainEntry (so they are never recorded or run), with tests,
       and correct the sentence "a chain the plugin did not create is never flushed" in docs/PLUGIN_STOP.md (true only for chains it jumps into). Device test E should then also try -N on an existing system chain.
+  [x] CI after Step 7 (owner, 2026-11-13): the GitHub Actions run is green - Validate, Unit tests (1m 45s) and Build debug+release APKs all passed. So the Kotlin of Steps 1-3 and 5 COMPILES
+      and its tests PASS there (the earlier "NOT compiled / UNRUN" notes are now answered; commit of that run not seen in the screenshot).
+  [x] System-chain fix (the STILL OPEN review finding, owner said "do this"). WRITTEN. validate.sh exit 0. The new Kotlin test is NOT compiled here (no Gradle): CI must run it.
+      PluginTrace.kt: chainEntry now refuses names starting with tetherctrl, bw_, fw_, oem, natctrl, st_, idletimer, clat, routectrl, wakeup (case-insensitive), so a failed "-N" on an existing
+      Android chain is never recorded, listed, or flushed/deleted; parseChainEntry refuses a hand-edited ledger line with such a name too (it round-trips through chainEntry).
+      PluginTraceTest.kt: new androidSystemChainsAreNeverRecordedAsThePluginsOwn (10 names, iptables and ip6tables, plus UFI_DPI and "stable_chain" still recorded).
+      docs/PLUGIN_STOP.md: the sentence "a chain the plugin did not create is never flushed" now names the refused prefixes.
+      CAVEAT: a plugin that really makes its own chain with one of those prefixes (e.g. "fw_myrule") is no longer undone; it is not recorded at all. Say if the list should be shorter.
+      Device test E now also: run "iptables -N tetherctrl_FORWARD" (fails, chain exists) from a test plugin, Delete and stop, and check the system chain is untouched.
   [ ] Step 8 - device tests
 
 FACTS FOUND IN THE CODE
@@ -242,7 +251,7 @@ STEP 8 - Device tests (F50)
 [ ] B. Same after a reboot WITHOUT cleanup: nothing comes back.
 [ ] C. Two copies using one chain: delete the old copy, the chain stays; delete the last, it goes.
 [ ] D. A boot.d file written by another plugin or by MatchiTOOL is never removed.
-[ ] E. A chain the plugin did NOT create (a system chain it only jumps into) is never flushed or deleted.
+[ ] E. A chain the plugin did NOT create (a system chain it only jumps into) is never flushed or deleted; also a failed -N on an existing system chain (tetherctrl_FORWARD) is not recorded and stays.
 [ ] F. Root missing / timeout: nothing undone, plugin kept, report says what did not run.
 
 DONE WHEN

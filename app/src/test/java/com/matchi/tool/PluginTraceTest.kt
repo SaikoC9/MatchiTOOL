@@ -118,6 +118,17 @@ class PluginTraceTest {
         assertEquals(emptyList<String>(), pluginChains("iptables -N"))
     }
 
+    @Test fun androidSystemChainsAreNeverRecordedAsThePluginsOwn() {
+        for (n in listOf("tetherctrl_FORWARD", "bw_INPUT", "fw_FORWARD", "oem_out", "natctrl_nat_POSTROUTING", "st_penalty_log", "idletimer_x", "clat_raw_PREROUTING", "routectrl_mangle_INPUT", "TETHERCTRL_x")) {
+            assertEquals(emptyList<String>(), pluginChains("iptables -N $n"))
+            assertEquals(emptyList<String>(), pluginChains("ip6tables -t mangle -N $n"))
+            assertEquals(null, chainEntry("filter", n, "iptables"))
+            assertEquals(null, parseChainEntry("filter $n iptables"))
+        }
+        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables -t mangle -N UFI_DPI"))
+        assertEquals(listOf("filter stable_chain iptables"), pluginChains("iptables -N stable_chain"))
+    }
+
     @Test fun chainEntriesRoundTripAndRefuseTampering() {
         assertEquals(Triple("mangle", "UFI_DPI", "iptables"), parseChainEntry("mangle UFI_DPI iptables"))
         assertNull(parseChainEntry("mangle UFI_DPI"))

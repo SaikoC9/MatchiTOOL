@@ -172,6 +172,9 @@ internal fun pluginSideEffects(command: String): Set<String> {
 private val FW_TOOLS = setOf("iptables", "ip6tables")
 private val FW_TABLES = setOf("filter", "nat", "mangle", "raw", "security")
 private val FW_BUILTIN = setOf("INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING")
+/** Chains Android's netd owns (tetherctrl_FORWARD, bw_*, fw_*, oem_*, natctrl_*, st_* ...). A failed "-N" on one of these must never become "the plugin's own chain". */
+private val FW_SYSTEM_PREFIXES = listOf("tetherctrl", "bw_", "fw_", "oem_", "natctrl", "st_", "idletimer", "clat", "routectrl", "wakeup", "oem")
+private fun isSystemChain(chain: String): Boolean = chain.lowercase().let { c -> FW_SYSTEM_PREFIXES.any { c.startsWith(it) } }
 private val CHAIN_NAME = Regex("^[A-Za-z0-9_-]{1,28}$")
 private val BOOT_D_FILE = Regex("^/data/local/matchitool/boot\\.d/[0-9]{2}-[A-Za-z0-9._-]{1,60}\\.sh$")
 
@@ -180,7 +183,7 @@ internal fun isSafeBootFile(path: String): Boolean = BOOT_D_FILE.matches(path)
 
 /** One ledger "C" entry: "TABLE CHAIN TOOL" (for example "mangle UFI_DPI iptables"), or null when it is not a safe, plugin-made chain. */
 internal fun chainEntry(table: String, chain: String, tool: String): String? =
-    if (table in FW_TABLES && tool in FW_TOOLS && CHAIN_NAME.matches(chain) && chain !in FW_BUILTIN) "$table $chain $tool" else null
+    if (table in FW_TABLES && tool in FW_TOOLS && CHAIN_NAME.matches(chain) && chain !in FW_BUILTIN && !isSystemChain(chain)) "$table $chain $tool" else null
 
 /** Splits a ledger "C" entry back into (table, chain, tool); null when it does not pass [chainEntry] again (a hand-edited ledger cannot smuggle text in). */
 internal fun parseChainEntry(entry: String): Triple<String, String, String>? {
