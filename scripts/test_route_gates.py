@@ -66,7 +66,7 @@ TABLE = {
   ('POST', '/api/plugins/call'): ('PARTIAL', 'sandboxed plugins only; the host checks the approved record on every call; the shell op needs the gate, AT reads and router reads are read-only'),
   ('POST', '/api/plugins/mode'): ('GATE', 'also needs the sign-in password; both directions (sandbox and trusted)'),
   ('POST', '/api/plugins/data'): ('OPEN', 'read-only existence probe of paths that passed checkPluginDataPath'),
-  ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data or running its stop commands needs the gate; every delete needs the sign-in password'),
+  ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data or running its stop commands needs the gate; every delete needs the sign-in password, except keep:true; with keep:true (Disable and stop) it stops and switches the plugin off, nothing is deleted or erased'),
   ('POST', '/api/plugins/toggle'): ('OPEN', ''),
   ('POST', '/api/plugins/scan'): ('OPEN', ''),
   ('GET',  '/api/root/status'): ('OPEN', 'asks only whether root is granted'),

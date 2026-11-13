@@ -1,5 +1,50 @@
 <!-- Full, unedited per-change history kept for reference. The short per-version summary is ../CHANGELOG.md. Headings are not in version order and some versions appear several times. -->
 
+# MatchiTOOL 1.4.1 - Phase 3 / review fixes (after Step 7): ledger cap, firewall lock, toast wording
+
+- **Ledger cap.** The ledger kept the last 500 lines of any kind, so a plugin that wrote many paths could push its first lines out, and the first lines are usually the chain (`C`) and boot script (`B`) ones. `capLedger` now drops the oldest `P` / `E` lines first and keeps `C`, `B`, `U` until nothing else is left. `PluginTrace.kt`; 2 new tests in `PluginTraceTest.kt` (not compiled here).
+- **Firewall lock.** The undo script and the re-check called `iptables` without `-w`, so another program holding the xtables lock made a delete fail (the undo script even said "absent"). Both now try `iptables -w 5 -t T -S` once per chain; where it works every call uses `-w 5`, where it does not (iptables older than 1.6.2) the calls run as before. The word is fixed in the script, never plugin text. A lock that still cannot be waited out shows in the re-check as "error" (not checked), so the plugin is kept. `PluginUndo.kt`; `scripts/test_plugin_undo.py` has 7 new checks (a fake `iptables` that knows `-w` and can hold a lock; 28 checks in all, mutation-checked); 1 new Kotlin test.
+- **Toast wording.** "N items removed from the system" counted chains that were already gone. It now says "N items no longer in the system". `web-src/plugin-undo-ui.js` and its two node tests.
+- **Checked, no change needed:** a refused command is never written to the ledger (all root routes call the filter first, and `pluginCall` calls `shellDanger` first). `scripts/test_plugin_undo.py` now guards that order in the source text.
+- **NOT fixed here (open, found in the same review):** a plugin that runs `iptables -N NAME` on a chain that already exists (it fails) still gets `NAME` recorded as its own chain, so a system chain such as `tetherctrl_FORWARD` could be flushed and deleted on Delete. See `MatchiTOOL_Phase3_todo.txt`.
+- Not compiled: the Kotlin changes (`capLedger`, the template edits, the 3 new Kotlin tests). The shell scripts and the page tests were run.
+
+# MatchiTOOL 1.4.1 - Phase 3 / Step 7: docs for undoing chains and boot scripts, and for Turn off and stop
+
+- `docs/PLUGIN_STOP.md` now describes Phase 3: the two new ledger lines (`C`, `B`) and what is never recorded; what the Delete dialog lists and the `undoHash`; the order (declared commands, sweep, undo, re-check, check, delete) and the limits of each step (5 s to start, 20 s for the undo script, 15 s for the re-check); how a chain and a boot script are removed and when they are refused; the shared-copy guard; **Turn off and stop** (no password, the hook is not run, the ledger is not pruned); and a "What Phase 3 does NOT catch" list (command text only, kernel state, folders the ledger did not see, not a security boundary).
+- The sweep section's "Boot lines, firewall rules, files" bullet and the "nothing running" section no longer say the undo is "planned". The status block at the top now says the Phase 3 Kotlin was **not compiled** and nothing of Phase 3 ran on the F50.
+- Not touched on purpose (Phase 4): `README.md`, `SECURITY.md`, `docs/PLUGIN_SANDBOX.md`, `docs/PLUGIN_STORE.md`. `CHANGELOG.md` got only the Step 6 line.
+- Files: `docs/PLUGIN_STOP.md`, `docs/CHANGELOG_DETAIL.md`. Docs only: no code, test or script changed.
+
+# MatchiTOOL 1.4.1 - Phase 3 / Step 6: the legacy Bypass boot cleanup is marked for removal in 1.4.2
+
+- The one-time cleanup of "bypass" lines in `boot.sh` (added in 1.4.1) stays for 1.4.1 only. Nothing about how it works changed. A comment in `HostService.kt` marks it, `scripts/check_repo.py` fails from version 1.4.2 until it is removed, and `docs/PLUGIN_STOP.md`, `README.md` and `CHANGELOG.md` say so.
+- A device that updates from before 1.4.1 straight to 1.4.2 never runs it; the docs tell the person to delete such lines by hand.
+- Files: `HostService.kt` (comment only), `scripts/check_repo.py`, `docs/PLUGIN_STOP.md`, `README.md`, `CHANGELOG.md`.
+
+# MatchiTOOL 1.4.1 - Phase 3 / Step 5: Turn off and stop (a plugin can be switched off without deleting it, and stop what it started)
+
+- Switching a plugin OFF now offers to stop what it started and undo what it left in the system (declared stop commands, the process sweep, firewall chains and boot scripts the host saw it create), keeping the plugin file and its data. A plugin with nothing to stop is switched off at once, as before.
+- Same host stop as Delete: `POST /api/plugins/delete` with `stop:true, keep:true` (no erase). Same hashes (plan, sweep, undo), same re-check, same root gate; no password (owner decision: like a plain toggle). A stop that does not finish keeps the plugin ON. "Turn off only" and every "without stopping" button use the old toggle request, so turning a plugin off never depends on root.
+- Not done on Turn off: the sandbox stop hook (the plugin is not being uninstalled). The ledger is not pruned after an undo.
+- Files: `WebRoutesPlugins.kt`, `web-src/plugin-disable-ui.js` (new), `index.html`. Tests: `scripts/test_plugin_disable_ui.js` (new). The Kotlin of Steps 1-3 and 5 is not compiled yet.
+
+# MatchiTOOL 1.4.1 - Phase 3 / Step 4: the Delete dialog shows what will be undone in the system
+
+- The dialog lists the firewall chains and boot scripts the host saw the plugin create, says "if it is still there", and sends the `undoHash` it showed with every request that stops. "Delete without stopping" sends none. A plugin with no headers and nothing running, but with undo items, now gets "Delete and stop".
+- Items that will NOT be undone (stop blocked, too many processes, kept because another plugin uses them) are listed as such. The retry dialog lists what "Try again" would remove, and the Restart button is not offered while a boot script is left.
+- Files: `web-src/plugin-undo-ui.js` (new), `plugin-sweep-ui.js`, `index.html`. Tests: `scripts/test_plugin_undo_ui.js` (new), `scripts/test_plugin_hook.js`, `scripts/test_plugin_sweep_ui.js`. Page only; the Kotlin of Steps 1-3 is still not compiled.
+
+# MatchiTOOL 1.4.1 - Deleting a plugin also undoes the firewall chains and boot scripts it left (Phase 3, steps 0-3)
+
+- **Ledger (Step 0).** The plugin's ledger learned two line kinds: `C TABLE CHAIN TOOL` from `iptables` / `ip6tables [-t TABLE] -N CHAIN` (also inside `sh -c`, `su -c`, `timeout`, `nohup`, `VAR=x`) and `B /path` from a write directly into `/data/local/matchitool/boot.d` with a name like `20-name.sh`. Built-in chains, odd names, tables outside filter / nat / mangle / raw / security and anything else are not recorded. **No jump lines:** the undo finds the jumps by reading `iptables -S` at delete time. Old ledgers still read. `PluginTrace.kt`; `WebServer.kt` and `WebRoutesPlugins.kt` call `traceStore.recordCommand(plugin, command)`.
+- **Plan (Step 1).** New `PluginUndo.kt`: `undoPlan` lists what would be undone (at most 20 chains and 10 boot scripts), keeps what another installed plugin also records or declares (ledger, `@matchi-boot`, or a chain named as a whole word in its uninstall / check commands), and gives an `undoHash`. `/api/plugins/data` returns it as `undo`; no root probe, so it appears without root.
+- **Run (Step 2).** After the declared commands and the sweep, one root script built from re-validated names: jump rules removed **by number**, the parent chain never flushed, a chain not flushed while a jump is left, then `-F`, `-X`; a boot script removed only if it is a root-owned regular file in a non-symlink `boot.d`. One bad item and nothing runs. 60 s total, not started under 5 s, 20 s limit, one `plugin-undo` audit line per item. The request must carry `undoHash` (409 `plan-changed` if the ledger changed). `stopMode` got `undoCount`, so a headerless plugin with nothing running still gets a stop when there is something to undo.
+- **Re-check (Step 3).** A separate read-only script looks again; a chain is gone only if the whole table list was read and has no `-N CHAIN` line; a missing tool or unreadable list is "not checked", never "gone". "Undone" needs the undo clean **and** the re-check run for every item. A clean re-check counts as the check for a plugin with no `@matchi-check` (D7). Failure keeps the plugin.
+- **Decisions (owner, 2026-11-13):** D1, D2, D5, D6 yes as proposed. D3 (eBPF pin and other kernel state are listed, not undone), D4 (folders the ledger did not see stay) and D7 were assumed as recommended.
+- Tests: `PluginTraceTest.kt` (9 new), `PluginUndoTest.kt` (11 new), `PluginUndoRunTest.kt`, `scripts/test_plugin_undo.py` (the real scripts in a real `sh` with a fake `iptables`, 21 checks, in `validate.sh`).
+- **Checked:** Steps 0-1 were compiled and run (386, then 397 pure Kotlin tests). **Not checked:** the Kotlin of Steps 2-3 (and Step 5) was not compiled and `PluginUndoRunTest.kt` has not run; the two route call sites are not compiled either. Nothing of Phase 3 has run on the F50 (tests A-F in `MatchiTOOL_Phase3_todo.txt`).
+
 # MatchiTOOL 1.4.1 - Deleting a plugin also stops what it started, even with no headers (Phase 2, steps 0-8)
 
 - **Process sweep.** The Delete dialog now looks for processes a plugin started, also when it declared nothing, and lists each one (PID, command line, how it was found) before anything is ended. **Delete and stop** ends exactly the listed ones and what they started, then scans again; the plugin is deleted only when that second scan ran, was complete and found nothing. Otherwise the plugin is **kept** and the report says what is left.

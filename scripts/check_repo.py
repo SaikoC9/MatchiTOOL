@@ -32,6 +32,16 @@ if name and code:
     if rel.is_file():
         need('version.properties' in rel.read_text(), 'release.yml must read the version from version.properties')
 
+# ---- 1b. the legacy Bypass boot cleanup is for 1.4.1 only (Phase 3 / D5) ----
+# HostService.kt removes legacy "bypass" lines from boot.sh one time. It was kept for ONE version on purpose. From 1.4.2 on the check fails until the block is
+# removed (docs/PLUGIN_STOP.md, "The legacy Bypass boot cleanup", lists every place). To keep it longer, raise LEGACY_BYPASS_LAST_VERSION here and say why in the changelog.
+LEGACY_BYPASS_LAST_VERSION = (1, 4, 1)
+if name and code:
+    parts = tuple(int(x) for x in re.findall(r'\d+', name)[:3])
+    host = (root / 'app/src/main/java/com/matchi/tool/HostService.kt').read_text()
+    need(not (parts > LEGACY_BYPASS_LAST_VERSION and '.bypass-cleanup-done' in host),
+         f'version {name}: the one-time legacy Bypass cleanup (marker .bypass-cleanup-done) must be removed from HostService.kt now; see docs/PLUGIN_STOP.md, "The legacy Bypass boot cleanup"')
+
 # ---- 2. built-in tools ----
 html = (root / 'app/src/main/assets/web/index.html').read_text()
 embedded = [n for n in re.findall(r'<script type="text/plain" class="webtool" data-name="([^"]+)">', html)]

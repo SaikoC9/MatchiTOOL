@@ -15,6 +15,8 @@ A plugin normally runs **in the console page**, with the signed-in session, and 
 
 Always: `matchi.toast(text, color?)` (shown as `[Plugin name] text`), `matchi.info()`, `matchi.close()`, `matchi.storage.get/set/remove/keys` (its own private area, 256 KB, 100 keys).
 
+`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Written and unit-tested; not yet run on the F50.
+
 Only when declared in the first 80 lines **and** approved:
 
 | header line | gives |

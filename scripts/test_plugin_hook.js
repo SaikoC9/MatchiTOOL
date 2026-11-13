@@ -7,7 +7,7 @@ const fs = require('fs'), vm = require('vm'), path = require('path'), assert = r
 const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'app/src/main/assets/web/index.html'), 'utf8');
 const kt = fs.readFileSync(path.join(root, 'app/src/main/java/com/matchi/tool/WebRoutesPlugins.kt'), 'utf8');
-const ui = require('../app/src/main/web-src/plugin-sweep-ui.js');
+const ui = Object.assign({}, require('../app/src/main/web-src/plugin-sweep-ui.js'), require('../app/src/main/web-src/plugin-undo-ui.js'));
 const a = html.indexOf('/* @include web-src/plugin-sandbox.js */'), b = html.indexOf('/* @end-include web-src/plugin-sandbox.js */');
 assert.ok(a > 0 && b > a);
 const ctx = vm.createContext({ window: {}, console, Map, Set, Date, Math, Number, JSON, String, Array, Promise, setTimeout, clearTimeout, api: async () => null, createToast() {}, closeModal() {} });
@@ -198,7 +198,7 @@ test('page: the hook runs only for a stop, only for a sandboxed plugin that is l
   assert.ok(/stop=\(!failure&&\(mode==='stop'\|\|mode==='sweep'\|\|mode==='hook'\)\)/.test(h));
 });
 test('page: the NEW hash replaces the old one after a hook; the host is told (audit only)', async () => {
-  assert.ok(h.includes('Object.assign(body,sweepRequestFields(after.sw,true))'));
+  assert.ok(h.includes('Object.assign(body,sweepRequestFields(after.sw,true),undoRequestFields(un,true))'));
   assert.ok(h.includes('Object.assign(body,hookRequestFields(lastHook))'));
 });
 test('page: the toast never says "Stopped" for a hook alone', async () => {
@@ -216,7 +216,7 @@ test('host: hookRan / hookStatus go to the audit log only and cannot change the 
 const hs = html.indexOf('d.onclick=async()=>{\n      let failure=null'), he = html.indexOf('\n    const free=shown.length', hs);
 assert.ok(hs > 0 && he > hs);
 const handlerSrc = html.slice(hs, he);
-const NAMES = ['sweepNorm', 'pluginDeleteMode', 'sweepDialogText', 'sweepRetryText', 'sweepRequestFields', 'hookDialogText', 'hookAfterScan', 'hookFailureReport', 'hookBlindReport', 'hookRequestFields'];
+const NAMES = ['sweepNorm', 'pluginDeleteMode', 'sweepDialogText', 'sweepRetryText', 'sweepRequestFields', 'hookDialogText', 'hookAfterScan', 'hookFailureReport', 'hookBlindReport', 'hookRequestFields', 'undoNorm', 'undoDialogText', 'undoRetryText', 'undoEffectsText', 'leftHasBoot', 'undoRequestFields', 'undoToastText', 'undoModeRuns'];
 async function drive({ plugin, entries, hookResults, datas, dialogs }) {
   const calls = [], dlgs = [], toasts = [], d = {};
   const dataQ = datas.slice(), dlgQ = dialogs.slice(), hookQ = hookResults.slice();
@@ -302,6 +302,45 @@ test('handler: with declared commands the hook line comes with them, and a refus
   const refused = mkInfo([], '', { stopPlan: { commands: [], refused: [{ command: 'x', reason: 'r' }], shared: [], planHash: 'P2' } });
   const r2 = await drive({ plugin: sbxP, entries: hooked(), hookResults: [], datas: [refused], dialogs: [true] });
   assert.strictEqual(r2.deletes[0].skipStop, true); assert.ok(!('hookRan' in r2.deletes[0])); assert.ok(!r2.dlgs[0].message.includes('own stop code'));
+});
+
+// Phase 3 / Step 4: the undo list in the same handler.
+const UNDO = { items: [{ kind: 'chain', label: 'firewall chain UFI_DPI (iptables, table mangle)' }, { kind: 'boot', label: 'boot script 20-bypass-ttl.sh' }], notUndone: [], hash: 'U1' };
+const trustedP = { name: 'T.js', mode: 'trusted' };
+test('handler: a headerless plugin with only undo items gets \"Delete and stop\", lists them, and sends undoHash with stop', async () => {
+  const r = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [mkInfo([], '', { undo: UNDO })], dialogs: [true] });
+  assert.strictEqual(r.dlgs[0].okText, 'Delete and stop');
+  assert.ok(r.dlgs[0].message.includes('firewall chain UFI_DPI') && r.dlgs[0].message.includes('boot script 20-bypass-ttl.sh') && r.dlgs[0].message.includes('if it is still there'));
+  assert.strictEqual(r.deletes.length, 1); const b = r.deletes[0];
+  assert.strictEqual(b.stop, true); assert.strictEqual(b.undoHash, 'U1'); assert.strictEqual(b.sweepHash, ''); assert.ok(!b.skipStop);
+});
+test('handler: with no undo items the request carries an empty undoHash on stop (the key must be there)', async () => {
+  const r = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [mkInfo([c1], 'H0')], dialogs: [true] });
+  assert.strictEqual(r.deletes[0].undoHash, '');
+});
+test('handler: refused commands -> skipStop, no undoHash, the items are listed as staying', async () => {
+  const refused = mkInfo([], '', { undo: UNDO, stopPlan: { commands: [], refused: [{ command: 'x', reason: 'r' }], shared: [], planHash: 'P2' } });
+  const r = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [refused], dialogs: [true] });
+  assert.strictEqual(r.deletes[0].skipStop, true); assert.ok(!('undoHash' in r.deletes[0]));
+  assert.ok(r.dlgs[0].message.includes('stay in the system') && !r.dlgs[0].message.includes('Then it also removes'));
+});
+test('handler: shared copy -> default sends no stop (no undoHash); \"Delete and stop anyway\" sends it', async () => {
+  const shared = mkInfo([], '', { undo: UNDO, stopPlan: { commands: ['pkill -f x'], refused: [], shared: ['Other.js'], planHash: 'P3' } });
+  const a = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [shared], dialogs: [true] });
+  assert.ok(!a.deletes[0].stop && !('undoHash' in a.deletes[0]) && !('sweepHash' in a.deletes[0]));   // the default button sends no stop at all (Phase 1 behaviour) assert.ok(a.dlgs[0].message.includes('If the stop runs'));
+  const b = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [shared], dialogs: ['stop'] });
+  assert.strictEqual(b.deletes[0].stop, true); assert.strictEqual(b.deletes[0].undoHash, 'U1'); assert.ok(!b.deletes[0].skipStop);
+});
+test('handler: the hook path sends the undoHash that was reviewed', async () => {
+  const r = await drive({ plugin: sbxP, entries: hooked(), hookResults: [{ status: 'ok', ran: true }], datas: [mkInfo([c1], 'H0', { undo: UNDO }), mkInfo([c1], 'H0', { undo: UNDO })], dialogs: [true] });
+  assert.strictEqual(r.deletes.length, 1); assert.strictEqual(r.deletes[0].undoHash, 'U1'); assert.strictEqual(r.deletes[0].sweepHash, 'H0');
+});
+test('handler: \"effects\" sentence says \"cannot undo\" only when the undo does not run', async () => {
+  const eff = (extra) => mkInfo([], '', Object.assign({ effects: ['firewall rules'] }, extra));
+  const a = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [eff({ undo: UNDO })], dialogs: [null] });
+  assert.ok(!a.dlgs[0].message.includes('cannot undo') && a.dlgs[0].message.includes('Only the items listed above are undone'));
+  const b = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [eff({})], dialogs: [null] });
+  assert.ok(b.dlgs[0].message.includes('deleting cannot undo'));
 });
 
 (async () => {

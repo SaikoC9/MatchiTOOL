@@ -6,8 +6,9 @@ How much has been checked:
 
 - **Header lines** (`@matchi-uninstall`, `@matchi-check`, `@matchi-boot`, the plan, the shared-folder guard, "a failed stop keeps the plugin"): tried on the F50 in Phase 1 (tests A-H and a real Bypass v65_17 delete). See `MatchiTOOL_Phase1_todo.txt`.
 - **The process sweep and the sandbox stop hook** (sections "Plugins without headers: the process sweep" and "The stop hook" below): written and unit-tested on a PC (Kotlin pure tests and node tests). The Android parts of the host were **not compiled in the session that wrote them**, and **none of it has been run on the F50 yet** (tests A-M in `MatchiTOOL_Phase2_todo.txt`). Read those two sections as "designed to", not "proven to".
+- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two Phase 3 sections below): written, with the pure logic and the generated shell scripts unit-tested on a PC and the page covered by node tests. **The Kotlin of Phase 3 (Steps 1-3 and 5) has not been compiled yet** (GitHub Actions or `scripts/kotlin_pure_tests.sh` where Gradle exists), and **none of it has been run on the F50** (tests A-F in `MatchiTOOL_Phase3_todo.txt`). Read those sections as "designed to", not "proven to".
 
-Deleting a plugin removes its file and its data. It does **not** stop a background process, a firewall rule or a boot-script line the plugin created, because MatchiTOOL cannot know about them. A plugin can say how to stop them with header lines. When the person deletes the plugin, the Delete dialog lists these commands word for word and, after the root gate and the sign-in password, runs them as root.
+Deleting a plugin removes its file and its data. On its own it does **not** stop a background process, remove a firewall rule or take out a boot-script line the plugin created, because MatchiTOOL cannot know about them. A plugin can say how to stop them with header lines. For a plugin that says nothing, MatchiTOOL looks for processes (Phase 2) and undoes the firewall chains and boot scripts it saw the plugin create (Phase 3). When the person deletes the plugin, the Delete dialog lists these commands word for word and, after the root gate and the sign-in password, runs them as root.
 
 ## The header lines
 
@@ -101,7 +102,7 @@ Say these plainly to anyone who asks whether deleting a plugin "always" stops it
 - **Services started through Android** (`am startservice`, `start SERVICE`, `setprop` triggers, `cmd`) run under Android's own process, not under the plugin's command. The sweep does not see them. Declare a stop command for these.
 - **Pidfile written inside a script the plugin created.** The recorded commands only show paths written in the command text. A pidfile written by a helper script is not known.
 - **A renamed binary without a file extension** is missed by the command-line match on purpose (too many false hits otherwise). The command-line match can also match too much; that is why it is shown first.
-- **Boot lines, firewall rules, files.** The sweep ends processes only. Undoing boot entries and firewall chains is not done in this version (planned: Phase 3). Declare them with `@matchi-uninstall` and `@matchi-boot` as before.
+- **Boot lines, firewall rules, files.** The sweep ends processes only. Firewall chains and `boot.d` scripts the host saw the plugin create are undone by a separate step that runs after the sweep (see "Undoing what a plugin left in the system" below). Everything else (a line in `boot.sh`, a rule added to a system chain without a chain of its own, an eBPF pin, a property) stays: declare it with `@matchi-uninstall` and `@matchi-boot`.
 - **A process in uninterruptible sleep** may not end at once; the second scan then lists it and the plugin is kept.
 
 ### Example: a plugin with no headers
@@ -129,6 +130,97 @@ matchi.onUninstall(async () => {
 
 Example: `docs/examples/Sandbox_Hook_Example.js`. (Not yet tried on a device.)
 
+## Undoing what a plugin left in the system (Phase 3)
+
+Phase 2 ends what a plugin **started**. Phase 3 undoes what it **left behind**: a firewall chain and a boot script. The rule that governs all of it: **MatchiTOOL undoes only what it saw the plugin's own commands create.** It never guesses from a name, never undoes anything another plugin or MatchiTOOL owns, and never touches kernel state.
+
+This needs root (the same root gate as the header stop and the sweep). A plugin that declares `@matchi-uninstall` commands for the same things is not affected: the declared commands run first, and the undo then finds the chain or the file already gone.
+
+### What the host learns, and where it is kept
+
+Every shell command MatchiTOOL sees from a plugin with its name (the shell routes and a sandboxed plugin's `matchi.shell`) is read once for two things, and the result goes into the plugin's **ledger**, a small text file at `plugin_trace/NAME.trace` in the app's files folder (at most 500 lines; when it is full the oldest `P` and `E` lines drop out first, and `C`, `B` and `U` lines only when nothing else is left). The ledger already held written paths (`P`), side-effect words (`E`) and uploads (`U`). Phase 3 adds two line kinds. An old ledger file still reads.
+
+| line | written when the command text contains | example |
+| --- | --- | --- |
+| `C TABLE CHAIN TOOL` | `iptables` or `ip6tables`, optionally `-t TABLE`, then `-N CHAIN`. Also inside `sh -c`, `su -c`, `timeout`, `nohup` and after `VAR=x`. | `C mangle UFI_DPI iptables` |
+| `B /path` | a write (`>`, `tee`, `cp`, `mv`, ...) to a file **directly** inside `/data/local/matchitool/boot.d`, named like `20-name.sh`. | `B /data/local/matchitool/boot.d/20-bypass-ttl.sh` |
+
+What is never recorded (so it can never be undone):
+
+- A chain with a built-in name (`INPUT`, `OUTPUT`, `FORWARD`, `PREROUTING`, `POSTROUTING`), a chain name with anything but letters, digits, `_` and `-` (at most 28 characters), or a table other than `filter`, `nat`, `mangle`, `raw`, `security`.
+- A boot script with a name that does not match `NN-name.sh` (two digits, then letters, digits, `.`, `_`, `-`), in a subfolder, or outside `boot.d`.
+- A chain created through a shell variable for the tool (`IPT -N X`), or inside a script file the plugin wrote. The same limit as for written paths: the host only reads command text.
+
+A jump rule (`-A POSTROUTING ... -j CHAIN`) is **not** recorded. The undo finds the jumps itself, at delete time, by reading the live rules. That needs no extra ledger data and cannot go out of date.
+
+### What the dialog shows
+
+The Delete dialog (and the Turn off dialog, below) lists every undo item before anything happens, for example *"the firewall chain UFI_DPI (iptables, mangle)"* and *"the boot script 20-bypass-ttl.sh"*. It says **"if it is still there"**, because the plan comes from the ledger and does not look at the system; the check afterwards does.
+
+- **Not undone** lists what is kept on purpose, with the reason (see "Two plugins" below), what is not listed because there are too many (more than **20** chains or **10** boot scripts), and, in one line, how many ledger lines were ignored because they were not a valid entry.
+- If the stop is blocked, has a refused command, or has too many processes, the dialog says **"The stop does not run, so these stay in the system"** and lists the items.
+- If root is missing, the dialog says so; nothing is undone and the plugin is kept.
+- The plan comes from the ledger alone. It appears even when the root check cannot run.
+
+The page sends a hash of the items it showed (`undoHash`, a SHA-256 of the sorted item lines; empty when there is nothing). The host rebuilds the plan from the ledger **before** anything runs and answers `409 plan-changed` if the hash differs, so what you saw is what runs. A request without the key (an older page, **Delete without stopping**, the default button for a shared copy) gets no undo at all.
+
+### What "Delete and stop" does with it
+
+The order is: declared commands, process sweep, **undo**, **re-check**, the plugin's own check, then the delete. The undo comes after the sweep so that no watcher is left to add the rules again.
+
+1. **The undo script.** One root script, built by the host. Only names that pass the same safe-name check again go in; **one bad item and nothing runs**. No text from a plugin or from a rule is ever run or evaluated.
+   - **Chain.** If the chain is not there: `absent`, nothing touched. Otherwise every rule that **jumps to it** is deleted **by number** (`-D PARENT N`; at most 40 per chain). A rule counts as a jump only when `iptables -S` prints it ending in `-j CHAIN` or `-g CHAIN`, so a comment that contains "-j CHAIN" is never taken. The parent chain (`POSTROUTING`, a system chain) is only read: it loses at most the one rule that jumps to the plugin's chain, and is never flushed or deleted. **If a jump is still there, the chain is not flushed** (a failure). Then the chain is flushed (`-F`), deleted (`-X`) and looked at again. `iptables` and `ip6tables` are separate items, and a chain of the same name in another table is never touched. A missing tool is reported as `notool`. Where `iptables` knows `-w` (a test call with `-w 5` works), every call waits up to 5 seconds for the xtables lock instead of failing at once; where it does not, the calls run as before. If another program holds the lock for the whole 20 seconds, the item is reported as not done and the plugin is kept.
+   - **Boot script.** Refused when `boot.d` or its parent is a symlink, when the file is a symlink, is not a regular file, or is not owned by root (uid 0). Otherwise `rm -f`, then look again. Anything in `boot.d` that is not in this plugin's ledger is never named.
+2. **Limits.** The undo shares the 60 second total. It is not started with less than **5 seconds** left and runs for at most **20 seconds**. Each item gets one audit line in `shell_audit.log` (`plugin-undo`) **before** the script starts. Nothing is retried. Any answer other than "removed" or "absent" is a leftover, and so is an item the script gave no answer for.
+3. **The re-check.** A **separate, read-only** script looks again at every item; it does not believe the undo script. A chain is "absent" only when the **whole** table list (`iptables -t TABLE -S`) was read and has no line creating that chain. A missing tool or an unreadable list counts as **not checked**, never as gone. A boot script counts as still there if the path exists **or** is a dangling symlink. It uses the same `-w 5` rule. A busy lock that `-w` cannot wait out shows as **error** (not checked), never as gone. It is not started with less than 1 second left, runs for at most 15 seconds, and writes one `plugin-undo` audit line.
+4. **The report.** The stop reports success only when the undo script answered clean **and** the re-check ran for every item and found nothing. A clean re-check counts as the **check** for those items, so a plugin with no `@matchi-check` can still succeed. With the declared checks, **all** must pass as well. Otherwise the plugin is **kept**, the report lists what is still there, and the dialog opens again (**Try again** lists what it would remove; **Restart device** is not offered while a boot script is left, because that script runs again at the next boot).
+
+On success the toast says how many items are no longer in the system (removed now, or already gone).
+
+### Two plugins, one chain
+
+The same-folder idea again. An item is **kept** (listed under Not undone as "also used by NAME, so it is kept") when another installed plugin:
+
+- has the same ledger entry (a chain with the same table, name and tool; a boot script with the same path), or
+- names the chain as a whole word in its `@matchi-uninstall` or `@matchi-check` commands (a stricter rule than the ledger alone: a chain name that is also a plain word in another plugin's commands keeps the chain), or
+- lists the boot script with `@matchi-boot` or contains its path in its commands.
+
+So "install a new copy under a new name, then delete the old one" leaves the chain and the boot script for the new copy. When the **last** plugin using them is deleted, they go. Nothing is checked against the plugin's **own** `@matchi-uninstall`.
+
+### Never touched
+
+A chain the plugin did not create (a system chain it only adds a jump into) is never flushed or deleted; the jump rule it added is removed only when it points at a chain this plugin created. A boot script written by another plugin or by MatchiTOOL is never removed. Files outside `boot.d`, folders the ledger did not see (a plugin that creates `/data/local/NAME` through a helper script), eBPF pins under `/sys/fs/bpf`, properties, routes and mounts are left as they are.
+
+## Turn off and stop (Phase 3)
+
+Switching a plugin **off** can also stop what it started and undo what it left, **without deleting** the plugin or its data. The switch shows **Turn off** and, when there is something to stop, a dialog.
+
+- The page first reads what a stop would do (the same data as Delete). If there is nothing to stop, the plugin is switched off at once, as before, with no dialog.
+- Otherwise the dialog lists the commands, the processes and the undo items, with the same wording as Delete, and offers **Turn off and stop** or **Turn off only**. If a command is refused or too many processes were found, only **Turn off without stopping** is offered. For a plugin that is shared with another copy, the default skips the stop and **Turn off and stop anyway** runs it.
+- **Turn off and stop** sends the same request as Delete with `keep: true`: the same hashes (plan, sweep, undo), the same order, the same re-check and the same root gate. It never erases the file, its data, its uploads or its ledger.
+- A stop that does not fully succeed returns the same report, and the plugin **stays on**. Only after a clean stop is the plugin switched off (audit kind `plugin-disable`).
+- **No password is asked**, like for a plain switch. Anyone who holds the open session could therefore run a plugin's own, already approved stop commands as root without typing the password. The stop is refused if the plugin file differs from the approved one, and the root gate still applies. This was a decision, not an oversight.
+- **Turn off only** and every "without stopping" button use the old switch request, so a missing root or a failing stop can never make it impossible to turn a plugin off. Turning a plugin **on** is unchanged.
+- The **sandbox stop hook is not run** on Turn off (the plugin is not being uninstalled).
+- The ledger is **not pruned** after an undo. A plugin that once made a chain lists it again at the next Turn off, and the host then reports it as already gone.
+
+## What Phase 3 does NOT catch
+
+- **Only what the host saw in command text.** A chain or boot script made inside a helper script, through a variable (`IPT -N X`), or by code that never passed through a route with the plugin's name, is not in the ledger and is not undone. This is the same limit as for written paths and for the process tag.
+- **Kernel state is never undone, and only sometimes listed.** An eBPF pin (`/sys/fs/bpf/...`), a `/sys` or `/proc` setting, a property, a route or a mount made by a plugin stays until a reboot or until the plugin's own `@matchi-uninstall` removes it. The host will not write to `/sys` from a guess. The dialog shows the general line \"kernel or /sys settings\" only when a command's own text writes into `/proc` or `/sys` (`>` or `tee`). A pin created by a program the plugin runs (the Bypass `ttl_bpf` pin) is **not named and not listed**, because no command text shows it. Declare it with `@matchi-uninstall` (for example `rm -f /sys/fs/bpf/ttl_bpf`).
+- **Folders the ledger did not see** stay, as before. Only ledger paths are erased.
+- **Services started through Android** are still not seen (see the sweep).
+- **Not a security boundary.** A plugin can lie about its name. Phase 3 protects a person from a **forgetful** plugin, not from a **hostile** one. A boot script runs as root at every boot, which is why deleting one is held to exact names, a root-owned regular file and the shared-copy guard.
+- **The re-check proves the chain and the file, not the whole plugin.** It says nothing about processes (the second scan does) or about anything outside the items listed.
+
+## The legacy Bypass boot cleanup (kept for 1.4.1, removed in 1.4.2)
+
+The host still holds one piece of code that names a specific plugin: the **one-time** cleanup in `HostService.kt` that takes lines naming "bypass" out of `/data/local/matchitool/boot.sh` (marker `.bypass-cleanup-done`, copy kept as `boot.sh.pre-bypass-removal`). It was added in 1.4.1 for devices that still had the old built-in Bypass tool's boot lines. It is **kept for 1.4.1 only** and removed in **1.4.2**; no calendar date is set. It has nothing to do with the undo above: a plugin's own boot file in `boot.d` is undone by "Delete and stop", and anything else is the plugin's `@matchi-uninstall`.
+
+What the removal means: a device that goes from a version before 1.4.1 straight to 1.4.2 never runs the cleanup. If such a device still has Bypass lines in `boot.sh`, open the file as root and delete the lines that name Bypass by hand.
+
+To remove it in 1.4.2: the cleanup block in `BOOT_SCRIPT` (`HostService.kt`) and the "REMOVE IN 1.4.2" comment above it (the check looks for the marker name anywhere in the file), the cleanup part of `scripts/test_boot_tasks.sh` (from the "Legacy Bypass lines" comment to the end of the one-time check), the paragraph in `README.md` that starts "The Bypass tool", and the "Bypass removed" line of `CHANGELOG.md` (move it to the 1.4.2 entry as "removed"). `scripts/check_repo.py` fails from 1.4.2 until the block is gone.
+
 ## Plugins that declare nothing and have nothing running
 
-They are deleted as before, and the dialog says that no running process was found for them. The old note about reboots and boot-script lines stays: the sweep ends processes, it does not undo boot lines.
+They are deleted as before, and the dialog says that no running process was found for them. Unless the host saw them create a firewall chain or a `boot.d` script: then the dialog lists it and offers **Delete and stop**, even though nothing is running (see the next section). The ledger does not record a line of `boot.sh` or a rule in a system chain, so those are never listed.
