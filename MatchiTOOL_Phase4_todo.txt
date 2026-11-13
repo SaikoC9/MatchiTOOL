@@ -19,7 +19,7 @@ PROGRESS  (update after every step)
   [x] Plan written (this file). Waiting for decisions D1-D5.
   [x] Step 0 - stray copies removed (owner deleted docs/docs/ and docs/MatchiTOOL_Phase2_todo.txt on GitHub 2026-11-13, D1 and D1b yes; removed in my copy too, validate.sh exit 0). Not re-checked on GitHub after the commit.
   [x] Step 1 - README.md (done 2026-11-13, validate.sh exit 0). Only README.md changed; the README link to docs/PLUGIN_HEADERS.md is added in Step 5 (the file does not exist yet).
-  [ ] Step 2 - SECURITY.md
+  [x] Step 2 - SECURITY.md (done 2026-11-13, validate.sh exit 0). Only SECURITY.md and this txt changed. See STEP 2 RESULT.
   [ ] Step 3 - CHANGELOG.md
   [ ] Step 4 - docs/PLUGIN_SANDBOX.md and docs/PLUGIN_STORE.md
   [ ] Step 5 - plugin author guide (one page)
@@ -33,6 +33,18 @@ STEP 1 RESULT (2026-11-13)
       (Delete and stop, Turn off and stop, undo, shared guards; test F waived). I could not see those results, so the README says only: Phases 1-2 were run on the F50; Phase 3 is compiled and unit-tested in CI and its device
       results are "recorded in MatchiTOOL_Phase3_todo.txt". Please upload the CURRENT Phase 3 txt (or tell me the per-test results) before Step 3/4, so D3 can name them. Until then I will not write "checked on the F50" for Phase 3 items.
   Also still stale and queued: docs/PLUGIN_STOP.md line 8 and its Phase 3 bullet ("not compiled", "none run on the F50") -> Step 4 (F8).
+
+STEP 2 RESULT (2026-11-13)
+  SECURITY.md, 4 edits: (a) a short "what was run on a device" paragraph under the title (Phases 1-2 on the F50; Phase 3 compiled and unit-tested in CI, F50 results "recorded in MatchiTOOL_Phase3_todo.txt", no-root/timeout path not run; same careful wording as the README, see D3);
+  (b) the root-gate bullet now says /api/plugins/delete is gated only for erase or stop, and /api/plugins/toggle and /api/plugins/data are open;
+  (c) the one Delete bullet is replaced by: "Delete" (password always; erase needs the gate; uploads and ledger removed with erase), "Delete and stop, Turn off and stop" (as root; order; planHash/sweepHash/undoHash and 409 plan-changed; undo built from validated names only;
+      only what the host SAW the plugin create; shared-copy guard; audit kinds; Turn off and stop asks NO password = owner decision + the stated risk + refused when the file differs + root gate still applies + no hook; limits: not a boundary, forgetful not hostile, what is not undone),
+      and a bullet on /api/plugins/data (see F10);
+  (d) "Not done": "plugin sandboxing" replaced by host-enforced permissions for trusted plugins, and what a plugin does outside the command text the host reads.
+  Checked against: WebRoutesPlugins.kt (delete route, keep, hashes, 409, password rule) and scripts/test_route_gates.py. Nothing run on a device.
+  [!] F10 (new, FACT, for the owner): the OPEN route /api/plugins/data (no root gate) also runs the process scan as root (pluginSweep) and returns matched PIDs and command lines, plus stop plan and undo items.
+      scripts/test_route_gates.py still describes the route as a "read-only existence probe". SECURITY.md now says what the code does. NOT changed in code or in the test table (docs only). Proposed for 1.4.2 with the legacy cleanup removal and F7:
+      decide whether the scan should need the root gate, and fix the table note. Please say if you want it handled differently (D6).
 
 FOUND IN THE DOCS (what is stale or missing)
 ------------------------------------------------------------------
@@ -73,6 +85,7 @@ D2  Where do Phases 1-3 go in CHANGELOG.md?  [In the 1.4.1 entry as ONE new bull
 D3  How do the docs state what was run on a device?  [Per item, in one sentence each: "checked on the F50 (13 Nov 2026): Delete and stop, Turn off and stop, undo of firewall chains and boot files, shared guards"; "not run on the device: no-root and timeout paths (test F waived)".
     Replace the old "not compiled" notes with "compiled and unit-tested in CI (green run)". Do not claim more than the Phase 3 file records.]
 D4  The author guide (F6): new file docs/PLUGIN_HEADERS.md (one table of every header line, one line each, with links to the detail docs), and PLUGIN_STOP.md keeps its details?  [Yes, a short table only; no duplicate rules.]
+D6  F10: only document that /api/plugins/data runs the process scan without the root gate and put the gate decision in the 1.4.2 list?  [Yes, as done in SECURITY.md. A gate would make the Delete dialog show no process list for a session older than 4 h; that is a behaviour change, so not in a docs phase.]
 D5  The wording nit (F7) and the "no app code names a plugin" waiver: fix the dialog string in the page now?  [No. This phase is docs only. I put the nit in the 1.4.2 list next to the legacy cleanup removal, so both are done in one code change.]
 
 DO THE STEPS IN THIS ORDER
@@ -85,9 +98,9 @@ STEP 1 - README.md
 [x] Rewrite the delete-data section's last two bullets (F1): what is stopped, what is undone, what is still listed only; add "Turn off and stop"; link docs/PLUGIN_STOP.md (done) and docs/PLUGIN_HEADERS.md (Step 5).
 [x] Keep the Bypass cleanup paragraph as is (1.4.2 removal already stated). Version line stays 1.4.1 (validate.sh checks it).
 STEP 2 - SECURITY.md
-[ ] Plugins section: new bullet "Delete and stop / Turn off and stop" (runs as root, what is validated, undo limits, the no-password decision and its risk, the re-check rule).
-[ ] Replace "plugin sandboxing" in "Not done" (F2) with what is really open (host-enforced permissions for trusted plugins; what Phase 3 cannot see).
-[ ] Make sure the new route behaviour (keep:true, undoHash, 409) matches scripts/test_route_gates.py and say nothing the table does not support.
+[x] Plugins section: new bullet "Delete and stop / Turn off and stop" (runs as root, what is validated, undo limits, the no-password decision and its risk, the re-check rule).
+[x] Replace "plugin sandboxing" in "Not done" (F2) with what is really open (host-enforced permissions for trusted plugins; what Phase 3 cannot see).
+[x] Make sure the new route behaviour (keep:true, undoHash, 409) matches scripts/test_route_gates.py and say nothing the table does not support.
 STEP 3 - CHANGELOG.md
 [ ] One bullet in 1.4.1 (D2) + replace "not compiled" wording where CI answered it (D3). Check the top entry still names 1.4.1 (validate.sh).
 STEP 4 - PLUGIN_SANDBOX.md and PLUGIN_STORE.md
