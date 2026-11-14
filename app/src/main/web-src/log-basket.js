@@ -1,13 +1,13 @@
 /* Log basket (step 2): one list of every log; tick rows, then View, Copy or Delete. No polling. */
 (()=>{
-const $=id=>document.getElementById(id);let rows=[];const TYPE={session:'Session',export:'Export',audit:'Audit',boot:'Boot'};
+const $=id=>document.getElementById(id);let rows=[];const TYPE={session:'Session',export:'Export',audit:'Audit (root commands)',boot:'Boot'};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
 const fmtTime=r=>r.modified?new Date(r.modified).toLocaleString():(r.modifiedText||'');
 const picked=()=>[...document.querySelectorAll('#lblist input[data-id]:checked')].map(c=>rows.find(r=>r.id===c.dataset.id)).filter(Boolean);
 function render(){
  const box=$('lblist');
- if(!rows.length){box.innerHTML='<div class="mut">No logs yet. Start a session in Log Catcher.</div>';return}
+ if(!rows.length){box.innerHTML='<div class="mut">No logs yet. Press Live view, then Start logging.</div>';return}
  box.innerHTML=rows.map(r=>'<label class="row" style="gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.25)"><input type="checkbox" data-id="'+esc(r.id)+'"><span style="flex:1;min-width:0"><b>'+esc(TYPE[r.type]||r.type)+'</b>'+(r.active?' <span class="mut">(logging now)</span>':'')+(r.rootOnly?' <span class="mut">(root)</span>':'')+'<br><span style="word-break:break-all;font-size:12px">'+esc(r.name)+'</span><br><span class="mut" style="font-size:11px">'+fmtSize(r.size)+' · '+esc(fmtTime(r))+'</span></span></label>').join('');
  $('lball').checked=false;
 }
@@ -43,7 +43,7 @@ function paint(){const q=($('lbsearch').value||'').toLowerCase(),o=$('lbout'),ba
 $('lbsearch').oninput=paint;
 $('lbview').onclick=async()=>{
  const p=picked();if(p.length!==1){createToast(p.length?'Pick one row to view':'Pick a row first','orange');return}
- const r=p[0];$('lbviewtitle').textContent='Loading '+r.name;
+ const r=p[0];$('lbviewtitle').textContent='Loading '+r.name;$('lbviewtools').style.display='block';
  try{const t=await textOf(r,$('lbfull').checked),x=hide(t.text),o=$('lbout');viewLines=x.text?x.text.split('\n'):[];viewType=r.type;viewErr=(t.errs&&t.errs.length===viewLines.length)?t.errs:null;$('lbsearch').value='';$('lbsearch').style.display='block';o.style.display='block';paint();$('lbviewtitle').textContent=r.name+' · '+t.note+(x.n?' · private data hidden in '+x.n+' line(s)':'')}
  catch(e){$('lbviewtitle').textContent='';createToast('Could not read '+r.name+': '+(e.message||e),'red')}
 };
@@ -61,7 +61,7 @@ $('lbdelete').onclick=async()=>{
  const ok=p.filter(r=>r.canDelete),skip=p.length-ok.length;
  if(!ok.length){createToast('These cannot be deleted here (the active session and the live boot files are kept)','orange');return}
  const au=ok.some(r=>r.type==='audit');if(!(await askConfirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':''),'Delete',true)))return;
- try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent=''}
+ try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent='';$('lbviewtools').style.display='none'}
  catch(e){createToast('Delete failed: '+(e.message||e),'red')}
  load();
 };

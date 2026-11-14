@@ -587,6 +587,24 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 #login{max-width:440px;padding:24px!important}
 .lg-title{font-size:19px;letter-spacing:-.02em}
 </style>
+<style id="lc-simple">
+/* Log Catcher / Log basket: few main buttons, everything else in labeled sections. */
+#logcatcher .lc-help,#logbasket .lc-help{margin:8px 0 10px;padding:8px 10px;border-radius:10px;background:rgba(77,163,255,.09);border:1px solid rgba(77,163,255,.22);font-size:12px;line-height:1.5}
+#logcatcher .lc-main,#logbasket .lb-main{margin:0 0 8px}
+#logcatcher #lcbootnav:not(.on){display:none!important}
+#logcatcher .lc-main button{flex:1 1 0!important;width:auto!important;min-width:6em!important}
+#logcatcher .lc-main button:disabled,#logcatcher #lcdelete:disabled{display:none}
+#logcatcher .lc-find{margin-bottom:6px;flex-wrap:nowrap}#logcatcher .lc-find input{flex:1;min-width:0}#logcatcher .lc-find select{flex:0 0 auto}
+#logcatcher .lc-status{align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:2px 0!important}
+#logcatcher .lc-err{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+#logcatcher .lc-hist{align-items:center;margin-top:4px}#logcatcher .lc-hist select{flex:1;min-width:0}
+#logcatcher .lc-go,#logbasket .lc-go{background:linear-gradient(180deg,#1f7ae0,#1560b8)!important;border-color:#4da3ff!important;color:#fff!important}
+#logcatcher details.lc-sec,#logbasket details.lc-sec{margin:8px 0 0}
+#logcatcher details>summary,#logbasket details>summary{font-weight:700;padding:4px 0}
+#logcatcher .lc-body,#logbasket .lc-body{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+#logcatcher .lc-keep,#logbasket .lc-keep{display:flex;align-items:center;gap:6px;margin:4px 0}
+#logcatcher .lc-opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap}#logcatcher .lc-opt button{flex:0 0 auto;min-width:11.5em}#logcatcher .lc-opt .mut{flex:1;min-width:10em;font-size:12px}
+</style>
 <style id="dialog-fixes">
 /* Dialogs. (1) A plugin may size its dialog by id, e.g. #my_dialog{width:94vw!important}. In MatchiTOOL that id sits on the full-screen dim layer,
    so the layer stopped short and left an undimmed strip down the right side. The layer always covers the whole window; :not(#x) lifts this rule above an id rule.
@@ -651,16 +669,43 @@ html body .card.pop.open:not(#_):not(#__) .popfoot{margin:8px -14px 0!important;
   <div class="card pop" id="logcatcher">
     <div class="mut" style="margin-bottom:8px">Log Catcher · Web dashboard</div>
     <div class="row" style="align-items:center;justify-content:space-between"><strong id="lcstate">Logging stopped</strong><span class="mut" id="lcsession">No active session</span></div>
-    <div class="btnrow" style="margin:10px 0"><button id="lcstart">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button><button id="lcdelete" class="danger" disabled title="Pick a saved session in the dropdown first">Delete session</button></div>
-    <div class="btnrow" style="margin-bottom:8px"><select id="lclevel"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Filter function"><input id="lcsearch" placeholder="Search keyword or regex"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcregex"> Regex</label></div>
-    <div class="btnrow" style="margin-bottom:8px"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
-    <div class="btnrow" style="margin-bottom:8px"><button id="lcsearchall">Search all sessions</button><button id="lcsearchclose" style="display:none">Close results</button><button id="lcerrprev">◀ Error</button><button id="lcerrnext">Error ▶</button><span class="mut" id="lcerrpos"></span></div>
-    <div class="btnrow" style="margin-bottom:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcalerterr"> Alert on ERROR</label><input id="lcalert" placeholder="Alert on keyword"><button id="lcexport">Export .txt</button><button id="lcexportlog">Export .log</button><button id="lcexportall">All sessions (.zip)</button><button id="lcreport">Problem report (.zip)</button><button id="lcbundle">Full bundle (.zip, root)</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcredact" checked> Hide private data in exports and copies</label></div>
-    <details style="margin-bottom:8px"><summary class="mut">Device-wide capture (root)</summary>
+    <p class="mut lc-help"><b>How to use:</b> 1. Press <b>Start logging</b>. 2. Do the thing that goes wrong. 3. Press <b>Stop logging</b>, then open <b>Save or share</b> and take the <b>Problem report</b>.</p>
+    <div class="btnrow lc-main"><button id="lcstart" class="lc-go">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button></div>
+    <div class="btnrow lc-find"><input id="lcsearch" placeholder="Search this log (word or regex)"><select id="lclevel" title="Show only this level"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select></div>
+    <div class="row lc-status"><span class="mut" id="lccount">0 entries</span><span class="lc-err"><button id="lcerrprev" title="Previous error">◀ Error</button><button id="lcerrnext" title="Next error">Error ▶</button><span class="mut" id="lcerrpos"></span><button id="lcsearchclose" style="display:none">Close results</button></span></div>
+    <div class="btnrow lc-hist"><label class="mut" for="lchistory">Open a saved session:</label><select id="lchistory"><option value="">Current session / recent</option></select><button id="lcdelete" class="danger" disabled title="Pick a saved session in the dropdown first">Delete session</button></div>
+    <div class="mut" id="lccounters" style="font-size:11px;margin-top:4px;white-space:pre-line" title="Lines seen, shown, collapsed (repeats), dropped (noise filters) and gaps per source"></div>
+    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><button id="lcvcopyall" title="Copy the whole file, not just this page">Copy file</button><span class="mut" id="lcvpos"></span></div>
+    <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
+    <pre id="lcout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Start logging to capture a session.</pre>
+    <details class="lc-sec"><summary id="lcfiltersum">Filters</summary>
+      <div class="lc-body">
+        <div class="btnrow"><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Only this function / tag"></div>
+        <div class="btnrow"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label></div>
+        <div class="btnrow"><label class="mut"><input type="checkbox" id="lcregex"> Search is a regex</label><label class="mut" title="Collapse lines that repeat"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
+        <div class="btnrow"><button id="lcsearchall" title="Look in every saved session, not only this one">Search all saved sessions</button></div>
+      </div>
+    </details>
+    <details class="lc-sec"><summary>Save or share</summary>
+      <div class="lc-body">
+        <label class="mut lc-keep"><input type="checkbox" id="lcredact" checked> Hide private data (phone numbers, IMEI, passwords, SMS)</label>
+        <div class="lc-opt"><button id="lcreport" class="lc-go">Problem report (.zip)</button><span class="mut">Best one to send when asking for help.</span></div>
+        <div class="lc-opt"><button id="lcexportall">All sessions (.zip)</button><span class="mut">Every saved session in one file.</span></div>
+        <div class="lc-opt"><button id="lcexport">Export .txt</button><span class="mut">The lines you see now, as a text file.</span></div>
+        <div class="lc-opt"><button id="lcexportlog">Export .log</button><span class="mut">Same lines, saved as .log.</span></div>
+        <div class="lc-opt"><button id="lcbundle">Full bundle (.zip, root)</button><span class="mut">Everything including device and boot logs. Needs root.</span></div>
+      </div>
+    </details>
+    <details class="lc-sec"><summary>Alerts</summary>
+      <div class="lc-body">
+        <div class="btnrow"><label class="mut"><input type="checkbox" id="lcalerterr"> Alert me on every ERROR</label><input id="lcalert" placeholder="Alert when a line contains…"></div>
+      </div>
+    </details>
+    <details style="margin-bottom:8px"><summary>Advanced: record the whole phone (root)</summary>
       <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><label class="mut" style="white-space:nowrap" title="Turns the noise filter off while capturing: nothing is dropped or collapsed. Lines are still limited by the priority above."><input type="checkbox" id="lcdevkeepall"> Keep every line (no noise filter)</label><button id="lcdevapply">Apply</button></div>
       <div class="mut" id="lcdevstate" style="margin-top:6px">Off. Captures every process on the device while a session is logging; needs root.</div>
     </details>
-    <details id="lcboot" style="margin-bottom:8px"><summary class="mut">Boot capture (Magisk, runs without the app)</summary>
+    <details id="lcboot" style="margin-bottom:8px"><summary>Advanced: record from boot (Magisk, runs without the app)</summary>
       <div class="mut" style="margin-top:8px;font-size:12px">What it does: a small script is added to Magisk and records the phone's system log and kernel log from boot, into files, even when this app is closed. Nothing else on the phone is changed.</div>
       <div class="mut" id="lcbootstate" style="margin-top:8px">Open this section to read the state (needs root).</div>
       <div class="btnrow" style="margin-top:8px"><label class="mut">File size KB <input type="number" id="lcbootkb" min="64" max="16384" step="64" style="width:6em"></label><label class="mut">Files <input type="number" id="lcbootn" min="2" max="40" style="width:4em"></label><label class="mut">Pause below MB free <input type="number" id="lcbootfree" min="50" max="5000" style="width:5em"></label><label class="mut" title="Older rotated parts are deleted; 0 keeps them until the file limit replaces them">Keep days (0 = off) <input type="number" id="lcbootdays" min="0" max="365" style="width:4em"></label></div>
@@ -671,24 +716,29 @@ html body .card.pop.open:not(#_):not(#__) .popfoot{margin:8px -14px 0!important;
       <div class="mut" id="lcbootpos" style="margin-top:6px"></div>
       <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Nothing loaded.</pre>
     </details>
-    <div class="row" style="justify-content:space-between"><span class="mut" id="lccount">0 entries</span><select id="lchistory"><option value="">Current session / recent</option></select></div>
-    <div class="mut" id="lccounters" style="font-size:11px;margin-top:4px;white-space:pre-line" title="Lines seen, shown, collapsed (repeats), dropped (noise filters) and gaps per source"></div>
-    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><button id="lcvcopyall" title="Copy the whole file, not just this page">Copy file</button><span class="mut" id="lcvpos"></span></div>
-    <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
-    <pre id="lcout" style="white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:8px">Start logging to capture a session.</pre>
     <div class="popfoot"><button type="button" onclick="openPop('logbasket');window.lbOpen&&window.lbOpen()">Back to basket</button><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="logbasket">
     <div class="row" style="align-items:center;justify-content:space-between"><strong>Log basket</strong><span class="mut" id="lbinfo">Loading</span></div>
     <div class="mut" id="lbnote" style="font-size:12px;margin-top:4px"></div>
-    <div class="btnrow" style="margin:10px 0"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lball"> Select all</label><button id="lbview">View</button><button id="lbcopy">Copy</button><button id="lbdelete" class="danger">Delete</button><button id="lbrefresh">Refresh</button><button id="lblive" onclick="openPop('logcatcher')">Live view</button></div>
-    <div class="btnrow" style="margin-bottom:8px"><button id="lbsnapb" title="Save a redacted snapshot to compare after the update">Snapshot: before update</button><button id="lbsnapa" title="Save a redacted snapshot to compare with the one from before">Snapshot: after update</button></div>
-    <div class="btnrow" style="margin-bottom:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lbredact" checked> Hide private data in copies</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lbfull"> Full file (not just the last 500 lines)</label></div>
+    <p class="mut lc-help"><b>How to use:</b> tick a log below, then press <b>View</b> to read it or <b>Copy</b> to share it. To record a new log, press <b>Live view</b>.</p>
+    <div class="btnrow lb-main"><button id="lbview" class="lc-go">View</button><button id="lbcopy">Copy</button><button id="lbdelete" class="danger">Delete</button><button id="lblive" onclick="openPop('logcatcher')">Live view</button></div>
+    <label class="mut lc-keep"><input type="checkbox" id="lbredact" checked> Hide private data in copies</label>
+    <label class="mut lc-keep"><input type="checkbox" id="lball"> Select all</label>
     <div id="lblist"></div>
-    <div class="mut" id="lbviewtitle" style="margin-top:10px;font-size:12px"></div>
-    <div class="btnrow" id="lbchips" style="margin-top:6px"><button type="button" data-chip="all" class="on">All</button><button type="button" data-chip="errors">Errors</button><button type="button" data-chip="plugins">Plugins</button><button type="button" data-chip="shell">Root shell</button></div>
-    <input id="lbsearch" placeholder="Search in this view" style="display:none;margin-top:6px;width:100%"><div class="mut" id="lbmatch" style="font-size:11px"></div>
-    <pre id="lbout" style="display:none;white-space:pre-wrap;max-height:52vh;overflow:auto;margin-top:6px"></pre>
+    <div id="lbviewtools" style="display:none">
+      <div class="mut" id="lbviewtitle" style="margin-top:10px;font-size:12px"></div>
+      <div class="btnrow" id="lbchips" style="margin-top:6px"><button type="button" data-chip="all" class="on">All</button><button type="button" data-chip="errors">Errors</button><button type="button" data-chip="plugins">Plugins</button><button type="button" data-chip="shell">Root shell</button></div>
+      <input id="lbsearch" placeholder="Search in this view" style="display:none;margin-top:6px;width:100%"><div class="mut" id="lbmatch" style="font-size:11px"></div>
+      <pre id="lbout" style="display:none;white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px"></pre>
+    </div>
+    <details class="lc-sec"><summary>More options</summary>
+      <div class="lc-body">
+        <div class="btnrow"><button id="lbrefresh">Refresh</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lbfull"> Full file (not just the last 500 lines)</label></div>
+        <div class="mut" style="font-size:12px;margin-top:8px">Updating the router? Save a snapshot before and another after, then compare the two.</div>
+        <div class="btnrow" style="margin-top:6px"><button id="lbsnapb" title="Save a redacted snapshot to compare after the update">Snapshot: before update</button><button id="lbsnapa" title="Save a redacted snapshot to compare with the one from before">Snapshot: after update</button></div>
+      </div>
+    </details>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="diagnostics">
@@ -6845,6 +6895,7 @@ setInterval(hostPing,15000);
   const q=$('lcsearch').value, lq=q.toLowerCase(), useRx=$('lcregex').checked;
   let rx=null,bad=false; if(q&&useRx){try{rx=new RegExp(q,'i')}catch(e){bad=true}}
   $('lcsearch').style.outline=bad?'2px solid #ff6b81':'';
+  const nf=($('lcsource').value!=='ALL')+!!$('lcfunction').value+!!$('lcfrom').value+!!$('lcuntil').value+$('lcbm').checked+$('lcgroup').checked; $('lcfiltersum').textContent=nf?'Filters ('+nf+' on)':'Filters';
   const level=$('lclevel').value, fn=$('lcfunction').value.toLowerCase(), src=$('lcsource').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value), bm=$('lcbm').checked;
   return x=>{
    if(level!=='ALL'&&x.level!==level)return false;
@@ -7076,7 +7127,7 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  $('lcvnext').onclick=viewGuard(()=>{if(vStart+VIEW_PAGE<=vTotal)return viewBoot(vFile,vStart+VIEW_PAGE)});
  $('lcvlast').onclick=viewGuard(()=>viewBoot(vFile,Math.max(1,vTotal-VIEW_PAGE+1)));
  $('lcvgo').onclick=viewGuard(()=>{const v=$('lcvjump').value.trim();if(v)return viewBoot(vFile,1,v)});
- $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+ $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcbootnav').classList.toggle('on',isBoot);$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
@@ -7144,14 +7195,14 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
 /* @include web-src/log-basket.js */
 /* Log basket (step 2): one list of every log; tick rows, then View, Copy or Delete. No polling. */
 (()=>{
-const $=id=>document.getElementById(id);let rows=[];const TYPE={session:'Session',export:'Export',audit:'Audit',boot:'Boot'};
+const $=id=>document.getElementById(id);let rows=[];const TYPE={session:'Session',export:'Export',audit:'Audit (root commands)',boot:'Boot'};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
 const fmtTime=r=>r.modified?new Date(r.modified).toLocaleString():(r.modifiedText||'');
 const picked=()=>[...document.querySelectorAll('#lblist input[data-id]:checked')].map(c=>rows.find(r=>r.id===c.dataset.id)).filter(Boolean);
 function render(){
  const box=$('lblist');
- if(!rows.length){box.innerHTML='<div class="mut">No logs yet. Start a session in Log Catcher.</div>';return}
+ if(!rows.length){box.innerHTML='<div class="mut">No logs yet. Press Live view, then Start logging.</div>';return}
  box.innerHTML=rows.map(r=>'<label class="row" style="gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.25)"><input type="checkbox" data-id="'+esc(r.id)+'"><span style="flex:1;min-width:0"><b>'+esc(TYPE[r.type]||r.type)+'</b>'+(r.active?' <span class="mut">(logging now)</span>':'')+(r.rootOnly?' <span class="mut">(root)</span>':'')+'<br><span style="word-break:break-all;font-size:12px">'+esc(r.name)+'</span><br><span class="mut" style="font-size:11px">'+fmtSize(r.size)+' · '+esc(fmtTime(r))+'</span></span></label>').join('');
  $('lball').checked=false;
 }
@@ -7187,7 +7238,7 @@ function paint(){const q=($('lbsearch').value||'').toLowerCase(),o=$('lbout'),ba
 $('lbsearch').oninput=paint;
 $('lbview').onclick=async()=>{
  const p=picked();if(p.length!==1){createToast(p.length?'Pick one row to view':'Pick a row first','orange');return}
- const r=p[0];$('lbviewtitle').textContent='Loading '+r.name;
+ const r=p[0];$('lbviewtitle').textContent='Loading '+r.name;$('lbviewtools').style.display='block';
  try{const t=await textOf(r,$('lbfull').checked),x=hide(t.text),o=$('lbout');viewLines=x.text?x.text.split('\n'):[];viewType=r.type;viewErr=(t.errs&&t.errs.length===viewLines.length)?t.errs:null;$('lbsearch').value='';$('lbsearch').style.display='block';o.style.display='block';paint();$('lbviewtitle').textContent=r.name+' · '+t.note+(x.n?' · private data hidden in '+x.n+' line(s)':'')}
  catch(e){$('lbviewtitle').textContent='';createToast('Could not read '+r.name+': '+(e.message||e),'red')}
 };
@@ -7205,7 +7256,7 @@ $('lbdelete').onclick=async()=>{
  const ok=p.filter(r=>r.canDelete),skip=p.length-ok.length;
  if(!ok.length){createToast('These cannot be deleted here (the active session and the live boot files are kept)','orange');return}
  const au=ok.some(r=>r.type==='audit');if(!(await askConfirm('Delete '+ok.length+' log(s) permanently?'+(au?'\n\nThe audit log records which device ran root commands. After deleting it, a new line notes that it was cleared. Needs a root sign-in.':'')+(ok.some(r=>r.type==='boot')?'\n\nBoot capture files are removed with a root command and need a root sign-in.':'')+(skip?'\n'+skip+' selected row(s) cannot be deleted here and will stay.':''),'Delete',true)))return;
- try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent=''}
+ try{const d=await api('/api/logs/basket/delete',{method:'POST',body:JSON.stringify({ids:ok.map(r=>r.id)})});const rs=d.results||[],n=rs.filter(x=>x.ok).length,why=(rs.find(x=>!x.ok&&x.reason)||{}).reason;createToast('Deleted '+n+' of '+ok.length+(why?' ('+why+')':''),n===ok.length?'':'orange');$('lbout').style.display='none';$('lbviewtitle').textContent='';$('lbviewtools').style.display='none'}
  catch(e){createToast('Delete failed: '+(e.message||e),'red')}
  load();
 };

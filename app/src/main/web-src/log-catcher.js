@@ -19,6 +19,7 @@
   const q=$('lcsearch').value, lq=q.toLowerCase(), useRx=$('lcregex').checked;
   let rx=null,bad=false; if(q&&useRx){try{rx=new RegExp(q,'i')}catch(e){bad=true}}
   $('lcsearch').style.outline=bad?'2px solid #ff6b81':'';
+  const nf=($('lcsource').value!=='ALL')+!!$('lcfunction').value+!!$('lcfrom').value+!!$('lcuntil').value+$('lcbm').checked+$('lcgroup').checked; $('lcfiltersum').textContent=nf?'Filters ('+nf+' on)':'Filters';
   const level=$('lclevel').value, fn=$('lcfunction').value.toLowerCase(), src=$('lcsource').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value), bm=$('lcbm').checked;
   return x=>{
    if(level!=='ALL'&&x.level!==level)return false;
@@ -250,7 +251,7 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  $('lcvnext').onclick=viewGuard(()=>{if(vStart+VIEW_PAGE<=vTotal)return viewBoot(vFile,vStart+VIEW_PAGE)});
  $('lcvlast').onclick=viewGuard(()=>viewBoot(vFile,Math.max(1,vTotal-VIEW_PAGE+1)));
  $('lcvgo').onclick=viewGuard(()=>{const v=$('lcvjump').value.trim();if(v)return viewBoot(vFile,1,v)});
- $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
+ $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcbootnav').classList.toggle('on',isBoot);$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
  async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
