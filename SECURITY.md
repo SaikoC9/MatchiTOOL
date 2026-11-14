@@ -2,7 +2,7 @@
 
 Current for MatchiTOOL 1.4.2. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](CHANGELOG.md).
 
-What was run on a device: the plugin stop (header lines, process sweep) was run on the F50 in Phases 1 and 2. The firewall and boot-script undo and "Turn off and stop" (Phase 3) are compiled and unit-tested in CI and were also run on the F50 by the owner (Phase 3 tests A-E; the owner's report, per-test results are not written in the repo); the "no root / timeout" path (test F) was waived and not run on the device. Details: [`docs/PLUGIN_STOP.md`](docs/PLUGIN_STOP.md).
+What was run on a device: the plugin stop (header lines, process sweep) was run on the F50 in Phases 1 and 2. The firewall and boot-script undo and "Turn off and stop" (Phase 3) are compiled and unit-tested in CI and were also run on the F50 by the owner (Phase 3 tests A-E; the owner's report, per-test results are not written in the repo); the "no root / timeout" path (test F) was waived and not run on the device. Details: [`docs/PLUGIN_STOP.md`](docs/PLUGIN_STOP.md). In 1.4.2 the owner also ran on the F50: the Turn off dialog wording, the store install dialog with stop commands, a reboot after the Bypass cleanup was removed, Delete and stop of a plugin with header lines, and the sandbox stop hook (a working hook and a hook that never finishes, which keeps the plugin). Not run on a device: `/api/plugins/data` with a sign-in older than 4 h (unit tests and the route table only).
 
 ## What MatchiTOOL is, and is not
 
