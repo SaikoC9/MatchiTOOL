@@ -2,11 +2,11 @@
 
 Current for MatchiTOOL 1.4.1 (unreleased code).
 
-How much has been checked:
+How much has been checked (CI = the GitHub Actions run: Validate, Unit tests, Build debug and release):
 
-- **Header lines** (`@matchi-uninstall`, `@matchi-check`, `@matchi-boot`, the plan, the shared-folder guard, "a failed stop keeps the plugin"): tried on the F50 in Phase 1 (tests A-H and a real Bypass v65_17 delete). See `MatchiTOOL_Phase1_todo.txt`.
-- **The process sweep and the sandbox stop hook** (sections "Plugins without headers: the process sweep" and "The stop hook" below): written and unit-tested on a PC (Kotlin pure tests and node tests). The Android parts of the host were **not compiled in the session that wrote them**, and **none of it has been run on the F50 yet** (tests A-M in `MatchiTOOL_Phase2_todo.txt`). Read those two sections as "designed to", not "proven to".
-- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two Phase 3 sections below): written, with the pure logic and the generated shell scripts unit-tested on a PC and the page covered by node tests. **The Kotlin of Phase 3 (Steps 1-3 and 5) has not been compiled yet** (GitHub Actions or `scripts/kotlin_pure_tests.sh` where Gradle exists), and **none of it has been run on the F50** (tests A-F in `MatchiTOOL_Phase3_todo.txt`). Read those sections as "designed to", not "proven to".
+- **Header lines** (`@matchi-uninstall`, `@matchi-check`, `@matchi-boot`, the plan, the shared-folder guard, "a failed stop keeps the plugin"): run on the F50 in Phase 1 (tests A-H and a real Bypass v65_17 delete). See `MatchiTOOL_Phase1_todo.txt`.
+- **The process sweep** (section "Plugins without headers: the process sweep"): compiled and unit-tested in CI, and run on the F50 on 13 Nov 2026 with test plugins: found by tag, a process that ignores SIGTERM, a watchdog that respawns, the sweep not killing itself or the root session, root off (plugin kept), the 60 second limit (plugin kept), a sandboxed plugin's tagged command, and a Bypass copy with and without headers. Results and caveats per test: `MatchiTOOL_Phase2_todo.txt` (tests A-K and M). Not run on the device: **the sandbox stop hook** (test L), so read "The stop hook" below as "designed to", not "proven to".
+- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two Phase 3 sections below): compiled and unit-tested in CI (pure logic and the generated shell scripts also tested on a PC, the page by node tests). **No F50 result for them is recorded** in `MatchiTOOL_Phase3_todo.txt` (its device tests A-F are not ticked), and the no-root / timeout path (test F) was waived and not run. Read those sections as "designed to", not "proven to", until results are written there.
 
 Deleting a plugin removes its file and its data. On its own it does **not** stop a background process, remove a firewall rule or take out a boot-script line the plugin created, because MatchiTOOL cannot know about them. A plugin can say how to stop them with header lines. For a plugin that says nothing, MatchiTOOL looks for processes (Phase 2) and undoes the firewall chains and boot scripts it saw the plugin create (Phase 3). When the person deletes the plugin, the Delete dialog lists these commands word for word and, after the root gate and the sign-in password, runs them as root.
 
@@ -107,7 +107,7 @@ Say these plainly to anyone who asks whether deleting a plugin "always" stops it
 
 ### Example: a plugin with no headers
 
-`docs/examples/No_Headers_Example.js` starts a small background job and declares nothing. On Delete the dialog should list the job "found by tag" and offer **Delete and stop**. (Not yet tried on a device.)
+`docs/examples/No_Headers_Example.js` starts a small background job and declares nothing. On Delete the dialog should list the job "found by tag" and offer **Delete and stop**. (The sweep itself was run on the F50 with other test plugins, see the status list at the top; this example file is not recorded as run.)
 
 ## The stop hook (sandboxed plugins only)
 
@@ -128,7 +128,7 @@ matchi.onUninstall(async () => {
 - The host writes the hook's outcome to `shell_audit.log` (`plugin-hook`) for the record. It is never used to decide success.
 - A hook that hangs keeps running in its frame until the page is reloaded; the plugin is kept.
 
-Example: `docs/examples/Sandbox_Hook_Example.js`. (Not yet tried on a device.)
+Example: `docs/examples/Sandbox_Hook_Example.js`. (Not tried on a device: Phase 2 test L was never run.)
 
 ## Undoing what a plugin left in the system (Phase 3)
 
@@ -201,7 +201,7 @@ Switching a plugin **off** can also stop what it started and undo what it left, 
 - A stop that does not fully succeed returns the same report, and the plugin **stays on**. Only after a clean stop is the plugin switched off (audit kind `plugin-disable`).
 - **No password is asked**, like for a plain switch. Anyone who holds the open session could therefore run a plugin's own, already approved stop commands as root without typing the password. The stop is refused if the plugin file differs from the approved one, and the root gate still applies. This was a decision, not an oversight.
 - **Turn off only** and every "without stopping" button use the old switch request, so a missing root or a failing stop can never make it impossible to turn a plugin off. Turning a plugin **on** is unchanged.
-- The **sandbox stop hook is not run** on Turn off (the plugin is not being uninstalled).
+- The **sandbox stop hook is not run** on Turn off (the plugin is not being uninstalled). Delete and stop still runs it, and the sweep and the undo still apply to a plugin that has a hook.
 - The ledger is **not pruned** after an undo. A plugin that once made a chain lists it again at the next Turn off, and the host then reports it as already gone.
 
 ## What Phase 3 does NOT catch

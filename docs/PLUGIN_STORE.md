@@ -43,6 +43,10 @@ The file's SHA-256, whether the store listed the same hash, whether the source c
 
 Installing needs the same fresh sign-in as every other plugin upload (the server enforces it).
 
+### What the install dialog does not show
+
+The dialog is built from the store entry and a text search of the source (`storeSummary`, `plugScan`, `plugCompat` in `web-src/plugin-store-pure.js`). It does **not** list the plugin's stop header lines (`// @matchi-uninstall`, `// @matchi-check`, `// @matchi-boot`; see [`PLUGIN_HEADERS.md`](PLUGIN_HEADERS.md)). A first install of a plugin that declares root stop commands therefore does not show them before you confirm. They are shown later: the Delete and Turn off dialogs list them word for word before anything runs, and an **update** of an installed plugin that adds a new `@matchi-uninstall` command asks again ("This update adds new abilities ... when deleted with Stop, runs this root command: ..."). The store dialog also takes name, version and author from the store index, not from the `@matchi-name`, `@matchi-version` and `@matchi-author` lines of the file. Showing the stop commands in the install dialog is open for 1.4.2.
+
 ## Not included
 
 No store is loaded by default. The UFI source is a convenience button, not a built-in trusted source. Its address and the UFI index shape above come from the community mirror's `store.json` (83 entries); the old official UFI-TOOLS server address could not be confirmed.

@@ -20,10 +20,27 @@ PROGRESS  (update after every step)
   [x] Step 0 - stray copies removed (owner deleted docs/docs/ and docs/MatchiTOOL_Phase2_todo.txt on GitHub 2026-11-13, D1 and D1b yes; removed in my copy too, validate.sh exit 0). Not re-checked on GitHub after the commit.
   [x] Step 1 - README.md (done 2026-11-13, validate.sh exit 0). Only README.md changed; the README link to docs/PLUGIN_HEADERS.md is added in Step 5 (the file does not exist yet).
   [x] Step 2 - SECURITY.md (done 2026-11-13, validate.sh exit 0). Only SECURITY.md and this txt changed. See STEP 2 RESULT.
-  [ ] Step 3 - CHANGELOG.md
-  [ ] Step 4 - docs/PLUGIN_SANDBOX.md and docs/PLUGIN_STORE.md
-  [ ] Step 5 - plugin author guide (one page)
-  [ ] Step 6 - checks (validate.sh, links, version lines) and the final read-through
+  [x] Step 3 - CHANGELOG.md (done 2026-11-14)
+  [x] Step 4 - docs/PLUGIN_STOP.md status block, docs/PLUGIN_SANDBOX.md, docs/PLUGIN_STORE.md (done 2026-11-14)
+  [x] Step 5 - docs/PLUGIN_HEADERS.md (done 2026-11-14)
+  [x] Step 6 - checks (done 2026-11-14: validate.sh exit 0, 0 broken relative links, version 1.4.1 in CHANGELOG and version.properties, stale-phrase grep empty)
+
+STEPS 3-6 RESULT (2026-11-14)
+  CHANGELOG.md: new 1.4.1 bullet "Plugin stop and undo" (what runs, as root, what is undone, what is not, no password for Turn off and stop, device status per item, three known gaps for 1.4.2);
+    the "not compiled" notes replaced by "compiled and unit-tested in CI" (device status kept as "not run" / "no device run recorded"); intro line says what "CI" means.
+  docs/CHANGELOG_DETAIL.md: the dated Phase 2 "Checked / Not checked" line is marked as the state when it was written (history, not rewritten).
+  docs/PLUGIN_STOP.md: status block rewritten from the recorded results: header stop = F50 Phase 1; sweep = CI + F50 13 Nov (Phase 2 tests A-K, M); sandbox hook (test L) NOT run;
+    Phase 3 undo and Turn off and stop = CI only, NO F50 result recorded, test F waived. Two "(Not yet tried on a device)" lines made exact. Turn off line: Delete and stop still runs the hook, sweep and undo.
+  docs/PLUGIN_SANDBOX.md: status line, hook sentence, new paragraph "Turn off and stop does not run the hook", test line (PluginModesTest runs in the CI Unit tests job).
+  docs/PLUGIN_STORE.md: new subsection "What the install dialog does not show" (READ in index.html storeSummary / plugin-store-pure.js: it lists hash, root/user, tools, risky patterns, routes, token, hosts, compatibility, replaces;
+    NO stop header lines; stop commands appear only in the Delete / Turn off dialogs and, for an UPDATE that adds one, in the "adds new abilities" confirm (PluginIntegrity.describeCap)).
+  docs/PLUGIN_HEADERS.md: new, one table, limits read from PluginPaths.kt, PluginSandbox.kt, plugin-store-pure.js (plugMeta) and index.html (pluginLsPrefixes). README now links it.
+  [!] CORRECTION to Steps 1-2: README and SECURITY said Phase 3 device results "are recorded in MatchiTOOL_Phase3_todo.txt". That file has tests A-F UNTICKED and records none. Both sentences now say
+      "no F50 result for them is recorded in MatchiTOOL_Phase3_todo.txt (its tests A-F are not ticked)". If you have F50 results for Phase 3, tell me per test (or upload the current txt) and I turn the CI-only sentences
+      into "checked on the F50" in README, SECURITY, CHANGELOG and PLUGIN_STOP (4 one-line edits).
+  New gap for 1.4.2 (FACT, docs only): the store install dialog does not show @matchi-uninstall commands (an update that adds one does ask). Added to the 1.4.2 list with F7 and F10.
+  Not touched: docs/TESTING.md and docs/F50_CHECKLIST_1.4.1.md (not read). docs/CHANGELOG_DETAIL.md line 64 only relabelled.
+  SECURITY.md line 3 names docs/ROOT_INTEGRATION_1.1.52.md as merged history; the file does not exist, which is correct (not a link).
 
 STEP 1 RESULT (2026-11-13)
   README.md: the two wrong bullets ("Side effects are listed, not undone" / "Not covered: processes ... firewall rules, uploaded files") are replaced by: one bullet pointing on, a paragraph "Delete and stop, Turn off and stop (1.4.1)"
@@ -126,6 +143,6 @@ LIMITS
 
 NEXT (not in this phase)
 ------------------------------------------------------------------
-1.4.2: remove the legacy Bypass boot cleanup (removal list in the Phase 3 file, Step 6), fix the Turn off dialog wording (F7), optional: name the eBPF pin in a ledger line.
+1.4.2: remove the legacy Bypass boot cleanup (removal list in the Phase 3 file, Step 6), fix the Turn off dialog wording (F7), decide the root gate for /api/plugins/data (F10), show stop commands in the store install dialog, optional: name the eBPF pin in a ledger line.
 
 Note: nothing here was run. This plan is based on reading the docs listed at the top.

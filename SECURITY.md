@@ -2,7 +2,7 @@
 
 Current for MatchiTOOL 1.4.1. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](CHANGELOG.md).
 
-What was run on a device: the plugin stop (header lines, process sweep) was run on the F50 in Phases 1 and 2. The firewall and boot-script undo and "Turn off and stop" (Phase 3) are compiled and unit-tested in CI; their F50 results are recorded in `MatchiTOOL_Phase3_todo.txt`, and the "no root / timeout" path was not run on the device. Details: [`docs/PLUGIN_STOP.md`](docs/PLUGIN_STOP.md).
+What was run on a device: the plugin stop (header lines, process sweep) was run on the F50 in Phases 1 and 2. The firewall and boot-script undo and "Turn off and stop" (Phase 3) are compiled and unit-tested in CI; no F50 result for them is recorded in `MatchiTOOL_Phase3_todo.txt` (its tests A-F are not ticked), and the "no root / timeout" path was not run on the device. Details: [`docs/PLUGIN_STOP.md`](docs/PLUGIN_STOP.md).
 
 ## What MatchiTOOL is, and is not
 

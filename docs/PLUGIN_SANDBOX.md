@@ -1,6 +1,6 @@
 # Sandboxed plugins (Phases 4 and 5)
 
-Current for MatchiTOOL 1.4.1 (unreleased code: Kotlin not compiled, nothing run on a device; the browser behaviour was tested in Chromium, see below).
+Current for MatchiTOOL 1.4.1 (unreleased code). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); nothing of the sandbox is recorded as run on the F50.
 
 A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; UFI-TOOLS `.html` blocks need the page.
 
@@ -15,7 +15,9 @@ A plugin normally runs **in the console page**, with the signed-in session, and 
 
 Always: `matchi.toast(text, color?)` (shown as `[Plugin name] text`), `matchi.info()`, `matchi.close()`, `matchi.storage.get/set/remove/keys` (its own private area, 256 KB, 100 keys).
 
-`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Written and unit-tested; not yet run on the F50.
+`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Written and unit-tested; the hook was never run on the F50 (Phase 2 test L).
+
+**Turn off and stop does not run the hook.** The hook belongs to uninstalling, so it runs only for "Delete and stop". Switching a sandboxed plugin off with "Turn off and stop" runs its declared `@matchi-uninstall` commands (each also granted with `@matchi-needs shell:`), the process sweep and the undo of firewall chains and boot scripts, but not `fn`. A plugin with a hook still gets the sweep and the undo on "Delete and stop", and the hook's own result is never believed: the scan afterwards decides.
 
 Only when declared in the first 80 lines **and** approved:
 
@@ -50,5 +52,5 @@ The page checks first, so a bad call gets a quick, clear error. Anything that ge
 ## Tests
 
 - `node scripts/test_plugin_sandbox.js` (in `validate.sh`): grants, policy, document escaping, per-call checks, storage limits, agreement with `PluginSandbox.kt`.
-- `PluginSandboxTest.kt` (includes the host's `sandboxCallError` rules), `PluginModesTest.kt` (gradle; **not compiled here**).
+- `PluginSandboxTest.kt` (includes the host's `sandboxCallError` rules), `PluginModesTest.kt` (gradle; run by the Unit tests job in CI).
 - `NODE_PATH=... node scripts/phase0/test_plugin_sandbox_browser.js app/src/main/assets/web/index.html` (Chromium + Playwright, not in `validate.sh`): a probe plugin inside the sandbox tries to read the page and session, fetch, XHR, beacon, load images, submit forms, open windows and frames, navigate the console, use `eval` and workers, and to call the bridge for things it was not given. The host log shows none of those attempts arrived. A second plugin is "edited" after the page loads and its next call is refused by the host (the mock host there applies a port of `sandboxCallError`; the Kotlin itself is only covered by the unit tests).
