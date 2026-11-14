@@ -4992,6 +4992,32 @@ function plugScan(code){
   const token=/matchi_token|\bTOKEN\b|x-token/.test(s),net=/\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts)\b/.test(s);
   return {root:hasRoot,user:hasUser,tools,risky,endpoints,hosts,token,net};
 }
+/* The stop header lines of a single .js plugin, read the way the host reads them (pluginUninstallDeclarations in PluginPaths.kt; scripts/test_ufi_store.js runs the same cases as
+   PluginUninstallTest.kt). First 400 lines; a line must START with "//", so text inside code is no header. At most 10 commands (1-300 characters, no control characters,
+   duplicates dropped), one check (the first valid), at most 5 boot paths (plain absolute path, 200 characters at most, duplicates dropped). A line that breaks a rule is
+   dropped and does not use up a limit. Java's \s, \S and "." differ from JavaScript's, so they are written out here: \s = [ \t\n\x0B\f\r]; "." does not match \n \r \u0085 \u2028 \u2029;
+   one such character at the very end of a line counts as a line end for "$" in Java, so it is cut off first. Display only: whether a command may run is decided by the host. */
+const STOP_WS='[ \\t\\n\\x0B\\f\\r]',STOP_NWS='[^ \\t\\n\\x0B\\f\\r]',STOP_DOT='[^\\n\\r\\u0085\\u2028\\u2029]';
+const STOP_UNINSTALL_RX=new RegExp('^'+STOP_WS+'*//'+STOP_WS+'*@matchi-uninstall'+STOP_WS+'+('+STOP_NWS+STOP_DOT+'*?)'+STOP_WS+'*$');
+const STOP_CHECK_RX=new RegExp('^'+STOP_WS+'*//'+STOP_WS+'*@matchi-check'+STOP_WS+'+('+STOP_NWS+STOP_DOT+'*?)'+STOP_WS+'*$');
+const STOP_BOOT_RX=new RegExp('^'+STOP_WS+'*//'+STOP_WS+'*@matchi-boot'+STOP_WS+'+('+STOP_NWS+'+)'+STOP_WS+'*$');
+const STOP_MAX_COMMANDS=10,STOP_MAX_LEN=300,STOP_MAX_BOOT=5,STOP_BOOT_PATH_MAX=200;
+const stopCmdOk=c=>c.length>0&&c.length<=STOP_MAX_LEN&&!/[\u0000-\u001f\u007f]/.test(c);
+const stopBootOk=p=>p.length<=STOP_BOOT_PATH_MAX&&/^\/[A-Za-z0-9._\/-]+$/.test(p)&&p.split('/').slice(1).every(x=>x!==''&&x!=='.'&&x!=='..');
+function plugStopDecls(code){
+  const commands=[],boot=[];let check=null;
+  /* Kotlin's lineSequence splits on \n, \r\n and \r only. */
+  for(let line of String(code).split(/\r\n|\n|\r/).slice(0,400)){
+    line=line.replace(/[\u0085\u2028\u2029]$/,'');
+    let m=STOP_UNINSTALL_RX.exec(line);
+    if(m){const c=m[1];if(stopCmdOk(c)&&commands.length<STOP_MAX_COMMANDS&&!commands.includes(c))commands.push(c);continue}
+    m=STOP_CHECK_RX.exec(line);
+    if(m){if(check===null&&stopCmdOk(m[1]))check=m[1];continue}
+    m=STOP_BOOT_RX.exec(line);
+    if(m&&stopBootOk(m[1])&&boot.length<STOP_MAX_BOOT&&!boot.includes(m[1]))boot.push(m[1]);
+  }
+  return {commands,check,boot};
+}
 /* Routes the host really serves (kept in step with WebServer.kt by scripts/test_ufi_store.js). A plugin that calls any other /api path gets a 404. */
 const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/approve","/api/plugins/call","/api/plugins/data","/api/plugins/delete","/api/plugins/mode","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
 const MATCHI_ROUTE_PREFIXES=["/api/goform/","/api/logs/session/","/api/proxy/","/api/uploads/"];
@@ -5027,7 +5053,7 @@ function plugCompat(code){
   if(files.length)issues.push('expects UFI-TOOLS files that are not shipped: '+files.slice(0,6).join(', '));
   return {issues,ok:issues.length===0};
 }
-function storeSummary(item,sha,scan,replaces,compat){
+function storeSummary(item,sha,scan,replaces,compat,stop){
   const L=[];
   L.push(item.name+(item.version?' '+item.version:'')+(item.author?' by '+item.author:''));
   L.push('SHA-256 (of the file you downloaded):\n'+sha);
@@ -5040,6 +5066,15 @@ function storeSummary(item,sha,scan,replaces,compat){
   if(scan.net&&!scan.hosts.length)L.push('It makes network requests (no host named in the text).');
   if(scan.hosts.length)L.push('Web hosts it contacts or names: '+scan.hosts.join(', ')+'.');
   if(compat)L.push(compat.ok?'Compatibility check: no known problems.':'Compatibility: this plugin '+compat.issues.join('; ')+'. It may not work here.');
+  /* Only given for a single .js plugin (plugin-store-ui.js). Each command is cut at 120 characters and at most 10 are listed; the Delete dialog shows them in full. */
+  if(stop&&(stop.commands.length||stop.check||stop.boot.length)){
+    const cut=c=>c.length>120?c.slice(0,120)+'...':c,B=a=>a.map(x=>'\n\u2022 '+cut(x)).join('');
+    let t='';
+    if(stop.commands.length)t+='When deleted with Stop, it runs these commands as ROOT:'+B(stop.commands.slice(0,10));
+    if(stop.check)t+=(t?'\n':'')+'Then it checks with:'+B([stop.check]);
+    if(stop.boot.length)t+=(t?'\n':'')+'Boot files it says it creates (only checked for, to see they are gone):'+B(stop.boot);
+    L.push(t+'\nThe Delete dialog shows each command in full before anything runs.');
+  }
   L.push('This list comes from a text search of the source; a plugin can build commands while it runs.');
   if(replaces.length)L.push('It will REPLACE: '+replaces.join(', ')+'.');
   return L.join('\n');
@@ -5531,7 +5566,8 @@ if(typeof module!=='undefined'&&module.exports)module.exports={undoNorm,undoMode
 function disableDialog(name,sp,sw,un,mode,noRoot){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   const swT=sweepDialogText(sw,mode,noRoot),unT=undoDialogText(un,mode,noRoot);
-  let msg='Turn off '+name+'? Its file and its data stay.',okText='Turn off and stop',extra=[{text:'Turn off only',value:'skip'}];
+  const mayRun=cmds.length>0&&mode!=='sweep'&&mode!=='toomany'&&mode!=='cannot';
+  let msg='Turn off '+name+'? '+(mayRun?'The plugin file stays. Its saved data stays unless the stop commands listed below remove it.':'Its file and its data stay.'),okText='Turn off and stop',extra=[{text:'Turn off only',value:'skip'}];
   if(mode==='sweep')msg+='\n\nThis plugin declares no stop commands.'+swT+unT;
   else if(mode==='toomany'){msg+=swT+unT;okText='Turn off without stopping';extra=[]}
   else if(mode==='cannot'){
@@ -5892,7 +5928,7 @@ async function storeInstall(item){
     if(ufiBytes(text)>UFI_BLOCK_MAX)throw new Error('Plugin is over the 1 MB limit');
     try{new Function(text)}catch(e){throw new Error('The file is not valid JavaScript: '+e.message)}
     const replaces=pluginCache.some(p=>p.name===name)?[name]:[];
-    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces,plugCompat(text))+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
+    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces,plugCompat(text),plugStopDecls(text))+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
     await api('/api/plugins',{method:'POST',body:JSON.stringify({name,code:text,title:item.name})});
     await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name,enabled:true})});
     await refreshPluginList();createToast('Installed '+item.name);setTimeout(()=>location.reload(),500);return true;
@@ -6010,7 +6046,7 @@ document.getElementById('cmd').onkeydown=async(e)=>{
   catch(err){out.textContent='Error: '+err.message}
 };
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
-const PAGE_VERSION='1.4.1';
+const PAGE_VERSION='1.4.2';
 const ST_TOOLS=[
   {file:'AT_Radio.js',btn:'matchi_at_btn'},
   {file:'SMS.js',btn:'matchi_sms_btn'},
