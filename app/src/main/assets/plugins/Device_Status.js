@@ -30,8 +30,10 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
     const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
     return (d ? d + 'd ' : '') + h + 'h ' + m + 'm';
   };
-  // Kernels report temperature in 0.1 C (battery) or milli-C (thermal zones); normalise to C.
+  // Thermal zones report milli-C (or tenths, or whole degrees); a value of 100 or more cannot be whole degrees, so guess by size.
   const toC = (v) => { v = parseFloat(v); if (isNaN(v)) return null; return Math.abs(v) >= 1000 ? v / 1000 : Math.abs(v) >= 100 ? v / 10 : v; };
+  // The battery temp file is always in tenths of a degree (85 = 8.5 C), so it must not go through the size guess above.
+  const batToC = (v) => { v = parseFloat(v); return isNaN(v) ? null : v / 10; };
 
   function parse(text) {
     const o = { zones: [], ips: [] };
@@ -48,7 +50,7 @@ ip -4 -o addr show 2>/dev/null | while read -r _ ifn _ addr _; do echo "ip=$ifn|
   function render(o) {
     const memT = parseInt(o.memt) || 0, memA = parseInt(o.mema) || 0;
     const used = memT ? Math.round(((memT - memA) / memT) * 100) : '?';
-    const bt = toC(o.bat_temp);
+    const bt = batToC(o.bat_temp);
     const rows = [
       ['Battery', (o.bat_cap || '?') + '% ' + esc(o.bat_status || '')],
       ['Battery temp', bt === null ? '?' : bt.toFixed(1) + ' °C'],

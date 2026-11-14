@@ -80,7 +80,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         val req = body(s)
         val cmd = req.optString("command").trim()
         val slot = req.optInt("slot", 0).coerceIn(0, 1)
-        if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
+        if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' || it == '\u0000' })
             throw IllegalArgumentException("AT command must start with AT")
         // Read-only queries (polled by Live Status / AT Radio) skip the gate; every other AT command can change the modem.
         if (!RootGate.isReadOnlyAt(cmd)) rootGate(s)?.let { return@run it }
@@ -116,7 +116,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         val cmds = ArrayList<String>(arr.length())
         for (i in 0 until arr.length()) {
             val cmd = arr.optString(i).trim()
-            if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' })
+            if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' || it == '\u0000' })
                 throw IllegalArgumentException("AT command must start with AT")
             cmds.add(cmd)
         }

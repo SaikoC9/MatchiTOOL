@@ -11,7 +11,7 @@ The device downloads the APK without logging in, so the APK must be on a public 
    - Variables tab: `RELEASES_REPO` = `YOURNAME/MatchiTOOL-releases`
 
 ## Each release
-1. Raise `versionCode` and `versionName` in `app/build.gradle.kts` (the new versionCode must be higher than the installed one), push.
+1. Raise `VERSION_CODE` and `VERSION_NAME` in `version.properties` (the new versionCode must be higher than the installed one), run `node scripts/build-web.js`, update the README version line and the CHANGELOG entry, push.
 2. Actions > **Publish APK to public releases repo** > Run workflow.
 3. On the device's web console: Update, paste
    `https://github.com/YOURNAME/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk`

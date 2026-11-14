@@ -27,13 +27,19 @@ internal fun WebServer.countersJson(): JSONObject {
 
 /** Last [maxBytes] of a file as text, and whether the start was cut (the first partial line is dropped then). */
 internal fun WebServer.readTail(file: File, maxBytes: Long): Pair<String, Boolean> {
-    val len = file.length()
-    val start = (len - maxBytes).coerceAtLeast(0L)
     java.io.RandomAccessFile(file, "r").use { raf ->
+        // Length taken from the open file, so a log rotated between two calls cannot make the read run past the end.
+        val len = raf.length()
+        val start = (len - maxBytes).coerceAtLeast(0L)
         raf.seek(start)
         val buf = ByteArray((len - start).toInt())
-        raf.readFully(buf)
-        var text = String(buf, Charsets.UTF_8)
+        var off = 0
+        while (off < buf.size) {
+            val n = raf.read(buf, off, buf.size - off)
+            if (n < 0) break
+            off += n
+        }
+        var text = String(buf, 0, off, Charsets.UTF_8)
         if (start > 0) text = text.substringAfter('\n', "")
         return text to (start > 0)
     }

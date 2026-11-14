@@ -34,6 +34,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
             guard.failed(pwIp, pwLoop)
             throw IllegalArgumentException("Current password is wrong")
         }
+        guard.succeeded(pwIp, pwLoop)
         Prefs.setConsolePassword(ctx, req.optString("password").take(200))   // empty = go back to the router password
         Sessions.revokeAllExcept(ctx, sessionToken(s))
         auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")
@@ -56,6 +57,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
             guard.failed(ip, loop)
             throw IllegalArgumentException("Password is wrong")
         }
+        guard.succeeded(ip, loop)
         if (req.has("strict")) Prefs.setNetStrict(ctx, req.optBoolean("strict", true))
         val bad = JSONArray()
         if (req.has("hosts")) {
@@ -86,6 +88,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
             guard.failed(ip, loop)
             throw IllegalArgumentException("Password is wrong")
         }
+        guard.succeeded(ip, loop)
         Prefs.setRootOverHttp(ctx, req.optBoolean("allow", false))
         auditShell(ip, "root-over-http " + Prefs.rootOverHttp(ctx), "net-policy")
         json(Response.Status.OK, JSONObject().put("ok", true).put("allowRootOverHttp", Prefs.rootOverHttp(ctx)))

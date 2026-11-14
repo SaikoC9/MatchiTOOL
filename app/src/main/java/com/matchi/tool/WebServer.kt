@@ -364,8 +364,8 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         // Skipped after 3 bad tries from this address so the router's own login lockout is not triggered.
         // The router is asked at most 3 times per address AND 3 times per 10 minutes in total (see LoginGuard.mayAskRouter).
         if (!good && pw.isNotEmpty() && !Prefs.hasConsolePassword(ctx) && guard.failCount(ip) < 3 && guard.mayAskRouter(ip) && ZteClient.verify(ctx, pw) == true) {
-            Prefs.setZtePass(ctx, pw)
-            Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
+            if (Prefs.setZtePass(ctx, pw)) Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
+            else LogCatcher.log("WARNING", "WebServer", "Signed in with the router password, but it could not be saved (Keystore); older sessions were kept")
             good = true
         }
         if (!good) {

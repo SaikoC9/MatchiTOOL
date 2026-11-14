@@ -199,15 +199,21 @@ object Prefs {
         sp(c).edit().putString(CONSOLE_PW, "$CONSOLE_PW_ITER:" + Base64.encodeToString(salt, Base64.NO_WRAP) + ":" + Base64.encodeToString(h, Base64.NO_WRAP)).apply()
     }
 
+    /** Re-makes the hash only while the stored value is still the one that was just checked: the slow PBKDF2 run must not overwrite a password changed meanwhile. */
+    @Synchronized private fun rehashIfUnchanged(c: Context, pw: String, checkedAgainst: String) {
+        if (sp(c).getString(CONSOLE_PW, "") == checkedAgainst) setConsolePassword(c, pw)
+    }
+
     private fun checkConsolePassword(c: Context, pw: String): Boolean = try {
-        val parts = sp(c).getString(CONSOLE_PW, "")!!.split(":")
+        val stored = sp(c).getString(CONSOLE_PW, "")!!
+        val parts = stored.split(":")
         if (parts.size != 3) false
         else {
             val iter = parts[0].toInt()
             val ok = MessageDigest.isEqual(Base64.decode(parts[2], Base64.NO_WRAP), pbkdf2(pw, Base64.decode(parts[1], Base64.NO_WRAP), iter))
             // The password is known to be right here, so a hash made with fewer iterations is replaced by one with the current count.
             if (ok && iter < CONSOLE_PW_ITER) {
-                try { setConsolePassword(c, pw) } catch (e: Exception) { Quiet.note("Prefs.rehash", e) }
+                try { rehashIfUnchanged(c, pw, stored) } catch (e: Exception) { Quiet.note("Prefs.rehash", e) }
             }
             ok
         }
