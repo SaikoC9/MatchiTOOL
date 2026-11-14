@@ -47,6 +47,8 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
         json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed).put("info", if (op == "set") ZteClient.lastInfo else ""))
     }
+    // Network tools: the address this request comes from, so the Devices tab can hide "Block" on the row of the device being used. Read only.
+    uri == "/api/net/whoami" && s.method == Method.GET -> json(Response.Status.OK, JSONObject().put("ip", s.remoteIpAddress ?: ""))
     // UFI-TOOLS router routes. The target is always the saved gateway (ZteClient never takes a host from a request).
     // goform: GET query = router "get"; POST (form or JSON body) = router "set" with the AD token added, as /api/zte does.
     uri.startsWith("/api/goform/") && (s.method == Method.GET || s.method == Method.POST) -> run {

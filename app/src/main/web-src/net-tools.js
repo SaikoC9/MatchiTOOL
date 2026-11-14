@@ -1,7 +1,8 @@
 /*
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
  * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
- * most 30 s, never claim success without the re-read). Everything else is still read only; the one root call (MTU / MSS tab) is a
+ * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
+ * the lists, say what the router reports). Everything else is still read only; the one root call (MTU / MSS tab) is a
  * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
@@ -15,7 +16,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '' };
   let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
@@ -43,7 +44,7 @@ function mountNetTools() {
     const word = p.state === 'connected' ? 'Connected' : p.state === 'disconnected' ? 'Disconnected' : p.state === 'changing' ? 'Changing' : null;
     const next = N.dataNext(p.state);
     const btn = h('button', { type: 'button', id: 'matchi_net_data_btn' }, st.act ? (st.act === 'off' ? 'Turning off…' : 'Turning on…') : next === 'off' ? 'Turn mobile data off' : next === 'on' ? 'Turn mobile data on' : 'Wait…');
-    if (st.act || !next) btn.disabled = true;
+    if (st.act || st.devAct || !next) btn.disabled = true;
     btn.onclick = () => dataSwitch(next);
     return h('div', {},
       kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
@@ -64,16 +65,38 @@ function mountNetTools() {
   function viewDevices(d) {
     const p = N.parseDevices(d);
     if (!p) return note(NOT + ' (device lists).');
+    const acl = N.parseAcl(d);
     const head = note(p.rows.length + (p.rows.length === 1 ? ' device' : ' devices') + ': ' + p.wifi + ' on Wi-Fi, ' + p.cable + ' on cable.');
     const extra = [];
     if (!p.cableReported) extra.push(note('The cable list is ' + NOT.toLowerCase() + '.', 'net-mut'));
     if (!p.wifiReported) extra.push(note('The Wi-Fi list is ' + NOT.toLowerCase() + '.', 'net-mut'));
     if (p.routerCount !== null && p.wifiReported && p.routerCount !== p.wifi) extra.push(note('The router counts ' + p.routerCount + ' on Wi-Fi; the list shows ' + p.wifi + '.', 'net-mut'));
-    if (!p.rows.length) return h('div', {}, head, extra);
-    const tbl = h('table', { class: 'net-tbl' },
-      h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type'].map((t) => h('th', { scope: 'col' }, t)))),
-      h('tbody', {}, p.rows.map((r) => h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type)))));
-    return h('div', {}, head, h('div', { class: 'net-scroll' }, tbl), extra);
+    const msg = st.devMsg ? note(st.devMsg.text, st.devMsg.bad ? 'net-warn' : '') : null;
+    const refusal = N.aclRefusal(acl);
+    const blockedMacs = new Set(acl ? acl.black.map((b) => b.mac) : []);
+    const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (st.devAct) b.disabled = true; b.onclick = fn; return b; };
+    let table = null;
+    if (p.rows.length) {
+      table = h('div', { class: 'net-scroll' }, h('table', { class: 'net-tbl' },
+        h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type', ''].map((t) => h('th', { scope: 'col' }, t)))),
+        h('tbody', {}, p.rows.map((r) => {
+          const self = N.isSelf(r.ip, st.me), canAct = N.isMac(r.mac);
+          const cell = h('td', { class: 'net-rowact' });
+          if (canAct) cell.append(act('Rename', () => devRename(r)));
+          if (self) cell.append(h('span', { class: 'net-mut' }, ' this device'));
+          else if (canAct && !refusal && !blockedMacs.has(r.mac)) cell.append(act('Block', () => devBlock(r, acl), true));
+          return h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type), cell);
+        }))));
+    }
+    const blocked = [];
+    if (acl && acl.black.length) {
+      blocked.push(h('h4', {}, 'Blocked devices'));
+      blocked.push(h('ul', { class: 'net-ul' }, acl.black.map((b) => h('li', {}, (b.name || '(no name)') + ' · ' + b.mac + ' ',
+        refusal ? null : act('Unblock', () => devUnblock(b, acl))))));
+    }
+    if (refusal) extra.push(note(refusal, 'net-mut'));
+    if (!st.me) extra.push(note('The address of the device you are using was not found, so Block does not know which row is yours. Do not block your own device.', 'net-mut'));
+    return h('div', {}, head, msg, table, blocked, extra);
   }
   function viewApn(d) {
     const p = N.parseApn(d);
@@ -131,7 +154,7 @@ function mountNetTools() {
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -195,6 +218,60 @@ function mountNetTools() {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
     }
   }
+  // ---- devices: rename, block, unblock (Phase 4) ----------------------------------------------------------------------------
+  const readDevicesRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.devices });
+  // Send one device change, then read the lists again until `check(parsed)` is true (up to 3 reads, 1 s apart). Nothing is claimed without it.
+  async function devApply(call, check, okText, badText) {
+    st.devAct = true; st.devMsg = null; syncButtons(); paint('devices'); setStatus('Sending…');
+    const my = ++actId;
+    try {
+      try { await R.setRouter(call, true); }
+      catch (e) { st.devMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
+      let d = null, good = false;
+      for (let i = 0; i < 3 && !good; i++) {
+        await R.sleep(1000);
+        if (my !== actId) return;
+        try { d = await readDevicesRaw(); } catch (_) { continue; }
+        if (my !== actId) return;
+        good = !!check(d);
+      }
+      if (d) st.cache.devices = { d, at: Date.now() };
+      st.devMsg = good ? { bad: false, text: okText } : { bad: true, text: badText + ' Press Refresh to read the lists again.' };
+    } finally {
+      if (my === actId) { st.devAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.devMsg && st.devMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
+  }
+  async function devRename(r) {
+    if (st.devAct) return;
+    const v = await askText({ title: 'Rename device', message: 'New name for ' + r.mac + (r.ip ? ' (' + r.ip + ')' : '') + '. Letters, digits, space, dot, dash, underscore; up to 31 characters.', value: r.name || '', okText: 'Rename' });
+    if (v === null || v === undefined) return;
+    const name = String(v).trim(), err = N.hostnameError(name);
+    if (err) { st.devMsg = { bad: true, text: err }; paint('devices'); return; }
+    if (name === r.name) return;
+    if (!(await askConfirm('Rename this device?\n\n' + r.mac + '\nfrom "' + (r.name || '(no name)') + '"\nto "' + name + '"', 'Rename'))) return;
+    const call = N.renameCall(r.mac, name);
+    await devApply(call, (d) => { const x = N.parseDevices(d); return !!x && x.rows.some((q) => q.mac === r.mac && q.name === name); },
+      'Renamed to "' + name + '".', 'The router does not report the new name yet.');
+  }
+  async function devBlock(r, acl) {
+    if (st.devAct) return;
+    const unsure = !st.me ? '\n\nThis page could not tell which device you are using. If this is it, you lose this console.' : '';
+    if (!(await askConfirm('Block this device?\n\n' + (r.name || '(no name)') + '\n' + r.mac + (r.ip ? '\n' + r.ip : '') + '\n\nIt is cut off from this router (Wi-Fi and cable). To go back, press Unblock in the "Blocked devices" list.' + unsure, 'Block', true))) return;
+    let call; try { call = N.blockCall(acl, r.mac, r.name); } catch (e) { st.devMsg = { bad: true, text: e.message }; paint('devices'); return; }
+    await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && a.black.some((b) => b.mac === r.mac); },
+      'Blocked ' + r.mac + '.', 'The router does not list this device as blocked.');
+  }
+  async function devUnblock(b, acl) {
+    if (st.devAct) return;
+    if (!(await askConfirm('Unblock this device?\n\n' + (b.name || '(no name)') + '\n' + b.mac + '\n\nIt can connect to this router again.', 'Unblock'))) return;
+    let call; try { call = N.unblockCall(acl, b.mac); } catch (e) { st.devMsg = { bad: true, text: e.message }; paint('devices'); return; }
+    await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && !a.black.some((x) => x.mac === b.mac); },
+      'Unblocked ' + b.mac + '.', 'The router still lists this device as blocked.');
+  }
+  async function findMe() {
+    try { const r = await api('/api/net/whoami'); st.me = r && r.ip ? N.plainIp(r.ip) : ''; } catch (_) { st.me = ''; }
+    if (st.tab === 'devices' && st.cache.devices) paint('devices');
+  }
   async function rootRead() {
     if (st.rootBusy) return;
     st.rootBusy = true; st.rootErr = ''; paint('mtu');
@@ -229,15 +306,17 @@ function mountNetTools() {
 #matchi_net_modal .net-tbl{border-collapse:collapse;width:100%;font-size:12.5px}
 #matchi_net_modal .net-tbl th,#matchi_net_modal .net-tbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
 #matchi_net_modal .net-ul{margin:4px 0;padding-left:18px}
+#matchi_net_modal .net-rowact{white-space:nowrap}#matchi_net_modal .net-act{margin-right:4px;min-height:26px;padding:2px 8px}
+#matchi_net_modal .net-danger{border-color:rgba(255,100,124,.5)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
@@ -255,6 +334,7 @@ function mountNetTools() {
     }
     $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; load(st.tab); } };
     load('data');
+    findMe();
   }
 
   const b = document.createElement('button');

@@ -141,12 +141,36 @@ eq(N.parseRootNet('##route\n1.1.1.1 dev sipa_eth0\n##link\n14: sipa_eth0: <UP> m
 eq(N.parseRootNet(''), null); eq(N.parseRootNet('nothing useful'), null);
 eq(N.sections('##a\nx\n\ny\n##b\n'), { a: ['x', 'y'], b: [] });
 
+// ---- Phase 4: devices rename / block / unblock (bodies captured on the F50) ----
+assert(N.READ.devices.includes('BlackMacList') && N.READ.devices.includes('AclMode'));
+eq(N.parseAcl({ BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '', AclMode: '2' }), { mode: '2', black: [], whiteMacs: [], whiteNames: [] });
+const acl0 = N.parseAcl({ AclMode: '2', BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '' });
+eq(N.blockCall(acl0, '52:E3:AC:5A:EF:7D', 'POCO-F6'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '52:e3:ac:5a:ef:7d;', WhiteNameList: '', BlackNameList: 'POCO-F6;' });
+const acl1 = N.parseAcl({ AclMode: '2', BlackMacList: '52:e3:ac:5a:ef:7d;', BlackNameList: 'POCO-F6;', WhiteMacList: '', WhiteNameList: '' });
+eq(acl1.black, [{ mac: '52:e3:ac:5a:ef:7d', name: 'POCO-F6' }]);
+eq(N.unblockCall(acl1, '52:e3:ac:5a:ef:7d'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '', WhiteNameList: '', BlackNameList: '' });   // = the captured unblock
+eq(N.blockCall(acl1, 'aa:bb:cc:dd:ee:01', 'Tab').BlackMacList, '52:e3:ac:5a:ef:7d;aa:bb:cc:dd:ee:01;');   // others stay blocked
+eq(N.unblockCall(N.parseAcl({ BlackMacList: '52:e3:ac:5a:ef:7d;aa:bb:cc:dd:ee:01;', BlackNameList: 'A;B;' }), 'aa:bb:cc:dd:ee:01').BlackNameList, 'A;');
+eq(N.blockCall(acl0, '52:e3:ac:5a:ef:7d', 'bad;name&x=1').BlackNameList, 'badnamex1;');                  // separators never reach the form
+eq(N.blockCall(acl0, '52:e3:ac:5a:ef:7d', ';;;').BlackNameList, 'device;');
+assert.throws(() => N.blockCall(acl1, '52:E3:AC:5A:EF:7D', 'x'), /already blocked/); assert.throws(() => N.unblockCall(acl0, '52:e3:ac:5a:ef:7d'), /not in the block list/);
+assert.throws(() => N.blockCall(acl0, 'not-a-mac', 'x')); assert.throws(() => N.blockCall(null, '52:e3:ac:5a:ef:7d', 'x'));
+const aclW = N.parseAcl({ AclMode: '1', WhiteMacList: 'aa:bb:cc:dd:ee:01;', WhiteNameList: 'W;', BlackMacList: '' });   // allow-list mode: never touched
+assert(N.aclRefusal(aclW) && N.aclRefusal(null) && N.aclRefusal(acl0) === null);
+assert.throws(() => N.blockCall(aclW, '52:e3:ac:5a:ef:7d', 'x'), /allow list/); assert.throws(() => N.unblockCall(aclW, '52:e3:ac:5a:ef:7d'), /allow list/);
+eq(N.renameCall('28:56:5A:3A:EF:6F', ' ako '), { goformId: 'EDIT_HOSTNAME', mac: '28:56:5a:3a:ef:6f', hostname: 'ako' });   // = the captured rename
+for (const bad of ['', '   ', 'a;b', 'a&b', 'a=b', 'a%41', 'x'.repeat(32), 'na\nme']) assert(N.hostnameError(bad), 'bad name: ' + JSON.stringify(bad));
+for (const good of ['ako', 'My Phone 2', 'GL-MT3000', 'a.b_c-d', 'x'.repeat(31)]) assert.strictEqual(N.hostnameError(good), null, good);
+assert.throws(() => N.renameCall('nope', 'x')); assert.throws(() => N.renameCall('28:56:5a:3a:ef:6f', 'a;b'));
+assert(N.isSelf('192.168.0.179', '::ffff:192.168.0.179') && !N.isSelf('192.168.0.2', '192.168.0.179') && !N.isSelf('192.168.0.2', '') && !N.isSelf('', ''));
+
 // ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 1 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]), 'the only router write is setRouter(N.dataCall(action)): ' + setCalls.join(' | '));
+assert(setCalls.length === 2 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]), 'the only router writes: mobile data and the device call: ' + setCalls.join(' | '));
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
+assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');
 assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js dataCall does)');
 assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js stores nothing');
 assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
@@ -155,4 +179,4 @@ assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)
 assert((ui.match(/R\.sh\(/g) || []).length === 1 && ui.includes('R.sh(N.ROOT_READ_SH'), 'the only root call is the fixed read-only command');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data off / on');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data off / on and device rename / block / unblock');

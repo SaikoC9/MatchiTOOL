@@ -6,7 +6,7 @@
  * Rules kept here:
  *  - A key the router leaves EMPTY means "not reported": every parser gives null for it, never 0 / "off" (the tab then says so).
  *  - The Wi-Fi password and APN passwords are NEVER copied into a parsed object (the router's reply holds them in clear text).
- *  - Reads need no gate. The only write call built here is mobile data off / on (Phase 2, dataCall); more come with later phases.
+ *  - Reads need no gate. The write calls built here: mobile data off / on (Phase 2, dataCall) and device rename / block / unblock (Phase 4); more come with later phases.
  */
 (function (root, factory) {
   const api = factory();
@@ -19,7 +19,7 @@
   const READ = {
     data: 'ppp_status,dial_mode,roam_setting_option,dial_roam_setting_option',
     wifi: 'queryWiFiModuleSwitch,queryAccessPointInfo,wifi_access_sta_num',
-    devices: 'station_list,lan_station_list,wifi_access_sta_num',
+    devices: 'station_list,lan_station_list,wifi_access_sta_num,AclMode,BlackMacList,BlackNameList,WhiteMacList,WhiteNameList',
     apn: 'apn_mode,apn_auto_profile,APN_config,ipv6_APN_config',
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
@@ -159,6 +159,62 @@
     return { rows, wifi: rows.filter((r) => r.type === 'Wi-Fi').length, cable: rows.filter((r) => r.type === 'Cable').length, routerCount: num(d.wifi_access_sta_num), wifiReported: hasW, cableReported: hasC };
   }
 
+  // ---- Devices: rename, block, unblock (Phase 4) ------------------------------------------------------------------------------
+  // Captured on the F50 (2026-11-15), AD added by the host:
+  //   rename:  isTest=false&goformId=EDIT_HOSTNAME&mac=28%3A56%3A5a%3A3a%3Aef%3A6f&hostname=ako
+  //   block:   goformId=setDeviceAccessControlList&isTest=false&AclMode=2&WhiteMacList=&BlackMacList=52%3Ae3...%3B&WhiteNameList=&BlackNameList=POCO-F6%3B
+  //   unblock: same call with every list empty (the call always carries the WHOLE set, so the tool reads the current lists first).
+  // Lists are ";" terminated ("mac;" / "name;", several back to back). AclMode=2 is the block-list mode the stock page sends.
+  const isMac = (m) => /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/.test(String(m == null ? '' : m).trim());
+  const splitAcl = (v) => { const t = clean(v); return t === null ? [] : t.split(';').map((x) => x.trim()).filter(Boolean); };
+  function parseAcl(d) {
+    if (!isObj(d)) return null;
+    const macs = splitAcl(d.BlackMacList).map(normMac), names = splitAcl(d.BlackNameList);
+    const black = macs.map((mac, i) => ({ mac, name: names[i] || '' }));
+    return { mode: clean(d.AclMode), black, whiteMacs: splitAcl(d.WhiteMacList), whiteNames: splitAcl(d.WhiteNameList) };
+  }
+  // Why blocking / unblocking must not touch the lists (null = fine). A white list in use is a mode we never captured: do not guess it.
+  function aclRefusal(acl) {
+    if (!acl) return 'The router did not report its block list, so it is not changed here.';
+    if (acl.whiteMacs.length || acl.mode === '1') return 'The router uses an allow list (white list). Blocking is not changed here because that mode was not captured.';
+    return null;
+  }
+  // Host names: letters, digits, space, dot, dash, underscore; 1 to 31 characters. (Narrower than the router, on purpose: ";" "&" "=" "%" would break the
+  // forms that carry the name.)
+  const hostnameError = (n) => {
+    const t = String(n == null ? '' : n).trim();
+    if (!t) return 'The name is empty.';
+    if (t.length > 31) return 'The name is longer than 31 characters.';
+    if (!/^[A-Za-z0-9 ._-]+$/.test(t)) return 'Use only letters, digits, space, dot, dash and underscore.';
+    return null;
+  };
+  function renameCall(mac, name) {
+    if (!isMac(mac)) throw new Error('Not a MAC address: ' + mac);
+    const e = hostnameError(name); if (e) throw new Error(e);
+    return { goformId: 'EDIT_HOSTNAME', mac: normMac(mac), hostname: String(name).trim() };
+  }
+  const aclText = (l) => l.map((x) => x + ';').join('');
+  const aclName = (n) => { const t = String(n == null ? '' : n).replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, 31); return t || 'device'; };
+  function aclCall(black) {
+    return { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: aclText(black.map((b) => b.mac)), WhiteNameList: '', BlackNameList: aclText(black.map((b) => aclName(b.name))) };
+  }
+  function blockCall(acl, mac, name) {
+    const r = aclRefusal(acl); if (r) throw new Error(r);
+    if (!isMac(mac)) throw new Error('Not a MAC address: ' + mac);
+    const m = normMac(mac);
+    if (acl.black.some((b) => b.mac === m)) throw new Error('This device is already blocked.');
+    return aclCall(acl.black.concat([{ mac: m, name }]));
+  }
+  function unblockCall(acl, mac) {
+    const r = aclRefusal(acl); if (r) throw new Error(r);
+    const m = normMac(mac);
+    if (!acl.black.some((b) => b.mac === m)) throw new Error('This device is not in the block list.');
+    return aclCall(acl.black.filter((b) => b.mac !== m));
+  }
+  // The address a request comes from, as the router lists it ("::ffff:192.168.0.179" -> "192.168.0.179").
+  const plainIp = (ip) => String(ip == null ? '' : ip).trim().replace(/^::ffff:/i, '');
+  const isSelf = (rowIp, myIp) => { const a = plainIp(rowIp), b = plainIp(myIp); return a !== '' && a === b; };
+
   // ---- APN --------------------------------------------------------------------------------------------------------------------
   // In Auto mode the F50 returns APN_config and ipv6_APN_config EMPTY, and the key that holds the profile list is not known yet.
   // So Phase 1 shows the mode and whatever comes back, with every password-like field removed. A non-list text is shown masked.
@@ -255,7 +311,7 @@
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
     chipLabel, authLabel, parseWifi, wifiSummary,
-    mergeDevices, parseDevices,
+    mergeDevices, parseDevices, isMac, parseAcl, aclRefusal, hostnameError, renameCall, blockCall, unblockCall, plainIp, isSelf,
     apnConfig, parseApn, apnLine,
     parseLease, leaseText, parseLan,
     parseMtu, sections, parseRootNet,

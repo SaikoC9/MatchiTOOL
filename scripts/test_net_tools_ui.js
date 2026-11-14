@@ -46,7 +46,7 @@ const createModal = (o) => {
 const showModal = () => {};
 
 // ---- scripted radio ---------------------------------------------------------------------------------------------------------
-const calls = [], shells = [], sets = [], confirms = []; let pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
+const calls = [], shells = [], sets = [], confirms = []; let black = '', blackNames = '', hostOverride = null, me = '192.168.0.10', pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
 const WIFI = { WiFiModuleSwitch: '1', wifi_access_sta_num: '1', ResponseList: [0, 1].map((i) => ({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: i === 1 ? '1' : '0', SSID: 'HomeNet', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', CountryCode: 'CN', Password: 'TopSecret-pass-1', PasswordShow: 'TopSecret-pass-1' })) };
 const ANSWERS = {
   data: { ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_dial', roam_setting_option: 'off', dial_roam_setting_option: '' },
@@ -58,15 +58,23 @@ const ANSWERS = {
 };
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
-  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd); return tab === 'data' ? Object.assign({}, ANSWERS.data, { ppp_status: pppNow }) : ANSWERS[tab]; },
+  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd); if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
+    if (tab === 'devices') { const d = JSON.parse(JSON.stringify(ANSWERS.devices)); d.AclMode = '2'; d.WhiteMacList = ''; d.WhiteNameList = ''; d.BlackMacList = black; d.BlackNameList = blackNames; if (hostOverride) d.lan_station_list[0].hostname = hostOverride; return d; }
+    return ANSWERS[tab]; },
   sh: async (cmd) => { shells.push(cmd); return ROOT_OUT; },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
   sleep: async () => {},
-  setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; } if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
+  setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; }
+    if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
+    if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
+    if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
 const win = { MatchiRadio: R, MatchiNetCore: N };
 const askConfirm = async (msg, ok, danger) => { confirms.push({ msg, ok, danger }); return confirmAnswer; };
-const mount = new Function('window', 'document', 'createModal', 'showModal', 'askConfirm', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal, askConfirm);
+const texts = []; let textAnswer = null;
+const askText = async (o) => { texts.push(o); return textAnswer; };
+const api = async (url) => { assert.strictEqual(url, '/api/net/whoami'); return { ip: '::ffff:' + me }; };
+const mount = new Function('window', 'document', 'createModal', 'showModal', 'askConfirm', 'askText', 'api', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal, askConfirm, askText, api);
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 const bodyText = () => doc.getElementById('matchi_net_body').textContent;
 const click = async (n) => { n.onclick(); await flush(); };
@@ -111,6 +119,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
 
   assert(calls.every((c) => c.op === 'get'), 'only reads were sent');
   assert.strictEqual(sets.length, 0, 'no write so far');
+  const nSetsBefore = 0;
   assert.strictEqual(calls.length, 6, 'one read per tab, nothing else (no polling)');
 
   // switching to a tab already read shows it again without asking the router
@@ -149,6 +158,40 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/did not reach the wanted state within 30 seconds/.test(bodyText()) && /ipv4_ipv6_connected/.test(bodyText()) && !/Mobile data is o/.test(bodyText()), 'stuck: ' + bodyText());
   // closing the window while a switch is waiting stops the wait quietly
   pppNow = 'ipv4_ipv6_connected';
+
+  // ---- Phase 4: devices ----
+  sets.length = 0; confirms.length = 0; pppNow = 'ipv4_ipv6_connected';
+  await click(tabBtn('devices')); await click(doc.getElementById('matchi_net_refresh'));
+  const btns = (label) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'button' && n.textContent === label);
+  const rowOf = (name) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'tr').find((r) => r.textContent.includes(name));
+  assert.strictEqual(btns('Rename').length, 2, 'a Rename button on each row');
+  assert(/this device/.test(rowOf('My-Phone').textContent) && !rowOf('My-Phone').findAll((n) => n.textContent === 'Block').length, 'no Block on the row of the device in use: ' + rowOf('My-Phone').textContent);
+  assert.strictEqual(btns('Block').length, 1, 'Block only on the other device');
+  // rename
+  textAnswer = null; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0, 'cancelled rename sends nothing');
+  textAnswer = 'bad;name'; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0); assert(/Use only letters/.test(bodyText()), 'bad name refused: ' + bodyText());
+  textAnswer = 'GL Router'; confirmAnswer = false; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0, 'declined rename sends nothing');
+  confirmAnswer = true; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'EDIT_HOSTNAME', mac: 'aa:bb:cc:dd:ee:02', hostname: 'GL Router' });
+  assert(/Renamed to "GL Router"/.test(bodyText()) && /GL Router/.test(rowOf('GL Router').textContent), 'after rename: ' + bodyText());
+  // block (confirm names the MAC), then it shows under Blocked devices with Unblock
+  sets.length = 0; confirmAnswer = false; await click(btns('Block')[0]); assert.strictEqual(sets.length, 0, 'declined block sends nothing');
+  confirmAnswer = true; confirms.length = 0; await click(btns('Block')[0]);
+  assert(/aa:bb:cc:dd:ee:02/.test(confirms[0].msg) && confirms[0].danger === true);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: 'aa:bb:cc:dd:ee:02;', WhiteNameList: '', BlackNameList: 'GL Router;' });
+  assert(/Blocked aa:bb:cc:dd:ee:02/.test(bodyText()) && /Blocked devices/.test(bodyText()) && btns('Unblock').length === 1, 'after block: ' + bodyText());
+  // unblock
+  sets.length = 0; await click(btns('Unblock')[0]);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '', WhiteNameList: '', BlackNameList: '' });
+  assert(/Unblocked aa:bb:cc:dd:ee:02/.test(bodyText()) && !/Blocked devices/.test(bodyText()) && btns('Unblock').length === 0, 'after unblock: ' + bodyText());
+  // refused write (old sign-in): shown, nothing claimed, lists unchanged
+  setFail = new Error('Session too old for root commands'); await click(btns('Block')[0]);
+  assert(/Not sent: Session too old/.test(bodyText()) && !/Blocked aa/.test(bodyText()) && btns('Unblock').length === 0, 'refused: ' + bodyText());
+  // the router says success but the list never changes: after 3 reads the real state is reported, not success
+  stuck = true; await click(btns('Block')[0]); stuck = false;
+  assert(/does not list this device as blocked/.test(bodyText()) && !/Blocked aa/.test(bodyText()), 'stuck: ' + bodyText());
+  stuck = false; black = ''; blackNames = ''; hostOverride = null;
+  await click(tabBtn('data'));
 
   // keyboard: ArrowRight moves to the next tab
   let prevented = false; tabBtn('data').onkeydown({ key: 'ArrowRight', preventDefault() { prevented = true; } }); await flush();
