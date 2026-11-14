@@ -592,7 +592,6 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 #logcatcher .lc-help,#logbasket .lc-help{margin:8px 0 10px;padding:8px 10px;border-radius:10px;background:rgba(77,163,255,.09);border:1px solid rgba(77,163,255,.22);font-size:12px;line-height:1.5}
 #logcatcher .lc-main,#logbasket .lb-main{margin:0 0 8px}
 #logcatcher #lcbootnav:not(.on){display:none!important}
-#logcatcher .lc-main button{flex:1 1 0!important;width:auto!important;min-width:6em!important}
 #logcatcher .lc-main button:disabled,#logcatcher #lcdelete:disabled{display:none}
 #logcatcher .lc-find{margin-bottom:6px;flex-wrap:nowrap}#logcatcher .lc-find input{flex:1;min-width:0}#logcatcher .lc-find select{flex:0 0 auto}
 #logcatcher .lc-status{align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:2px 0!important}
@@ -603,7 +602,7 @@ pre{font-size:11.5px!important;line-height:1.6!important;padding:12px 14px!impor
 #logcatcher details>summary,#logbasket details>summary{font-weight:700;padding:4px 0}
 #logcatcher .lc-body,#logbasket .lc-body{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 #logcatcher .lc-keep,#logbasket .lc-keep{display:flex;align-items:center;gap:6px;margin:4px 0}
-#logcatcher .lc-opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap}#logcatcher .lc-opt button{flex:0 0 auto;min-width:11.5em}#logcatcher .lc-opt .mut{flex:1;min-width:10em;font-size:12px}
+#logcatcher .lc-opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap}#logcatcher .lc-opt button{flex:0 0 auto;min-width:9em}#logcatcher .lc-opt .mut{flex:1;min-width:10em;font-size:12px}
 </style>
 <style id="dialog-fixes">
 /* Dialogs. (1) A plugin may size its dialog by id, e.g. #my_dialog{width:94vw!important}. In MatchiTOOL that id sits on the full-screen dim layer,
@@ -646,6 +645,19 @@ html body .popx:not(#_):not(#__),html body .card.pop .popfoot button:not(#_):not
 html body .card.pop.open:not(#_):not(#__){padding:12px 14px 0!important}
 html body .card.pop.open:not(#_):not(#__) .popfoot{margin:8px -14px 0!important;padding:5px 14px!important}
 }
+</style>
+<style id="compact-dialogs">
+/* Smaller buttons and fields in every pop-up dialog (Log Catcher, Log basket, Diagnostics, USB, Firmware, Update, ...). Plugins window keeps its own layout. */
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .popfoot button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .popfoot .popx,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .btnrow button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .actions-buttons button{box-sizing:border-box!important;height:26px!important;min-height:26px!important;width:auto!important;min-width:0!important;max-width:none!important;flex:0 0 auto!important;padding:0 10px!important;font-size:11.5px!important;font-weight:600!important;line-height:1!important;border-radius:6px!important;white-space:nowrap}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) input:not([type=checkbox]):not([type=radio]),html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) select,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) textarea{height:26px!important;min-height:26px!important;padding:0 7px!important;font-size:11.5px!important;border-radius:6px!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) textarea{height:auto!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .btnrow,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .actions-buttons{gap:4px!important;margin:3px 0 5px!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .popfoot{padding:5px 12px!important;margin-top:8px!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) details>summary{padding:2px 0!important;font-size:12px!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) details{padding:3px 9px!important;margin:5px 0!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find{flex-wrap:nowrap!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find input{flex:1 1 0!important;min-width:0!important;width:auto!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist select{flex:1 1 auto!important}
 </style>
 </head>
 <body>
