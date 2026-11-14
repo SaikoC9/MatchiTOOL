@@ -659,30 +659,6 @@ html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find{fle
 html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find input{flex:1 1 0!important;min-width:0!important;width:auto!important}
 html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist select{flex:1 1 auto!important}
 </style>
-<style id="lc-layout">
-/* Tidy field groups and phone sizing for the log dialogs. */
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px!important}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11px;color:var(--mut)}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-field input,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-field select{width:100%!important;min-width:0!important;box-sizing:border-box}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) select.lc-wide{width:100%!important}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-checks{display:flex;flex-wrap:wrap;gap:6px 16px}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-sub{margin:8px 0 0;font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--acc2)}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-state{padding:6px 9px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:12px;line-height:1.45}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-jump input{flex:1 1 0!important;min-width:0!important;width:auto!important}
-html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-nav{margin-top:6px}
-@media(max-width:600px){
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-grid{grid-template-columns:1fr 1fr}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .popfoot button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .popfoot .popx,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .btnrow button,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .actions-buttons button{height:34px!important;min-height:34px!important;font-size:12px!important;padding:0 12px!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) input:not([type=checkbox]):not([type=radio]),html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) select{height:34px!important;min-height:34px!important;font-size:13px!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-opt button{flex:1 1 100%!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-main button{flex:1 1 0!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lb-main button{flex:1 1 0!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist{flex-direction:column;align-items:stretch!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist select{width:100%!important}
- html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) input[type=checkbox]{width:18px;height:18px}
-}
-@media(max-width:360px){html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-grid{grid-template-columns:1fr}}
-</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -709,24 +685,16 @@ html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-nav{marg
     <div class="btnrow lc-main"><button id="lcstart" class="lc-go">Start logging</button><button id="lcstop" class="danger" disabled>Stop logging</button><button id="lcpause">Pause</button><button id="lccopy">Copy</button></div>
     <div class="btnrow lc-find"><input id="lcsearch" placeholder="Search this log (word or regex)"><select id="lclevel" title="Show only this level"><option value="ALL">All levels</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>DEBUG</option></select></div>
     <div class="row lc-status"><span class="mut" id="lccount">0 entries</span><span class="lc-err"><button id="lcerrprev" title="Previous error">◀ Error</button><button id="lcerrnext" title="Next error">Error ▶</button><span class="mut" id="lcerrpos"></span><button id="lcsearchclose" style="display:none">Close results</button></span></div>
-    <div class="btnrow lc-hist"><label class="mut" for="lchistory">Open a saved session:</label><select id="lchistory"><option value="">Current session / recent</option></select><button id="lcdelete" class="danger" disabled title="Pick a saved session in the dropdown first">Delete session</button></div>
+    <div class="btnrow lc-hist"><label class="mut" for="lchistory">Open a saved session:</label><select id="lchistory" data-pick="wide"><option value="">Current session / recent</option></select><button id="lcdelete" class="danger" disabled title="Pick a saved session in the dropdown first">Delete session</button></div>
     <div class="mut" id="lccounters" style="font-size:11px;margin-top:4px;white-space:pre-line" title="Lines seen, shown, collapsed (repeats), dropped (noise filters) and gaps per source"></div>
-    <div class="lc-nav" id="lcbootnav" style="display:none">
-      <div class="btnrow"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><button id="lcvcopyall" title="Copy the whole file, not just this page">Copy file</button></div>
-      <div class="btnrow lc-jump"><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00"><button id="lcvgo">Go</button></div>
-      <div class="mut" id="lcvpos"></div>
-    </div>
+    <div class="btnrow" id="lcbootnav" style="display:none;margin-top:6px"><button id="lcvprev">&laquo; Prev</button><button id="lcvnext">Next &raquo;</button><button id="lcvlast">Latest</button><input type="text" id="lcvjump" placeholder="Go to time, e.g. 11-08 16:00" style="width:12em"><button id="lcvgo">Go</button><button id="lcvcopyall" title="Copy the whole file, not just this page">Copy file</button><span class="mut" id="lcvpos"></span></div>
     <div class="mut" style="font-size:11px;margin-top:4px">Tap a line to bookmark it (★).</div>
     <pre id="lcout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Start logging to capture a session.</pre>
     <details class="lc-sec"><summary id="lcfiltersum">Filters</summary>
       <div class="lc-body">
-        <div class="lc-grid">
-          <label class="lc-field"><span>Where from</span><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select></label>
-          <label class="lc-field"><span>Function / tag</span><input id="lcfunction" placeholder="Only this one"></label>
-          <label class="lc-field"><span>From</span><input type="datetime-local" id="lcfrom"></label>
-          <label class="lc-field"><span>To</span><input type="datetime-local" id="lcuntil"></label>
-        </div>
-        <div class="lc-checks"><label class="mut"><input type="checkbox" id="lcregex"> Search is a regex</label><label class="mut" title="Collapse lines that repeat"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
+        <div class="btnrow"><select id="lcsource" title="Where the line came from"><option value="ALL">All sources</option><option value="app">App</option><option value="device">Device (root)</option><option value="kernel">Kernel (root)</option></select><input id="lcfunction" placeholder="Only this function / tag"></div>
+        <div class="btnrow"><label class="mut">From <input type="datetime-local" id="lcfrom"></label><label class="mut">To <input type="datetime-local" id="lcuntil"></label></div>
+        <div class="btnrow"><label class="mut"><input type="checkbox" id="lcregex"> Search is a regex</label><label class="mut" title="Collapse lines that repeat"><input type="checkbox" id="lcgroup"> Group repeats</label><label class="mut"><input type="checkbox" id="lcbm"> ★ Bookmarks only</label></div>
         <div class="btnrow"><button id="lcsearchall" title="Look in every saved session, not only this one">Search all saved sessions</button></div>
       </div>
     </details>
@@ -742,42 +710,23 @@ html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-nav{marg
     </details>
     <details class="lc-sec"><summary>Alerts</summary>
       <div class="lc-body">
-        <label class="mut lc-keep"><input type="checkbox" id="lcalerterr"> Alert me on every ERROR</label>
-        <label class="lc-field"><span>Or when a line contains</span><input id="lcalert" placeholder="a word, e.g. timeout"></label>
+        <div class="btnrow"><label class="mut"><input type="checkbox" id="lcalerterr"> Alert me on every ERROR</label><input id="lcalert" placeholder="Alert when a line contains…"></div>
       </div>
     </details>
-    <details class="lc-sec"><summary>Advanced: record the whole phone (root)</summary>
-      <div class="lc-body">
-        <div class="mut lc-state" id="lcdevstate">Off. Captures every process on the device while a session is logging; needs root.</div>
-        <div class="lc-sub">What to record</div>
-        <div class="lc-checks"><label class="mut"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label></div>
-        <label class="lc-field"><span>Keep lines of this level and up</span><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select></label>
-        <label class="mut lc-keep" title="Turns the noise filter off while capturing: nothing is dropped or collapsed. Lines are still limited by the priority above."><input type="checkbox" id="lcdevkeepall"> Keep every line (no noise filter)</label>
-        <div class="btnrow"><button id="lcdevapply" class="lc-go">Apply</button></div>
-      </div>
+    <details style="margin-bottom:8px"><summary>Advanced: record the whole phone (root)</summary>
+      <div class="btnrow" style="margin-top:8px"><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevlogcat"> System logcat</label><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcdevdmesg"> Kernel (dmesg)</label><select id="lcdevlevel" title="Lowest priority to keep"><option value="E">Errors only</option><option value="W" selected>Warnings and up</option><option value="I">Info and up</option><option value="D">Debug and up</option></select><label class="mut" style="white-space:nowrap" title="Turns the noise filter off while capturing: nothing is dropped or collapsed. Lines are still limited by the priority above."><input type="checkbox" id="lcdevkeepall"> Keep every line (no noise filter)</label><button id="lcdevapply">Apply</button></div>
+      <div class="mut" id="lcdevstate" style="margin-top:6px">Off. Captures every process on the device while a session is logging; needs root.</div>
     </details>
-    <details id="lcboot" class="lc-sec"><summary>Advanced: record from boot (Magisk, runs without the app)</summary>
-      <div class="lc-body">
-        <div class="mut" style="font-size:12px">A small script is added to Magisk. It records the phone's system log and kernel log from boot, even when this app is closed. Nothing else on the phone is changed.</div>
-        <div class="mut lc-state" id="lcbootstate">Open this section to read the state (needs root).</div>
-        <div class="lc-sub">Settings</div>
-        <div class="lc-grid">
-          <label class="lc-field"><span>File size (KB)</span><input type="number" id="lcbootkb" min="64" max="16384" step="64"></label>
-          <label class="lc-field"><span>Number of files</span><input type="number" id="lcbootn" min="2" max="40"></label>
-          <label class="lc-field"><span>Pause below (MB free)</span><input type="number" id="lcbootfree" min="50" max="5000"></label>
-          <label class="lc-field" title="Older rotated parts are deleted; 0 keeps them until the file limit replaces them"><span>Keep days (0 = off)</span><input type="number" id="lcbootdays" min="0" max="365"></label>
-        </div>
-        <div class="btnrow"><button id="lcbootinstall" class="lc-go">Turn on boot capture</button><button id="lcbootremove" class="danger">Turn off</button></div>
-        <div class="mut" id="lcbootbtnhint" style="font-size:11px">The numbers above are saved when you press the first button.</div>
-        <label class="mut lc-keep"><input type="checkbox" id="lcbootpurge"> When turning off, also delete the captured files</label>
-        <div class="lc-sub">View captured files</div>
-        <select id="lcbootfile" title="Capture file" class="lc-wide"></select>
-        <div class="btnrow"><button id="lcbootprev">&laquo; Prev</button><button id="lcbootnext">Next &raquo;</button><button id="lcbootlast">Latest</button><button id="lcbootcopy">Copy</button></div>
-        <div class="btnrow lc-jump"><input id="lcbootjump" placeholder="Jump to time, e.g. 11-08 16:00"><button id="lcbootgo">Go</button></div>
-        <label class="mut lc-keep"><input type="checkbox" id="lcbootcopyall"> Copy the whole file (not just this page)</label>
-        <div class="mut" id="lcbootpos"></div>
-        <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin:0">Nothing loaded.</pre>
-      </div>
+    <details id="lcboot" style="margin-bottom:8px"><summary>Advanced: record from boot (Magisk, runs without the app)</summary>
+      <div class="mut" style="margin-top:8px;font-size:12px">What it does: a small script is added to Magisk and records the phone's system log and kernel log from boot, into files, even when this app is closed. Nothing else on the phone is changed.</div>
+      <div class="mut" id="lcbootstate" style="margin-top:8px">Open this section to read the state (needs root).</div>
+      <div class="btnrow" style="margin-top:8px"><label class="mut">File size KB <input type="number" id="lcbootkb" min="64" max="16384" step="64" style="width:6em"></label><label class="mut">Files <input type="number" id="lcbootn" min="2" max="40" style="width:4em"></label><label class="mut">Pause below MB free <input type="number" id="lcbootfree" min="50" max="5000" style="width:5em"></label><label class="mut" title="Older rotated parts are deleted; 0 keeps them until the file limit replaces them">Keep days (0 = off) <input type="number" id="lcbootdays" min="0" max="365" style="width:4em"></label></div>
+      <div class="btnrow" style="margin-top:8px"><button id="lcbootinstall">Turn on boot capture</button><button id="lcbootremove" class="danger">Turn off</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbootpurge"> when turning off, also delete the captured files</label></div>
+      <div class="mut" id="lcbootbtnhint" style="margin-top:4px;font-size:11px">The three numbers above are saved when you press the first button.</div>
+      <div class="btnrow" style="margin-top:8px"><select id="lcbootfile" title="Capture file" data-pick="wide"></select><button id="lcbootprev">&laquo; Prev</button><button id="lcbootnext">Next &raquo;</button><button id="lcbootlast">Latest</button><input id="lcbootjump" placeholder="Jump to time, e.g. 11-08 16:00" style="min-width:12em"><button id="lcbootgo">Go</button></div>
+      <div class="btnrow" style="margin-top:8px"><button id="lcbootcopy">Copy</button><label class="mut" style="white-space:nowrap"><input type="checkbox" id="lcbootcopyall"> copy whole file (not just this page)</label></div>
+      <div class="mut" id="lcbootpos" style="margin-top:6px"></div>
+      <pre id="lcbootout" style="white-space:pre-wrap;max-height:40vh;overflow:auto;margin-top:6px">Nothing loaded.</pre>
     </details>
     <div class="popfoot"><button type="button" onclick="openPop('logbasket');window.lbOpen&&window.lbOpen()">Back to basket</button><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -7336,6 +7285,196 @@ window.lbOpen=load;
 })();
 
 /* @end-include web-src/log-basket.js */
+</script>
+<script>
+/* @include web-src/pick-ui.js */
+/* Popup pickers. The phone's own dropdown list and date/time wheel take over the whole screen; this shows the same choices in a popup in the page's own style.
+   The real <select> / <input type="datetime-local"> stay in the page (hidden), so every handler that reads .value or listens for input/change keeps working.
+   Covers selects and date-time fields inside pop-up dialogs (not the Plugins window) and the header. Controls added later are picked up too. */
+(()=>{
+'use strict';
+if(window.MT_pick)return;
+const doc=document,pad=n=>String(n).padStart(2,'0');
+const el=(tag,cls,text)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
+const css=`
+.mt-pick{display:inline-flex;align-items:center;justify-content:space-between;gap:6px;box-sizing:border-box;min-width:7em;max-width:100%;height:26px;padding:0 8px;border-radius:6px;border:1px solid var(--bd,#24466e);background:#080f1c;color:var(--fg,#e8f0ff);font-size:11.5px;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none}
+.mt-pick:focus-visible{outline:2px solid var(--acc2,#7fb2ff);outline-offset:1px}
+.mt-pick.mt-off{opacity:.5;pointer-events:none}
+.mt-pick-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.mt-pick-c{opacity:.7;font-size:10px}
+.mt-pick.mt-wide{flex:1 1 12em}
+.mt-bg{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(2,6,14,.78);-webkit-tap-highlight-color:transparent}
+.mt-sheet{width:min(420px,100%);max-height:min(80vh,580px);display:flex;flex-direction:column;overflow:hidden;color:var(--fg,#e8f0ff);background:linear-gradient(150deg,#0f1b2e,#0a1321);border:1px solid rgba(255,255,255,.12);border-radius:16px;box-shadow:0 20px 60px #000c}
+.mt-title{padding:12px 16px 8px;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acc2,#7fb2ff)}
+.mt-body{min-height:0;overflow:auto;padding:0 8px 6px;-webkit-overflow-scrolling:touch}
+.mt-grp{padding:10px 10px 4px;font-size:11px;font-weight:800;color:var(--acc2,#7fb2ff)}
+.mt-opt{display:flex;align-items:center;gap:10px;min-height:40px;padding:8px 10px;border-radius:10px;font-size:13px;line-height:1.35;cursor:pointer}
+.mt-opt:hover{background:rgba(255,255,255,.06)}
+.mt-opt.on{background:rgba(77,163,255,.16)}
+.mt-opt.off{opacity:.45;cursor:default}
+.mt-opt-t{flex:1;min-width:0;overflow-wrap:anywhere}
+.mt-ck{width:1em;text-align:center;font-weight:800;color:#4da3ff}
+.mt-foot{display:flex;justify-content:flex-end;gap:8px;padding:8px 12px 12px;border-top:1px solid rgba(255,255,255,.08)}
+.mt-foot .mt-left{margin-right:auto}
+.mt-foot button{min-height:34px;height:34px;padding:0 16px;font-size:13px}
+.mt-foot button.mt-go{background:linear-gradient(180deg,#1f7ae0,#1560b8);border-color:#4da3ff;color:#fff}
+.mt-cal-h{display:flex;align-items:center;justify-content:space-between;padding:2px 6px 6px}
+.mt-cal-t{font-size:14px;font-weight:700}
+.mt-nav{display:flex;align-items:center;justify-content:center;width:40px;height:36px;border-radius:10px;font-size:18px;cursor:pointer}
+.mt-nav:hover{background:rgba(255,255,255,.08)}
+.mt-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;padding:0 4px}
+.mt-wd{padding:4px 0;text-align:center;font-size:10.5px;color:var(--mut,#8aa4c8)}
+.mt-day{display:flex;align-items:center;justify-content:center;height:38px;border-radius:10px;font-size:13px;cursor:pointer}
+.mt-day:hover{background:rgba(255,255,255,.08)}
+.mt-day.now{outline:1px solid rgba(255,255,255,.35)}
+.mt-day.on{background:#1f7ae0;color:#fff;font-weight:700}
+.mt-time{display:flex;align-items:center;gap:8px;padding:10px 10px 4px;font-size:12px;color:var(--mut,#8aa4c8)}
+.mt-time input{width:4.5em;min-height:36px;text-align:center;font-size:15px}
+@media(max-width:600px){.mt-pick{height:34px;font-size:13px}.mt-opt{min-height:44px;font-size:14px}}
+`;
+const st=el('style');st.id='mt-pick-style';st.textContent=css;doc.head.appendChild(st);
+
+let cur=null;
+function close(){
+ if(!cur)return;const c=cur;cur=null;
+ c.bg.remove();window.removeEventListener('keydown',c.key,true);
+ try{if(c.anchor&&c.anchor.focus)c.anchor.focus({preventScroll:true})}catch(e){}
+}
+/* One popup at a time, centred over the page, above every dialog. Tap outside or press Escape to close. */
+function sheet(title,anchor,build){
+ close();
+ const bg=el('div','mt-bg'),box=el('div','mt-sheet'),body=el('div','mt-body');
+ box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);
+ box.append(el('div','mt-title',title),body);bg.appendChild(box);
+ bg.addEventListener('click',e=>{if(e.target===bg)close()});
+ const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close()}};
+ window.addEventListener('keydown',key,true);doc.body.appendChild(bg);cur={bg,key,anchor};
+ build(body,box);
+ return box;
+}
+function foot(box,items){
+ const f=el('div','mt-foot');
+ for(const it of items){const b=el('button',it.cls||'',it.text);b.type='button';b.addEventListener('click',it.fn);f.appendChild(b)}
+ box.appendChild(f);return f;
+}
+function labelOf(c){
+ const clean=t=>(t||'').replace(/\s+/g,' ').replace(/:$/,'').trim();
+ const l=c.closest('label');
+ if(l){const sp=l.querySelector(':scope > span');const t=clean(sp?sp.textContent:[...l.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' '));if(t)return t}
+ if(c.id){const f=doc.querySelector('label[for="'+c.id+'"]');if(f&&clean(f.textContent))return clean(f.textContent)}
+ return clean(c.getAttribute('aria-label')||c.title)||'Choose';
+}
+/* A trigger that looks like the control it replaces. The real control keeps its place in the page, hidden. */
+function trigger(real,wide){
+ const t=el('div','mt-pick'+(wide?' mt-wide':'')),tx=el('span','mt-pick-t'),ca=el('span','mt-pick-c','▾');
+ t.tabIndex=0;t.setAttribute('role','button');t.setAttribute('aria-haspopup','dialog');t.setAttribute('aria-label',labelOf(real));
+ t.append(tx,ca);
+ if(real.closest('header')){if(real.className)t.className+=' '+real.className;t.style.cssText+=real.style.cssText}
+ real.parentNode.insertBefore(t,real.nextSibling);real.style.setProperty('display','none','important');
+ return{t,tx};
+}
+function hook(real,proto,props,sync){
+ for(const p of props){
+  const d=Object.getOwnPropertyDescriptor(proto,p);if(!d||!d.set)continue;
+  Object.defineProperty(real,p,{configurable:true,get(){return d.get.call(real)},set(v){d.set.call(real,v);sync()}});
+ }
+}
+function activate(t,fn){
+ t.addEventListener('click',fn);
+ t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();fn()}});
+}
+function fire(real){real.dispatchEvent(new Event('input',{bubbles:true}));real.dispatchEvent(new Event('change',{bubbles:true}))}
+
+function enhanceSelect(s){
+ if(s.multiple||s.size>1)return;
+ const{t,tx}=trigger(s,s.dataset.pick==='wide');
+ const sync=()=>{const o=s.options[s.selectedIndex];tx.textContent=o?o.text.replace(/\s+/g,' ').trim():'';t.classList.toggle('mt-off',s.disabled)};
+ hook(s,HTMLSelectElement.prototype,['value','selectedIndex'],sync);
+ new MutationObserver(sync).observe(s,{childList:true,subtree:true,attributes:true,attributeFilter:['disabled']});
+ sync();
+ activate(t,()=>{
+  if(s.disabled)return;
+  sheet(labelOf(s),t,(body,box)=>{
+   let on=null;
+   const add=o=>{
+    const r=el('div','mt-opt'+(o.selected?' on':'')+(o.disabled?' off':''));
+    r.setAttribute('role','option');r.append(el('span','mt-opt-t',o.text.replace(/\s+/g,' ').trim()),el('span','mt-ck',o.selected?'✓':''));
+    if(!o.disabled)r.addEventListener('click',()=>{const was=s.selectedIndex;close();if(o.index!==was){s.selectedIndex=o.index;fire(s)}});
+    body.appendChild(r);if(o.selected)on=r;
+   };
+   for(const n of s.children){
+    if(n.tagName==='OPTGROUP'){body.appendChild(el('div','mt-grp',n.label));for(const o of n.children)add(o)}
+    else if(n.tagName==='OPTION')add(n);
+   }
+   foot(box,[{text:'Cancel',fn:close}]);
+   if(on)on.scrollIntoView({block:'center'});
+  });
+ });
+}
+
+const parse=v=>{const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v||'');return m?{y:+m[1],mo:+m[2]-1,d:+m[3],h:+m[4],mi:+m[5]}:null};
+function enhanceDate(inp){
+ const{t,tx}=trigger(inp,false);
+ const sync=()=>{const v=inp.value;tx.textContent=v?v.replace('T',' '):'Any time';tx.style.opacity=v?'':'.6'};
+ hook(inp,HTMLInputElement.prototype,['value'],sync);
+ sync();
+ activate(t,()=>{
+  const n=new Date(),p=parse(inp.value)||{y:n.getFullYear(),mo:n.getMonth(),d:n.getDate(),h:n.getHours(),mi:n.getMinutes()};
+  let vy=p.y,vm=p.mo;
+  sheet(labelOf(inp),t,(body,box)=>{
+   const head=el('div','mt-cal-h'),prev=el('div','mt-nav','‹'),next=el('div','mt-nav','›'),title=el('div','mt-cal-t'),grid=el('div','mt-grid');
+   prev.setAttribute('role','button');next.setAttribute('role','button');prev.setAttribute('aria-label','Previous month');next.setAttribute('aria-label','Next month');
+   head.append(prev,title,next);
+   const draw=()=>{
+    title.textContent=new Date(vy,vm,1).toLocaleDateString(undefined,{month:'long',year:'numeric'});
+    grid.textContent='';
+    for(const w of ['S','M','T','W','T','F','S'])grid.appendChild(el('div','mt-wd',w));
+    const first=new Date(vy,vm,1).getDay(),days=new Date(vy,vm+1,0).getDate(),today=new Date();
+    for(let i=0;i<first;i++)grid.appendChild(el('div'));
+    for(let d=1;d<=days;d++){
+     const isNow=today.getFullYear()===vy&&today.getMonth()===vm&&today.getDate()===d;
+     const c=el('div','mt-day'+(p.y===vy&&p.mo===vm&&p.d===d?' on':'')+(isNow?' now':''),String(d));
+     c.setAttribute('role','button');
+     c.addEventListener('click',()=>{p.y=vy;p.mo=vm;p.d=d;draw()});
+     grid.appendChild(c);
+    }
+   };
+   const move=k=>{vm+=k;if(vm<0){vm=11;vy--}else if(vm>11){vm=0;vy++}draw()};
+   prev.addEventListener('click',()=>move(-1));next.addEventListener('click',()=>move(1));
+   const time=el('div','mt-time'),hh=el('input'),mm=el('input');
+   for(const [i,max,v,lab] of [[hh,23,p.h,'Hour'],[mm,59,p.mi,'Minute']]){i.type='number';i.min='0';i.max=String(max);i.value=pad(v);i.setAttribute('inputmode','numeric');i.setAttribute('aria-label',lab)}
+   time.append(el('span','','Time (24 h)'),hh,el('span','',':'),mm);
+   body.append(head,grid,time);draw();
+   const num=(i,max)=>Math.min(max,Math.max(0,parseInt(i.value,10)||0));
+   foot(box,[
+    {text:'Clear',cls:'mt-left',fn:()=>{close();if(inp.value){inp.value='';fire(inp)}}},
+    {text:'Cancel',fn:close},
+    {text:'Set',cls:'mt-go',fn:()=>{const v=p.y+'-'+pad(p.mo+1)+'-'+pad(p.d)+'T'+pad(num(hh,23))+':'+pad(num(mm,59));close();if(inp.value!==v){inp.value=v;fire(inp)}}}
+   ]);
+  });
+ });
+}
+
+const inScope=c=>!!c.closest&&!!c.closest('.card.pop, header')&&!c.closest('#pluginmgr')&&!c.closest('.mt-bg');
+function scan(root){
+ if(!root||root.nodeType!==1)return;
+ const list=[];if(root.matches('select,input[type="datetime-local"]'))list.push(root);
+ root.querySelectorAll('select,input[type="datetime-local"]').forEach(c=>list.push(c));
+ for(const c of list){
+  if(c.dataset.mtPick||!inScope(c)||!c.parentNode)continue;
+  c.dataset.mtPick='1';
+  try{c.tagName==='SELECT'?enhanceSelect(c):enhanceDate(c)}catch(e){delete c.dataset.mtPick}
+ }
+}
+function init(){
+ scan(doc.body);
+ new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)scan(n)}).observe(doc.body,{childList:true,subtree:true});
+}
+window.MT_pick=Object.freeze({scan,close});
+if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else init();
+})();
+
+/* @end-include web-src/pick-ui.js */
 </script>
 <script>
 /* @include web-src/a11y.js */
