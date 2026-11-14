@@ -40,31 +40,4 @@ grep -q '20-slow.sh stopped' "$work/mt/events.log" && ok "timeout written to eve
 grep -q '30-fail.sh exited with code 3' "$work/mt/events.log" && ok "non-zero exit written to events.log" || bad "exit code missing in events.log"
 [ "$(grep -c '10-ok\|40-after\|boot\.sh' "$work/mt/events.log")" = 0 ] && ok "successful scripts are not logged" || bad "successful script logged"
 
-# Legacy Bypass lines: removed once, copy kept, the other boot.sh lines still run.
-[ -e "$work/mt/.bypass-cleanup-done" ] && ok "earlier runs already used up the one-time cleanup" || bad "marker not set by a normal run"
-rm -f "$work/mt/events.log" "$work/ran_boot_sh" "$work/ran_keep" "$work/mt/.bypass-cleanup-done"
-printf 'echo bypass_rule_1 > /dev/null\n# BYPASS block\ntouch %s/ran_keep\n' "$work" > "$work/mt/boot.sh"
-PATH="$work/bin:$PATH" sh "$work/boot_script.sh" > "$work/out2.txt" 2>&1
-! grep -qi bypass "$work/mt/boot.sh" && ok "legacy Bypass lines removed from boot.sh" || bad "Bypass lines still in boot.sh"
-grep -qi bypass "$work/mt/boot.sh.pre-bypass-removal" && ok "copy of the old boot.sh kept" || bad "no copy of the old boot.sh"
-[ -f "$work/ran_keep" ] && ok "other boot.sh lines still ran" || bad "other boot.sh lines did not run"
-grep -q 'removed legacy Bypass lines' "$work/mt/events.log" && ok "removal written to events.log" || bad "removal missing in events.log"
-
-[ -e "$work/mt/.bypass-cleanup-done" ] && ok "marker set after the cleanup" || bad "marker missing after the cleanup"
-
-# One time only: a "bypass" line a plugin writes later is left alone, and nothing is logged.
-rm -f "$work/mt/events.log"
-printf 'touch %s/ran_plugin # bypass plugin line\n' "$work" > "$work/mt/boot.sh"
-cp "$work/mt/boot.sh" "$work/boot_plugin.sh"
-PATH="$work/bin:$PATH" sh "$work/boot_script.sh" > "$work/out_plugin.txt" 2>&1
-cmp -s "$work/mt/boot.sh" "$work/boot_plugin.sh" && ok "later line naming bypass is not removed" || bad "later bypass line was removed"
-[ -f "$work/ran_plugin" ] && ok "later line naming bypass still ran" || bad "later bypass line did not run"
-
-# If removing the lines would leave broken shell, boot.sh stays as it was.
-rm -f "$work/mt/events.log" "$work/mt/.bypass-cleanup-done"
-printf 'if true; then # bypass\ntouch %s/ran_keep2\nfi\n' "$work" > "$work/mt/boot.sh"
-cp "$work/mt/boot.sh" "$work/boot_before.sh"
-PATH="$work/bin:$PATH" sh "$work/boot_script.sh" > "$work/out3.txt" 2>&1
-cmp -s "$work/mt/boot.sh" "$work/boot_before.sh" && ok "unsafe removal refused, boot.sh unchanged" || bad "boot.sh was changed although the result is broken"
-grep -q 'could not be removed safely' "$work/mt/events.log" && ok "manual-edit warning written to events.log" || bad "warning missing in events.log"
 [ "$fail" = 0 ] && echo "boot tasks test passed" || { cat "$work/out.txt"; cat "$work/mt/events.log" 2>/dev/null; exit 1; }

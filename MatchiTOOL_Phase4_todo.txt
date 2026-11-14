@@ -42,6 +42,10 @@ STEPS 3-6 RESULT (2026-11-14)
   Not touched: docs/TESTING.md and docs/F50_CHECKLIST_1.4.1.md (not read). docs/CHANGELOG_DETAIL.md line 64 only relabelled.
   SECURITY.md line 3 names docs/ROOT_INTEGRATION_1.1.52.md as merged history; the file does not exist, which is correct (not a link).
 
+PHASE 3 DEVICE STATUS ANSWERED (owner, 2026-11-14): "all I tested" = Phase 3 tests A-E and Turn off and stop were run on the F50; test F waived. No per-test pass/fail was given, so the docs say
+  "run on the F50 by the owner (the owner's report, per-test results not written in the repo)". Updated: README, SECURITY.md, CHANGELOG.md, docs/PLUGIN_STOP.md. Phase 4 is closed.
+  Optional later: tick A-E in MatchiTOOL_Phase3_todo.txt with the real results, then the docs can name them.
+
 STEP 1 RESULT (2026-11-13)
   README.md: the two wrong bullets ("Side effects are listed, not undone" / "Not covered: processes ... firewall rules, uploaded files") are replaced by: one bullet pointing on, a paragraph "Delete and stop, Turn off and stop (1.4.1)"
   (order: declared commands, process sweep, undo of firewall chains and boot.d scripts, re-check; all as root; Delete asks root gate + password), a paragraph on Turn off and stop (NO password, root gate and approved-file rule still apply),

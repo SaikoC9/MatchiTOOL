@@ -65,7 +65,7 @@ TABLE = {
   ('POST', '/api/plugins/approve'): ('GATE', 'also needs the sign-in password'),
   ('POST', '/api/plugins/call'): ('PARTIAL', 'sandboxed plugins only; the host checks the approved record on every call; the shell op needs the gate, AT reads and router reads are read-only'),
   ('POST', '/api/plugins/mode'): ('GATE', 'also needs the sign-in password; both directions (sandbox and trusted)'),
-  ('POST', '/api/plugins/data'): ('OPEN', 'read-only existence probe of paths that passed checkPluginDataPath'),
+  ('POST', '/api/plugins/data'): ('PARTIAL', 'the route itself stays open (a refusal would hide the stop plan: the page treats an error as "nothing to show"); its two root calls, the existence probe of paths that passed checkPluginDataPath and the process scan, run only when rootGate lets the request through; the plan, undo list, uploads and effects come from files and the ledger, not from root'),
   ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data or running its stop commands needs the gate; every delete needs the sign-in password, except keep:true; with keep:true (Disable and stop) it stops and switches the plugin off, nothing is deleted or erased'),
   ('POST', '/api/plugins/toggle'): ('OPEN', ''),
   ('POST', '/api/plugins/scan'): ('OPEN', ''),
@@ -99,7 +99,6 @@ TABLE = {
 ROOT_WITHOUT_GATE = {
   '/api/root/status': 'RootShell.status only',
   '/api/one_click_shell': 'RootShell.status only',
-  '/api/plugins/data': 'fixed read-only probe script',
   '/api/plugins/toggle': 'stores which plugins are switched off',
 }
 DANGEROUS = ('RootShell.run', 'RootShell.exec', 'UserShell.run', 'ApkUpdater.install', 'ZteClient.setSessionCookie', 'ZteClient.proxy')
@@ -145,6 +144,17 @@ for key in TABLE:
 for fname, head, paths, methods, body in branches():
     if gate_class(head, body) == 'GATE' and head.count('rootGate(s)') != 1:
         errors.append(f'{fname}: {paths} should call rootGate exactly once, at the start')
+
+# 1.4.2 (F10): /api/plugins/data must keep both of its root calls (existence probe, process scan) behind the gate decision. A refused request gets the
+# "cannot be checked" answer, not an error, so the page still shows the stop plan.
+for fname, head, paths, methods, body in branches():
+    if '/api/plugins/data' in paths:
+        if 'val gated = rootGate(s) != null' not in body: errors.append(f'{fname}: /api/plugins/data must compute  val gated = rootGate(s) != null')
+        for l in body.split('\n'):
+            code = l.split('//')[0]
+            if ('RootShell.run(' in code or 'pluginSweep(' in code) and 'gated' not in code:
+                errors.append(f'{fname}: /api/plugins/data runs root outside the gated decision: {l.strip()}')
+        if 'refusedSweep()' not in body: errors.append(f'{fname}: /api/plugins/data must answer a refused request with refusedSweep(), not an error')
 
 # Plain-HTTP and sign-in age rules live in one function.
 ws = (D / 'WebServer.kt').read_text()

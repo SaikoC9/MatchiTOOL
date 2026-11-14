@@ -21,27 +21,27 @@ const withSweep = (c, h) => ({ sweep: { rootOk: true, candidates: c, notStopped:
 
 // ---- the pure helpers
 const sw0 = sweepUi.sweepNorm(mkInfo()), un0 = undoUi.undoNorm(mkInfo()), unF = undoUi.undoNorm(mkInfo({ undo: UNDO }));
-test('dialog: stop mode lists commands, says the file and data stay, offers \"Turn off only\"', () => {
+test('dialog: stop mode lists commands, says the file stays and the data stays unless the commands remove it, offers \"Turn off only\"', () => {
   const d = ui.disableDialog('A.js', { commands: ['pkill -f beat'], check: 'pgrep -f beat' }, sw0, un0, 'stop', false);
-  assert.ok(d.message.includes('Its file and its data stay') && d.message.includes('\u2022 pkill -f beat') && d.message.includes('\u2022 pgrep -f beat'));
+  assert.ok(d.message.includes('The plugin file stays. Its saved data stays unless the stop commands listed below remove it.') && !d.message.includes('Its file and its data stay') && d.message.includes('\u2022 pkill -f beat') && d.message.includes('\u2022 pgrep -f beat'));
   assert.strictEqual(d.okText, 'Turn off and stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off only', value: 'skip' }]); assert.ok(!/delete/i.test(d.message));
 });
 test('dialog: sweep mode lists processes and the undo items', () => {
   const sw = sweepUi.sweepNorm(mkInfo(withSweep([c1], 'H1')));
   const d = ui.disableDialog('A.js', {}, sw, unF, 'sweep', false);
-  assert.ok(d.message.includes('PID 11 beat.sh') && d.message.includes(CH) && d.message.includes(BT) && d.message.includes('if it is still there') && d.message.includes('declares no stop commands'));
+  assert.ok(d.message.includes('Its file and its data stay.')); assert.ok(d.message.includes('PID 11 beat.sh') && d.message.includes(CH) && d.message.includes(BT) && d.message.includes('if it is still there') && d.message.includes('declares no stop commands'));
   assert.strictEqual(d.okText, 'Turn off and stop');
 });
 test('dialog: cannot / toomany only offer turning off without stopping, and say the items stay', () => {
   const dc = ui.disableDialog('A.js', { refused: [{ command: 'rm -rf x', reason: 'not allowed' }] }, sw0, unF, 'cannot', false);
-  assert.strictEqual(dc.okText, 'Turn off without stopping'); assert.deepStrictEqual(dc.extra, []); assert.ok(dc.message.includes('rm -rf x (not allowed)') && dc.message.includes('stay in the system'));
+  assert.strictEqual(dc.okText, 'Turn off without stopping'); assert.deepStrictEqual(dc.extra, []); assert.ok(dc.message.includes('Its file and its data stay.')); assert.ok(dc.message.includes('rm -rf x (not allowed)') && dc.message.includes('stay in the system'));
   const sw = sweepUi.sweepNorm(mkInfo({ sweep: { rootOk: true, overCap: true, found: 61, candidates: [c1] } }));
   const dt = ui.disableDialog('A.js', {}, sw, un0, 'toomany', false);
   assert.strictEqual(dt.okText, 'Turn off without stopping'); assert.ok(dt.message.includes('61'));
 });
 test('dialog: shared copy skips the stop by default and offers \"Turn off and stop anyway\"', () => {
   const d = ui.disableDialog('A.js', { commands: ['x'], shared: ['B.js'] }, sw0, un0, 'shared', false);
-  assert.strictEqual(d.okText, 'Turn off, skip the stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off and stop anyway', value: 'stop' }]); assert.ok(d.message.includes('B.js'));
+  assert.strictEqual(d.okText, 'Turn off, skip the stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off and stop anyway', value: 'stop' }]); assert.ok(d.message.includes('B.js') && d.message.includes('unless the stop commands listed below remove it'));
 });
 test('wantsStop: only the stop buttons; the default of shared and every skip does not', () => {
   assert.strictEqual(ui.disableWantsStop('stop', true, null), true); assert.strictEqual(ui.disableWantsStop('sweep', true, null), true);

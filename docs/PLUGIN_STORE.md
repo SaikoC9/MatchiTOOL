@@ -43,9 +43,16 @@ The file's SHA-256, whether the store listed the same hash, whether the source c
 
 Installing needs the same fresh sign-in as every other plugin upload (the server enforces it).
 
-### What the install dialog does not show
+### What the install dialog shows about stopping (1.4.2)
 
-The dialog is built from the store entry and a text search of the source (`storeSummary`, `plugScan`, `plugCompat` in `web-src/plugin-store-pure.js`). It does **not** list the plugin's stop header lines (`// @matchi-uninstall`, `// @matchi-check`, `// @matchi-boot`; see [`PLUGIN_HEADERS.md`](PLUGIN_HEADERS.md)). A first install of a plugin that declares root stop commands therefore does not show them before you confirm. They are shown later: the Delete and Turn off dialogs list them word for word before anything runs, and an **update** of an installed plugin that adds a new `@matchi-uninstall` command asks again ("This update adds new abilities ... when deleted with Stop, runs this root command: ..."). The store dialog also takes name, version and author from the store index, not from the `@matchi-name`, `@matchi-version` and `@matchi-author` lines of the file. Showing the stop commands in the install dialog is open for 1.4.2.
+The dialog is built from the store entry and a text search of the source (`storeSummary`, `plugScan`, `plugCompat` in `web-src/plugin-store-pure.js`). For a single `.js` plugin it also reads the stop header lines (`// @matchi-uninstall`, `// @matchi-check`, `// @matchi-boot`; see [`PLUGIN_HEADERS.md`](PLUGIN_HEADERS.md)) with `plugStopDecls`, which follows the same rules as the host (`pluginUninstallDeclarations`: first 400 lines, a line must start with `//`, at most 10 commands of 1 to 300 characters without control characters, duplicates dropped, one check, at most 5 boot paths). When there are any, the dialog adds:
+
+- **"When deleted with Stop, it runs these commands as ROOT:"** and the commands, each cut at 120 characters with `...`, at most 10;
+- **"Then it checks with:"** and the check command;
+- **"Boot files it says it creates"** and the boot paths (they are only checked for, to see that they are gone);
+- the line **"The Delete dialog shows each command in full before anything runs."**
+
+A plugin without these lines gets no extra lines. Limits: this is a text read of the file you downloaded, not a promise; whether a command may run is decided later by the host (command filter, approval, sandbox grant), and the Delete and Turn off dialogs list the commands word for word before anything runs. A UFI-TOOLS bundle (`.txt` / `.html` blocks) is imported through the UFI importer and its dialog shows no stop lines (it is not known whether the host reads these headers inside a bundle block). The store dialog also takes name, version and author from the store index, not from the `@matchi-name`, `@matchi-version` and `@matchi-author` lines of the file. An **update** of an installed plugin that adds a new `@matchi-uninstall` command still asks again ("This update adds new abilities ... when deleted with Stop, runs this root command: ...").
 
 ## Not included
 

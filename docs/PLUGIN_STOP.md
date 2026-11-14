@@ -1,12 +1,12 @@
 # Stopping what a plugin started (author guide)
 
-Current for MatchiTOOL 1.4.1 (unreleased code).
+Current for MatchiTOOL 1.4.2.
 
 How much has been checked (CI = the GitHub Actions run: Validate, Unit tests, Build debug and release):
 
 - **Header lines** (`@matchi-uninstall`, `@matchi-check`, `@matchi-boot`, the plan, the shared-folder guard, "a failed stop keeps the plugin"): run on the F50 in Phase 1 (tests A-H and a real Bypass v65_17 delete). See `MatchiTOOL_Phase1_todo.txt`.
 - **The process sweep** (section "Plugins without headers: the process sweep"): compiled and unit-tested in CI, and run on the F50 on 13 Nov 2026 with test plugins: found by tag, a process that ignores SIGTERM, a watchdog that respawns, the sweep not killing itself or the root session, root off (plugin kept), the 60 second limit (plugin kept), a sandboxed plugin's tagged command, and a Bypass copy with and without headers. Results and caveats per test: `MatchiTOOL_Phase2_todo.txt` (tests A-K and M). Not run on the device: **the sandbox stop hook** (test L), so read "The stop hook" below as "designed to", not "proven to".
-- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two Phase 3 sections below): compiled and unit-tested in CI (pure logic and the generated shell scripts also tested on a PC, the page by node tests). **No F50 result for them is recorded** in `MatchiTOOL_Phase3_todo.txt` (its device tests A-F are not ticked), and the no-root / timeout path (test F) was waived and not run. Read those sections as "designed to", not "proven to", until results are written there.
+- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two Phase 3 sections below): compiled and unit-tested in CI (pure logic and the generated shell scripts also tested on a PC, the page by node tests), and run on the F50 by the owner (Phase 3 tests A-E: Bypass without headers, a reboot, two copies sharing one chain, boot files of other plugins, system chains). This is the owner's report: the per-test results are not written in `MatchiTOOL_Phase3_todo.txt` (its tests are still unticked there). The no-root / timeout path (test F) was waived and **not run**, so how the undo behaves without root or when time runs out is covered by unit tests only.
 
 Deleting a plugin removes its file and its data. On its own it does **not** stop a background process, remove a firewall rule or take out a boot-script line the plugin created, because MatchiTOOL cannot know about them. A plugin can say how to stop them with header lines. For a plugin that says nothing, MatchiTOOL looks for processes (Phase 2) and undoes the firewall chains and boot scripts it saw the plugin create (Phase 3). When the person deletes the plugin, the Delete dialog lists these commands word for word and, after the root gate and the sign-in password, runs them as root.
 
@@ -52,7 +52,7 @@ Installing a file under the **same name** never runs the stop; only Delete does.
 
 ## Plugins without headers: the process sweep
 
-A plugin that declares nothing can still have started something. So when the person deletes it, MatchiTOOL looks for processes the plugin started and offers to end them. This needs root (the same root gate and sign-in password as the header stop), and it only ever ends what the dialog showed.
+A plugin that declares nothing can still have started something. So when the person deletes it, MatchiTOOL looks for processes the plugin started and offers to end them. This needs root (the same root gate and sign-in password as the header stop), and it only ever ends what the dialog showed. The list of running processes is read only when the root gate lets the request through (sign-in under 4 h, HTTP rules). On a session older than that the dialog still shows the plan and the undo list, and says that the process part "could not be checked"; nothing is guessed (1.4.2).
 
 ### How a process is found
 
@@ -193,11 +193,11 @@ A chain the plugin did not create is never flushed or deleted: Android's own cha
 
 ## Turn off and stop (Phase 3)
 
-Switching a plugin **off** can also stop what it started and undo what it left, **without deleting** the plugin or its data. The switch shows **Turn off** and, when there is something to stop, a dialog.
+Switching a plugin **off** can also stop what it started and undo what it left, **without deleting** the plugin file (its saved data stays unless the plugin's own stop commands remove it). The switch shows **Turn off** and, when there is something to stop, a dialog.
 
 - The page first reads what a stop would do (the same data as Delete). If there is nothing to stop, the plugin is switched off at once, as before, with no dialog.
 - Otherwise the dialog lists the commands, the processes and the undo items, with the same wording as Delete, and offers **Turn off and stop** or **Turn off only**. If a command is refused or too many processes were found, only **Turn off without stopping** is offered. For a plugin that is shared with another copy, the default skips the stop and **Turn off and stop anyway** runs it.
-- **Turn off and stop** sends the same request as Delete with `keep: true`: the same hashes (plan, sweep, undo), the same order, the same re-check and the same root gate. It never erases the file, its data, its uploads or its ledger.
+- **Turn off and stop** sends the same request as Delete with `keep: true`: the same hashes (plan, sweep, undo), the same order, the same re-check and the same root gate. The host never erases the file, its data folders, its uploads or its ledger on Turn off; the plugin's own stop commands are plugin code and may remove runtime folders, so the dialog says "Its saved data stays unless the stop commands listed below remove it" when it lists commands (1.4.2).
 - A stop that does not fully succeed returns the same report, and the plugin **stays on**. Only after a clean stop is the plugin switched off (audit kind `plugin-disable`).
 - **No password is asked**, like for a plain switch. Anyone who holds the open session could therefore run a plugin's own, already approved stop commands as root without typing the password. The stop is refused if the plugin file differs from the approved one, and the root gate still applies. This was a decision, not an oversight.
 - **Turn off only** and every "without stopping" button use the old switch request, so a missing root or a failing stop can never make it impossible to turn a plugin off. Turning a plugin **on** is unchanged.
@@ -213,13 +213,11 @@ Switching a plugin **off** can also stop what it started and undo what it left, 
 - **Not a security boundary.** A plugin can lie about its name. Phase 3 protects a person from a **forgetful** plugin, not from a **hostile** one. A boot script runs as root at every boot, which is why deleting one is held to exact names, a root-owned regular file and the shared-copy guard.
 - **The re-check proves the chain and the file, not the whole plugin.** It says nothing about processes (the second scan does) or about anything outside the items listed.
 
-## The legacy Bypass boot cleanup (kept for 1.4.1, removed in 1.4.2)
+## The legacy Bypass boot cleanup (removed in 1.4.2)
 
-The host still holds one piece of code that names a specific plugin: the **one-time** cleanup in `HostService.kt` that takes lines naming "bypass" out of `/data/local/matchitool/boot.sh` (marker `.bypass-cleanup-done`, copy kept as `boot.sh.pre-bypass-removal`). It was added in 1.4.1 for devices that still had the old built-in Bypass tool's boot lines. It is **kept for 1.4.1 only** and removed in **1.4.2**; no calendar date is set. It has nothing to do with the undo above: a plugin's own boot file in `boot.d` is undone by "Delete and stop", and anything else is the plugin's `@matchi-uninstall`.
+MatchiTOOL 1.4.1 held one piece of code that named a specific plugin: a one-time cleanup that took lines naming "bypass" out of `/data/local/matchitool/boot.sh` (marker `.bypass-cleanup-done`, copy `boot.sh.pre-bypass-removal`). **1.4.2 removed it.** No app code names a plugin any more. The marker and the copy may still sit on a device; nothing reads them.
 
-What the removal means: a device that goes from a version before 1.4.1 straight to 1.4.2 never runs the cleanup. If such a device still has Bypass lines in `boot.sh`, open the file as root and delete the lines that name Bypass by hand.
-
-To remove it in 1.4.2: the cleanup block in `BOOT_SCRIPT` (`HostService.kt`) and the "REMOVE IN 1.4.2" comment above it (the check looks for the marker name anywhere in the file), the cleanup part of `scripts/test_boot_tasks.sh` (from the "Legacy Bypass lines" comment to the end of the one-time check), the paragraph in `README.md` that starts "The Bypass tool", and the "Bypass removed" line of `CHANGELOG.md` (move it to the 1.4.2 entry as "removed"). `scripts/check_repo.py` fails from 1.4.2 until the block is gone.
+What this means: a device that goes from a version before 1.4.1 straight to 1.4.2 never ran the cleanup. If it still has Bypass lines in `boot.sh`, open the file as root and delete the lines that name Bypass by hand. A plugin's own boot file in `boot.d` is undone by "Delete and stop", and anything else is the plugin's `@matchi-uninstall`.
 
 ## Plugins that declare nothing and have nothing running
 

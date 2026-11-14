@@ -1,6 +1,6 @@
 # Plugin header lines (author guide, one page)
 
-Current for MatchiTOOL 1.4.1 (unreleased code). This page only lists the lines and their limits; the rules and the reasons are in the page named in the last column. The limits below were read from the code (`PluginPaths.kt`, `PluginSandbox.kt`, `web-src/plugin-store-pure.js`, `assets/web/index.html`), not copied from older docs.
+Current for MatchiTOOL 1.4.2. This page only lists the lines and their limits; the rules and the reasons are in the page named in the last column. The limits below were read from the code (`PluginPaths.kt`, `PluginSandbox.kt`, `web-src/plugin-store-pure.js`, `assets/web/index.html`), not copied from older docs.
 
 ## The rules that apply to all of them
 
