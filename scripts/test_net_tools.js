@@ -142,7 +142,16 @@ eq(N.parseRootNet(''), null); eq(N.parseRootNet('nothing useful'), null);
 eq(N.sections('##a\nx\n\ny\n##b\n'), { a: ['x', 'y'], b: [] });
 
 // ---- Phase 4: devices rename / block / unblock (bodies captured on the F50) ----
-assert(N.READ.devices.includes('BlackMacList') && N.READ.devices.includes('AclMode'));
+assert(N.READ_ACL === 'queryDeviceAccessControlList' && N.READ_NAMES === 'hostNameList' && !N.READ.devices.includes('BlackMacList'));
+eq(N.parseAcl({ station_list: [] }), null); eq(N.parseAcl({}), null);   // block list not read -> null (Block / Unblock hidden, never guess)
+assert(N.aclRefusal(N.parseAcl({ station_list: [] })));
+// real replies seen on the F50 (2026-11-15): two blocked entries, and hostNameList names win over the station_list hostname
+eq(N.parseAcl({ AclMode: '2', WhiteMacList: '', BlackMacList: '1e:d4:3e:cb:c7:ba;e2:56:0b:64:b4:93;', WhiteNameList: '', BlackNameList: 'POCO-F6;POCO-F6;' }).black,
+  [{ mac: '1e:d4:3e:cb:c7:ba', name: 'POCO-F6' }, { mac: 'e2:56:0b:64:b4:93', name: 'POCO-F6' }]);
+const dv = N.parseDevices({ station_list: [{ mac_addr: '28:56:5a:3a:ef:6f', hostname: 'DESKTOP-H5SSC7L', ip_addr: '192.168.0.112' }], lan_station_list: [{ mac_addr: '5C:4D:BF:88:9C:78', hostname: 'GL-MT3000', ip_addr: '192.168.0.4' }],
+  hostNameList: [{ hostname: 'DESKTOP', mac: '28:56:5a:3a:ef:6f' }, { hostname: 'GL-MT3000', mac: '5c:4d:bf:88:9c:78' }] });
+eq(dv.rows.map((r) => r.name), ['DESKTOP', 'GL-MT3000']);
+eq(N.parseDevices({ station_list: [{ mac_addr: 'aa:bb:cc:dd:ee:01', hostname: 'Phone', ip_addr: '1.1.1.1' }], hostNameList: 'junk' }).rows[0].name, 'Phone');   // no usable names: station name stays
 eq(N.parseAcl({ BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '', AclMode: '2' }), { mode: '2', black: [], whiteMacs: [], whiteNames: [] });
 const acl0 = N.parseAcl({ AclMode: '2', BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '' });
 eq(N.blockCall(acl0, '52:E3:AC:5A:EF:7D', 'POCO-F6'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '52:e3:ac:5a:ef:7d;', WhiteNameList: '', BlackNameList: 'POCO-F6;' });

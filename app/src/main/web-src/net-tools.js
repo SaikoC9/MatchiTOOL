@@ -168,7 +168,7 @@ function mountNetTools() {
     st.loading = true; syncButtons(); setStatus('Reading…');
     if (!st.cache[tab]) paint(tab);
     try {
-      const d = await R.zte('get', { multi_data: '1', cmd: N.READ[tab] });
+      const d = tab === 'devices' ? await readDevicesRaw() : await R.zte('get', { multi_data: '1', cmd: N.READ[tab] });
       if (my !== epoch) return;
       st.cache[tab] = { d, at: Date.now() };
       paint(tab); setStatus('Updated ' + new Date().toLocaleTimeString());
@@ -219,7 +219,21 @@ function mountNetTools() {
     }
   }
   // ---- devices: rename, block, unblock (Phase 4) ----------------------------------------------------------------------------
-  const readDevicesRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.devices });
+  // The Devices tab = the station lists (multi_data) + the block list + the names (two single commands). The block list is never guessed: when
+  // its read fails the keys stay absent and parseAcl gives null, so Block / Unblock are hidden. Names that fail to read leave the station names.
+  async function readDevicesRaw() {
+    const d = await R.zte('get', { multi_data: '1', cmd: N.READ.devices });
+    const out = Object.assign({}, d && typeof d === 'object' ? d : {});
+    try {
+      const a = await R.zte('get', { cmd: N.READ_ACL });
+      if (a && typeof a === 'object') for (const k of ['AclMode', 'WhiteMacList', 'BlackMacList', 'WhiteNameList', 'BlackNameList']) if (a[k] !== undefined) out[k] = a[k];
+    } catch (_) { /* block list not read */ }
+    try {
+      const n = await R.zte('get', { cmd: N.READ_NAMES });
+      if (n && Array.isArray(n.devices)) out.hostNameList = n.devices;
+    } catch (_) { /* station names stay */ }
+    return out;
+  }
   // Send one device change, then read the lists again until `check(parsed)` is true (up to 3 reads, 1 s apart). Nothing is claimed without it.
   async function devApply(call, check, okText, badText) {
     st.devAct = true; st.devMsg = null; syncButtons(); paint('devices'); setStatus('Sending…');

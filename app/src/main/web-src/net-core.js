@@ -19,11 +19,15 @@
   const READ = {
     data: 'ppp_status,dial_mode,roam_setting_option,dial_roam_setting_option',
     wifi: 'queryWiFiModuleSwitch,queryAccessPointInfo,wifi_access_sta_num',
-    devices: 'station_list,lan_station_list,wifi_access_sta_num,AclMode,BlackMacList,BlackNameList,WhiteMacList,WhiteNameList',
+    devices: 'station_list,lan_station_list,wifi_access_sta_num',
     apn: 'apn_mode,apn_auto_profile,APN_config,ipv6_APN_config',
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
   };
+  // The Devices tab also reads two single commands (NOT multi_data; seen in the stock page's script service.js on the F50, 2026-11-15):
+  //   queryDeviceAccessControlList -> {AclMode, WhiteMacList, BlackMacList, WhiteNameList, BlackNameList}  (lists are ";" terminated)
+  //   hostNameList                 -> {devices:[{hostname, mac}]}  (the names the stock page shows; EDIT_HOSTNAME changes these, not station_list)
+  const READ_ACL = 'queryDeviceAccessControlList', READ_NAMES = 'hostNameList';
   const TABS = [
     ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'],
   ];
@@ -132,14 +136,15 @@
 
   // ---- Devices ----------------------------------------------------------------------------------------------------------------
   // station_list = Wi-Fi, lan_station_list = cable. Each entry has only mac_addr, hostname, ip_addr (mac_address is accepted too).
-  const devRow = (e, type) => ({ type, name: clean(e.hostname) || '', ip: clean(e.ip_addr) || '', mac: normMac(e.mac_addr !== undefined ? e.mac_addr : e.mac_address) });
+  const devRow = (e, type, names) => { const mac = normMac(e.mac_addr !== undefined ? e.mac_addr : e.mac_address); return { type, name: (names && names[mac.toLowerCase()]) || clean(e.hostname) || '', ip: clean(e.ip_addr) || '', mac }; };
   const ipKey = (ip) => String(ip).split('.').map((x) => ('000' + x).slice(-3)).join('.');
-  function mergeDevices(wifi, cable) {
+  // names: optional {mac -> name} from hostNameList; it wins over the hostname in station_list (the stock page does the same).
+  function mergeDevices(wifi, cable, names) {
     const seen = new Set(), out = [];
     for (const [list, type] of [[toList(wifi), 'Wi-Fi'], [toList(cable), 'Cable']]) {
       for (const e of list) {
         if (!isObj(e)) continue;
-        const r = devRow(e, type);
+        const r = devRow(e, type, names);
         if (!r.mac && !r.ip && !r.name) continue;
         const k = r.mac ? r.mac.toLowerCase() : r.type + '|' + r.ip + '|' + r.name;
         if (seen.has(k)) continue;   // the same device in both lists is shown once, as Wi-Fi
@@ -150,12 +155,13 @@
     out.sort((a, b) => rank(a.type) - rank(b.type) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || ipKey(a.ip).localeCompare(ipKey(b.ip)));
     return out;
   }
+  const nameMap = (l) => { const m = {}; for (const e of toList(l)) if (isObj(e) && clean(e.mac) && clean(e.hostname)) m[normMac(e.mac).toLowerCase()] = clean(e.hostname); return m; };
   // null = neither list key came back at all (hide the tab's table); [] = reported but nobody is connected.
   function parseDevices(d) {
     if (!isObj(d)) return null;
     const hasW = d.station_list !== undefined, hasC = d.lan_station_list !== undefined;
     if (!hasW && !hasC) return null;
-    const rows = mergeDevices(d.station_list, d.lan_station_list);
+    const rows = mergeDevices(d.station_list, d.lan_station_list, nameMap(d.hostNameList));
     return { rows, wifi: rows.filter((r) => r.type === 'Wi-Fi').length, cable: rows.filter((r) => r.type === 'Cable').length, routerCount: num(d.wifi_access_sta_num), wifiReported: hasW, cableReported: hasC };
   }
 
@@ -168,7 +174,7 @@
   const isMac = (m) => /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/.test(String(m == null ? '' : m).trim());
   const splitAcl = (v) => { const t = clean(v); return t === null ? [] : t.split(';').map((x) => x.trim()).filter(Boolean); };
   function parseAcl(d) {
-    if (!isObj(d)) return null;
+    if (!isObj(d) || (d.BlackMacList === undefined && d.AclMode === undefined)) return null;   // not read: never guess the current list
     const macs = splitAcl(d.BlackMacList).map(normMac), names = splitAcl(d.BlackNameList);
     const black = macs.map((mac, i) => ({ mac, name: names[i] || '' }));
     return { mode: clean(d.AclMode), black, whiteMacs: splitAcl(d.WhiteMacList), whiteNames: splitAcl(d.WhiteNameList) };
@@ -307,7 +313,7 @@
   }
 
   return {
-    READ, TABS, ROOT_READ_SH,
+    READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
     chipLabel, authLabel, parseWifi, wifiSummary,

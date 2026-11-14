@@ -46,7 +46,7 @@ const createModal = (o) => {
 const showModal = () => {};
 
 // ---- scripted radio ---------------------------------------------------------------------------------------------------------
-const calls = [], shells = [], sets = [], confirms = []; let black = '', blackNames = '', hostOverride = null, me = '192.168.0.10', pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
+const calls = [], shells = [], sets = [], confirms = []; let aclMissing = false, black = '', blackNames = '', hostOverride = null, me = '192.168.0.10', pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
 const WIFI = { WiFiModuleSwitch: '1', wifi_access_sta_num: '1', ResponseList: [0, 1].map((i) => ({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: i === 1 ? '1' : '0', SSID: 'HomeNet', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', CountryCode: 'CN', Password: 'TopSecret-pass-1', PasswordShow: 'TopSecret-pass-1' })) };
 const ANSWERS = {
   data: { ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_dial', roam_setting_option: 'off', dial_roam_setting_option: '' },
@@ -58,8 +58,10 @@ const ANSWERS = {
 };
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
-  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd); if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
-    if (tab === 'devices') { const d = JSON.parse(JSON.stringify(ANSWERS.devices)); d.AclMode = '2'; d.WhiteMacList = ''; d.WhiteNameList = ''; d.BlackMacList = black; d.BlackNameList = blackNames; if (hostOverride) d.lan_station_list[0].hostname = hostOverride; return d; }
+  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd);   // ACL / names are single commands, handled below if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
+    if (params.cmd === 'queryDeviceAccessControlList') return aclMissing ? {} : { AclMode: '2', WhiteMacList: '', BlackMacList: black, WhiteNameList: '', BlackNameList: blackNames };
+    if (params.cmd === 'hostNameList') { const d = ANSWERS.devices; return { devices: [...d.station_list, ...d.lan_station_list].map((e) => ({ hostname: hostOverride && e.mac_addr === 'AA:BB:CC:DD:EE:02' ? hostOverride : e.hostname, mac: e.mac_addr.toLowerCase() })) }; }
+    if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
     return ANSWERS[tab]; },
   sh: async (cmd) => { shells.push(cmd); return ROOT_OUT; },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
@@ -120,12 +122,12 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(calls.every((c) => c.op === 'get'), 'only reads were sent');
   assert.strictEqual(sets.length, 0, 'no write so far');
   const nSetsBefore = 0;
-  assert.strictEqual(calls.length, 6, 'one read per tab, nothing else (no polling)');
+  assert.strictEqual(calls.length, 8, 'one read per tab (the Devices tab reads 3 things), nothing else (no polling)');
 
   // switching to a tab already read shows it again without asking the router
-  await click(tabBtn('data')); assert.strictEqual(calls.length, 6); assert(/Connected/.test(bodyText()));
+  await click(tabBtn('data')); assert.strictEqual(calls.length, 8); assert(/Connected/.test(bodyText()));
   // Refresh asks again
-  await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(calls.length, 7);
+  await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(calls.length, 9);
   // an error is shown, and a password in the message is hidden
   failNext = new Error('router said ppp_passwd=abc123 not ok');
   await click(doc.getElementById('matchi_net_refresh'));
@@ -167,6 +169,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(btns('Rename').length, 2, 'a Rename button on each row');
   assert(/this device/.test(rowOf('My-Phone').textContent) && !rowOf('My-Phone').findAll((n) => n.textContent === 'Block').length, 'no Block on the row of the device in use: ' + rowOf('My-Phone').textContent);
   assert.strictEqual(btns('Block').length, 1, 'Block only on the other device');
+  // the block list could not be read: Block / Unblock are hidden, never guessed
+  aclMissing = true; await click(doc.getElementById('matchi_net_refresh'));
+  assert.strictEqual(btns('Block').length, 0, 'no Block when the list was not read'); assert(/did not report its block list/.test(bodyText()));
+  aclMissing = false; await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(btns('Block').length, 1);
   // rename
   textAnswer = null; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0, 'cancelled rename sends nothing');
   textAnswer = 'bad;name'; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0); assert(/Use only letters/.test(bodyText()), 'bad name refused: ' + bodyText());
