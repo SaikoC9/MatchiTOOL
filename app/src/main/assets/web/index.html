@@ -659,6 +659,23 @@ html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find{fle
 html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-find input{flex:1 1 0!important;min-width:0!important;width:auto!important}
 html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist select{flex:1 1 auto!important}
 </style>
+<style id="dialog-layout-fix">
+/* Phone dialogs. (1) Built-in windows (.card.pop) are centred on the visible window (dvh follows the browser bars) and scroll inside themselves.
+   (2) Their title stays pinned at the top and Close/footer pinned at the bottom while the middle scrolls. (3) The Plugin store window is a column:
+   title, scrolling list, then Prev/Next and Close always visible. */
+html body .card.pop.open:not(#_):not(#__){top:50%!important;left:50%!important;right:auto!important;bottom:auto!important;margin:0!important;transform:translate(-50%,-50%)!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto!important;overscroll-behavior:contain;box-sizing:border-box!important}
+html body .card.pop.open:not(#_):not(#__)>.mut:first-child{position:sticky!important;top:0!important;z-index:3!important;margin:-13px -20px 6px!important;padding:13px 20px 7px!important;background:#101a2b!important;border-bottom:0!important}
+html body .card.pop.open:not(#_):not(#__) .popfoot{position:sticky!important;bottom:0!important;z-index:3!important}
+@media(max-width:640px){html body .card.pop.open:not(#_):not(#__)>.mut:first-child{margin:-12px -14px 6px!important;padding:12px 14px 7px!important}}
+html body .modal-bg:not(#_):not(#__){height:100vh!important;height:100dvh!important;box-sizing:border-box}
+html body .modal-bg .modal:has(.st-foot){display:flex!important;flex-direction:column!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important;overflow:hidden!important;padding:0!important}
+html body .modal-bg .modal .st-head{flex:0 0 auto;padding:14px 16px 8px}
+html body .modal-bg .modal:has(.st-foot)>.mbody{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;padding:0 16px 8px;overscroll-behavior:contain}
+html body .modal-bg .modal .st-foot{flex:0 0 auto;border-top:0;background:#101a2b;padding:8px 16px!important}
+html body .modal-bg .modal #st_pager{position:sticky;bottom:0;background:#101a2b;padding:6px 0;z-index:2}
+/* No thin divider line above the footer (Close row) in any dialog. */
+html body .card.pop.open:not(#_):not(#__) .popfoot,html body .popfoot:not(#_):not(#__),html body .modal-bg:not(#_):not(#__) .modal .mfoot,html body .modal-bg:not(#_):not(#__) .modal .st-foot,html body .modal-bg:not(#_):not(#__) .modal .mt-foot,html body .mt-foot:not(#_):not(#__){border-top:0!important;box-shadow:none!important}
+</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -6001,13 +6018,13 @@ async function storeInstall(item){
 const nameRxStore=/^[A-Za-z0-9._-]{1,80}\.js$/;
 function storeOpen(){
   const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='2500';
-  bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" style="max-width:460px;width:94vw"><div class="mhead"><b>Plugin store</b></div><div class="mbody" style="display:flex;flex-direction:column;gap:8px">'
+  bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" style="max-width:460px;width:94vw"><div class="mhead st-head"><b>Plugin store</b></div><div class="mbody" style="display:flex;flex-direction:column;gap:8px">'
    +'<select id="st_src" aria-label="Store source" style="min-height:0;height:34px"><option value="">Custom address</option><option value="ufi">UFI-TOOLS plugins (community mirror)</option></select>'
    +'<div style="display:flex;gap:6px"><input id="st_url" type="url" inputmode="url" placeholder="https://example.com/index.json" autocomplete="off" style="flex:1;min-width:0"><button type="button" id="st_load" style="min-height:0;height:34px">Load</button></div>'
    +'<div class="pm-sub" id="st_note">Enter the address of a store index (JSON). Only https addresses with a domain name are accepted. Nothing is installed without a confirm.</div>'
-   +'<input id="st_q" type="search" placeholder="Search" autocomplete="off" style="display:none"><div id="st_list" style="display:flex;flex-direction:column;gap:6px;max-height:48vh;overflow:auto"></div>'
+   +'<input id="st_q" type="search" placeholder="Search" autocomplete="off" style="display:none"><div id="st_list" style="display:flex;flex-direction:column;gap:6px;min-height:80px;overflow:auto;flex:1 1 auto"></div>'
    +'<div id="st_pager" style="display:none;gap:8px;align-items:center;justify-content:center"><button type="button" id="st_prev" style="min-height:0;height:30px">Prev</button><span id="st_pg" class="pm-sub"></span><button type="button" id="st_next" style="min-height:0;height:30px">Next</button></div>'
-   +'</div><div style="display:flex;justify-content:flex-end;padding:8px 12px"><button type="button" class="ccancel">Close</button></div></div>';
+   +'</div><div class="st-foot" style="display:flex;justify-content:flex-end;padding:8px 12px"><button type="button" class="ccancel">Close</button></div></div>';
   const $=(id)=>bg.querySelector('#'+id);let items=[],page=1;
   const close=()=>{document.removeEventListener('keydown',key,true);bg.remove()};
   const key=(e)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close()}};

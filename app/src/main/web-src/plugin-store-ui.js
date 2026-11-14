@@ -45,13 +45,13 @@ async function storeInstall(item){
 const nameRxStore=/^[A-Za-z0-9._-]{1,80}\.js$/;
 function storeOpen(){
   const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='2500';
-  bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" style="max-width:460px;width:94vw"><div class="mhead"><b>Plugin store</b></div><div class="mbody" style="display:flex;flex-direction:column;gap:8px">'
+  bg.innerHTML='<div class="modal" role="dialog" aria-modal="true" style="max-width:460px;width:94vw"><div class="mhead st-head"><b>Plugin store</b></div><div class="mbody" style="display:flex;flex-direction:column;gap:8px">'
    +'<select id="st_src" aria-label="Store source" style="min-height:0;height:34px"><option value="">Custom address</option><option value="ufi">UFI-TOOLS plugins (community mirror)</option></select>'
    +'<div style="display:flex;gap:6px"><input id="st_url" type="url" inputmode="url" placeholder="https://example.com/index.json" autocomplete="off" style="flex:1;min-width:0"><button type="button" id="st_load" style="min-height:0;height:34px">Load</button></div>'
    +'<div class="pm-sub" id="st_note">Enter the address of a store index (JSON). Only https addresses with a domain name are accepted. Nothing is installed without a confirm.</div>'
-   +'<input id="st_q" type="search" placeholder="Search" autocomplete="off" style="display:none"><div id="st_list" style="display:flex;flex-direction:column;gap:6px;max-height:48vh;overflow:auto"></div>'
+   +'<input id="st_q" type="search" placeholder="Search" autocomplete="off" style="display:none"><div id="st_list" style="display:flex;flex-direction:column;gap:6px;min-height:80px;overflow:auto;flex:1 1 auto"></div>'
    +'<div id="st_pager" style="display:none;gap:8px;align-items:center;justify-content:center"><button type="button" id="st_prev" style="min-height:0;height:30px">Prev</button><span id="st_pg" class="pm-sub"></span><button type="button" id="st_next" style="min-height:0;height:30px">Next</button></div>'
-   +'</div><div style="display:flex;justify-content:flex-end;padding:8px 12px"><button type="button" class="ccancel">Close</button></div></div>';
+   +'</div><div class="st-foot" style="display:flex;justify-content:flex-end;padding:8px 12px"><button type="button" class="ccancel">Close</button></div></div>';
   const $=(id)=>bg.querySelector('#'+id);let items=[],page=1;
   const close=()=>{document.removeEventListener('keydown',key,true);bg.remove()};
   const key=(e)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close()}};
