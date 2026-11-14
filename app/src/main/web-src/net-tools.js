@@ -2,7 +2,8 @@
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
  * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
  * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
- * the lists, say what the router reports). Everything else is still read only; the one root call (MTU / MSS tab) is a
+ * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
+ * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Everything else is still read only; the one root call (MTU / MSS tab) is a
  * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
@@ -16,7 +17,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '' };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null };
   let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
@@ -99,19 +100,57 @@ function mountNetTools() {
     return h('div', {}, head, msg, table, blocked, extra);
   }
   function viewApn(d) {
-    const p = N.parseApn(d);
-    if (allEmpty(p, ['mode', 'autoProfile', 'v4', 'v6'])) return note(NOT + ' (APN).');
-    const lists = [];
-    for (const [label, c] of [['IPv4 profiles', p.v4], ['IPv6 profiles', p.v6]]) {
-      if (!c) continue;
-      lists.push(h('h4', {}, label));
-      if (c.kind === 'list') lists.push(h('ul', { class: 'net-ul' }, c.items.map((it) => h('li', {}, N.apnLine(it)))));
-      else lists.push(h('pre', { class: 'net-pre' }, c.text));
+    const a = N.parseApn(d);
+    if (!a || (!a.mode && !a.hasSlots && !a.inUse && !a.auto)) return note(NOT + ' (APN).');
+    const refusal = N.apnRefusal(a), busy = st.apnAct || st.act || st.devAct;
+    const act = (label, fn, danger, id) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (id) b.id = id; if (busy) b.disabled = true; b.onclick = fn; return b; };
+    const line = (p) => (p ? (p.name || '(no name)') + (p.apn ? ' · ' + p.apn : '') : null);
+    const modeWord = a.mode === 'auto' ? 'Auto' : a.mode === 'manual' ? 'Manual' : a.mode;
+    const top = kv([['APN mode', modeWord], ['In use', line(a.inUse)], ['Automatic profile', a.auto ? line(a.auto) : null]]);
+    const autoBtn = act('Switch to Auto', apnToAuto, false, 'matchi_net_apn_auto');
+    if (a.mode !== 'manual') autoBtn.disabled = true;
+    const bar = h('div', { class: 'net-actions' }, autoBtn);
+    if (N.apnCanAdd(a)) bar.append(act('Add profile', () => apnOpenForm({ mode: 'add', slot: a.freeSlots[0], init: { name: '', apn: '', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' } }), false, 'matchi_net_apn_add'));
+    if (!refusal && a.mode === 'auto' && a.auto && a.auto.apn && a.freeSlots.length) bar.append(act('Copy the automatic profile', () => apnOpenForm({ mode: 'copy', slot: a.freeSlots[0], init: N.autoAsForm(a) }), false, 'matchi_net_apn_copy'));
+    let table = null;
+    if (a.profiles.length) {
+      table = h('div', { class: 'net-scroll' }, h('table', { class: 'net-tbl' },
+        h('thead', {}, h('tr', {}, ['Name', 'APN', 'Type', 'Login', ''].map((t) => h('th', { scope: 'col' }, t)))),
+        h('tbody', {}, a.profiles.map((p) => {
+          const cell = h('td', { class: 'net-rowact' });
+          if (N.apnCanUse(a, p)) cell.append(act('Use', () => apnUse(a, p), false));
+          if (N.isInUse(a, p)) cell.append(h('span', { class: 'net-mut' }, ' in use '));
+          if (N.apnCanEdit(a, p)) cell.append(act('Edit', () => apnOpenForm({ mode: 'edit', slot: p.slot, init: { name: p.name, apn: p.apn, pdp: N.PDP_TYPES.includes(p.pdp) ? p.pdp : 'IPv4v6', auth: N.APN_AUTH.includes(p.auth) ? p.auth : 'none', user: '', pass: '' } }), false));
+          if (a.mode === 'manual' && !N.apnDeleteRefusal(a, p)) cell.append(act('Delete', () => apnDelete(a, p), true));
+          return h('tr', {}, h('td', {}, p.name || '(no name)'), h('td', {}, p.apn || '-'), h('td', {}, N.pdpLabel(p.pdp)), h('td', {}, N.authLabelApn(p.auth)), cell);
+        }))));
     }
-    return h('div', {},
-      kv([['APN mode', p.mode], ['Automatic profile', p.autoProfile]]),
-      lists.length ? lists : note('Profile list: ' + NOT.toLowerCase() + '. It can come back empty while the mode is Auto.', 'net-mut'),
-      note('Passwords are never shown here.', 'net-mut'));
+    const msg = st.apnMsg ? note(st.apnMsg.text, st.apnMsg.bad ? 'net-warn' : '') : null;
+    const notes = [];
+    if (refusal) notes.push(note(refusal, 'net-mut'));
+    else if (a.mode === 'auto') notes.push(note('Add, Edit and Delete work only in Manual mode. "Use" switches the router to Manual mode with that profile; "Switch to Auto" brings the automatic profile back.', 'net-mut'));
+    notes.push(note('User names and passwords are not read from the router and never shown. When you edit a profile that has a login, type both again. A wrong APN means no mobile data: press "Switch to Auto" to get it back.', 'net-mut'));
+    return h('div', {}, top, bar, msg, st.apnForm ? apnFormView(a) : null, table || (a.hasSlots ? note('No manual profiles are stored.', 'net-mut') : note('Profile list: ' + NOT.toLowerCase() + '.', 'net-mut')), notes);
+  }
+  // The add / edit / copy form. Values are read from the inputs when Save is pressed; the password input is emptied as soon as it has been used.
+  function apnFormView(a) {
+    const f = st.apnForm, i = f.init;
+    const inp = (id, v, type) => { const e = h('input', { type: type || 'text', id, maxlength: '63', autocomplete: 'off', spellcheck: 'false' }); e.value = v || ''; return e; };
+    const sel = (id, opts, v) => { const e = h('select', { id }, opts.map(([k, t]) => h('option', { value: k }, t))); e.value = v; return e; };
+    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
+    const err = h('p', { class: 'net-p net-warn', id: 'matchi_apn_err' }, '');
+    const save = h('button', { type: 'button', id: 'matchi_apn_save' }, f.mode === 'edit' ? 'Save changes' : f.mode === 'copy' ? 'Save and use' : 'Save profile');
+    const cancel = h('button', { type: 'button', id: 'matchi_apn_cancel' }, 'Cancel');
+    if (st.apnAct) { save.disabled = true; }
+    save.onclick = () => apnSubmit(a, err);
+    cancel.onclick = () => apnCloseForm();
+    return h('section', { class: 'net-sec net-form' },
+      h('h4', {}, f.mode === 'edit' ? 'Edit profile (slot ' + f.slot + ')' : f.mode === 'copy' ? 'Copy the automatic profile (slot ' + f.slot + ')' : 'New profile (slot ' + f.slot + ')'),
+      row('Profile name', inp('matchi_apn_name', i.name)), row('APN', inp('matchi_apn_apn', i.apn)),
+      row('Type', sel('matchi_apn_pdp', [['IPv4v6', 'IPv4 + IPv6'], ['IP', 'IPv4 only'], ['IPv6', 'IPv6 only']], i.pdp)),
+      row('Authentication', sel('matchi_apn_auth', [['none', 'None'], ['pap', 'PAP'], ['chap', 'CHAP']], i.auth)),
+      row('User name', inp('matchi_apn_user', '', 'text')), row('Login password', inp('matchi_apn_pass', '', 'password')),
+      note('User name and password are used only with PAP or CHAP.', 'net-mut'), err, h('div', { class: 'net-actions' }, save, cancel));
   }
   function viewLan(d) {
     const p = N.parseLan(d);
@@ -154,7 +193,7 @@ function mountNetTools() {
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -282,6 +321,95 @@ function mountNetTools() {
     await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && !a.black.some((x) => x.mac === b.mac); },
       'Unblocked ' + b.mac + '.', 'The router still lists this device as blocked.');
   }
+  // ---- APN (Phase 5) ---------------------------------------------------------------------------------------------------------
+  // Every APN change: send the step(s), re-read the profile list (up to 5 reads, 2 s apart) until `check(parsed)` holds, and for changes that move
+  // the data connection ("data" true) read ppp_status for up to 20 s more. Nothing is claimed without the re-read. `rollback`: if a LATER step of a
+  // multi-step change is refused, the Auto call is sent so the router is not left in Manual mode on the wrong profile.
+  const readApnRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.apn });
+  async function apnApply(steps, check, okText, badText, opts) {
+    const o = opts || {};
+    st.apnAct = true; st.apnMsg = null; syncButtons(); paint('apn'); setStatus('Sending…');
+    const my = ++actId;
+    try {
+      for (let i = 0; i < steps.length; i++) {
+        try { await R.setRouter(steps[i], true); }
+        catch (e) {
+          let extra = '';
+          if (i > 0 && o.rollback) { try { await R.setRouter(N.apnAutoCall(), true); extra = ' The router was switched back to Auto.'; } catch (_) { extra = ' Could not switch back to Auto: press "Switch to Auto".'; } }
+          st.apnMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) + extra }; return;
+        }
+        if (i < steps.length - 1) { await R.sleep(1000); if (my !== actId) return; }
+      }
+      let d = null, good = false;
+      for (let i = 0; i < 5 && !good; i++) {
+        await R.sleep(2000);
+        if (my !== actId) return;
+        try { d = await readApnRaw(); } catch (_) { continue; }
+        if (my !== actId) return;
+        good = !!check(N.parseApn(d));
+      }
+      if (d) st.cache.apn = { d, at: Date.now() };
+      if (!good) { st.apnMsg = { bad: true, text: badText + ' Press Refresh to read it again.' + (o.data ? ' If mobile data is down, press "Switch to Auto".' : '') }; return; }
+      if (!o.data) { st.apnMsg = { bad: false, text: okText }; return; }
+      let ppp = null;
+      for (let i = 0; i < 10; i++) {
+        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        if (my !== actId) return;
+        if (ppp && ppp.state === 'connected') break;
+        setStatus('Waiting for mobile data… ' + (i + 1) * 2 + ' s');
+        await R.sleep(2000);
+        if (my !== actId) return;
+      }
+      st.apnMsg = ppp && ppp.state === 'connected' ? { bad: false, text: okText + ' Mobile data is connected (' + ppp.ppp + ').' }
+        : { bad: true, text: okText + ' But mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + '). If it does not come back, press "Switch to Auto".' };
+    } finally {
+      if (my === actId) { st.apnAct = false; if (st.tab === 'apn') { paint('apn'); setStatus(st.apnMsg && st.apnMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
+  }
+  const profText = (p) => '"' + (p.name || '(no name)') + '"\nAPN ' + (p.apn || '(none)') + '\n' + N.pdpLabel(p.pdp) + ' · login ' + N.authLabelApn(p.auth);
+  async function apnToAuto() {
+    if (st.apnAct) return;
+    if (!(await askConfirm('Switch APN to Auto?\n\nThe router picks the profile for your SIM by itself. Mobile data restarts and can drop for up to 30 seconds. Your manual profiles stay in the list.', 'Switch to Auto'))) return;
+    await apnApply([N.apnAutoCall()], (a) => !!a && a.mode === 'auto', 'APN mode is Auto.', 'The router does not report Auto mode.', { data: true });
+  }
+  async function apnUse(a, p) {
+    if (st.apnAct || !N.apnCanUse(a, p)) return;
+    if (!(await askConfirm('Use this profile?\n\n' + profText(p) + '\n\n' + (a.mode === 'auto' ? 'This switches the router to Manual APN mode. ' : '') + 'Mobile data restarts and can drop for up to 30 seconds. A wrong APN means no mobile data; to go back press "Switch to Auto".', 'Use profile', true))) return;
+    let call; try { call = N.apnDefaultCall(p.slot, p.pdp); } catch (e) { st.apnMsg = { bad: true, text: e.message }; paint('apn'); return; }
+    await apnApply([call], (x) => !!x && x.mode === 'manual' && N.sameProfile(x.inUse, p.name, p.apn), 'Now using "' + p.name + '".', 'The router does not report "' + p.name + '" as the profile in use.', { data: true });
+  }
+  async function apnDelete(a, p) {
+    if (st.apnAct) return;
+    const r = N.apnDeleteRefusal(a, p); if (r) { st.apnMsg = { bad: true, text: r }; paint('apn'); return; }
+    if (!(await askConfirm('Delete this profile?\n\n' + profText(p) + '\nslot ' + p.slot + '\n\nThe profile is removed from the router. The router stays in Manual mode.', 'Delete', true))) return;
+    let call; try { call = N.apnDeleteCall(p.slot); } catch (e) { st.apnMsg = { bad: true, text: e.message }; paint('apn'); return; }
+    await apnApply([call], (x) => !!x && !x.profiles.some((q) => q.slot === p.slot), 'Deleted "' + p.name + '".', 'The router still lists "' + p.name + '".');
+  }
+  function apnOpenForm(f) { if (st.apnAct) return; st.apnForm = f; st.apnMsg = null; paint('apn'); }
+  function apnCloseForm() {
+    const pw = $('matchi_apn_pass'); if (pw) pw.value = '';
+    st.apnForm = null; paint('apn');
+  }
+  async function apnSubmit(a, errEl) {
+    const f = st.apnForm; if (!f || st.apnAct) return;
+    const g = (id) => { const e = $(id); return e ? String(e.value == null ? '' : e.value) : ''; };
+    const form = { name: g('matchi_apn_name').trim(), apn: g('matchi_apn_apn').trim(), pdp: g('matchi_apn_pdp'), auth: g('matchi_apn_auth'), user: g('matchi_apn_user'), pass: g('matchi_apn_pass') };
+    let call; try { call = N.apnSaveCall(form, f.slot); } catch (e) { if (errEl) errEl.textContent = e.message; return; }
+    const prof = { name: form.name, apn: form.apn, pdp: form.pdp, auth: form.auth };
+    const inUse = f.mode === 'edit' && a.inUse && a.inUse.name === (f.init.name) && a.inUse.apn === f.init.apn;
+    const text = (f.mode === 'edit' ? 'Save changes to slot ' + f.slot + '?' : f.mode === 'copy' ? 'Save this profile in slot ' + f.slot + ' and use it?' : 'Add this profile in slot ' + f.slot + '?') + '\n\n' + profText(prof)
+      + (f.mode === 'copy' ? '\n\nThis switches the router to Manual APN mode with this profile. Mobile data restarts and can drop for up to 30 seconds; to go back press "Switch to Auto".'
+        : inUse ? '\n\nThis is the profile in use: mobile data restarts and can drop for up to 30 seconds.' : '');
+    const ok = await askConfirm(text, f.mode === 'edit' ? 'Save' : f.mode === 'copy' ? 'Save and use' : 'Add', f.mode !== 'add');
+    if (!ok) return;
+    const steps = [call];
+    if (f.mode === 'copy') { try { steps.push(N.apnDefaultCall(f.slot, form.pdp)); } catch (e) { if (errEl) errEl.textContent = e.message; return; } }
+    const pw = $('matchi_apn_pass'); if (pw) pw.value = '';   // the password lives only in `call` now
+    st.apnForm = null;
+    const saved = (x) => !!x && x.profiles.some((q) => q.slot === f.slot && q.name === form.name && q.apn === form.apn);
+    if (f.mode === 'copy') await apnApply(steps, (x) => saved(x) && x.mode === 'manual' && N.sameProfile(x.inUse, form.name, form.apn), 'Saved and now using "' + form.name + '".', 'The router does not report "' + form.name + '" as the profile in use.', { data: true, rollback: true });
+    else await apnApply(steps, saved, (f.mode === 'edit' ? 'Saved "' : 'Added "') + form.name + '".', 'The router does not list "' + form.name + '" in slot ' + f.slot + ' yet.', { data: inUse });
+  }
   async function findMe() {
     try { const r = await api('/api/net/whoami'); st.me = r && r.ip ? N.plainIp(r.ip) : ''; } catch (_) { st.me = ''; }
     if (st.tab === 'devices' && st.cache.devices) paint('devices');
@@ -321,6 +449,7 @@ function mountNetTools() {
 #matchi_net_modal .net-tbl th,#matchi_net_modal .net-tbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
 #matchi_net_modal .net-ul{margin:4px 0;padding-left:18px}
 #matchi_net_modal .net-rowact{white-space:nowrap}#matchi_net_modal .net-act{margin-right:4px;min-height:26px;padding:2px 8px}
+#matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(110px,32%) 1fr;gap:8px;align-items:center;margin:5px 0}#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:30px;padding:3px 8px}
 #matchi_net_modal .net-danger{border-color:rgba(255,100,124,.5)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
@@ -328,9 +457,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

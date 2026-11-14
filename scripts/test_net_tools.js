@@ -84,14 +84,55 @@ eq(N.parseDevices({ station_list: '', lan_station_list: '' }).rows, []);        
 eq(N.parseDevices({}), null);                                                           // neither key came back
 eq(N.parseDevices({ station_list: [] }).cableReported, false);
 
-// ---- APN: Auto mode comes back empty on the F50; passwords never show -----------------------------------------------------
-eq(N.parseApn({ apn_mode: 'auto', apn_auto_profile: '', APN_config: '', ipv6_APN_config: '' }), { mode: 'auto', autoProfile: null, v4: null, v6: null });
-const apnList = N.parseApn({ apn_mode: 'manual', APN_config: [{ profile_name: 'Home', apn: 'internet', pdp_type: 'IPv4v6', ppp_passwd: 'pw1', apn_ppp_passwd: 'pw2', ppp_username: 'u' }] });
-eq(apnList.v4.kind, 'list'); assert(!JSON.stringify(apnList).includes('pw1') && !JSON.stringify(apnList).includes('pw2'), 'APN password must be dropped');
-eq(N.apnLine(apnList.v4.items[0]), 'Home · internet · IPv4v6');
-eq(N.apnLine({}), '(no name)');
-const apnText = N.parseApn({ apn_mode: 'manual', APN_config: 'Home($)internet ppp_passwd=pw3&x=1' });
-eq(apnText.v4.kind, 'text'); assert(!apnText.v4.text.includes('pw3') && apnText.v4.text.includes('[hidden]'), 'masked text: ' + apnText.v4.text);
+// ---- APN (Phase 5): the real F50 reply (Auto mode, 2026-11-15), the numbered slots, the checks and the captured bodies -----------------------------------
+const DEF = 'default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', DITO = 'DITO($)internet.dito.ph($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)';
+assert(N.READ.apn.startsWith('apn_interface_version,APN_config0,APN_config1,') && N.READ.apn.includes('APN_config19') && N.READ.apn.includes('ipv6_APN_config19') && N.READ.apn.includes('apn_auto_config') && N.READ.apn.includes('Current_index'));
+const apnAuto = N.parseApn({ apn_mode: 'auto', apn_interface_version: '', APN_config0: DEF, APN_config1: '', APN_config19: '', profile_name: 'DITO', wan_apn: 'internet.dito.ph', apn_auto_config: DITO, index: '', Current_index: '', ppp_passwd: 'pw1', ppp_username: 'user1' });
+eq(apnAuto.mode, 'auto'); eq(apnAuto.uiVersion, false); eq(apnAuto.hasSlots, true);
+eq(apnAuto.profiles, [{ slot: 0, name: 'default', apn: 'default', auth: 'none', pdp: 'IPv4v6' }]);
+eq(apnAuto.auto, { name: 'DITO', apn: 'internet.dito.ph', auth: 'none', pdp: 'IPv4v6' }); eq(apnAuto.inUse, { name: 'DITO', apn: 'internet.dito.ph' });
+eq(apnAuto.indexKeys, []); eq(apnAuto.freeSlots.length, 19); assert(!apnAuto.freeSlots.includes(0));
+assert(!JSON.stringify(apnAuto).includes('pw1') && !JSON.stringify(apnAuto).includes('user1'), 'the parsed APN object holds no user name or password');
+assert(!JSON.stringify(N.parseApn({ APN_config0: 'Home($)internet($)manual($)*99#($)pap($)myuser($)mypass($)IPv4v6($)($)($)($)($)', apn_mode: 'manual' })).match(/myuser|mypass/), 'login positions are never copied');
+eq(N.parseApn({ apn_mode: 'manual', APN_config0: 'junk without the separator' }).profiles, []);            // not the known layout: not guessed
+eq(N.parseProfile(''), null); eq(N.parseProfile('a($)b'), null); eq(N.parseProfile('($)($)($)($)($)($)($)($)'), null);
+eq(N.parseProfile('Home($)internet($)manual($)*99#($)PAP($)($)($)IPv4v6($)'), { name: 'Home', apn: 'internet', auth: 'pap', pdp: 'IPv4v6' });
+eq(N.parseApn('junk'), null);
+assert(N.apnRefusal(null) && N.apnRefusal(N.parseApn({ apn_mode: '', APN_config0: DEF })) && N.apnRefusal(N.parseApn({ apn_mode: 'auto' })) && N.apnRefusal(N.parseApn({ apn_mode: 'auto', apn_interface_version: '2', APN_config0: DEF })));
+eq(N.apnRefusal(apnAuto), null);
+// who may do what: Auto mode only "use"; Manual mode also edit / add / delete
+const mk = (mode, slots, used, idx) => N.parseApn(Object.assign({ apn_mode: mode, profile_name: used[0], wan_apn: used[1], index: idx === undefined ? '' : String(idx), Current_index: idx === undefined ? '' : String(idx) },
+  Object.fromEntries(slots.map((t, i) => ['APN_config' + i, t]))));
+const HOME = 'Home($)internet($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', WORK = 'Work($)work.apn($)manual($)*99#($)pap($)($)($)IP($)($)($)($)($)';
+const mAuto = mk('auto', [HOME, WORK], ['DITO', 'internet.dito.ph']), mMan = mk('manual', [HOME, WORK], ['Home', 'internet'], 0);
+assert(N.apnCanUse(mAuto, mAuto.profiles[0]) && !N.apnCanEdit(mAuto, mAuto.profiles[0]) && !N.apnCanAdd(mAuto) && N.apnDeleteRefusal(mAuto, mAuto.profiles[0]));
+assert(!N.apnCanUse(mMan, mMan.profiles[0]), 'the profile in use has no Use'); assert(N.apnCanUse(mMan, mMan.profiles[1]) && N.apnCanEdit(mMan, mMan.profiles[1]) && N.apnCanAdd(mMan));
+assert(/in use/.test(N.apnDeleteRefusal(mMan, mMan.profiles[0])), 'the profile in use is never deleted'); eq(N.apnDeleteRefusal(mMan, mMan.profiles[1]), null);
+assert(/in use/.test(N.apnDeleteRefusal(mk('manual', [HOME, WORK], ['', ''], 1), mk('manual', [HOME, WORK], ['', ''], 1).profiles[1])), 'the slot the router names as current is refused even when the name keys are empty');
+assert(/only usable profile/.test(N.apnDeleteRefusal(mk('manual', [HOME, ''], ['Other', 'x']), mk('manual', [HOME, ''], ['Other', 'x']).profiles[0])), 'the last usable profile stays');
+assert(!N.apnCanUse(mk('auto', ['Blank($)($)manual($)*99#($)none($)($)($)IPv4v6($)'], ['DITO', 'x']), { slot: 0, name: 'Blank', apn: '', pdp: 'IPv4v6' }), 'a profile with no APN cannot be used');
+assert(!N.apnCanAdd(mk('manual', Array.from({ length: 20 }, () => HOME), ['x', 'y'])), 'no free slot, no Add');
+eq(N.autoAsForm(apnAuto), { name: 'DITO', apn: 'internet.dito.ph', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' }); eq(N.autoAsForm({ auto: null }), null);
+// form checks
+const okForm = { name: 'Test', apn: 'internet.dito.ph', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' };
+eq(N.apnFormError(okForm), null);
+for (const bad of [{ name: '' }, { name: 'a;b' }, { name: 'x'.repeat(32) }, { apn: '' }, { apn: 'a b' }, { apn: 'a&b=1' }, { apn: 'x'.repeat(64) }, { pdp: 'IPv5' }, { auth: 'ntlm' },
+  { auth: 'pap', user: '', pass: 'x' }, { auth: 'chap', user: 'u', pass: '' }, { auth: 'pap', user: 'has space', pass: 'x' }, { auth: 'pap', user: 'u', pass: 'x'.repeat(65) }])
+  assert(N.apnFormError(Object.assign({}, okForm, bad)), 'bad form: ' + JSON.stringify(bad));
+eq(N.apnFormError(Object.assign({}, okForm, { auth: 'pap', user: 'me@x.ph', pass: 'p#ss&w=rd' })), null);       // URL-encoded by the host, so these are fine
+// captured bodies
+eq(N.apnAutoCall(), { goformId: 'APN_PROC_EX', apn_mode: 'auto' });                                           // = isTest=false&goformId=APN_PROC_EX&apn_mode=auto
+eq(Object.entries(N.apnSaveCall({ name: 'default', apn: 'default', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' }, 0)),
+  Object.entries({ goformId: 'APN_PROC_EX', apn_action: 'save', apn_mode: 'manual', profile_name: 'default', wan_dial: '*99#', apn_select: 'manual', pdp_type: 'IPv4v6', pdp_select: 'auto', pdp_addr: '', index: '0',
+    wan_apn: 'default', ppp_auth_mode: 'none', ppp_username: '', ppp_passwd: '', dns_mode: 'auto', prefer_dns_manual: '', standby_dns_manual: '',
+    ipv6_wan_apn: 'default', ipv6_ppp_auth_mode: 'none', ipv6_ppp_username: '', ipv6_ppp_passwd: '', ipv6_dns_mode: 'auto', ipv6_prefer_dns_manual: '', ipv6_standby_dns_manual: '' }));   // same keys, same ORDER as the capture
+eq(N.apnDefaultCall(0, 'IPv4v6'), { goformId: 'APN_PROC_EX', apn_mode: 'manual', apn_action: 'set_default', set_default_flag: '1', pdp_type: 'IPv4v6', index: '0' });   // = the captured set-default
+eq(N.apnDeleteCall(3), { goformId: 'APN_PROC_EX', apn_action: 'delete', apn_mode: 'manual', index: '3' });
+const sIP = N.apnSaveCall({ name: 'V4', apn: 'a.b', pdp: 'IP', auth: 'pap', user: 'u', pass: 'p' }, 2), sV6 = N.apnSaveCall({ name: 'V6', apn: 'a.b', pdp: 'IPv6', auth: 'none', user: 'zz', pass: 'zz' }, 2);
+assert(sIP.wan_apn === 'a.b' && sIP.ppp_username === 'u' && sIP.ppp_passwd === 'p' && !('ipv6_wan_apn' in sIP), 'IPv4 only sends the IPv4 part');
+assert(sV6.ipv6_wan_apn === 'a.b' && !('wan_apn' in sV6) && sV6.ipv6_ppp_username === '' && sV6.ipv6_ppp_passwd === '', 'IPv6 only sends the IPv6 part; auth none sends no login');
+for (const f of [() => N.apnSaveCall(okForm, 20), () => N.apnSaveCall(okForm, -1), () => N.apnSaveCall(okForm, 1.5), () => N.apnSaveCall(Object.assign({}, okForm, { name: '' }), 1), () => N.apnDeleteCall(20), () => N.apnDefaultCall(0, 'x'), () => N.apnDefaultCall('0', 'IP')]) assert.throws(f);
+eq(N.authLabelApn('chap'), 'CHAP'); eq(N.pdpLabel('IPv4v6'), 'IPv4 + IPv6');
 eq(N.maskSecrets('apn_ppp_passwd=abc&apn_wan_apn=x'), 'apn_ppp_passwd=[hidden]&apn_wan_apn=x');
 eq(N.maskSecrets('{"Password":"abc","SSID":"h"}'), '{"Password":[hidden],"SSID":"h"}');
 eq(N.maskSecrets('password prompt shown'), 'password prompt shown');
@@ -177,10 +218,14 @@ assert(N.isSelf('192.168.0.179', '::ffff:192.168.0.179') && !N.isSelf('192.168.0
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 2 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]), 'the only router writes: mobile data and the device call: ' + setCalls.join(' | '));
+assert(setCalls.length === 4 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]),
+  'the only router writes: mobile data, the device call and the APN steps: ' + setCalls.join(' | '));
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');
-assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js dataCall does)');
+assert(!/\bsteps\s*=\s*\[\s*\{/.test(ui) && (ui.match(/call = N\.apn(DefaultCall|DeleteCall|SaveCall)\(/g) || []).length === 3 && ui.includes('apnApply([N.apnAutoCall()]'), 'every APN call is built by net-core.js');
+assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js does)');
+// the password typed into the APN form is emptied as soon as it has been used, and is never put in an attribute
+assert(ui.includes("pw.value = ''") && !/setAttribute\([^)]*pass/i.test(ui) && !/attrs?\[[^\]]*pass/i.test(ui), 'the APN form password is cleared after use');
 assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js stores nothing');
 assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
 const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
@@ -188,4 +233,4 @@ assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)
 assert((ui.match(/R\.sh\(/g) || []).length === 1 && ui.includes('R.sh(N.ROOT_READ_SH'), 'the only root call is the fixed read-only command');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data off / on and device rename / block / unblock');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock and the APN calls built by net-core.js');

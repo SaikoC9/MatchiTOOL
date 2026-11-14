@@ -52,22 +52,39 @@ const ANSWERS = {
   data: { ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_dial', roam_setting_option: 'off', dial_roam_setting_option: '' },
   wifi: WIFI,
   devices: { station_list: [{ mac_addr: 'AA:BB:CC:DD:EE:01', hostname: 'My-Phone', ip_addr: '192.168.0.10' }], lan_station_list: [{ mac_addr: 'AA:BB:CC:DD:EE:02', hostname: 'GL-MT3000', ip_addr: '192.168.0.2' }], wifi_access_sta_num: '1' },
-  apn: { apn_mode: 'auto', apn_auto_profile: '', APN_config: '', ipv6_APN_config: '' },
+  apn: null,   // built from apnState below
   lan: { lan_ipaddr: '192.168.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease_hour: '24h', mac_address: '02:00:00:00:00:01' },
   mtu: { mtu: '1500', tcp_mss: '1460' },
 };
+// The APN part of the fake router: the real F50 layout (numbered slots, "($)" fields) and the stock APN_PROC_EX behaviour.
+const DEFS = 'default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', DITO_S = 'DITO($)internet.dito.ph($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)';
+const apnState = { mode: 'auto', slots: [DEFS].concat(Array(19).fill('')), used: ['DITO', 'internet.dito.ph'], idx: '' }; let apnBreak = false, failOn = null;
+const apnAnswer = () => Object.assign({ apn_mode: apnState.mode, apn_interface_version: '', profile_name: apnState.used[0], wan_apn: apnState.used[1], apn_auto_config: DITO_S, index: apnState.idx, Current_index: apnState.idx, ppp_passwd: 'secret-ppp-reply', ppp_username: 'secret-user-reply' },
+  Object.fromEntries(apnState.slots.map((t, i) => ['APN_config' + i, t])));
+const apnWrite = (q) => {
+  if (stuckApn) return;
+  const i = Number(q.index);
+  if (q.apn_mode === 'auto' && !q.apn_action) { apnState.mode = 'auto'; apnState.used = ['DITO', 'internet.dito.ph']; apnState.idx = ''; }
+  else if (q.apn_action === 'save') { apnState.mode = 'manual'; apnState.slots[i] = [q.profile_name, q.wan_apn || q.ipv6_wan_apn, 'manual', '*99#', q.ppp_auth_mode || q.ipv6_ppp_auth_mode, '', '', q.pdp_type, '', '', '', ''].join('($)'); }
+  else if (q.apn_action === 'set_default') { const f = apnState.slots[i].split('($)'); apnState.mode = 'manual'; apnState.used = [f[0], f[1]]; apnState.idx = String(i); }
+  else if (q.apn_action === 'delete') apnState.slots[i] = '';
+  if (apnBreak) pppNow = 'ppp_disconnected';
+};
+let stuckApn = false;
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
   zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd);   // ACL / names are single commands, handled below if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
     if (params.cmd === 'queryDeviceAccessControlList') return aclMissing ? {} : { AclMode: '2', WhiteMacList: '', BlackMacList: black, WhiteNameList: '', BlackNameList: blackNames };
     if (params.cmd === 'hostNameList') { const d = ANSWERS.devices; return { devices: [...d.station_list, ...d.lan_station_list].map((e) => ({ hostname: hostOverride && e.mac_addr === 'AA:BB:CC:DD:EE:02' ? hostOverride : e.hostname, mac: e.mac_addr.toLowerCase() })) }; }
     if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
+    if (tab === 'apn') return apnAnswer();
     return ANSWERS[tab]; },
   sh: async (cmd) => { shells.push(cmd); return ROOT_OUT; },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
   sleep: async () => {},
   setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; }
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
+    if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
     if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
     if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
@@ -108,7 +125,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'tr').length, 3, 'header + 2 rows');
 
   await click(tabBtn('apn'));
-  t = bodyText(); assert(/auto/.test(t) && /Not reported by this router/.test(t), 'apn tab: ' + t);
+  t = bodyText(); assert(/APN modeAuto/.test(t) && /DITO · internet\.dito\.ph/.test(t) && /Switch to Auto/.test(t) && !t.includes('secret-'), 'apn tab: ' + t);
   await click(tabBtn('lan'));
   t = bodyText(); assert(/192\.168\.0\.1/.test(t) && /255\.255\.255\.0/.test(t) && /192\.168\.0\.2 - 192\.168\.0\.253/.test(t) && /24 hours/.test(t) && /DHCP serverOn/.test(t), 'lan tab: ' + t);
   await click(tabBtn('mtu'));
@@ -197,6 +214,74 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   stuck = true; await click(btns('Block')[0]); stuck = false;
   assert(/does not list this device as blocked/.test(bodyText()) && !/Blocked aa/.test(bodyText()), 'stuck: ' + bodyText());
   stuck = false; black = ''; blackNames = ''; hostOverride = null;
+  await click(tabBtn('data'));
+
+  // ---- Phase 5: APN ----
+  sets.length = 0; confirms.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
+  await click(tabBtn('apn')); await click(doc.getElementById('matchi_net_refresh'));
+  const ab = (label) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'button' && n.textContent === label);
+  const apnRow = (name) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'tr').find((r) => r.children[0] && r.children[0].textContent === name);
+  const setVal = (id, v) => { doc.getElementById(id).value = v; };
+  const noSecrets = () => { const all = JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)); assert(!/secret-ppp|secret-user|secret-form-pw/.test(all), 'no password or login on the page'); };
+  t = bodyText();
+  assert(/APN modeAuto/.test(t) && /In useDITO · internet\.dito\.ph/.test(t) && /Name.*APN/.test(t) && apnRow('default'), 'apn auto view: ' + t); noSecrets();
+  assert.strictEqual(ab('Switch to Auto')[0].disabled, true, 'already Auto');
+  assert(ab('Edit').length === 0 && ab('Delete').length === 0 && ab('Add profile').length === 0 && ab('Use').length === 1 && ab('Copy the automatic profile').length === 1, 'Auto mode offers Use and Copy only');
+  // Use (switches to Manual): declined = nothing sent, then confirmed
+  confirmAnswer = false; await click(ab('Use')[0]); assert.strictEqual(sets.length, 0, 'declined Use sends nothing'); assert(/Manual APN mode/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  confirmAnswer = true; await click(ab('Use')[0]);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'APN_PROC_EX', apn_mode: 'manual', apn_action: 'set_default', set_default_flag: '1', pdp_type: 'IPv4v6', index: '0' });
+  t = bodyText(); assert(/Now using "default"/.test(t) && /Mobile data is connected/.test(t) && /APN modeManual/.test(t), 'after Use: ' + t);
+  assert(ab('Add profile').length === 1 && ab('Edit').length === 1 && ab('Delete').length === 0 && ab('Switch to Auto')[0].disabled === false, 'Manual mode: Add and Edit, no Delete of the only profile, Auto enabled');
+  // Add: a bad value is refused in the form (nothing sent), a good one is confirmed, sent with the next free slot, and the password is not kept
+  sets.length = 0; confirms.length = 0;
+  await click(ab('Add profile')[0]); assert(doc.getElementById('matchi_apn_save'), 'the form opens');
+  setVal('matchi_apn_name', 'a;b'); setVal('matchi_apn_apn', 'x.y'); await click(doc.getElementById('matchi_apn_save'));
+  assert.strictEqual(sets.length, 0); assert(/Profile name: use only/.test(doc.getElementById('matchi_apn_err').textContent), 'form error shown');
+  await click(doc.getElementById('matchi_apn_cancel')); assert(!doc.getElementById('matchi_apn_save'), 'cancel closes the form'); assert.strictEqual(sets.length, 0);
+  await click(ab('Add profile')[0]); setVal('matchi_apn_name', 'Test'); setVal('matchi_apn_apn', 'test.apn'); setVal('matchi_apn_auth', 'pap'); setVal('matchi_apn_user', 'tester'); setVal('matchi_apn_pass', 'secret-form-pw');
+  confirmAnswer = false; await click(doc.getElementById('matchi_apn_save')); assert.strictEqual(sets.length, 0, 'declined Add sends nothing');
+  confirmAnswer = true; await click(doc.getElementById('matchi_apn_save'));
+  assert(/Add this profile in slot 1/.test(confirms[1].msg) && !confirms[1].msg.includes('secret-form-pw'), 'the confirm never shows the password');
+  assert.strictEqual(sets.length, 1); assert.strictEqual(sets[0].params.apn_action, 'save'); assert.strictEqual(sets[0].params.index, '1'); assert.strictEqual(sets[0].params.profile_name, 'Test');
+  assert.strictEqual(sets[0].params.ppp_username, 'tester'); assert.strictEqual(sets[0].params.ppp_passwd, 'secret-form-pw', 'the typed password is what is sent');
+  t = bodyText(); assert(/Added "Test"/.test(t) && apnRow('Test') && /PAP/.test(apnRow('Test').textContent) && !doc.getElementById('matchi_apn_pass'), 'after Add: ' + t); noSecrets();
+  // Edit
+  sets.length = 0; await click(apnRow('Test').findAll((n) => n.textContent === 'Edit')[0]);
+  assert.strictEqual(doc.getElementById('matchi_apn_name').value, 'Test'); assert.strictEqual(doc.getElementById('matchi_apn_user').value, '', 'the login is never prefilled');
+  setVal('matchi_apn_apn', 'test2.apn'); setVal('matchi_apn_auth', 'none'); await click(doc.getElementById('matchi_apn_save'));
+  assert.strictEqual(sets.length, 1); assert.strictEqual(sets[0].params.index, '1'); assert.strictEqual(sets[0].params.wan_apn, 'test2.apn'); assert.strictEqual(sets[0].params.ppp_username, '');
+  t = bodyText(); assert(/Saved "Test"/.test(t) && /test2\.apn/.test(t), 'after Edit: ' + t);
+  // a login profile needs the login typed again
+  await click(apnRow('Test').findAll((n) => n.textContent === 'Edit')[0]); setVal('matchi_apn_auth', 'chap'); sets.length = 0; await click(doc.getElementById('matchi_apn_save'));
+  assert.strictEqual(sets.length, 0); assert(/User name: 1 to 64/.test(doc.getElementById('matchi_apn_err').textContent)); await click(doc.getElementById('matchi_apn_cancel'));
+  // Use "Test", then Delete "default" (no longer in use) ; the profile in use has no Delete
+  sets.length = 0; await click(apnRow('Test').findAll((n) => n.textContent === 'Use')[0]);
+  assert.strictEqual(sets[0].params.index, '1'); assert(/Now using "Test"/.test(bodyText()), 'after Use 2: ' + bodyText());
+  assert.strictEqual(apnRow('Test').findAll((n) => n.textContent === 'Delete').length, 0, 'no Delete on the profile in use'); assert.strictEqual(apnRow('default').findAll((n) => n.textContent === 'Delete').length, 1);
+  sets.length = 0; confirms.length = 0; await click(apnRow('default').findAll((n) => n.textContent === 'Delete')[0]);
+  assert(confirms[0].danger === true && /slot 0/.test(confirms[0].msg)); assert.deepStrictEqual(sets[0].params, { goformId: 'APN_PROC_EX', apn_action: 'delete', apn_mode: 'manual', index: '0' });
+  t = bodyText(); assert(/Deleted "default"/.test(t) && !apnRow('default'), 'after Delete: ' + t);
+  // Switch to Auto
+  sets.length = 0; await click(ab('Switch to Auto')[0]); assert.deepStrictEqual(sets[0].params, { goformId: 'APN_PROC_EX', apn_mode: 'auto' });
+  t = bodyText(); assert(/APN mode is Auto/.test(t) && /Mobile data is connected/.test(t) && /APN modeAuto/.test(t), 'after Auto: ' + t);
+  // Copy the automatic profile: save in the first free slot, then use it; the second step failing switches back to Auto
+  sets.length = 0; await click(ab('Copy the automatic profile')[0]);
+  assert.strictEqual(doc.getElementById('matchi_apn_name').value, 'DITO'); assert.strictEqual(doc.getElementById('matchi_apn_apn').value, 'internet.dito.ph');
+  failOn = 'set_default'; await click(doc.getElementById('matchi_apn_save'));
+  assert.deepStrictEqual(sets.map((x) => x.params.apn_action || x.params.apn_mode), ['save', 'set_default', 'auto'], 'save, refused default, then the Auto call');
+  t = bodyText(); assert(/Not sent/.test(t) && /switched back to Auto/.test(t) && /APN modeAuto/.test(t), 'rollback: ' + t);
+  sets.length = 0; await click(ab('Copy the automatic profile')[0]); await click(doc.getElementById('matchi_apn_save'));
+  assert.deepStrictEqual(sets.map((x) => x.params.apn_action), ['save', 'set_default']); assert(/Saved and now using "DITO"/.test(bodyText()), 'copy: ' + bodyText());
+  // mobile data does not come back after a change: said plainly, with the way back
+  apnBreak = true; sets.length = 0; await click(ab('Switch to Auto')[0]); apnBreak = false;
+  t = bodyText(); assert(/APN mode is Auto/.test(t) && /mobile data is not connected \(ppp_disconnected\)/.test(t) && /Switch to Auto/.test(t), 'data down: ' + t); pppNow = 'ipv4_ipv6_connected';
+  // the router says success but the list does not change: the real state is reported, not success
+  stuckApn = true; sets.length = 0; await click(ab('Use')[0]); stuckApn = false;
+  assert(/does not report/.test(bodyText()) && !/Now using/.test(bodyText()), 'stuck: ' + bodyText());
+  // refused write (old sign-in)
+  setFail = new Error('Session too old for root commands'); await click(ab('Use')[0]); assert(/Not sent: Session too old/.test(bodyText()), 'refused: ' + bodyText());
+  noSecrets();
   await click(tabBtn('data'));
 
   // keyboard: ArrowRight moves to the next tab

@@ -15,12 +15,22 @@
 })(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
 
+  // The APN tab reads the same key list as the stock page (js/service.js, F50 2026-11-15): 20 numbered profile slots for IPv4 and IPv6, plus the keys of
+  // the profile in use. apn_interface_version is EMPTY on this firmware, so the plain keys apply (a value of 2 or more would mean the *_ui keys).
+  const APN_SLOTS = 20;
+  const APN_READ = ['apn_interface_version',
+    ...Array.from({ length: APN_SLOTS }, (_, i) => 'APN_config' + i), ...Array.from({ length: APN_SLOTS }, (_, i) => 'ipv6_APN_config' + i),
+    'm_profile_name', 'profile_name', 'wan_dial', 'apn_select', 'pdp_type', 'pdp_select', 'pdp_addr', 'index', 'Current_index', 'apn_auto_config', 'ipv6_apn_auto_config',
+    'apn_mode', 'wan_apn', 'ppp_auth_mode', 'ppp_username', 'ppp_passwd', 'dns_mode', 'prefer_dns_manual', 'standby_dns_manual',
+    'ipv6_wan_apn', 'ipv6_pdp_type', 'ipv6_ppp_auth_mode', 'ipv6_ppp_username', 'ipv6_ppp_passwd', 'ipv6_dns_mode', 'ipv6_prefer_dns_manual', 'ipv6_standby_dns_manual',
+    'apn_num_preset'].join(',');
+
   // ---- What each tab reads (goform_get_cmd_process, multi_data=1, comma list) -------------------------------------------------
   const READ = {
     data: 'ppp_status,dial_mode,roam_setting_option,dial_roam_setting_option',
     wifi: 'queryWiFiModuleSwitch,queryAccessPointInfo,wifi_access_sta_num',
     devices: 'station_list,lan_station_list,wifi_access_sta_num',
-    apn: 'apn_mode,apn_auto_profile,APN_config,ipv6_APN_config',
+    apn: APN_READ,
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
   };
@@ -221,33 +231,141 @@
   const plainIp = (ip) => String(ip == null ? '' : ip).trim().replace(/^::ffff:/i, '');
   const isSelf = (rowIp, myIp) => { const a = plainIp(rowIp), b = plainIp(myIp); return a !== '' && a === b; };
 
-  // ---- APN --------------------------------------------------------------------------------------------------------------------
-  // In Auto mode the F50 returns APN_config and ipv6_APN_config EMPTY, and the key that holds the profile list is not known yet.
-  // So Phase 1 shows the mode and whatever comes back, with every password-like field removed. A non-list text is shown masked.
+  // Removes every password-like key from a nested reply (kept for callers that show a raw reply).
   function stripPass(o) {
     if (Array.isArray(o)) return o.map(stripPass);
     if (!isObj(o)) return o;
     const r = {}; for (const k of Object.keys(o)) { if (!isPassKey(k)) r[k] = stripPass(o[k]); }
     return r;
   }
-  function apnConfig(v) {
+  // ---- APN (Phase 5) ----------------------------------------------------------------------------------------------------------
+  // Read (F50, 2026-11-15, router in Auto mode): the profiles are in APN_config0..19, one string per slot, fields joined by "($)":
+  //   "default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)"
+  //   position 0 name, 1 APN, 2 select, 3 dial, 4 auth, 5 and 6 = user name / password (order NOT confirmed: never shown, never copied), 7 PDP type, 8-11 unknown.
+  // In Auto mode the profile in use is apn_auto_config (same layout) and index / Current_index come back EMPTY.
+  // Writes, all APN_PROC_EX (bodies from the stock page on the F50, AD added by the host):
+  //   Auto:        apn_mode=auto                                                      (captured; no apn_action, touches no profile)
+  //   Save:        apn_action=save&apn_mode=manual&profile_name&wan_dial=*99#&apn_select=manual&pdp_type&pdp_select=auto&pdp_addr=&index&wan_apn&
+  //                ppp_auth_mode&ppp_username&ppp_passwd&dns_mode=auto&prefer_dns_manual=&standby_dns_manual=&ipv6_*  (captured, IPv4v6)
+  //   Set default: apn_mode=manual&apn_action=set_default&set_default_flag=1&pdp_type&index                       (captured)
+  //   Delete:      apn_action=delete&apn_mode=manual&index                                                         (from the stock script, NOT captured)
+  // EVERY write except Auto carries apn_mode=manual: it switches the router to Manual mode. On 2026-11-15 a blank "default" profile saved that way
+  // into slot 0 took the data connection down. So this file only offers a write when the router is already in Manual mode, plus ONE way in
+  // from Auto ("use this profile" = set_default of a profile that has an APN), and always keeps the Auto call one tap away.
+  const APN_SEP = '($)';
+  const PDP_TYPES = ['IPv4v6', 'IP', 'IPv6'];
+  const APN_AUTH = ['none', 'pap', 'chap'];
+  // One profile string -> name, apn, auth, pdp. User name and password positions are deliberately left out.
+  function parseProfile(v) {
     const t = clean(v); if (t === null) return null;
-    const l = toList(v);
-    if (l.length) return { kind: 'list', items: l.map(stripPass) };
-    return { kind: 'text', text: maskSecrets(t) };
+    const f = String(v).split(APN_SEP);
+    if (f.length < 8) return null;   // not the layout we know: do not guess
+    const name = clean(f[0]) || '', apn = clean(f[1]) || '', auth = (clean(f[4]) || 'none').toLowerCase(), pdp = clean(f[7]) || '';
+    if (!name && !apn) return null;
+    return { name, apn, auth, pdp };
   }
   function parseApn(d) {
     if (!isObj(d)) return null;
-    return { mode: clean(d.apn_mode), autoProfile: clean(d.apn_auto_profile), v4: apnConfig(d.APN_config), v6: apnConfig(d.ipv6_APN_config) };
+    const mode = clean(d.apn_mode), ver = num(d.apn_interface_version);
+    const profiles = [], seenSlots = [];
+    for (let i = 0; i < APN_SLOTS; i++) {
+      const raw = clean(d['APN_config' + i]);
+      if (raw === null) continue;
+      seenSlots.push(i);
+      const p = parseProfile(raw);
+      if (p) profiles.push(Object.assign({ slot: i }, p));
+    }
+    const hasSlots = Array.from({ length: APN_SLOTS }, (_, i) => d['APN_config' + i] !== undefined).some(Boolean);
+    const auto = parseProfile(d.apn_auto_config);
+    const usedName = clean(d.profile_name) || clean(d.m_profile_name), usedApn = clean(d.wan_apn);
+    const free = []; for (let i = 0; i < APN_SLOTS; i++) if (clean(d['APN_config' + i]) === null) free.push(i);
+    return {
+      mode, uiVersion: ver !== null && ver >= 2, hasSlots, profiles, auto,
+      inUse: usedName || usedApn ? { name: usedName || '', apn: usedApn || '' } : null,
+      indexKeys: [num(d.index), num(d.Current_index)].filter((x) => x !== null),
+      freeSlots: free, count: APN_SLOTS,
+    };
   }
-  // One readable line for a profile object (only the fields UFI's names say exist; passwords are already gone).
-  function apnLine(p) {
-    if (!isObj(p)) return String(p);
-    const name = clean(p.profile_name || p.apn_m_profile_name || p.name) || '(no name)';
-    const apn = clean(p.apn || p.wan_apn || p.apn_wan_apn) || '';
-    const pdp = clean(p.pdp_type || p.apn_pdp_type) || '';
-    return [name, apn, pdp].filter(Boolean).join(' · ');
+  // Why APN writes must not go out (null = fine to offer). Nothing is guessed: no mode, no slot keys, or the other key set means hands off.
+  function apnRefusal(a) {
+    if (!a) return 'The router did not report its APN settings.';
+    if (a.uiVersion) return 'This firmware reports APN settings in a second format (apn_interface_version 2 or more) that was not captured. APN is read only here.';
+    if (a.mode !== 'auto' && a.mode !== 'manual') return 'The router did not report whether APN mode is Auto or Manual, so it is not changed here.';
+    if (!a.hasSlots) return 'The router did not report its profile list, so it is not changed here.';
+    return null;
   }
+  // The profile in use matches a profile of the list? (by name and APN; the slot keys are only reported in Manual mode and their meaning is not confirmed)
+  const sameProfile = (p, name, apn) => !!p && p.name === name && p.apn === apn;
+  const isInUse = (a, p) => !!a && !!a.inUse && sameProfile(p, a.inUse.name, a.inUse.apn);
+  // Is this slot the one the router calls current? Slot keys are a second signal, used only to refuse a delete, never to claim a success.
+  const slotLooksActive = (a, p) => isInUse(a, p) || (a && a.mode === 'manual' && a.indexKeys.includes(p.slot));
+
+  // ---- APN: form checks ----
+  const apnNameError = (n) => {
+    const t = String(n == null ? '' : n).trim();
+    if (!t) return 'The profile name is empty.';
+    if (t.length > 31) return 'The profile name is longer than 31 characters.';
+    if (!/^[A-Za-z0-9 ._-]+$/.test(t)) return 'Profile name: use only letters, digits, space, dot, dash and underscore.';
+    return null;
+  };
+  const apnApnError = (n) => {
+    const t = String(n == null ? '' : n).trim();
+    if (!t) return 'The APN is empty.';
+    if (t.length > 63) return 'The APN is longer than 63 characters.';
+    if (!/^[A-Za-z0-9._-]+$/.test(t)) return 'APN: use only letters, digits, dot, dash and underscore.';
+    return null;
+  };
+  const credOk = (s) => /^[\x21-\x7E]{1,64}$/.test(String(s == null ? '' : s));   // printable, no space, 1-64 (the form body is URL-encoded by the host)
+  // f = {name, apn, pdp, auth, user, pass}. Returns the first problem as text, or null.
+  function apnFormError(f) {
+    if (!f || typeof f !== 'object') return 'No form.';
+    return apnNameError(f.name) || apnApnError(f.apn)
+      || (PDP_TYPES.includes(f.pdp) ? null : 'Pick a PDP type (IPv4v6, IPv4 or IPv6).')
+      || (APN_AUTH.includes(f.auth) ? null : 'Pick an authentication (none, PAP or CHAP).')
+      || (f.auth !== 'none' && !credOk(f.user) ? 'User name: 1 to 64 characters, no spaces.' : null)
+      || (f.auth !== 'none' && !credOk(f.pass) ? 'Password: 1 to 64 characters, no spaces. It is not read back from the router, so type it again.' : null);
+  }
+  const apnSlotOk = (n) => Number.isInteger(n) && n >= 0 && n < APN_SLOTS;
+  const pdpWire = (p) => (p === 'IP' ? 'IP' : p === 'IPv6' ? 'IPv6' : 'IPv4v6');
+  // ---- APN: calls (object key order = the order of the stock page's body; the host puts isTest first and AD last) ----
+  const apnAutoCall = () => ({ goformId: 'APN_PROC_EX', apn_mode: 'auto' });
+  function apnSaveCall(f, slot) {
+    const e = apnFormError(f); if (e) throw new Error(e);
+    if (!apnSlotOk(slot)) throw new Error('Not a profile slot: ' + slot);
+    const name = String(f.name).trim(), apn = String(f.apn).trim(), user = f.auth === 'none' ? '' : f.user, pass = f.auth === 'none' ? '' : f.pass;
+    const v4 = { wan_apn: apn, ppp_auth_mode: f.auth, ppp_username: user, ppp_passwd: pass, dns_mode: 'auto', prefer_dns_manual: '', standby_dns_manual: '' };
+    const v6 = { ipv6_wan_apn: apn, ipv6_ppp_auth_mode: f.auth, ipv6_ppp_username: user, ipv6_ppp_passwd: pass, ipv6_dns_mode: 'auto', ipv6_prefer_dns_manual: '', ipv6_standby_dns_manual: '' };
+    const head = { goformId: 'APN_PROC_EX', apn_action: 'save', apn_mode: 'manual', profile_name: name, wan_dial: '*99#', apn_select: 'manual', pdp_type: pdpWire(f.pdp), pdp_select: 'auto', pdp_addr: '', index: String(slot) };
+    // The stock script sends the IPv4 part for IP, the IPv6 part for IPv6 and both for IPv4v6 (the IPv6 part mirrors the IPv4 one, as the capture shows).
+    return Object.assign(head, f.pdp === 'IP' ? v4 : f.pdp === 'IPv6' ? v6 : Object.assign(v4, v6));
+  }
+  function apnDefaultCall(slot, pdp) {
+    if (!apnSlotOk(slot)) throw new Error('Not a profile slot: ' + slot);
+    if (!PDP_TYPES.includes(pdp)) throw new Error('Unknown PDP type: ' + pdp);
+    return { goformId: 'APN_PROC_EX', apn_mode: 'manual', apn_action: 'set_default', set_default_flag: '1', pdp_type: pdpWire(pdp), index: String(slot) };
+  }
+  function apnDeleteCall(slot) {
+    if (!apnSlotOk(slot)) throw new Error('Not a profile slot: ' + slot);
+    return { goformId: 'APN_PROC_EX', apn_action: 'delete', apn_mode: 'manual', index: String(slot) };
+  }
+  // ---- APN: which action is allowed now (the UI shows only these; each also throws on its own) ----
+  // useProfile: from Auto or Manual, make this profile the one in use. Needs a profile with an APN.
+  function apnCanUse(a, p) { return !apnRefusal(a) && !!p && !!p.apn && PDP_TYPES.includes(p.pdp) && !isInUse(a, p); }
+  function apnCanEdit(a, p) { return !apnRefusal(a) && a.mode === 'manual' && !!p; }
+  function apnCanAdd(a) { return !apnRefusal(a) && a.mode === 'manual' && a.freeSlots.length > 0; }
+  // Delete: Manual mode only, never the profile in use, never the last usable profile.
+  function apnDeleteRefusal(a, p) {
+    const r = apnRefusal(a); if (r) return r;
+    if (a.mode !== 'manual') return 'Delete works only in Manual mode.';
+    if (!p) return 'No such profile.';
+    if (slotLooksActive(a, p)) return 'This profile is in use. Make another profile the default first, or switch to Auto.';
+    if (a.profiles.filter((x) => x.slot !== p.slot && x.apn).length < 1) return 'This is the only usable profile. Add another first, or switch to Auto.';
+    return null;
+  }
+  // The add form copies the Auto profile (name, APN, auth, PDP) as a starting point; user name and password are never taken from the router.
+  const autoAsForm = (a) => (a && a.auto ? { name: a.auto.name, apn: a.auto.apn, pdp: PDP_TYPES.includes(a.auto.pdp) ? a.auto.pdp : 'IPv4v6', auth: APN_AUTH.includes(a.auto.auth) ? a.auto.auth : 'none', user: '', pass: '' } : null);
+  const authLabelApn = (v) => ({ none: 'None', pap: 'PAP', chap: 'CHAP' }[String(v).toLowerCase()] || (v || ''));
+  const pdpLabel = (v) => ({ IPv4v6: 'IPv4 + IPv6', IP: 'IPv4', IPv6: 'IPv6' }[v] || v || '');
 
   // ---- LAN / DHCP -------------------------------------------------------------------------------------------------------------
   // dhcpLease_hour comes as a STRING with an "h" on the end ("24h"). null when it is not a whole number of hours.
@@ -318,7 +436,8 @@
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
     chipLabel, authLabel, parseWifi, wifiSummary,
     mergeDevices, parseDevices, isMac, parseAcl, aclRefusal, hostnameError, renameCall, blockCall, unblockCall, plainIp, isSelf,
-    apnConfig, parseApn, apnLine,
+    APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,
+    apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,
     parseLease, leaseText, parseLan,
     parseMtu, sections, parseRootNet,
   };
