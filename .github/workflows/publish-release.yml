@@ -1,4 +1,4 @@
-name: Publish APK to public releases repo
+name: Publish CI build to public releases repo
 
 on:
   workflow_run:
@@ -39,6 +39,18 @@ jobs:
           cp "$APK" release/MatchiTOOL.apk
           SHA=$(sha256sum release/MatchiTOOL.apk | cut -d ' ' -f 1)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Refuse to publish a debuggable or debug-signed APK
+        run: |
+          APK=release/MatchiTOOL.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if "$BT/aapt2" dump badging "$APK" | grep -q "application-debuggable"; then
+            echo "::error::the release APK is debuggable; refusing to publish"; exit 1
+          fi
+          CERTS=$("$BT/apksigner" verify --print-certs "$APK") || { echo "::error::APK signature does not verify; refusing to publish"; exit 1; }
+          echo "$CERTS"
+          if echo "$CERTS" | grep -qi "CN=Android Debug"; then
+            echo "::error::APK is signed with the Android debug key (MATCHI_KEYSTORE_B64 missing in the build?); refusing to publish"; exit 1
+          fi
       - name: Publish to public repository
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
@@ -48,6 +60,7 @@ jobs:
           TAG="build-${{ github.event.workflow_run.run_number }}"
           gh release create "$TAG" \
             release/MatchiTOOL.apk#MatchiTOOL.apk \
+            --latest=false \
             --repo "$RELEASES_REPO" \
             --title "MatchiTOOL $TAG" \
             --notes "Signed release APK build.
