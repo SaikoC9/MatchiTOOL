@@ -54,12 +54,22 @@ function close(){
 function sheet(title,anchor,build){
  close();
  const bg=el('div','mt-bg'),box=el('div','mt-sheet'),body=el('div','mt-body');
- box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);
+ box.tabIndex=-1;box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label',title);
  box.append(el('div','mt-title',title),body);bg.appendChild(box);
  bg.addEventListener('click',e=>{if(e.target===bg)close()});
- const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close()}};
+ const key=e=>{
+  if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close();return}
+  if(e.key==='Tab'){
+   e.preventDefault();e.stopImmediatePropagation();
+   const f=[...box.querySelectorAll('[tabindex="0"],button,input')].filter(x=>x.offsetWidth||x.offsetHeight);
+   if(!f.length){box.focus();return}
+   const i=f.indexOf(doc.activeElement),n=e.shiftKey?(i<=0?f.length-1:i-1):(i<0||i===f.length-1?0:i+1);
+   f[n].focus();
+  }
+ };
  window.addEventListener('keydown',key,true);doc.body.appendChild(bg);cur={bg,key,anchor};
  build(body,box);
+ box.focus({preventScroll:true});
  return box;
 }
 function foot(box,items){
@@ -108,7 +118,7 @@ function enhanceSelect(s){
    let on=null;
    const add=o=>{
     const r=el('div','mt-opt'+(o.selected?' on':'')+(o.disabled?' off':''));
-    r.setAttribute('role','option');r.append(el('span','mt-opt-t',o.text.replace(/\s+/g,' ').trim()),el('span','mt-ck',o.selected?'✓':''));
+    r.setAttribute('role','option');if(!o.disabled){r.tabIndex=0;r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();r.click()}})}r.append(el('span','mt-opt-t',o.text.replace(/\s+/g,' ').trim()),el('span','mt-ck',o.selected?'✓':''));
     if(!o.disabled)r.addEventListener('click',()=>{const was=s.selectedIndex;close();if(o.index!==was){s.selectedIndex=o.index;fire(s)}});
     body.appendChild(r);if(o.selected)on=r;
    };
@@ -144,7 +154,8 @@ function enhanceDate(inp){
     for(let d=1;d<=days;d++){
      const isNow=today.getFullYear()===vy&&today.getMonth()===vm&&today.getDate()===d;
      const c=el('div','mt-day'+(p.y===vy&&p.mo===vm&&p.d===d?' on':'')+(isNow?' now':''),String(d));
-     c.setAttribute('role','button');
+     c.setAttribute('role','button');c.tabIndex=0;
+     c.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();c.click()}});
      c.addEventListener('click',()=>{p.y=vy;p.mo=vm;p.d=d;draw()});
      grid.appendChild(c);
     }
@@ -178,7 +189,12 @@ function scan(root){
 }
 function init(){
  scan(doc.body);
- new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)scan(n)}).observe(doc.body,{childList:true,subtree:true});
+ let q=[],timer=0;
+ const flush=()=>{timer=0;const l=q;q=[];for(const n of l)if(n.isConnected)scan(n)};
+ new MutationObserver(ms=>{
+  for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&(n.tagName==='SELECT'||n.tagName==='INPUT'||n.firstElementChild))q.push(n);
+  if(q.length&&!timer)timer=setTimeout(flush,60);
+ }).observe(doc.body,{childList:true,subtree:true});
 }
 window.MT_pick=Object.freeze({scan,close});
 if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else init();

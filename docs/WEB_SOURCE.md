@@ -12,6 +12,7 @@ The console is one self-contained page, `app/src/main/assets/web/index.html` (th
 | `at-radio-ui.js` | the AT & Radio window (a built-in tool block in `index.html`): AT terminal, VoLTE / VoNR, quick buttons, modem restart; calls `MatchiRadio`. No network mode, band lock or cell lock (they are on the dashboard) |
 | `perf-mode.js` | `mountPerfMode()`: the "Performance mode" button in the top button row (next to Change IP) and its small window |
 | `dash-radio.js` | `mountDashRadio()`: the Radio settings card under Live device status (network mode, band chips, Lock / Unlock all) |
+| `pick-ui.js` | popup pickers: replaces the phone's full-screen dropdown list and date/time wheel with a popup in the page's style for selects and date fields in dialogs and the header (the real controls stay, hidden, so handlers keep working) |
 
 In `index.html` each file sits between `/* @include web-src/NAME.js */` and `/* @end-include web-src/NAME.js */`.
 
