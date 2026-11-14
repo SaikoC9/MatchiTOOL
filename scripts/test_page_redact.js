@@ -16,6 +16,11 @@ eq('x-token: [REDACTED]', r('x-token: abcdef1234567890'), 'x-token');
 eq('Authorization: [REDACTED]', r('Authorization: Bearer abcdef1234567890'), 'authorization');
 eq('GET /api?token=[REDACTED]&x=1', r('GET /api?token=abc123def&x=1'), 'query token');
 eq('cookie=[REDACTED]', r('cookie="a b c"'), 'cookie');
+// Network tools plan, rule 9: same cases as RedactorTest.routerReplyPasswords
+eq('{"Password":[REDACTED],"PasswordShow":[REDACTED],"SSID":"home"}', r('{"Password":"MyWifiPass123","PasswordShow":"MyWifiPass123","SSID":"home"}'), 'router reply json');
+eq('goformId=APN_PROC_EX&apn_ppp_passwd=[REDACTED]&apn_wan_apn=internet', r('goformId=APN_PROC_EX&apn_ppp_passwd=secret1&apn_wan_apn=internet'), 'apn form');
+eq('ppp_passwd: [REDACTED]', r('ppp_passwd: abc'), 'ppp_passwd');
+eq('"passphrase":[REDACTED]', r('"passphrase":"x y z"'), 'quoted passphrase');
 eq('token expired for user', r('token expired for user'), 'plain token word');
 eq('password prompt shown', r('password prompt shown'), 'plain password word');
 eq('imei=[ID]', r('imei=860000000000001'), 'labelled imei');

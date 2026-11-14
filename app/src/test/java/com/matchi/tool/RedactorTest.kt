@@ -15,6 +15,14 @@ class RedactorTest {
         assertEquals("GET /api?token=[REDACTED]&x=1", r("GET /api?token=abc123def&x=1"))
         assertEquals("cookie=[REDACTED]", r("cookie=\"a b c\""))
     }
+    // Network tools plan, rule 9: the router's own JSON reply holds the Wi-Fi password in clear text ("Password" and "PasswordShow",
+    // the quote sits between the key and the colon), and APN set calls carry apn_ppp_passwd.
+    @Test fun routerReplyPasswords() {
+        assertEquals("{\"Password\":[REDACTED],\"PasswordShow\":[REDACTED],\"SSID\":\"home\"}", r("{\"Password\":\"MyWifiPass123\",\"PasswordShow\":\"MyWifiPass123\",\"SSID\":\"home\"}"))
+        assertEquals("goformId=APN_PROC_EX&apn_ppp_passwd=[REDACTED]&apn_wan_apn=internet", r("goformId=APN_PROC_EX&apn_ppp_passwd=secret1&apn_wan_apn=internet"))
+        assertEquals("ppp_passwd: [REDACTED]", r("ppp_passwd: abc"))
+        assertEquals("\"passphrase\":[REDACTED]", r("\"passphrase\":\"x y z\""))
+    }
     @Test fun plainWordsAreKept() {
         assertEquals("token expired for user", r("token expired for user"))
         assertEquals("password prompt shown", r("password prompt shown"))

@@ -4477,6 +4477,484 @@ function mountPerfMode() {
 }
 
 /* @end-include web-src/perf-mode.js */
+/* @include web-src/net-core.js */
+/*
+ * MatchiNetCore - the pure part of the Network window (web-src/net-tools.js): which router keys to read, how to turn the router's
+ * answers into plain objects, and the small text helpers. No document, no api(), no router call in here, so node can test it
+ * without a router (scripts/test_net_tools.js). Plan and the values seen on the F50: MatchiTOOL_Network_Tools_PLAN.txt (Phase 0).
+ *
+ * Rules kept here:
+ *  - A key the router leaves EMPTY means "not reported": every parser gives null for it, never 0 / "off" (the tab then says so).
+ *  - The Wi-Fi password and APN passwords are NEVER copied into a parsed object (the router's reply holds them in clear text).
+ *  - Phase 1 only reads. Nothing in this file builds a write call.
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module && module.exports) module.exports = api;
+  else root.MatchiNetCore = api;
+})(typeof window !== 'undefined' ? window : this, function () {
+  'use strict';
+
+  // ---- What each tab reads (goform_get_cmd_process, multi_data=1, comma list) -------------------------------------------------
+  const READ = {
+    data: 'ppp_status,dial_mode,roam_setting_option,dial_roam_setting_option',
+    wifi: 'queryWiFiModuleSwitch,queryAccessPointInfo,wifi_access_sta_num',
+    devices: 'station_list,lan_station_list,wifi_access_sta_num',
+    apn: 'apn_mode,apn_auto_profile,APN_config,ipv6_APN_config',
+    lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
+    mtu: 'mtu,tcp_mss',
+  };
+  const TABS = [
+    ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'],
+  ];
+
+  // ---- Small helpers ----------------------------------------------------------------------------------------------------------
+  // Empty, undefined and null all mean "the router does not report this".
+  const clean = (v) => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());
+  const num = (v) => { const t = clean(v); if (t === null || !/^-?\d+$/.test(t)) return null; return parseInt(t, 10); };
+  // The router sends some lists as an array and some as a JSON string; a plain non-JSON string is not a list.
+  const toList = (v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v.trim()) { try { const j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (_) { return []; } }
+    return [];
+  };
+  // Look for a key at the top level first, then one level down (a multi-key read may nest a query's answer under the query's name).
+  const pick = (d, name) => {
+    if (!d || typeof d !== 'object') return undefined;
+    if (d[name] !== undefined) return d[name];
+    for (const k of Object.keys(d)) {
+      let v = d[k];
+      if (typeof v === 'string' && v.trim().startsWith('{')) { try { v = JSON.parse(v); } catch (_) { continue; } }
+      if (v && typeof v === 'object' && !Array.isArray(v) && v[name] !== undefined) return v[name];
+    }
+    return undefined;
+  };
+  const isObj = (d) => !!d && typeof d === 'object' && !Array.isArray(d);
+  // Lower-case, colon separated; anything that is not 12 hex digits is returned as it came (trimmed).
+  const normMac = (m) => {
+    const t = String(m == null ? '' : m).trim();
+    const h = t.replace(/[^0-9A-Fa-f]/g, '');
+    return /^[0-9A-Fa-f]{12}$/.test(h) && t.replace(/[0-9A-Fa-f:.-]/g, '') === '' ? h.toLowerCase().replace(/(..)(?=.)/g, '$1:') : t;
+  };
+  const isPassKey = (k) => /pass(wd|word|phrase)|^pwd$|_pwd$/i.test(String(k));
+
+  // Hide secrets in text that is shown on screen or kept in a log: key=value, key: value and JSON "key":"value" for password-like keys.
+  const maskSecrets = (text) => String(text == null ? '' : text).replace(
+    /(\b[\w-]*(?:passwd|password(?:show)?|passphrase|pwd))("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;&"']+)/gi,
+    (a, k, sep) => k + sep + '[hidden]');
+
+  // ---- Data -------------------------------------------------------------------------------------------------------------------
+  // The F50 reports ipv4_ipv6_connected, so this is a FAMILY of values, not one string. Anything that is neither is "changing".
+  function connState(ppp) {
+    const t = clean(ppp); if (t === null) return null;
+    const s = t.toLowerCase();
+    if (s.includes('disconnected')) return 'disconnected';
+    if (s.includes('connected')) return 'connected';
+    return 'changing';
+  }
+  const modeLabel = (v) => { const t = clean(v); return t === null ? null : t === 'auto_dial' ? 'Automatic' : t === 'manual_dial' || t === 'manual' ? 'Manual' : t; };
+  const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
+  function parseData(d) {
+    if (!isObj(d)) return null;
+    const ppp = clean(d.ppp_status);
+    return { ppp, state: connState(ppp), mode: clean(d.dial_mode), modeLabel: modeLabel(d.dial_mode), roaming: onOff(d.roam_setting_option) };
+  }
+
+  // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
+  // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz is a strong
+  // guess from the stock page (chip 1 is the one that is on while the page says 5.0GHz Only), not confirmed yet: the label says so.
+  const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (probably 2.4 GHz)' : chip === 1 ? 'Chip 1 (probably 5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
+  const authLabel = (v) => {
+    const t = clean(v); if (t === null) return null;
+    const MAP = { OPEN: 'Open', WPA2PSK: 'WPA2-PSK', WPA3PSK: 'WPA3-PSK', WPA2PSKWPA3PSK: 'WPA2-PSK / WPA3-PSK', WPAPSKWPA2PSK: 'WPA-PSK / WPA2-PSK', WPAPSK: 'WPA-PSK' };
+    return MAP[t.toUpperCase()] || t;
+  };
+  function parseWifi(d) {
+    if (!isObj(d)) return null;
+    const sw = clean(pick(d, 'WiFiModuleSwitch'));
+    const entries = toList(pick(d, 'ResponseList')).filter(isObj).map((e) => {
+      const chip = num(e.ChipIndex);
+      const dis = clean(e.ApBroadcastDisabled);
+      // Only named fields are copied: Password and PasswordShow stay out of the object on purpose.
+      return {
+        chip, band: chipLabel(chip), on: clean(e.AccessPointSwitchStatus) === null ? null : clean(e.AccessPointSwitchStatus) === '1',
+        ssid: clean(e.SSID), auth: authLabel(e.AuthMode), authRaw: clean(e.AuthMode),
+        broadcast: dis === null ? null : dis === '0', maxStations: num(e.ApMaxStationNumber), country: clean(e.CountryCode),
+      };
+    });
+    if (sw === null && !entries.length) return { moduleOn: null, entries: [], clients: num(d.wifi_access_sta_num) };
+    return { moduleOn: sw === null ? null : sw === '1', entries, clients: num(d.wifi_access_sta_num) };
+  }
+  // The mode the stock page shows: one of "2.4 GHz only", "5 GHz only", "Off" (null when it cannot be told).
+  function wifiSummary(w) {
+    if (!w || w.moduleOn === null) return null;
+    if (!w.moduleOn) return 'Off';
+    const on = w.entries.filter((e) => e.on);
+    if (!on.length) return 'Off';
+    if (on.length > 1) return 'Both chips on';
+    return on[0].chip === 0 ? '2.4 GHz only (probably)' : on[0].chip === 1 ? '5 GHz only (probably)' : 'On';
+  }
+
+  // ---- Devices ----------------------------------------------------------------------------------------------------------------
+  // station_list = Wi-Fi, lan_station_list = cable. Each entry has only mac_addr, hostname, ip_addr (mac_address is accepted too).
+  const devRow = (e, type) => ({ type, name: clean(e.hostname) || '', ip: clean(e.ip_addr) || '', mac: normMac(e.mac_addr !== undefined ? e.mac_addr : e.mac_address) });
+  const ipKey = (ip) => String(ip).split('.').map((x) => ('000' + x).slice(-3)).join('.');
+  function mergeDevices(wifi, cable) {
+    const seen = new Set(), out = [];
+    for (const [list, type] of [[toList(wifi), 'Wi-Fi'], [toList(cable), 'Cable']]) {
+      for (const e of list) {
+        if (!isObj(e)) continue;
+        const r = devRow(e, type);
+        if (!r.mac && !r.ip && !r.name) continue;
+        const k = r.mac ? r.mac.toLowerCase() : r.type + '|' + r.ip + '|' + r.name;
+        if (seen.has(k)) continue;   // the same device in both lists is shown once, as Wi-Fi
+        seen.add(k); out.push(r);
+      }
+    }
+    const rank = (t) => (t === 'Wi-Fi' ? 0 : 1);
+    out.sort((a, b) => rank(a.type) - rank(b.type) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || ipKey(a.ip).localeCompare(ipKey(b.ip)));
+    return out;
+  }
+  // null = neither list key came back at all (hide the tab's table); [] = reported but nobody is connected.
+  function parseDevices(d) {
+    if (!isObj(d)) return null;
+    const hasW = d.station_list !== undefined, hasC = d.lan_station_list !== undefined;
+    if (!hasW && !hasC) return null;
+    const rows = mergeDevices(d.station_list, d.lan_station_list);
+    return { rows, wifi: rows.filter((r) => r.type === 'Wi-Fi').length, cable: rows.filter((r) => r.type === 'Cable').length, routerCount: num(d.wifi_access_sta_num), wifiReported: hasW, cableReported: hasC };
+  }
+
+  // ---- APN --------------------------------------------------------------------------------------------------------------------
+  // In Auto mode the F50 returns APN_config and ipv6_APN_config EMPTY, and the key that holds the profile list is not known yet.
+  // So Phase 1 shows the mode and whatever comes back, with every password-like field removed. A non-list text is shown masked.
+  function stripPass(o) {
+    if (Array.isArray(o)) return o.map(stripPass);
+    if (!isObj(o)) return o;
+    const r = {}; for (const k of Object.keys(o)) { if (!isPassKey(k)) r[k] = stripPass(o[k]); }
+    return r;
+  }
+  function apnConfig(v) {
+    const t = clean(v); if (t === null) return null;
+    const l = toList(v);
+    if (l.length) return { kind: 'list', items: l.map(stripPass) };
+    return { kind: 'text', text: maskSecrets(t) };
+  }
+  function parseApn(d) {
+    if (!isObj(d)) return null;
+    return { mode: clean(d.apn_mode), autoProfile: clean(d.apn_auto_profile), v4: apnConfig(d.APN_config), v6: apnConfig(d.ipv6_APN_config) };
+  }
+  // One readable line for a profile object (only the fields UFI's names say exist; passwords are already gone).
+  function apnLine(p) {
+    if (!isObj(p)) return String(p);
+    const name = clean(p.profile_name || p.apn_m_profile_name || p.name) || '(no name)';
+    const apn = clean(p.apn || p.wan_apn || p.apn_wan_apn) || '';
+    const pdp = clean(p.pdp_type || p.apn_pdp_type) || '';
+    return [name, apn, pdp].filter(Boolean).join(' · ');
+  }
+
+  // ---- LAN / DHCP -------------------------------------------------------------------------------------------------------------
+  // dhcpLease_hour comes as a STRING with an "h" on the end ("24h"). null when it is not a whole number of hours.
+  function parseLease(v) {
+    const t = clean(v); if (t === null) return null;
+    const m = t.match(/^(\d+)\s*h?$/i);
+    return m ? parseInt(m[1], 10) : null;
+  }
+  const leaseText = (h) => (h === null || h === undefined ? null : h + (h === 1 ? ' hour' : ' hours'));
+  function parseLan(d) {
+    if (!isObj(d)) return null;
+    const leaseRaw = clean(d.dhcpLease_hour);
+    return {
+      ip: clean(d.lan_ipaddr), mask: clean(d.lan_netmask), dhcp: onOff(d.dhcpEnabled), start: clean(d.dhcpStart), end: clean(d.dhcpEnd),
+      leaseRaw, leaseHours: parseLease(leaseRaw), mac: clean(d.mac_address),
+    };
+  }
+
+  // ---- MTU / MSS --------------------------------------------------------------------------------------------------------------
+  function parseMtu(d) {
+    if (!isObj(d)) return null;
+    const mtu = num(d.mtu), mss = num(d.tcp_mss);
+    // The stock default is MSS = MTU - 40 (1500 / 1460). A larger MSS is worth a note; smaller is fine.
+    const warn = mtu !== null && mss !== null && mss > mtu - 40 ? 'MSS is larger than MTU minus 40 (' + (mtu - 40) + ')' : null;
+    return { mtu, mss, warn };
+  }
+  // One root command, read-only. Section marker lines split the output. Nothing here changes a rule or an interface.
+  const ROOT_READ_SH =
+    "echo '##route'; ip route get 1.1.1.1 2>&1; " +
+    "echo '##link'; ip -o link show 2>&1; " +
+    "echo '##filter'; iptables -S 2>&1 | grep -i TCPMSS; " +
+    "echo '##mangle'; iptables -t mangle -S 2>&1 | grep -i TCPMSS; " +
+    "echo '##filter6'; ip6tables -S 2>&1 | grep -i TCPMSS; " +
+    "echo '##mangle6'; ip6tables -t mangle -S 2>&1 | grep -i TCPMSS; " +
+    "echo '##end'";
+  function sections(text) {
+    const out = {}; let cur = null;
+    for (const line of String(text == null ? '' : text).replace(/\r/g, '').split('\n')) {
+      const m = line.match(/^##([a-z0-9]+)$/);
+      if (m) { cur = m[1]; out[cur] = []; continue; }
+      if (cur && line.trim()) out[cur].push(line.trim());
+    }
+    return out;
+  }
+  // WAN = the device that carries the route to 1.1.1.1 (found at run time, never hard-coded). Its MTU comes from "ip -o link show".
+  function parseRootNet(text) {
+    const s = sections(text);
+    if (!s.route && !s.link) return null;
+    const route = (s.route || []).join(' ');
+    const dev = (route.match(/\bdev\s+([A-Za-z0-9_.:-]+)/) || [])[1] || null;
+    const src = (route.match(/\bsrc\s+([0-9.]+)/) || [])[1] || null;
+    let wanMtu = null, wanState = null;
+    if (dev) {
+      for (const l of s.link || []) {
+        const m = l.match(/^\d+:\s+([^:@\s]+)(?:@\S+)?:\s+<([^>]*)>\s+mtu\s+(\d+)/);
+        if (m && m[1] === dev) { wanMtu = parseInt(m[3], 10); wanState = /\bUP\b/.test(m[2]) ? 'UP' : 'DOWN'; }
+      }
+    }
+    // Rules are listed as they are. The stock page writes every one twice (INPUT and OUTPUT, duplicated), which is how the stock boot builds them.
+    const rules = (name, family) => (s[name] || []).filter((l) => /^-[AI]\s/.test(l)).map((l) => ({ family, table: name.startsWith('mangle') ? 'mangle' : 'filter', text: l }));
+    const list = [...rules('filter', 'IPv4'), ...rules('mangle', 'IPv4'), ...rules('filter6', 'IPv6'), ...rules('mangle6', 'IPv6')];
+    return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
+  }
+
+  return {
+    READ, TABS, ROOT_READ_SH,
+    clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
+    connState, modeLabel, onOff, parseData,
+    chipLabel, authLabel, parseWifi, wifiSummary,
+    mergeDevices, parseDevices,
+    apnConfig, parseApn, apnLine,
+    parseLease, leaseText, parseLan,
+    parseMtu, sections, parseRootNet,
+  };
+});
+
+/* @end-include web-src/net-core.js */
+/* @include web-src/net-tools.js */
+/*
+ * Network window (Phase 1: READ ONLY). Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
+ * Nothing in this file writes to the router or the phone: it only reads, and the one root call (MTU / MSS tab) is a read-only
+ * command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
+ * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
+ *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
+ *  - While the window is open Live Status is paused (MatchiRadio.beginBusy), and it reads once again after the window closes.
+ *  - A key the router leaves empty shows "Not reported by this router", never a made-up value.
+ *  - The Wi-Fi password and APN passwords are never shown: the parser does not copy them.
+ *  - Every value is put on the page with textContent (no markup built from router text).
+ */
+function mountNetTools() {
+  'use strict';
+  const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
+  if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
+  const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null };
+  let epoch = 0;
+
+  // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
+  const h = (tag, attrs, ...kids) => {
+    const e = document.createElement(tag), a = attrs || {};
+    for (const k of Object.keys(a)) {
+      if (k === 'class') e.className = a[k];
+      else if (k === 'text') e.textContent = a[k];
+      else e.setAttribute(k, a[k]);
+    }
+    for (const c of kids.flat(Infinity)) if (c !== null && c !== undefined && c !== false) e.append(c && c.nodeType ? c : document.createTextNode(String(c)));
+    return e;
+  };
+  const $ = (id) => document.getElementById(id);
+  const notReported = () => h('span', { class: 'net-mut' }, NOT);
+  const val = (v) => (v === null || v === undefined || v === '' ? notReported() : String(v));
+  const kv = (rows) => h('dl', { class: 'net-kv' }, rows.map(([k, v, note]) => [h('dt', {}, k), h('dd', {}, val(v), note ? h('span', { class: 'net-note' }, ' ' + note) : null)]));
+  const note = (t, cls) => h('p', { class: 'net-p' + (cls ? ' ' + cls : '') }, t);
+  const allEmpty = (o, keys) => !o || keys.every((k) => o[k] === null || o[k] === undefined || (Array.isArray(o[k]) && !o[k].length));
+
+  // ---- tab renderers: parsed router answer -> a node ------------------------------------------------------------------------
+  function viewData(d) {
+    const p = N.parseData(d);
+    if (allEmpty(p, ['ppp', 'mode', 'roaming'])) return note(NOT + ' (mobile data status).');
+    const word = p.state === 'connected' ? 'Connected' : p.state === 'disconnected' ? 'Disconnected' : p.state === 'changing' ? 'Changing' : null;
+    return h('div', {},
+      kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
+      note('Read only. Turning mobile data off or on is a later step.', 'net-mut'));
+  }
+  function viewWifi(d) {
+    const w = N.parseWifi(d);
+    if (!w || (w.moduleOn === null && !w.entries.length)) return note(NOT + ' (Wi-Fi settings).');
+    const top = kv([['Wi-Fi', w.moduleOn === null ? null : w.moduleOn ? 'On' : 'Off'], ['Band in use', N.wifiSummary(w)], ['Devices on Wi-Fi', w.clients === null ? null : String(w.clients)]]);
+    const blocks = w.entries.map((e) => h('section', { class: 'net-sec' },
+      h('h4', {}, e.band + (e.on === null ? '' : e.on ? ' · on' : ' · off')),
+      kv([['Network name (SSID)', e.ssid], ['Security', e.auth], ['SSID broadcast', e.broadcast === null ? null : e.broadcast ? 'Visible' : 'Hidden'],
+        ['Max devices', e.maxStations === null ? null : String(e.maxStations)], ['Country code', e.country]])));
+    return h('div', {}, top, blocks, note('The Wi-Fi password is not shown or kept here. Which chip is which band is a guess until the band switch is captured.', 'net-mut'));
+  }
+  function viewDevices(d) {
+    const p = N.parseDevices(d);
+    if (!p) return note(NOT + ' (device lists).');
+    const head = note(p.rows.length + (p.rows.length === 1 ? ' device' : ' devices') + ': ' + p.wifi + ' on Wi-Fi, ' + p.cable + ' on cable.');
+    const extra = [];
+    if (!p.cableReported) extra.push(note('The cable list is ' + NOT.toLowerCase() + '.', 'net-mut'));
+    if (!p.wifiReported) extra.push(note('The Wi-Fi list is ' + NOT.toLowerCase() + '.', 'net-mut'));
+    if (p.routerCount !== null && p.wifiReported && p.routerCount !== p.wifi) extra.push(note('The router counts ' + p.routerCount + ' on Wi-Fi; the list shows ' + p.wifi + '.', 'net-mut'));
+    if (!p.rows.length) return h('div', {}, head, extra);
+    const tbl = h('table', { class: 'net-tbl' },
+      h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type'].map((t) => h('th', { scope: 'col' }, t)))),
+      h('tbody', {}, p.rows.map((r) => h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type)))));
+    return h('div', {}, head, h('div', { class: 'net-scroll' }, tbl), extra);
+  }
+  function viewApn(d) {
+    const p = N.parseApn(d);
+    if (allEmpty(p, ['mode', 'autoProfile', 'v4', 'v6'])) return note(NOT + ' (APN).');
+    const lists = [];
+    for (const [label, c] of [['IPv4 profiles', p.v4], ['IPv6 profiles', p.v6]]) {
+      if (!c) continue;
+      lists.push(h('h4', {}, label));
+      if (c.kind === 'list') lists.push(h('ul', { class: 'net-ul' }, c.items.map((it) => h('li', {}, N.apnLine(it)))));
+      else lists.push(h('pre', { class: 'net-pre' }, c.text));
+    }
+    return h('div', {},
+      kv([['APN mode', p.mode], ['Automatic profile', p.autoProfile]]),
+      lists.length ? lists : note('Profile list: ' + NOT.toLowerCase() + '. It can come back empty while the mode is Auto.', 'net-mut'),
+      note('Passwords are never shown here.', 'net-mut'));
+  }
+  function viewLan(d) {
+    const p = N.parseLan(d);
+    if (allEmpty(p, ['ip', 'mask', 'dhcp', 'start', 'end', 'leaseRaw', 'mac'])) return note(NOT + ' (LAN / DHCP).');
+    const pool = p.start && p.end ? p.start + ' - ' + p.end : null;
+    return kv([['Router IP address', p.ip], ['Subnet mask', p.mask], ['DHCP server', p.dhcp], ['DHCP pool', pool],
+      ['Lease time', p.leaseHours !== null ? N.leaseText(p.leaseHours) : p.leaseRaw], ['Router MAC address', p.mac]]);
+  }
+  function viewMtu(d) {
+    const p = N.parseMtu(d);
+    const router = !p || (p.mtu === null && p.mss === null) ? note(NOT + ' (MTU / MSS).')
+      : h('div', {}, kv([['MTU (router setting)', p.mtu === null ? null : String(p.mtu)], ['MSS (router setting)', p.mss === null ? null : String(p.mss)]]), p.warn ? note(p.warn, 'net-warn') : null);
+    return h('div', {}, router,
+      note('On the F50 test the stock MSS rule applied to the router itself, not to devices connected to it. The real values below come from a read-only root check.', 'net-mut'),
+      rootBlock());
+  }
+  function rootBlock() {
+    const btn = h('button', { type: 'button', id: 'matchi_net_root' }, st.rootBusy ? 'Reading…' : st.root || st.rootErr ? 'Read again (root)' : 'Read real values (root)');
+    if (st.rootBusy) btn.disabled = true;
+    btn.onclick = rootRead;
+    const out = [h('h4', {}, 'Real values on the phone'), h('div', { class: 'net-actions' }, btn)];
+    if (st.rootErr) out.push(note('Not available: ' + N.maskSecrets(st.rootErr), 'net-warn'));
+    const r = st.root;
+    if (r) {
+      out.push(kv([
+        ['Internet interface', r.noRoute ? null : r.wanDev, r.noRoute ? '(no route to the internet found: is mobile data on?)' : ''],
+        ['Interface MTU', r.wanMtu === null ? null : String(r.wanMtu), r.wanState ? '(' + r.wanState + ')' : ''],
+      ]));
+      if (r.rules.length) {
+        out.push(h('h4', {}, 'TCPMSS rules found'));
+        out.push(h('pre', { class: 'net-pre' }, r.rules.map((x) => x.family + ' ' + x.table + ': ' + x.text).join('\n')));
+        const texts = r.rules.map((x) => x.family + x.table + x.text);
+        if (new Set(texts).size < texts.length) out.push(note('Some rules appear twice. The stock firmware builds them that way; it is not an error.', 'net-mut'));
+      } else out.push(note('No TCPMSS rule found.', 'net-mut'));
+    }
+    return h('section', { class: 'net-sec' }, out);
+  }
+  const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu };
+
+  // ---- window state ---------------------------------------------------------------------------------------------------------
+  const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
+  const syncButtons = () => {
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading;
+    document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
+  };
+  function paint(tab) {
+    const body = $('matchi_net_body'); if (!body || tab !== st.tab) return;
+    const c = st.cache[tab];
+    body.replaceChildren(c ? VIEWS[tab](c.d) : h('p', { class: 'net-p net-mut' }, 'Reading…'));
+    syncButtons();
+  }
+  async function load(tab) {
+    const my = ++epoch;
+    st.loading = true; syncButtons(); setStatus('Reading…');
+    if (!st.cache[tab]) paint(tab);
+    try {
+      const d = await R.zte('get', { multi_data: '1', cmd: N.READ[tab] });
+      if (my !== epoch) return;
+      st.cache[tab] = { d, at: Date.now() };
+      paint(tab); setStatus('Updated ' + new Date().toLocaleTimeString());
+    } catch (e) {
+      if (my !== epoch) return;
+      delete st.cache[tab];
+      const body = $('matchi_net_body');
+      if (body && tab === st.tab) body.replaceChildren(note('Could not read the router: ' + N.maskSecrets(e.message), 'net-warn'));
+      setStatus('Read failed');
+    } finally { if (my === epoch) { st.loading = false; syncButtons(); } }
+  }
+  function select(tab) {
+    if (!VIEWS[tab]) return;
+    st.tab = tab; syncButtons();
+    if (st.cache[tab]) { epoch++; st.loading = false; paint(tab); syncButtons(); setStatus('Updated ' + new Date(st.cache[tab].at).toLocaleTimeString()); } else load(tab);
+  }
+  async function rootRead() {
+    if (st.rootBusy) return;
+    st.rootBusy = true; st.rootErr = ''; paint('mtu');
+    try {
+      const out = await R.sh(N.ROOT_READ_SH, 20000);
+      st.root = N.parseRootNet(out);
+      if (!st.root) st.rootErr = 'the phone gave no usable answer';
+    } catch (e) { st.root = null; st.rootErr = e.message; }
+    st.rootBusy = false; paint('mtu');
+  }
+  function release() { if (st.release) { try { st.release(); } catch (_) { /* not fatal */ } st.release = null; } }
+
+  // ---- window ---------------------------------------------------------------------------------------------------------------
+  function netStyle() {
+    if ($('matchi_net_style')) return;
+    const s = document.createElement('style'); s.id = 'matchi_net_style';
+    s.textContent = `#matchi_net_modal .net-top{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+#matchi_net_tabs{display:flex;gap:5px;flex-wrap:wrap}
+#matchi_net_modal button{min-height:30px;padding:3px 10px;font-size:12.5px;border-radius:7px}
+#matchi_net_modal [role=tab].on{border-color:var(--acc);background:#17365c}
+#matchi_net_body{min-height:120px}
+#matchi_net_status{font-size:11.5px;margin-top:10px;color:var(--mut)}
+#matchi_net_modal .net-kv{display:grid;grid-template-columns:minmax(120px,38%) 1fr;gap:4px 12px;margin:0 0 8px}
+#matchi_net_modal .net-kv dt{color:var(--mut)}#matchi_net_modal .net-kv dd{margin:0;word-break:break-word}
+#matchi_net_modal .net-mut,#matchi_net_modal .net-note{color:var(--mut)}
+#matchi_net_modal .net-warn{color:var(--danger)}
+#matchi_net_modal .net-p{margin:6px 0}
+#matchi_net_modal h4{margin:12px 0 6px;font-size:12.5px;letter-spacing:.04em}
+#matchi_net_modal .net-sec{border-top:1px solid var(--bd);margin-top:10px;padding-top:2px}
+#matchi_net_modal .net-actions{margin:6px 0}
+#matchi_net_modal .net-scroll{overflow-x:auto;margin:8px 0}
+#matchi_net_modal .net-tbl{border-collapse:collapse;width:100%;font-size:12.5px}
+#matchi_net_modal .net-tbl th,#matchi_net_modal .net-tbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
+#matchi_net_modal .net-ul{margin:4px 0;padding-left:18px}
+#matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
+    document.head.appendChild(s);
+  }
+  function open() {
+    netStyle();
+    release(); st.release = R.beginBusy('Network window open');
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; st.loading = false;
+    createModal({
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; release(); return true; },
+      content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
+        '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
+    });
+    showModal(MODAL);
+    const tabs = $('matchi_net_tabs');
+    for (const [id, label] of N.TABS) {
+      const b = h('button', { type: 'button', role: 'tab', 'data-tab': id, id: 'matchi_net_tab_' + id }, label);
+      b.onclick = () => select(id);
+      b.onkeydown = (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        const ids = N.TABS.map((t) => t[0]), i = ids.indexOf(id), n = ids[(i + (e.key === 'ArrowRight' ? 1 : ids.length - 1)) % ids.length];
+        e.preventDefault(); select(n); const nb = $('matchi_net_tab_' + n); if (nb) nb.focus();
+      };
+      tabs.appendChild(b);
+    }
+    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; load(st.tab); } };
+    load('data');
+  }
+
+  const b = document.createElement('button');
+  b.id = 'matchi_net_btn'; b.type = 'button'; b.textContent = 'Network'; b.onclick = open;
+  const ref = $('matchi_perf_btn');
+  if (ref && ref.parentNode === host) ref.after(b); else host.appendChild(b);
+}
+
+/* @end-include web-src/net-tools.js */
 /* UFIHOST-BEGIN */
 /* @include web-src/plugin-host-api.js */
 /* ===== UFI-TOOLS plugin host API (Phase 2) =====================================================
@@ -6715,6 +7193,7 @@ async function start(){
   try{mountDashRadio()}catch(e){createToast('Radio settings card: '+e.message,'red',6000)}
   try{mountDashCell()}catch(e){createToast('Cell lock card: '+e.message,'red',6000)}
   try{mountPerfMode()}catch(e){createToast('Performance mode button: '+e.message,'red',6000)}
+  try{mountNetTools()}catch(e){createToast('Network button: '+e.message,'red',6000)}
   try{await loadPlugins()}catch(e){createToast('Plugin manager: '+e.message,'red',6000)}
   refreshUsb();
 }
@@ -7048,7 +7527,7 @@ setInterval(hostPing,15000);
 const RD_SMS_AT=/\+(CMGR|CMGL|CMT|CDS|CMGS|CMGW)\s*[:=]|\bAT\+(CMGS|CMGW|CMGR|CMGL)\b\s*=?/i;
 const RD_SMS_BODY=/\b(sms_?body|sms_?text|message_?body|body)\s*[=:]\s*\S/i;
 const RD_BEARER=/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/gi;
-const RD_SECRET=/\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
+const RD_SECRET=/\b(\w*_passwd|\w*_password|\w*_passphrase|password(?:show)?|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)("?\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
 const RD_ID_KV=/\b(imei(?:sv)?|imsi|iccid|meid|msisdn|serial(?:no)?)(\s*[:=]\s*)([0-9A-Za-z]{6,})/gi;
 const RD_IMEI=/(^|[^0-9A-Za-z])(\d{15})(?![0-9A-Za-z])/g;
 const RD_ICCID=/(^|[^0-9A-Za-z])(89\d{17,18})(?![0-9A-Za-z])/g;

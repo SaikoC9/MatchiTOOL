@@ -11,6 +11,8 @@ The console is one self-contained page, `app/src/main/assets/web/index.html` (th
 | `radio-core.js` | `window.MatchiRadio`: AT and router calls, band lock, cell lock, radio restart, parsing. No DOM (tested by `scripts/test_at_radio.js`) |
 | `at-radio-ui.js` | the AT & Radio window (a built-in tool block in `index.html`): AT terminal, VoLTE / VoNR, quick buttons, modem restart; calls `MatchiRadio`. No network mode, band lock or cell lock (they are on the dashboard) |
 | `perf-mode.js` | `mountPerfMode()`: the "Performance mode" button in the top button row (next to Change IP) and its small window |
+| `net-core.js` | `window.MatchiNetCore`: the pure part of the Network window: which router keys each tab reads, parsers for Data / Wi-Fi / Devices / APN / LAN-DHCP / MTU-MSS, the read-only root command and its parser, and the password masking. No DOM, no router call (tested by `scripts/test_net_tools.js`) |
+| `net-tools.js` | `mountNetTools()`: the "Network" button in the top button row and its window with six tabs. Phase 1 is read only; the window is run against a fake DOM by `scripts/test_net_tools_ui.js` |
 | `dash-radio.js` | `mountDashRadio()`: the Radio settings card under Live device status (network mode, band chips, Lock / Unlock all) |
 | `pick-ui.js` | popup pickers: replaces the phone's full-screen dropdown list and date/time wheel with a popup in the page's style for selects and date fields in dialogs and the header (the real controls stay, hidden, so handlers keep working) |
 

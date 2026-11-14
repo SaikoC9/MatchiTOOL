@@ -51,7 +51,7 @@ class Redactor {
         private val SMS_BODY = Regex("""(?i)\b(sms_?body|sms_?text|message_?body|body)\s*[=:]\s*\S""")
         private val BEARER = Regex("""(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}""")
         private val SECRET_KV = Regex(
-            """(?i)\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)""")
+            """(?i)\b(\w*_passwd|\w*_password|\w*_passphrase|password(?:show)?|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)("?\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)""")
         private val ID_KV = Regex("""(?i)\b(imei(?:sv)?|imsi|iccid|meid|msisdn|serial(?:no)?)(\s*[:=]\s*)([0-9A-Za-z]{6,})""")
         private val IMEI_BARE = Regex("""(?<![0-9A-Za-z])\d{15}(?![0-9A-Za-z])""")
         private val ICCID_BARE = Regex("""(?<![0-9A-Za-z])89\d{17,18}(?![0-9A-Za-z])""")

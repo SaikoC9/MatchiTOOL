@@ -53,6 +53,8 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_live_cpu.js" || exit 1
   node "$(dirname "$0")/test_live_guard.js" || exit 1
   node "$(dirname "$0")/test_at_radio.js" || exit 1
+  node "$(dirname "$0")/test_net_tools.js" || exit 1      # Network window, Phase 1: parsers, password never copied, window is read only
+  node "$(dirname "$0")/test_net_tools_ui.js" || exit 1   # the window itself against a fake DOM
   node "$(dirname "$0")/test_phase0.js" || exit 1
   node "$(dirname "$0")/check_innerhtml.js" || exit 1   # every innerHTML site is static, escaped or reviewed
   node "$(dirname "$0")/test_safe_html.js" || exit 1

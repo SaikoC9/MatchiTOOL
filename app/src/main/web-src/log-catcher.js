@@ -128,7 +128,7 @@
 const RD_SMS_AT=/\+(CMGR|CMGL|CMT|CDS|CMGS|CMGW)\s*[:=]|\bAT\+(CMGS|CMGW|CMGR|CMGL)\b\s*=?/i;
 const RD_SMS_BODY=/\b(sms_?body|sms_?text|message_?body|body)\s*[=:]\s*\S/i;
 const RD_BEARER=/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/gi;
-const RD_SECRET=/\b(password|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)(\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
+const RD_SECRET=/\b(\w*_passwd|\w*_password|\w*_passphrase|password(?:show)?|passwd|pwd|passphrase|secret|token|api[_-]?key|authorization|cookie|x-token|session[_-]?id|access[_-]?key)("?\s*[:=]\s*)(?:(?:Bearer|Basic)\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)/gi;
 const RD_ID_KV=/\b(imei(?:sv)?|imsi|iccid|meid|msisdn|serial(?:no)?)(\s*[:=]\s*)([0-9A-Za-z]{6,})/gi;
 const RD_IMEI=/(^|[^0-9A-Za-z])(\d{15})(?![0-9A-Za-z])/g;
 const RD_ICCID=/(^|[^0-9A-Za-z])(89\d{17,18})(?![0-9A-Za-z])/g;

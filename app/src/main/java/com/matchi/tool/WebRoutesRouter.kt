@@ -34,25 +34,29 @@ internal fun WebServer.gatewayParams(s: IHTTPSession): Map<String, String> {
 
 internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = when {
     // Proxy to the ZTE web API: {"op":"get"|"set","params":{"cmd":"signalbar",...}}
-    uri == "/api/zte" && s.method == Method.POST -> {
+    uri == "/api/zte" && s.method == Method.POST -> run {
         val req = body(s)
         val op = req.optString("op")
         if (op != "get" && op != "set") throw IllegalArgumentException("op must be get or set")
         val po = req.optJSONObject("params") ?: JSONObject()
         val p = LinkedHashMap<String, String>()
         for (k in po.keys()) p[k] = po.optString(k)
+        // Network tools (Wi-Fi, devices, APN, LAN / DHCP, MTU / MSS, mobile data): these writes can cut the person off, so they need the fresh sign-in like /api/proxy POST. Reads and the radio calls stay open.
+        if (op == "set" && NetGoform.needsGate(p)) rootGate(s)?.let { return@run it }
         val raw = ZteClient.call(ctx, op, p, req.optInt("retry", 0).coerceIn(0, 2))
         val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
         json(Response.Status.OK, JSONObject().put("success", true).put("data", parsed).put("info", if (op == "set") ZteClient.lastInfo else ""))
     }
     // UFI-TOOLS router routes. The target is always the saved gateway (ZteClient never takes a host from a request).
     // goform: GET query = router "get"; POST (form or JSON body) = router "set" with the AD token added, as /api/zte does.
-    uri.startsWith("/api/goform/") && (s.method == Method.GET || s.method == Method.POST) -> {
+    uri.startsWith("/api/goform/") && (s.method == Method.GET || s.method == Method.POST) -> run {
         val name = uri.removePrefix("/api/goform/")
         GatewayProxy.goformPath(name) ?: throw IllegalArgumentException("unknown goform endpoint")
         val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
         val isSet = name == "goform_set_cmd_process"
         if (isSet != (s.method == Method.POST)) throw IllegalArgumentException(if (isSet) "goform_set_cmd_process needs POST" else "goform_get_cmd_process needs GET")
+        // Same rule as /api/zte: a network-changing goformId needs the fresh sign-in; every other call and every read stays open.
+        if (isSet && NetGoform.needsGate(p)) rootGate(s)?.let { return@run it }
         val raw = ZteClient.call(ctx, if (isSet) "set" else "get", p.filterKeys { it != "isTest" })
         harden(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", raw))
     }
