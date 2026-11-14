@@ -348,11 +348,16 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
     }
     // What deleting this plugin would erase (read-only): its own data folder plus the paths it declares with
     // "// @matchi-data /path" in its source. Used by the page to show the list before the user confirms.
+    // Not behind rootGate as a whole (see the note inside): only its two root calls are.
     uri == "/api/plugins/data" && s.method == Method.POST -> {
         val name = body(s).optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val (paths, rejected) = pluginDataPlan(name)
-        val probe = RootShell.run(ctx, probeScript(paths), 15_000)
+        // 1.4.2 (F10): the two root calls (existence probe, process scan) run only when rootGate would let a root route through. A refused request is NOT an error:
+        // the page treats an error as "nothing to show" and would silently fall back to a plain delete, so it gets the same answer as "root not available" instead
+        // (items without "exists", sweep.rootOk=false) and still receives the stop plan, the undo list, the uploads and the effects, which come from files and the ledger.
+        val gated = rootGate(s) != null
+        val probe = if (gated) ShellResult(false, "") else RootShell.run(ctx, probeScript(paths), 15_000)
         val found = HashMap<String, Long>()
         if (probe.success) probe.content.lineSequence().forEach { line ->
             val m = Regex("^EXISTS (\\d*) (/\\S+)$").find(line.trim()) ?: return@forEach
@@ -367,7 +372,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val led = traceStore.read(name)
         val ups = JSONArray(); for (u in led.uploads) if (File(uploadDir, u).isFile) ups.put(u)
         json(Response.Status.OK, JSONObject().put("items", items).put("rejected", bad).put("rootOk", probe.success)
-            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", pluginSweep(name).toJson()).put("undo", pluginUndo(name).toJson()))
+            .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", (if (gated) refusedSweep() else pluginSweep(name)).toJson()).put("undo", pluginUndo(name).toJson()))
     }
     // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
     // Phase 1 / Step 4: {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).

@@ -462,6 +462,12 @@ internal class SweepView(val checked: Boolean, val result: SweepResult, val hash
 private fun uncheckedSweep(why: String) = SweepView(false, SweepResult(emptyList(), emptyList(), 0, false, false, listOf(why)), "")
 
 /**
+ * 1.4.2 (F10): the process list for a request the root gate refuses (session older than 4 h, or a connection that may not run root commands).
+ * No probe is run; the answer is "cannot be checked", never a list. The text is the one the page shows after "It could not be checked...".
+ */
+internal fun refusedSweep(): SweepView = uncheckedSweep("cannot be checked: this sign-in or connection may not run root commands now")
+
+/**
  * Step 4: turns the probe's run into [SweepView]. Pure: the caller runs the probe ([run], null when it did not run) and passes [rootGranted],
  * the plugin's ledger paths (already mapped with UfiPathMap, because the process command lines hold the mapped text) and [others] (the shared guard).
  */

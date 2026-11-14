@@ -9,7 +9,8 @@
 function disableDialog(name,sp,sw,un,mode,noRoot){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   const swT=sweepDialogText(sw,mode,noRoot),unT=undoDialogText(un,mode,noRoot);
-  let msg='Turn off '+name+'? Its file and its data stay.',okText='Turn off and stop',extra=[{text:'Turn off only',value:'skip'}];
+  const mayRun=cmds.length>0&&mode!=='sweep'&&mode!=='toomany'&&mode!=='cannot';
+  let msg='Turn off '+name+'? '+(mayRun?'The plugin file stays. Its saved data stays unless the stop commands listed below remove it.':'Its file and its data stay.'),okText='Turn off and stop',extra=[{text:'Turn off only',value:'skip'}];
   if(mode==='sweep')msg+='\n\nThis plugin declares no stop commands.'+swT+unT;
   else if(mode==='toomany'){msg+=swT+unT;okText='Turn off without stopping';extra=[]}
   else if(mode==='cannot'){

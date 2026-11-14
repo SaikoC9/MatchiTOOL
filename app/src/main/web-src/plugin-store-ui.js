@@ -34,7 +34,7 @@ async function storeInstall(item){
     if(ufiBytes(text)>UFI_BLOCK_MAX)throw new Error('Plugin is over the 1 MB limit');
     try{new Function(text)}catch(e){throw new Error('The file is not valid JavaScript: '+e.message)}
     const replaces=pluginCache.some(p=>p.name===name)?[name]:[];
-    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces,plugCompat(text))+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
+    if(!(await askConfirm('Install from the store?\n\n'+storeSummary(item,sha,scan,replaces,plugCompat(text),plugStopDecls(text))+'\n\nPlugins can run any command as root. Continue only if you trust this file.',replaces.length?'Replace and install':'Install',true)))return false;
     await api('/api/plugins',{method:'POST',body:JSON.stringify({name,code:text,title:item.name})});
     await api('/api/plugins/toggle',{method:'POST',body:JSON.stringify({name,enabled:true})});
     await refreshPluginList();createToast('Installed '+item.name);setTimeout(()=>location.reload(),500);return true;
