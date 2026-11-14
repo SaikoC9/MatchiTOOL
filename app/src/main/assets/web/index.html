@@ -664,9 +664,13 @@ html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) .lc-hist sel
    (2) Their title stays pinned at the top and Close/footer pinned at the bottom while the middle scrolls. (3) The Plugin store window is a column:
    title, scrolling list, then Prev/Next and Close always visible. */
 html body .card.pop.open:not(#_):not(#__){top:50%!important;left:50%!important;right:auto!important;bottom:auto!important;margin:0!important;transform:translate(-50%,-50%)!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important;overflow-y:auto!important;overscroll-behavior:contain;box-sizing:border-box!important}
-html body .card.pop.open:not(#_):not(#__)>.mut:first-child{position:sticky!important;top:0!important;z-index:3!important;margin:-13px -20px 6px!important;padding:13px 20px 7px!important;background:#101a2b!important;border-bottom:0!important}
+html body .card.pop.open:not(#_):not(#__):has(>.mut:first-child){padding-top:0!important}
+html body .card.pop.open:not(#_):not(#__)>.mut:first-child{position:sticky!important;top:0!important;z-index:3!important;margin:0 -20px 4px!important;padding:13px 20px 8px!important;background:#101a2b!important;border:0!important}
 html body .card.pop.open:not(#_):not(#__) .popfoot{position:sticky!important;bottom:0!important;z-index:3!important}
-@media(max-width:640px){html body .card.pop.open:not(#_):not(#__)>.mut:first-child{margin:-12px -14px 6px!important;padding:12px 14px 7px!important}}
+@media(max-width:640px){html body .card.pop.open:not(#_):not(#__)>.mut:first-child{margin:0 -14px 4px!important;padding:12px 14px 8px!important}}
+/* File pickers (Firmware, Update, Plugins): the box got a fixed 26px height, so the Choose File button spilled out over the text above and the button below. */
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___):not(#____):not(#_____) input[type=file]{box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:42px!important;padding:6px 8px!important;margin:8px 0 10px!important;line-height:1.2!important}
+html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___):not(#____):not(#_____) input[type=file]::file-selector-button{height:28px!important;min-height:0!important;margin:0 10px 0 0!important;padding:0 12px!important;font-size:12px!important;border-radius:7px!important}
 html body .modal-bg:not(#_):not(#__){height:100vh!important;height:100dvh!important;box-sizing:border-box}
 html body .modal-bg .modal:has(.st-foot){display:flex!important;flex-direction:column!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important;overflow:hidden!important;padding:0!important}
 html body .modal-bg .modal .st-head{flex:0 0 auto;padding:14px 16px 8px}
@@ -675,6 +679,17 @@ html body .modal-bg .modal .st-foot{flex:0 0 auto;border-top:0;background:#101a2
 html body .modal-bg .modal #st_pager{position:sticky;bottom:0;background:#101a2b;padding:6px 0;z-index:2}
 /* No thin divider line above the footer (Close row) in any dialog. */
 html body .card.pop.open:not(#_):not(#__) .popfoot,html body .popfoot:not(#_):not(#__),html body .modal-bg:not(#_):not(#__) .modal .mfoot,html body .modal-bg:not(#_):not(#__) .modal .st-foot,html body .modal-bg:not(#_):not(#__) .modal .mt-foot,html body .mt-foot:not(#_):not(#__){border-top:0!important;box-shadow:none!important}
+/* Log basket: its title row is pinned like the other windows' titles. */
+html body #logbasket.card.pop.open:not(#_):not(#__){padding-top:0!important}
+html body #logbasket.card.pop.open:not(#_):not(#__)>.row:first-child{position:sticky!important;top:0!important;z-index:3!important;margin:0 -20px 4px!important;padding:13px 20px 8px!important;background:#101a2b!important;border:0!important}
+@media(max-width:640px){html body #logbasket.card.pop.open:not(#_):not(#__)>.row:first-child{margin:0 -14px 4px!important;padding:12px 14px 8px!important}}
+/* Plugins window: with many plugins the window scrolls, so its title row stays pinned too. */
+html body #pluginmgr.card.pop.open:not(#_):not(#__){padding-top:0!important}
+html body #pluginmgr.card.pop.open:not(#_):not(#__)>.pm-head:first-child{position:sticky!important;top:0!important;z-index:3!important;margin:0 -20px 4px!important;padding:13px 20px 8px!important;background:#101a2b!important}
+@media(max-width:640px){html body #pluginmgr.card.pop.open:not(#_):not(#__)>.pm-head:first-child{margin:0 -14px 4px!important;padding:12px 14px 8px!important}}
+/* One Close button size everywhere: 88x30, 12.5px, same look in built-in windows, Plugins, Plugin store and plugin popups. */
+html body .card.pop .popfoot .popx:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .popx:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .mfoot .mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .st-foot .ccancel:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .ccancel:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal button.mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6){box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:88px!important;min-width:88px!important;max-width:88px!important;flex:0 0 88px!important;height:30px!important;min-height:30px!important;max-height:30px!important;padding:0 8px!important;margin:0 0 0 auto!important;font-size:12.5px!important;font-weight:650!important;line-height:1!important;border-radius:8px!important;border:1px solid rgba(255,255,255,.14)!important;background:rgba(255,255,255,.08)!important;color:var(--fg)!important;box-shadow:none!important;white-space:nowrap}
+html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not(#d5):not(#d6){padding:0!important}
 </style>
 </head>
 <body>
