@@ -474,6 +474,13 @@ class PluginSweepTest {
         }
     }
 
+    @Test fun refusedGateGivesNoProcessList() {
+        val v = refusedSweep()
+        assertFalse(v.checked); assertTrue(v.result.candidates.isEmpty()); assertTrue(v.result.notStopped.isEmpty()); assertEquals(0, v.result.found)
+        assertFalse(v.result.overCap); assertFalse(v.result.complete); assertEquals("", v.hash)
+        assertEquals(1, v.result.notes.size); assertTrue(v.result.notes[0].startsWith("cannot be checked: "))
+    }
+
     @Test fun viewWhenTheProbeFailsOrTimesOut() {
         val t = buildSweepView(PL, true, ShellResult(false, pidfileOut + "[timeout after 15s]"), LEDGER, emptyMap())
         assertFalse(t.checked); assertTrue(t.result.candidates.isEmpty()); assertEquals("", t.hash); assertTrue(t.result.notes[0].contains("did not finish in time"))

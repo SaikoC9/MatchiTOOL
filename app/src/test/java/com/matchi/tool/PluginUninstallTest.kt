@@ -69,6 +69,16 @@ class PluginUninstallTest {
         assertTrue(pluginUninstallDeclarations(filler + "var b;\n// @matchi-uninstall tooLate\n").isEmpty)
     }
 
+    // 1.4.2: the page parser in web-src/plugin-store-pure.js (plugStopDecls) must agree with this one; scripts/test_ufi_store.js runs the same cases there.
+    @Test fun whiteSpaceAndLineEndCharactersFollowJavaRules() {
+        assertEquals(listOf("a\u00a0b"), pluginUninstallDeclarations("// @matchi-uninstall a\u00a0b\n").commands)
+        assertEquals(listOf("\u00a0"), pluginUninstallDeclarations("// @matchi-uninstall \u00a0\n").commands)
+        assertEquals(listOf("a\u00a0"), pluginUninstallDeclarations("// @matchi-uninstall a\u00a0\n").commands)
+        assertEquals(emptyList<String>(), pluginUninstallDeclarations("// @matchi-uninstall a\u2028b\n").commands)
+        assertEquals(listOf("a"), pluginUninstallDeclarations("// @matchi-uninstall a\u2028\n").commands)
+        assertEquals(emptyList<String>(), pluginUninstallDeclarations("// @matchi-uninstall a\u0085b\n").commands)
+    }
+
     @Test fun windowsLineEndingsWork() {
         val d = pluginUninstallDeclarations("// @matchi-uninstall one\r\n// @matchi-boot /data/local/f\r\n")
         assertEquals(listOf("one"), d.commands); assertEquals(listOf("/data/local/f"), d.bootFiles)
