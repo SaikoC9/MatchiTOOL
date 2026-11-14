@@ -46,7 +46,7 @@ const createModal = (o) => {
 const showModal = () => {};
 
 // ---- scripted radio ---------------------------------------------------------------------------------------------------------
-const calls = [], shells = []; let busyNow = 0, released = 0, failNext = null;
+const calls = [], shells = [], sets = [], confirms = []; let pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
 const WIFI = { WiFiModuleSwitch: '1', wifi_access_sta_num: '1', ResponseList: [0, 1].map((i) => ({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: i === 1 ? '1' : '0', SSID: 'HomeNet', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', CountryCode: 'CN', Password: 'TopSecret-pass-1', PasswordShow: 'TopSecret-pass-1' })) };
 const ANSWERS = {
   data: { ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_dial', roam_setting_option: 'off', dial_roam_setting_option: '' },
@@ -58,12 +58,15 @@ const ANSWERS = {
 };
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
-  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd); return ANSWERS[tab]; },
+  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd); return tab === 'data' ? Object.assign({}, ANSWERS.data, { ppp_status: pppNow }) : ANSWERS[tab]; },
   sh: async (cmd) => { shells.push(cmd); return ROOT_OUT; },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
+  sleep: async () => {},
+  setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; } if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
 const win = { MatchiRadio: R, MatchiNetCore: N };
-const mount = new Function('window', 'document', 'createModal', 'showModal', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal);
+const askConfirm = async (msg, ok, danger) => { confirms.push({ msg, ok, danger }); return confirmAnswer; };
+const mount = new Function('window', 'document', 'createModal', 'showModal', 'askConfirm', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal, askConfirm);
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 const bodyText = () => doc.getElementById('matchi_net_body').textContent;
 const click = async (n) => { n.onclick(); await flush(); };
@@ -107,6 +110,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   t = bodyText(); assert(/sipa_eth0/.test(t) && /--set-mss 1460/.test(t) && /appear twice/.test(t) && /Read again/.test(t), 'root result: ' + t);
 
   assert(calls.every((c) => c.op === 'get'), 'only reads were sent');
+  assert.strictEqual(sets.length, 0, 'no write so far');
   assert.strictEqual(calls.length, 6, 'one read per tab, nothing else (no polling)');
 
   // switching to a tab already read shows it again without asking the router
@@ -121,6 +125,30 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(doc.getElementById('matchi_net_refresh').disabled, false, 'Refresh is usable again after a failure');
   // a read that fails on a tab with no cache does not leave stale data behind
   await click(doc.getElementById('matchi_net_refresh')); assert(/Connected/.test(bodyText()));
+
+  // ---- Phase 2: mobile data off / on ----
+  await click(tabBtn('data'));
+  const dbtn = () => doc.getElementById('matchi_net_data_btn');
+  assert.strictEqual(dbtn().textContent, 'Turn mobile data off'); assert.strictEqual(dbtn().disabled, false);
+  confirmAnswer = false; await click(dbtn());                       // declined: nothing is sent
+  assert.strictEqual(confirms.length, 1); assert(/Internet through the SIM stops/.test(confirms[0].msg) && confirms[0].danger === true); assert.strictEqual(sets.length, 0);
+  confirmAnswer = true; await click(dbtn());                        // confirmed: sent once, re-read, reported only after the re-read
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' }); assert.strictEqual(sets[0].allowEmpty, true);
+  assert(/Mobile data is off \(ppp_disconnected\)/.test(bodyText()) && /Disconnected/.test(bodyText()), 'after off: ' + bodyText());
+  assert.strictEqual(dbtn().textContent, 'Turn mobile data on'); assert.strictEqual(doc.getElementById('matchi_net_refresh').disabled, false);
+  await click(dbtn());
+  assert.strictEqual(sets.length, 2); assert.deepStrictEqual(sets[1].params, { goformId: 'CONNECT_NETWORK', notCallback: 'true' });
+  assert(/Mobile data is on \(ipv4_ipv6_connected\)/.test(bodyText()), 'after on: ' + bodyText());
+  // the router refuses (old sign-in): the message is shown, nothing is claimed
+  setFail = new Error('Session too old for root commands'); await click(dbtn());
+  assert(/Not sent: Session too old/.test(bodyText()) && !/Mobile data is o/.test(bodyText()), 'refused: ' + bodyText());
+  assert.strictEqual(dbtn().disabled, false, 'button usable again after a refusal');
+  // the router says success but ppp_status never changes: after 30 s the real value is shown, not success
+  stuck = true; const realNow = Date.now; let fake = realNow(); Date.now = () => (fake += 5000);
+  await click(dbtn()); Date.now = realNow; stuck = false;
+  assert(/did not reach the wanted state within 30 seconds/.test(bodyText()) && /ipv4_ipv6_connected/.test(bodyText()) && !/Mobile data is o/.test(bodyText()), 'stuck: ' + bodyText());
+  // closing the window while a switch is waiting stops the wait quietly
+  pppNow = 'ipv4_ipv6_connected';
 
   // keyboard: ArrowRight moves to the next tab
   let prevented = false; tabBtn('data').onkeydown({ key: 'ArrowRight', preventDefault() { prevented = true; } }); await flush();

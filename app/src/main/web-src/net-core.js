@@ -6,7 +6,7 @@
  * Rules kept here:
  *  - A key the router leaves EMPTY means "not reported": every parser gives null for it, never 0 / "off" (the tab then says so).
  *  - The Wi-Fi password and APN passwords are NEVER copied into a parsed object (the router's reply holds them in clear text).
- *  - Phase 1 only reads. Nothing in this file builds a write call.
+ *  - Reads need no gate. The only write call built here is mobile data off / on (Phase 2, dataCall); more come with later phases.
  */
 (function (root, factory) {
   const api = factory();
@@ -74,6 +74,21 @@
   }
   const modeLabel = (v) => { const t = clean(v); return t === null ? null : t === 'auto_dial' ? 'Automatic' : t === 'manual_dial' || t === 'manual' ? 'Manual' : t; };
   const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
+  // Mobile data off / on (Phase 2). Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
+  //   isTest=false&notCallback=true&goformId=DISCONNECT_NETWORK      isTest=false&notCallback=true&goformId=CONNECT_NETWORK
+  // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt).
+  const DATA_CALLS = {
+    off: { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' },
+    on: { goformId: 'CONNECT_NETWORK', notCallback: 'true' },
+  };
+  function dataCall(action) {
+    if (!Object.prototype.hasOwnProperty.call(DATA_CALLS, action)) throw new Error('Unknown mobile data action: ' + action);
+    return Object.assign({}, DATA_CALLS[action]);
+  }
+  // The action the Data tab offers for a state: connected -> "off", disconnected -> "on", anything else (changing, unknown) -> none.
+  const dataNext = (state) => (state === 'connected' ? 'off' : state === 'disconnected' ? 'on' : null);
+  // Did the re-read reach the wanted state? action "off" wants disconnected, "on" wants connected.
+  const dataReached = (action, state) => (action === 'off' ? state === 'disconnected' : action === 'on' ? state === 'connected' : false);
   function parseData(d) {
     if (!isObj(d)) return null;
     const ppp = clean(d.ppp_status);
@@ -238,7 +253,7 @@
   return {
     READ, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
-    connState, modeLabel, onOff, parseData,
+    connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
     chipLabel, authLabel, parseWifi, wifiSummary,
     mergeDevices, parseDevices,
     apnConfig, parseApn, apnLine,

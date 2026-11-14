@@ -1,7 +1,8 @@
 /*
- * Network window (Phase 1: READ ONLY). Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
- * Nothing in this file writes to the router or the phone: it only reads, and the one root call (MTU / MSS tab) is a read-only
- * command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
+ * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
+ * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
+ * most 30 s, never claim success without the re-read). Everything else is still read only; the one root call (MTU / MSS tab) is a
+ * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
  *  - While the window is open Live Status is paused (MatchiRadio.beginBusy), and it reads once again after the window closes.
@@ -14,8 +15,8 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null };
-  let epoch = 0;
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null };
+  let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
   const h = (tag, attrs, ...kids) => {
@@ -40,9 +41,15 @@ function mountNetTools() {
     const p = N.parseData(d);
     if (allEmpty(p, ['ppp', 'mode', 'roaming'])) return note(NOT + ' (mobile data status).');
     const word = p.state === 'connected' ? 'Connected' : p.state === 'disconnected' ? 'Disconnected' : p.state === 'changing' ? 'Changing' : null;
+    const next = N.dataNext(p.state);
+    const btn = h('button', { type: 'button', id: 'matchi_net_data_btn' }, st.act ? (st.act === 'off' ? 'Turning off…' : 'Turning on…') : next === 'off' ? 'Turn mobile data off' : next === 'on' ? 'Turn mobile data on' : 'Wait…');
+    if (st.act || !next) btn.disabled = true;
+    btn.onclick = () => dataSwitch(next);
     return h('div', {},
       kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
-      note('Read only. Turning mobile data off or on is a later step.', 'net-mut'));
+      h('div', { class: 'net-actions' }, btn),
+      st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
+      note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
   function viewWifi(d) {
     const w = N.parseWifi(d);
@@ -124,7 +131,7 @@ function mountNetTools() {
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -154,6 +161,39 @@ function mountNetTools() {
     if (!VIEWS[tab]) return;
     st.tab = tab; syncButtons();
     if (st.cache[tab]) { epoch++; st.loading = false; paint(tab); syncButtons(); setStatus('Updated ' + new Date(st.cache[tab].at).toLocaleTimeString()); } else load(tab);
+  }
+  // ---- mobile data off / on -------------------------------------------------------------------------------------------------
+  const readPpp = async () => N.parseData(await R.zte('get', { multi_data: '1', cmd: N.READ.data }));
+  async function dataSwitch(action) {
+    if (!action || st.act) return;
+    const ok = await askConfirm(action === 'off'
+      ? 'Turn mobile data off?\n\nInternet through the SIM stops for every device. The router stays reachable on Wi-Fi and cable. To go back, press "Turn mobile data on".'
+      : 'Turn mobile data on?\n\nThe router connects to the mobile network again. This can take up to 30 seconds.', action === 'off' ? 'Turn off' : 'Turn on', action === 'off');
+    if (!ok) return;
+    const my = ++actId;
+    st.act = action; st.actMsg = null; syncButtons(); paint('data'); setStatus('Sending…');
+    const live = () => my === actId;
+    try {
+      try { await R.setRouter(N.dataCall(action), true); }
+      catch (e) { if (live()) st.actMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
+      const t0 = Date.now(); let p = null, reached = false;
+      for (;;) {
+        await R.sleep(2000);
+        if (!live()) return;
+        try { p = await readPpp(); } catch (_) { /* keep waiting; the last real value is shown below */ }
+        if (!live()) return;
+        if (p) { st.cache.data = { d: { ppp_status: p.ppp, dial_mode: p.mode, roam_setting_option: p.roaming === 'On' ? '1' : p.roaming === 'Off' ? '0' : '' }, at: Date.now() }; }
+        if (p && N.dataReached(action, p.state)) { reached = true; break; }
+        if (Date.now() - t0 >= 30000) break;
+        setStatus('Waiting for the router… ' + Math.round((Date.now() - t0) / 1000) + ' s');
+      }
+      const now = p && p.ppp ? p.ppp : 'no answer';
+      st.actMsg = reached
+        ? { bad: false, text: action === 'off' ? 'Mobile data is off (' + now + ').' : 'Mobile data is on (' + now + ').' }
+        : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' };
+    } finally {
+      if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
   }
   async function rootRead() {
     if (st.rootBusy) return;
@@ -195,9 +235,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

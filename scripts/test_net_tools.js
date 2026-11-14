@@ -30,6 +30,15 @@ const data = N.parseData({ ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_d
 eq(data, { ppp: 'ipv4_ipv6_connected', state: 'connected', mode: 'auto_dial', modeLabel: 'Automatic', roaming: 'Off' });
 eq(N.parseData({}), { ppp: null, state: null, mode: null, modeLabel: null, roaming: null });   // empty = not reported, never "off" or "disconnected"
 eq(N.parseData('junk'), null);
+// Phase 2: mobile data off / on (bodies captured on the F50)
+eq(N.dataCall('off'), { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' });
+eq(N.dataCall('on'), { goformId: 'CONNECT_NETWORK', notCallback: 'true' });
+assert.throws(() => N.dataCall('toggle')); assert.throws(() => N.dataCall('__proto__')); assert.throws(() => N.dataCall(undefined));
+N.dataCall('off').goformId = 'x'; eq(N.dataCall('off').goformId, 'DISCONNECT_NETWORK');   // callers get a copy
+eq(N.dataNext('connected'), 'off'); eq(N.dataNext('disconnected'), 'on'); eq(N.dataNext('changing'), null); eq(N.dataNext(null), null);
+eq(N.connState('ppp_disconnected'), 'disconnected');   // the real "off" value seen on the F50
+assert(N.dataReached('off', 'disconnected') && !N.dataReached('off', 'connected') && !N.dataReached('off', 'changing'));
+assert(N.dataReached('on', 'connected') && !N.dataReached('on', 'disconnected') && !N.dataReached('on', null) && !N.dataReached('x', 'connected'));
 
 // ---- Wi-Fi: bands by ChipIndex, password never copied ----------------------------------------------------------------------
 const chip = (i, on, extra) => Object.assign({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: on ? '1' : '0', SSID: 'HomeNet', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK',
@@ -132,15 +141,18 @@ eq(N.parseRootNet('##route\n1.1.1.1 dev sipa_eth0\n##link\n14: sipa_eth0: <UP> m
 eq(N.parseRootNet(''), null); eq(N.parseRootNet('nothing useful'), null);
 eq(N.sections('##a\nx\n\ny\n##b\n'), { a: ['x', 'y'], b: [] });
 
-// ---- The window cannot write (Phase 1 is read only) ------------------------------------------------------------------------
+// ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
-assert(!/setRouter|setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call a MatchiRadio writer');
-assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not send a router set call');
+assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
+const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
+assert(setCalls.length === 1 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]), 'the only router write is setRouter(N.dataCall(action)): ' + setCalls.join(' | '));
+assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
+assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js dataCall does)');
 assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js stores nothing');
-assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6)');
+assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
 const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
 assert((ui.match(/R\.sh\(/g) || []).length === 1 && ui.includes('R.sh(N.ROOT_READ_SH'), 'the only root call is the fixed read-only command');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window is read only');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data off / on');
