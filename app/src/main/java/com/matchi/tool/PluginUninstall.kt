@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Plugin uninstall (Phase 1 of MatchiTOOL_Phase1_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
+ * Plugin uninstall (Phase 1 of docs/progress/MatchiTOOL_Phase1_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
  * scripts/kotlin_pure_tests.sh compiles it and its unit tests run without the Android SDK. WebRoutesPlugins.kt only calls into this
  * file; every rule that can be tested without a device (header limits, the stop plan and its hash, the sandbox and integrity
  * checks, the same-folder guard) is meant to live here.

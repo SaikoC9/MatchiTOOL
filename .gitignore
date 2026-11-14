@@ -4,3 +4,12 @@ keystore.properties
 build/
 .gradle/
 local.properties
+
+# IDE / OS files
+.idea/
+*.iml
+.kotlin/
+captures/
+.DS_Store
+*.apk
+*.keystore

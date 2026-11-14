@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Plugin process sweep (Phase 2 of MatchiTOOL_Phase2_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
+ * Plugin process sweep (Phase 2 of docs/progress/MatchiTOOL_Phase2_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
  * scripts/kotlin_pure_tests.sh compiles it and its unit tests run without the Android SDK. WebRoutesPlugins.kt and WebRoutesRoot.kt
  * only call into this file; every rule that can be tested without a device (the tag prefix, the probe script and its parser, the
  * candidate rules, the never-kill list, the shared-path guard, the cap, the kill plan and the report text) is meant to live here.

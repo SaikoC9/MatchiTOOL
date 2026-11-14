@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Sandboxed plugins (Phase 4 of MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
+ * Sandboxed plugins (Phase 4 of docs/progress/MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
  *
  * A plugin switched to "sandbox" does not run in the console page. The page puts it in an iframe without allow-same-origin, so it has no
  * session, no page DOM and no /api access, and talks to the page only through a message bridge (web-src/plugin-sandbox.js). The bridge

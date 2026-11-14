@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Plugin undo (Phase 3 of MatchiTOOL_Phase3_todo.txt). Plain Kotlin, NO Android / JSON / web-server imports, so scripts/kotlin_pure_tests.sh compiles it.
+ * Plugin undo (Phase 3 of docs/progress/MatchiTOOL_Phase3_todo.txt). Plain Kotlin, NO Android / JSON / web-server imports, so scripts/kotlin_pure_tests.sh compiles it.
  *
  * Step 1 (undoPlan): what "Delete and stop" WOULD undo outside the plugin's own files, worked out from the ledger alone (PluginTrace.kt: "C" firewall chains and
  * "B" boot scripts the host saw the plugin create). Nothing is run here. The Delete dialog shows the list, and a hash of it goes back with the

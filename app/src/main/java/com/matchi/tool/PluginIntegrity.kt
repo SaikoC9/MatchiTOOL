@@ -3,7 +3,7 @@ package com.matchi.tool
 import java.security.MessageDigest
 
 /*
- * Plugin integrity (Phase 1 and 2 of MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
+ * Plugin integrity (Phase 1 and 2 of docs/progress/MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
  *
  * What it is: tamper EVIDENCE. The host remembers the SHA-256 and the capability list of each plugin as it was approved. A file that
  * later differs is flagged. It does not stop a plugin that is already running with root: root can edit the stored record too.
