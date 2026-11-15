@@ -1,5 +1,6 @@
 package com.matchi.tool
 
+import com.matchi.tool.LanPending.Verdict
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -42,23 +43,21 @@ class LanPendingTest {
     }
 
     @Test fun decisionTable() {
-        val V = LanPending.Verdict
-        assertEquals(V.KEEP_NEW, LanPending.decide(note, t0, true, seen(), false, false))
-        assertEquals(V.REVERT, LanPending.decide(note, t0, true, seen(start = "192.168.1.50"), false, false))
-        assertEquals(V.REVERT, LanPending.decide(note, t0, true, seen(on = false), false, false))
-        assertEquals(V.WAIT, LanPending.decide(note, t0, true, null, false, false))
-        assertEquals(V.KEEP_NEW, LanPending.decide(note, t0, true, null, false, true))          // answers but unreadable at the end: never revert blind
-        assertEquals(V.USE_OLD, LanPending.decide(note, t0, false, null, true, false))
-        assertEquals(V.WAIT, LanPending.decide(note, t0, false, null, false, false))
-        assertEquals(V.GIVE_UP, LanPending.decide(note, t0, false, null, false, true))
+        assertEquals(Verdict.KEEP_NEW, LanPending.decide(note, t0, true, seen(), false, false))
+        assertEquals(Verdict.REVERT, LanPending.decide(note, t0, true, seen(start = "192.168.1.50"), false, false))
+        assertEquals(Verdict.REVERT, LanPending.decide(note, t0, true, seen(on = false), false, false))
+        assertEquals(Verdict.WAIT, LanPending.decide(note, t0, true, null, false, false))
+        assertEquals(Verdict.KEEP_NEW, LanPending.decide(note, t0, true, null, false, true))          // answers but unreadable at the end: never revert blind
+        assertEquals(Verdict.USE_OLD, LanPending.decide(note, t0, false, null, true, false))
+        assertEquals(Verdict.WAIT, LanPending.decide(note, t0, false, null, false, false))
+        assertEquals(Verdict.GIVE_UP, LanPending.decide(note, t0, false, null, false, true))
     }
 
     @Test fun aStaleNoteIsNeverActedOn() {
-        val V = LanPending.Verdict
-        assertEquals(V.EXPIRED, LanPending.decide(note, note.at + LanPending.MAX_AGE_MS + 1, true, seen(start = "x"), false, true))
-        assertEquals(V.KEEP_NEW, LanPending.decide(note, note.at + LanPending.MAX_AGE_MS, true, seen(), false, false))
-        assertEquals(V.EXPIRED, LanPending.decide(note.copy(at = 0L), t0, true, seen(), false, false))
-        assertEquals(V.KEEP_NEW, LanPending.decide(note, note.at - 5_000, true, seen(), false, false))   // clock went back a little: not stale
+        assertEquals(Verdict.EXPIRED, LanPending.decide(note, note.at + LanPending.MAX_AGE_MS + 1, true, seen(start = "x"), false, true))
+        assertEquals(Verdict.KEEP_NEW, LanPending.decide(note, note.at + LanPending.MAX_AGE_MS, true, seen(), false, false))
+        assertEquals(Verdict.EXPIRED, LanPending.decide(note.copy(at = 0L), t0, true, seen(), false, false))
+        assertEquals(Verdict.KEEP_NEW, LanPending.decide(note, note.at - 5_000, true, seen(), false, false))   // clock went back a little: not stale
     }
 
     @Test fun revertSendsTheOldWholeSet() {
