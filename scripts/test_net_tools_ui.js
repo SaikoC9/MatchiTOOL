@@ -485,7 +485,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await wifiTry({ ssid: 'Home Net 2', vis: false, pass: 'brand-new-pass-9' });
   assert(/Network name: "HomeNet" → "Home Net 2"/.test(confirms[0].msg) && /SSID broadcast: Visible → Hidden/.test(confirms[0].msg) && /Password: will change/.test(confirms[0].msg) && /Reconnect to the new name and password/.test(confirms[0].msg), confirms[0].msg);
   assert(!confirms[0].msg.includes('brand-new') && !confirms[0].msg.includes('TopSecret'), 'no password in the confirm');
-  assert.strictEqual(passEl.value, '', 'the typed password field is emptied as soon as it has been used');
+  assert.strictEqual(passEl.value, 'brand-new-pass-9', 'the password box keeps its text while the change runs'); assert.strictEqual(wb('matchi_wifi_pass').value, 'brand-new-pass-9', 'and the rebuilt form shows the password the router reports now');
   assert.deepStrictEqual(sets[0].params, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'Home Net 2', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '1', ApMaxStationNumber: '7', EncrypType: 'CCMP', Password: b64('brand-new-pass-9') });
   assert(JSON.parse(fs.readFileSync(wifiFile, 'utf8')).old.Password === b64('TopSecret-pass-1') && wifiState.pw === 'brand-new-pass-9' && wifiState.hidden === '1', 'the old password is in the saved copy; the router has the new one');
   t = wt(); assert(/The router reports the new settings: "Home Net 2".*hidden, max 7 devices, and the new password\./.test(t), 'result: ' + t);

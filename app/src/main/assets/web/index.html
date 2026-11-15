@@ -6054,8 +6054,7 @@ function mountNetTools() {
     if (c.error) { if (errEl) errEl.textContent = c.error; return; }
     if (errEl) errEl.textContent = '';
     const want = { ssid: c.ssid, auth: c.auth, hidden: c.hidden, max: c.max, pw: c.pw };
-    if (passEl) passEl.value = '';   // the typed password lives only in `want` from here on
-    if (st.wifiForm) st.wifiForm.pw = '';
+    // the password box keeps its text while the router restarts (and after a declined confirm or an error); after a saved change the form is rebuilt from the router's fresh reply
     await wifiApply(want, 'Change the Wi-Fi settings?', false);
   }
   async function wifiRestore() {
