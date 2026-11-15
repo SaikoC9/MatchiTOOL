@@ -807,9 +807,8 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
     <div class="actions-buttons"><button id="adbon">Enable debugging</button><button id="adboff">Disable debugging</button></div>
     <div class="row"><span class="n">Router setting</span><strong id="usbsetting">Unknown</strong></div>
     <div class="row"><span class="n">USB Ethernet mode</span><strong id="tetherstate">Unknown</strong></div>
-    <div class="actions-buttons"><button id="rndison">Use RNDIS</button><button id="ecmon">Use CDC-ECM</button><button id="tetheroff">Auto</button></div>
+    <div class="actions-buttons"><button id="rndison">RNDIS</button><button id="ecmon">CDC-ECM</button><button id="tetheroff">Auto</button></div>
     <p class="mut">Auto lets the router choose. The router saves your choice and it is applied right away, without a restart. The USB connection may drop for a few seconds. Needs a fresh sign-in and root access.</p>
-    <pre id="usbout" style="display:none;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="firmware">
@@ -8602,9 +8601,8 @@ async function refreshUsbSetting(){
 }
 async function refreshUsb(){
   refreshUsbSetting();
-  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Reading USB state…';
-  try{const r=await api('/api/usb/status');document.getElementById('adbstate').textContent=r.adbEnabled?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected';out.textContent=`USB config: ${r.usbConfig||'(unknown)'}\nUSB state: ${r.usbState||'(unknown)'}\nSaved config: ${r.persistConfig||'(unknown)'}\nRNDIS supported: ${r.rndisSupported?'yes':'not detected'}\nCDC-ECM supported: ${r.ecmSupported?'yes':'not detected'}\nNetwork interfaces: ${r.networkInterfaces||'(none reported)'}\n${r.success?'':'Root status read failed'}\n${r.detail||''}`}
-  catch(e){out.textContent='USB status failed: '+e.message}
+  try{const r=await api('/api/usb/status');document.getElementById('adbstate').textContent=r.adbEnabled?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected'}
+  catch(e){createToast('USB status failed: '+e.message)}
 }
 /* USB Internet Protocol, no restart. Two steps:
    1. Save the router's own setting, as the stock page does (captured on the F50, 2026-11-15; the host adds the AD token):
@@ -8616,25 +8614,21 @@ async function usbAction(action){
   const MAP={rndis_enable:['1','RNDIS'],ecm_enable:['2','CDC-ECM'],tether_disable:['0','Auto']};
   const m=MAP[action];if(!m)return;
   if(!(await askConfirm('Set USB Internet Protocol to '+m[1]+'? The router saves it and the change is applied now, without a restart. The USB connection may drop for a few seconds.','Apply')))return;
-  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Saving '+m[1]+'…';
   const zset=async(params)=>{const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'set',params,retry:0})});if(r.error)throw new Error(r.error);const d=r.data;const res=d&&typeof d==='object'?d.result:d;if(String(res===undefined||res===null?'':res).trim()!=='success')throw new Error('Router refused the change ('+(res===undefined?'no answer':String(res).slice(0,80))+')');};
   try{
     await zset({goformId:'SET_USB_NETWORK_PROTOCAL',usb_network_protocal:m[0]});
-  }catch(e){out.textContent='USB action failed: '+e.message;return}
-  out.textContent='Saved '+m[1]+'. Applying it now…';
+  }catch(e){createToast('USB action failed: '+e.message);return}
   try{
     const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});
-    out.textContent=(r.output||'')+'\n'+(r.note||'');
     if(!r.success)throw new Error(r.output||'Command failed');
     createToast(m[1]+' saved and applied.');
-  }catch(e){out.textContent='Saved '+m[1]+' on the router, but applying it now failed: '+e.message+'\nIt will apply after the next restart.'}
+  }catch(e){createToast('Saved '+m[1]+' on the router, but applying it now failed: '+e.message+'. It will apply after the next restart.')}
   setTimeout(refreshUsb,1500);
 }
 async function adbAction(action){
   const label=action==='adb_enable'?'Enable USB debugging':'Disable USB debugging';
   if(!(await askConfirm(label+'? This changes Android USB settings.','Apply')))return;
-  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Applying USB setting…';
-  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(label+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
+  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});if(!r.success)throw new Error(r.output||'Command failed');createToast(label+' command completed');setTimeout(refreshUsb,1200)}catch(e){createToast('USB action failed: '+e.message)}
 }
 document.getElementById('adbon').onclick=()=>adbAction('adb_enable');
 document.getElementById('adboff').onclick=()=>adbAction('adb_disable');
