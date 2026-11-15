@@ -49,6 +49,12 @@ object ZteClient {
         } finally { c.disconnect() }
     } catch (_: Exception) { false }
 
+    /** True when [host] (a local IPv4 address without a port) answers the router API on one of the usual ports. Stateless: changes nothing saved. */
+    fun answers(host: String): Boolean {
+        if (!RouterHost.isValid(host) || host.contains(':')) return false
+        return CANDIDATE_PORTS.any { p -> probe(if (p == 80) host else "$host:$p") }
+    }
+
     /** Saved gateway: "host" (port auto-detected from 80, 8080, 9090, 9999) or "host:port" (used as given). */
     private fun resolveHost(ctx: Context): String {
         val saved = Prefs.zteHost(ctx)

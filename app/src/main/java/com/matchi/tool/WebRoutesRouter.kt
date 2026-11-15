@@ -80,6 +80,13 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         ZteClient.setSessionCookie(c)
         json(Response.Status.OK, JSONObject().put("result", true))
     }
+    // Phase 6b: after a router IP change the page tells the host the new address. Only the address named in the pending note (written by the
+    // page's root shell just before the change) is accepted; the host then points the router client at it and checks the router after the restart.
+    uri == "/api/net/lan-applied" && s.method == Method.POST -> rootGate(s) ?: run {
+        val ip = body(s).optString("ip").trim()
+        if (!LanRevert.applied(ctx, ip)) throw IllegalArgumentException("no pending router IP change for that address")
+        json(Response.Status.OK, JSONObject().put("ok", true))
+    }
     uri == "/api/zte/page" && s.method == Method.POST ->
         json(Response.Status.OK, JSONObject().put("ok", true).put("text", ZteClient.fetchPage(ctx, body(s).optString("path"))))
     uri == "/api/zte/config" && s.method == Method.GET ->

@@ -257,6 +257,8 @@ class HostService : Service() {
             } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "IMEI keeper failed: ${e.message}") }
             finally { finished() }
         }
+        // Phase 6b: a router IP change leaves a pending note; check that the router came back as wanted (own thread: it can wait up to 2 minutes).
+        LanRevert.start(this, 0L)
         workers.execute {
             // Why did the app process die last time (crash, ANR, memory kill, update)? Android 11+ only.
             try { ExitReasons.logNew(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Exit reasons failed: ${e.message}") }

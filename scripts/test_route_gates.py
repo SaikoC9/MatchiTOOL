@@ -80,6 +80,7 @@ TABLE = {
   ('POST', '/api/at/batch'): ('PARTIAL', 'same rule as /api/at; only an all-read batch skips the gate'),
   ('POST', '/api/zte'): ('PARTIAL', 'goes to the saved router address only; a set call whose goformId is in NetGoform.GATED (Wi-Fi, devices, APN, LAN / DHCP, MTU / MSS, mobile data) needs the gate, reads and the radio calls stay open'),
   ('GET',  '/api/net/whoami'): ('OPEN', 'read only: returns the caller\'s own address'),
+  ('POST', '/api/net/lan-applied'): ('GATE', 'points the router client at the new address named in the pending IP-change note; checks the router afterwards'),
   ('GET',  '/api/goform/'): ('PARTIAL', 'same branch as the POST: a router "get" stays open'),
   ('POST', '/api/goform/'): ('PARTIAL', 'router "set" through the saved gateway; path checked by GatewayProxy; a goformId in NetGoform.GATED needs the gate'),
   ('GET',  '/api/proxy/'): ('PARTIAL', 'a POST needs the gate, a GET stays open'),

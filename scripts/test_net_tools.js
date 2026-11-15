@@ -296,6 +296,47 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   // the confirming re-read
   eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), true); eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 12 }), false);
   eq(N.lanReached(Object.assign({}, L, { dhcp: 'Off' }), { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), false); eq(N.lanReached(null, {}), false);
+
+  // ---- Phase 6b: router IP change ----
+  const lanOf = (ip, a, b, extra) => Object.assign(N.parseLan({ lan_ipaddr: ip, lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: a, dhcpEnd: b, dhcpLease_hour: '24h' }), extra || {});
+  const La = lanOf('192.168.0.1', '192.168.0.2', '192.168.0.253'), Lb = lanOf('192.168.1.1', '192.168.1.2', '192.168.1.253');
+  eq(N.lanIpCheck(La, '192.168.1.1'), { ip: '192.168.1.1', start: '192.168.1.2', end: '192.168.1.253', lease: 24 });
+  // exactly the call captured on the stock page (part N): the whole set, pool in the new subnet, mac_ip_reset=1
+  eq(N.lanIpCall(La, { ip: '192.168.1.1' }), { goformId: 'DHCP_SETTING', lanIp: '192.168.1.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.1.2', dhcpEnd: '192.168.1.253', dhcpLease: '24', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
+  eq(N.lanIpCall(Lb, { ip: '192.168.0.1' }), { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease: '24', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
+  eq(N.lanIpCheck(La, '10.0.0.1'), { ip: '10.0.0.1', start: '10.0.0.2', end: '10.0.0.253', lease: 24 });
+  eq(N.lanIpCheck(Object.assign({}, La, { mask: '255.255.0.0' }), '192.168.5.1').start, '192.168.0.2', 'same /16: the pool keeps its numbers');
+  for (const [v, re] of [['x', /not a valid IPv4/], ['', /not a valid IPv4/], ['010.0.0.1', /not a valid IPv4/], ['8.8.8.8', /must be a private/], ['192.168.0.1', /same as the current/], ['192.168.0.0', /network or the broadcast/],
+    ['192.168.0.255', /network or the broadcast/], ['192.168.0.100', /inside the pool/], ['192.168.0.1; reboot', /not a valid IPv4/]])
+    assert(N.lanIpCheck(La, v).error && re.test(N.lanIpCheck(La, v).error), v + ': ' + JSON.stringify(N.lanIpCheck(La, v)));
+  assert.throws(() => N.lanIpCall(La, { ip: '192.168.0.50' }), /inside the pool/);
+  assert(/not On/.test(N.lanIpCheck(Object.assign({}, La, { dhcp: 'Off' }), '192.168.1.1').error) && /did not report/.test(N.lanIpCheck(Object.assign({}, La, { mask: null }), '192.168.1.1').error) && /did not report/.test(N.lanIpCheck(null, '192.168.1.1').error));
+  assert(/complete pool/.test(N.lanIpCheck(Object.assign({}, La, { start: null }), '192.168.1.1').error) && /complete pool/.test(N.lanIpCheck(Object.assign({}, La, { leaseHours: null }), '192.168.1.1').error));
+  // which restore fits
+  const sa = { ip: '192.168.0.1', mask: '255.255.255.0', start: '192.168.0.2', end: '192.168.0.253', lease: 24 }, sb = { ip: '192.168.1.1', mask: '255.255.255.0', start: '192.168.1.2', end: '192.168.1.253', lease: 24 };
+  eq(N.lanRestoreKind(La, { old: sa, new: sb }), 'pool'); eq(N.lanRestoreKind(Lb, { old: sa, new: sb }), 'ip');
+  eq(N.lanRestoreKind(lanOf('192.168.7.1', '192.168.7.2', '192.168.7.253'), { old: sa, new: sb }), null); eq(N.lanRestoreKind(null, { old: sa, new: sb }), null); eq(N.lanRestoreKind(Lb, { old: sa }), null);
+  eq(N.lanRestoreKind(Lb, { old: sa, new: Object.assign({}, sb, { mask: '255.255.0.0' }) }), null, 'a mask change was never made here: not restored');
+  eq(N.lanIpRestoreCall(Lb, { old: sa, new: sb }), { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease: '24', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
+  assert.throws(() => N.lanIpRestoreCall(La, { old: sa, new: sb }), /not at the saved new address/);
+  assert.throws(() => N.lanIpRestoreCall(Object.assign({}, Lb, { dhcp: 'Off' }), { old: sa, new: sb }), /not On/);
+  // Restore DHCP (the incident recovery call): keeps the reported pool, else the stock pool for a /24
+  const off = (extra) => Object.assign({}, La, { dhcp: 'Off' }, extra || {});
+  eq(N.lanDhcpOnCall(off()).call, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease: '24', dhcp_reboot_flag: '1', mac_ip_reset: '0' });
+  eq(N.lanDhcpOnCall(off({ start: '192.168.0.10', end: '192.168.0.50', leaseHours: 12 })).call.dhcpStart, '192.168.0.10');
+  eq(N.lanDhcpOnCall(off({ start: null, end: null, leaseHours: null })).call.dhcpEnd, '192.168.0.253'); eq(N.lanDhcpOnCall(off({ start: null, end: null, leaseHours: null })).call.dhcpLease, '24');
+  eq(N.lanDhcpOnCall(off({ start: '192.168.0.1', end: '192.168.0.9' })).call.dhcpStart, '192.168.0.2', 'a reported pool that holds the router IP is replaced');
+  eq(N.lanDhcpOnCall(off({ leaseHours: 999 })).call.dhcpLease, '24', 'a lease outside this tool\'s limits is replaced');
+  assert.throws(() => N.lanDhcpOnCall(off({ mask: '255.255.0.0', start: null, end: null })), /does not report a usable pool/);
+  assert.throws(() => N.lanDhcpOnCall(La), /already On/); assert.throws(() => N.lanDhcpOnCall(off({ dhcp: null })), /not reported/); assert.throws(() => N.lanDhcpOnCall(off({ ip: null })), /did not report/);
+  assert.throws(() => N.lanDhcpOnCall(off({ ip: '8.8.8.8' })), /not usable/);
+  // the pending note: same JSON as the backup, its own file
+  const psh = N.lanPendingWriteSh(sa, sb, 1700000000000);
+  assert(psh.startsWith("mkdir -p /data/local/matchitool && umask 077 && printf '%s' '{\"old\":{\"ip\":\"192.168.0.1\"") && psh.endsWith("' > /data/local/matchitool/lan_pending.json && echo MATCHI_BACKUP_OK"), psh);
+  eq(N.parseLanBackup(psh.split("printf '%s' '")[1].split("' >")[0]), { old: sa, new: sb, at: 1700000000000 });
+  assert.throws(() => N.lanPendingWriteSh(sa, Object.assign({}, sb, { ip: "1.2.3.4'; reboot; '" }), 1), /Not a valid/);
+  eq(N.LAN_PENDING_READ_SH, 'cat /data/local/matchitool/lan_pending.json 2>/dev/null'); eq(N.LAN_PENDING_DELETE_SH, 'rm -f /data/local/matchitool/lan_pending.json && echo MATCHI_BACKUP_GONE'); eq(N.LAN_PENDING_PATH, '/data/local/matchitool/lan_pending.json');
+  eq(N.ipText(3232235777), '192.168.1.1');
 }
 
 
@@ -407,9 +448,9 @@ assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js s
 assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
 const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
-// Root commands: the read-only check, the ping, and the backup file of the MTU change. Every one is a fixed command built in net-core.js (only validated integers go in).
+// Root commands: the read-only check, the ping, the backup files of the MTU / LAN / Wi-Fi changes and the LAN pending note (Phase 6b). Every one is a fixed command built in net-core.js (only validated integers go in).
 const shCalls = ui.match(/R\.sh\(([^,)]*)/g) || [];
-assert(shCalls.length === 15 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH|WIFI_BACKUP_READ_SH|WIFI_BACKUP_DELETE_SH)|N\.(mtu|lan|wifi)BackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
+assert(shCalls.length === 19 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH|LAN_PENDING_READ_SH|LAN_PENDING_DELETE_SH|WIFI_BACKUP_READ_SH|WIFI_BACKUP_DELETE_SH)|N\.(mtu|lan|wifi)BackupWriteSh\(|N\.lanPendingWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
 assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');

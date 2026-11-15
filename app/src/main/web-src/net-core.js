@@ -462,14 +462,20 @@
     return { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: o.start, dhcpEnd: o.end, dhcpLease: String(o.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' };
   }
   const LAN_BACKUP_PATH = '/data/local/matchitool/lan_backup.json';
-  function lanBackupWriteSh(oldV, newV, at) {
+  // The "pending change" note of a router IP change (Phase 6b): same JSON as the backup, a different file. Kotlin (LanRevert) reads it after the restart.
+  const LAN_PENDING_PATH = '/data/local/matchitool/lan_pending.json';
+  function lanNoteSh(path, oldV, newV, at) {
     const o = lanSnapOk(oldV), n = lanSnapOk(newV);
     if (!o || !n) throw new Error('Not a valid LAN / DHCP set for the backup.');
     const ts = Number.isInteger(at) && at > 0 ? at : 0;
     const one = (x) => '{"ip":"' + x.ip + '","mask":"' + x.mask + '","start":"' + x.start + '","end":"' + x.end + '","lease":' + x.lease + '}';
     const json = '{"old":' + one(o) + ',"new":' + one(n) + ',"at":' + ts + '}';
-    return "mkdir -p /data/local/matchitool && umask 077 && printf '%s' '" + json + "' > " + LAN_BACKUP_PATH + ' && echo MATCHI_BACKUP_OK';
+    return "mkdir -p /data/local/matchitool && umask 077 && printf '%s' '" + json + "' > " + path + ' && echo MATCHI_BACKUP_OK';
   }
+  const lanBackupWriteSh = (oldV, newV, at) => lanNoteSh(LAN_BACKUP_PATH, oldV, newV, at);
+  const lanPendingWriteSh = (oldV, newV, at) => lanNoteSh(LAN_PENDING_PATH, oldV, newV, at);
+  const LAN_PENDING_READ_SH = 'cat ' + LAN_PENDING_PATH + ' 2>/dev/null';
+  const LAN_PENDING_DELETE_SH = 'rm -f ' + LAN_PENDING_PATH + ' && echo MATCHI_BACKUP_GONE';
   const LAN_BACKUP_READ_SH = 'cat ' + LAN_BACKUP_PATH + ' 2>/dev/null';
   const LAN_BACKUP_DELETE_SH = 'rm -f ' + LAN_BACKUP_PATH + ' && echo MATCHI_BACKUP_GONE';
   function parseLanBackup(text) {
@@ -480,6 +486,70 @@
   }
   // After the restart: does the router report the wanted pool and lease (and the same IP, mask, DHCP On)?
   const lanReached = (lan, want) => !!lan && lan.dhcp === 'On' && lan.start === want.start && lan.end === want.end && lan.leaseHours === want.lease;
+
+  // ---- LAN / DHCP: router IP change (Phase 6b) ---------------------------------------------------------------------------------
+  // Captured on the F50 (2026-11-15, part N): an IP change is the SAME DHCP_SETTING call, with the pool moved into the new subnet in the same Apply and
+  // mac_ip_reset=1 (pool / lease only sends 0). After it the OLD address answers nothing, only the new one. The mask is never changed here (only
+  // 255.255.255.0 was captured), DHCP stays On (the "off" value was never captured).
+  // cur = parseLan(...). The pool keeps its host part: .2 - .253 on 192.168.0.x becomes .2 - .253 on 192.168.1.x. Returns {ip, start, end, lease} or {error}.
+  function lanIpCheck(cur, newIpT) {
+    if (!cur || !cur.ip || !cur.mask) return { error: 'The router did not report its IP address and subnet mask.' };
+    if (cur.dhcp !== 'On') return { error: 'The DHCP server is not On (or not reported). The router IP is only changed while DHCP is On.' };
+    const ip = ipv4Int(cur.ip), mask = maskInt(cur.mask), a = ipv4Int(cur.start), b = ipv4Int(cur.end);
+    if (!isPrivateIp(ip) || mask === null) return { error: 'The router IP or the subnet mask read from the router is not usable here.' };
+    if (a === null || b === null || a > b || !Number.isInteger(cur.leaseHours)) return { error: 'The router did not report a complete pool and lease.' };
+    const nip = ipv4Int(newIpT);
+    if (nip === null) return { error: 'The new router IP is not a valid IPv4 address.' };
+    if (!isPrivateIp(nip)) return { error: 'The new router IP must be a private address (10.x, 172.16-31.x or 192.168.x).' };
+    if (nip === ip) return { error: 'The new router IP is the same as the current one.' };
+    const net = (nip & mask) >>> 0, inv = (~mask) >>> 0, bc = (net | inv) >>> 0;
+    if (nip === net || nip === bc) return { error: 'The new router IP must not be the network or the broadcast address of its subnet.' };
+    const start = (net | (a & inv)) >>> 0, end = (net | (b & inv)) >>> 0;
+    if (start === net || start === bc || end === net || end === bc) return { error: 'The pool would land on the network or broadcast address in the new subnet. Change the pool first.' };
+    if (nip >= start && nip <= end) return { error: 'The new router IP would be inside the pool (' + ipText(start) + ' - ' + ipText(end) + '). Change the pool first so it leaves the address free.' };
+    return { ip: ipText(nip), start: ipText(start), end: ipText(end), lease: cur.leaseHours };
+  }
+  const ipText = (n) => [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+  // The whole set with the new IP: lanNetmask is sent back as read, mac_ip_reset is 1.
+  function lanIpCall(cur, want) {
+    const c = lanIpCheck(cur, want && want.ip); if (c.error) throw new Error(c.error);
+    return { goformId: 'DHCP_SETTING', lanIp: c.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: c.start, dhcpEnd: c.end, dhcpLease: String(c.lease), dhcp_reboot_flag: '1', mac_ip_reset: '1' };
+  }
+  // Which restore is possible for this saved copy ({old, new}) and the router as it reads now? 'pool' = the router IP and mask are still the saved old ones
+  // (put the old pool and lease back); 'ip' = the router is at the saved NEW address (put the old IP, pool and lease back); null = neither.
+  function lanRestoreKind(cur, saved) {
+    const o = saved && lanSnapOk(saved.old), n = saved && lanSnapOk(saved.new);
+    if (!cur || !o || !n || !cur.ip || !cur.mask) return null;
+    if (cur.ip === o.ip && cur.mask === o.mask) return 'pool';
+    if (cur.ip === n.ip && cur.mask === n.mask && n.ip !== o.ip && o.mask === n.mask) return 'ip';
+    return null;
+  }
+  // Put the old router IP, pool and lease back while the router is at the saved new address. Needs DHCP On.
+  function lanIpRestoreCall(cur, saved) {
+    if (lanRestoreKind(cur, saved) !== 'ip') throw new Error('The router is not at the saved new address any more. Nothing is restored.');
+    if (cur.dhcp !== 'On') throw new Error('The DHCP server is not On.');
+    const o = lanSnapOk(saved.old);
+    return { goformId: 'DHCP_SETTING', lanIp: o.ip, lanNetmask: o.mask, lanDhcpType: 'SERVER', dhcpStart: o.start, dhcpEnd: o.end, dhcpLease: String(o.lease), dhcp_reboot_flag: '1', mac_ip_reset: '1' };
+  }
+  // "Restore DHCP": the recovery call from the 2026-11-15 incident (DHCP server switched off on the stock page, no device could get an address). cur = parseLan(...)
+  // read while DHCP is NOT On. The pool the router still reports is kept when it passes the pool checks; otherwise only a /24 gets the stock pool .2 - .253.
+  // Lease: the reported whole number of hours, else 24. mac_ip_reset=0 (the router IP does not change). Returns {call, start, end, lease} or throws.
+  function lanDhcpOnCall(cur) {
+    if (!cur || !cur.ip || !cur.mask) throw new Error('The router did not report its IP address and subnet mask.');
+    if (cur.dhcp === 'On') throw new Error('The DHCP server is already On.');
+    if (cur.dhcp !== 'Off') throw new Error('The DHCP server state is not reported, so nothing is changed.');
+    const ip = ipv4Int(cur.ip), mask = maskInt(cur.mask);
+    if (!isPrivateIp(ip) || mask === null) throw new Error('The router IP or the subnet mask read from the router is not usable here.');
+    let lease = Number.isInteger(cur.leaseHours) && cur.leaseHours >= LEASE_MIN && cur.leaseHours <= LEASE_MAX ? cur.leaseHours : 24;
+    let c = cur.start && cur.end ? lanPoolCheck({ ip: cur.ip, mask: cur.mask, dhcp: 'On' }, cur.start, cur.end, lease) : { error: 'none' };
+    if (c.error) {
+      if (cur.mask !== '255.255.255.0') throw new Error('The router does not report a usable pool for this subnet mask, so Restore DHCP cannot choose one.');
+      const net = (ip & mask) >>> 0;
+      c = lanPoolCheck({ ip: cur.ip, mask: cur.mask, dhcp: 'On' }, ipText(net + 2), ipText(net + 253), lease);
+      if (c.error) throw new Error('The stock pool .2 - .253 does not fit with the router IP ' + cur.ip + '.');
+    }
+    return { start: c.start, end: c.end, lease: c.lease, call: { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: c.start, dhcpEnd: c.end, dhcpLease: String(c.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' } };
+  }
 
   // ---- MTU / MSS --------------------------------------------------------------------------------------------------------------
   function parseMtu(d) {
@@ -758,7 +828,7 @@
     APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,
     apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,
     parseLease, leaseText, parseLan,
-    LEASE_MIN, LEASE_MAX, ipv4Int, maskInt, isPrivateIp, lanPoolCheck, lanCall, lanSnapOk, lanSnapOf, lanRestoreCall, LAN_BACKUP_PATH, lanBackupWriteSh, LAN_BACKUP_READ_SH, LAN_BACKUP_DELETE_SH, parseLanBackup, lanReached,
+    LEASE_MIN, LEASE_MAX, ipv4Int, maskInt, isPrivateIp, lanPoolCheck, lanCall, lanSnapOk, lanSnapOf, lanRestoreCall, LAN_BACKUP_PATH, lanBackupWriteSh, LAN_PENDING_PATH, lanPendingWriteSh, LAN_PENDING_READ_SH, LAN_PENDING_DELETE_SH, lanIpCheck, lanIpCall, lanRestoreKind, lanIpRestoreCall, lanDhcpOnCall, ipText, LAN_BACKUP_READ_SH, LAN_BACKUP_DELETE_SH, parseLanBackup, lanReached,
     parseMtu, sections, parseRootNet,
     MTU_MIN, MTU_MAX, MSS_MIN, mtuDefaultMss, mtuCheck, mtuCall, MTU_BACKUP_PATH, mtuBackupWriteSh, MTU_BACKUP_READ_SH, MTU_BACKUP_DELETE_SH, parseMtuBackup,
     wanFollowed, PING_SH, parsePing, isAuthError,
