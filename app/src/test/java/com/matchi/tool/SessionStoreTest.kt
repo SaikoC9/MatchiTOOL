@@ -44,6 +44,20 @@ class SessionStoreTest {
         assertFalse(s.validate(t))
     }
 
+    @Test fun backgroundPollsDoNotKeepASessionAlive() {
+        val s = store(); val t = s.issue()
+        repeat(5) { now += idle / 2; assertTrue(s.validate(t, touch = false)) }   // polls only: idle timer keeps running
+        assertFalse(s.validate(t, touch = false))                                   // 2.5 x idle later it is gone
+        assertEquals(0, s.count())
+    }
+
+    @Test fun aRealRequestRestartsTheIdleTimerButAPollDoesNot() {
+        val s = store(); val t = s.issue()
+        now += idle - 1; assertTrue(s.validate(t, touch = true))    // person clicked: timer restarts
+        now += idle - 1; assertTrue(s.validate(t, touch = false))   // a poll, still inside the new idle window
+        now += 2;        assertFalse(s.validate(t, touch = true))   // no real request for longer than idle: expired
+    }
+
     @Test fun revokeEndsOnlyThatSession() {
         val s = store(); val a = s.issue(); val b = s.issue()
         s.revoke(a)

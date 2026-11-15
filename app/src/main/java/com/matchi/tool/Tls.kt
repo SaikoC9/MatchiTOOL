@@ -49,6 +49,9 @@ object Tls {
     /** Which key the current factory uses: "keystore" (Android key store) or "software" (key file in the app's private folder). */
     @Volatile var keySource = ""
 
+    /** DER of the certificate the running server presents. [selfTest] accepts only this exact certificate (no "trust anything"). */
+    @Volatile private var servedCertDer: ByteArray? = null
+
     /** Server socket factory backed by the Android key store, or null when TLS cannot be set up this way on this device. */
     fun serverFactory(): SSLServerSocketFactory? = try {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -60,6 +63,7 @@ object Tls {
         kmf.init(ks, null)
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(kmf.keyManagers, null, SecureRandom())
+        servedCertDer = (ks.getCertificate(ALIAS) as X509Certificate).encoded
         keySource = "keystore"
         ctx.serverSocketFactory
     } catch (e: Exception) {
@@ -97,6 +101,7 @@ object Tls {
         val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply { init(ks, pw) }
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(kmf.keyManagers, null, SecureRandom())
+        servedCertDer = cert.encoded
         keySource = "software"
         ctx.serverSocketFactory
     } catch (e: Exception) {
@@ -164,14 +169,20 @@ object Tls {
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore").apply { initialize(spec) }.generateKeyPair()
     }
 
-    /** Loopback TLS handshake against the running server. False means HTTPS does not really work on this device. */
+    /** Loopback TLS handshake against the running server, accepting only the server's own certificate. False means HTTPS does not really work on this device. */
     fun selfTest(port: Int): Boolean = try {
-        val trustAll = object : X509TrustManager {
-            override fun checkClientTrusted(c: Array<X509Certificate>?, a: String?) {}
-            override fun checkServerTrusted(c: Array<X509Certificate>?, a: String?) {}
+        // The certificate is self-signed, so no authority can vouch for it. Instead of trusting any certificate, this test
+        // trusts only the one certificate the server itself was started with (pinned by its exact bytes).
+        val pinned = servedCertDer ?: throw java.security.cert.CertificateException("no server certificate recorded")
+        val pinnedOnly = object : X509TrustManager {
+            override fun checkClientTrusted(c: Array<X509Certificate>?, a: String?) { throw java.security.cert.CertificateException("client certificates are not used") }
+            override fun checkServerTrusted(c: Array<X509Certificate>?, a: String?) {
+                val leaf = c?.firstOrNull() ?: throw java.security.cert.CertificateException("server sent no certificate")
+                if (!leaf.encoded.contentEquals(pinned)) throw java.security.cert.CertificateException("server certificate is not the one this app made")
+            }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         }
-        val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trustAll), SecureRandom()) }
+        val ctx = SSLContext.getInstance("TLS").apply { init(null, arrayOf(pinnedOnly), SecureRandom()) }
         (ctx.socketFactory.createSocket() as SSLSocket).use { s ->
             s.soTimeout = 5000
             s.connect(InetSocketAddress("127.0.0.1", port), 3000)

@@ -160,8 +160,12 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      */
     internal fun sessionToken(s: IHTTPSession): String? = requestToken(s.headers["cookie"], s.headers["x-token"])
 
-    /** True when the request carries a live per-login session token (see [SessionStore]). */
-    private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, sessionToken(s))
+    /**
+     * True when the request carries a live per-login session token (see [SessionStore]).
+     * Only a request the page marks with "x-active: 1" (it was sent within a minute of a real click, key press or touch)
+     * restarts the idle timer. Background polls do not, so an open but unattended tab signs out after the idle time.
+     */
+    private fun authed(s: IHTTPSession): Boolean = Sessions.validate(ctx, sessionToken(s), touch = s.headers["x-active"] == "1")
 
     /**
      * Every app on the device reaches the console as 127.0.0.1 / ::1, so they would all share one lockout bucket and one

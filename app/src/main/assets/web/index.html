@@ -3043,18 +3043,44 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   // Sends through Android's own telephony service (ISms), the way the phone app does, as the phone / shell user. Needed
   // because the router refuses "set" calls here and sendat cannot pass the Ctrl-Z that AT+CMGS needs. The ISms
-  // transaction numbers differ between Android versions, so a few known forms are tried until one is accepted, and the
-  // result is checked in Android's sent box (the message is stored there) so nothing is sent twice.
+  // transaction numbers differ between Android versions, so a few known forms are tried until one is accepted. A form only
+  // counts as sent when Android's sent box grew (the message is stored there); a form that answered "ok" but stored nothing
+  // is a wrong transaction number, so the next form is tried. When the sent box cannot be read at all, the first accepted
+  // form is kept and the result is reported as "not confirmed" instead of "sent".
   const b64 = (t) => { const u = new TextEncoder().encode(t); let b = ''; for (const c of u) b += String.fromCharCode(c); return btoa(b); };
-  async function androidSendOne(number, text) {
-    if (!/^\+?\d{3,20}$/.test(number)) throw new Error('bad number');
+  // One SMS holds 160 characters (70 when the text needs UCS-2). Android's sendText does not split, so a longer text is cut into
+  // separate messages at word borders (they arrive as separate SMS, in order). Characters that take two places in GSM 7-bit count twice.
+  function smsParts(text) {
+    const t = String(text), g = isGsm7(t), lim = g ? 160 : 70;
+    const units = (x) => g ? [...x].reduce((n, c) => n + (/[\^{}\\\[~\]|\u20ac]/.test(c) ? 2 : 1), 0) : x.length;
+    if (units(t) <= lim) return [t];
+    const out = []; let cur = '', curU = 0;
+    for (const tok of t.match(/\s*\S+\s*|\s+/g) || [t]) {
+      const u = units(tok);
+      if (curU + u > lim && cur) { out.push(cur); cur = ''; curU = 0; }
+      if (u > lim) {   // one word longer than a whole message: cut it by characters
+        for (const ch of tok) { const cu = units(ch); if (curU + cu > lim && cur) { out.push(cur); cur = ''; curU = 0; } cur += ch; curU += cu; }
+      } else { cur += tok; curU += u; }
+    }
+    if (cur) out.push(cur);
+    return out.map((x) => x.trim()).filter(Boolean);
+  }
+  // true = in the sent box, false = accepted by Android but the sent box could not confirm it
+  async function androidSendPart(number, text) {
     const script = [
       'N=' + number,
       'T=$(echo ' + b64(text) + ' | base64 -d)',
-      'SUB=$(dumpsys telephony.registry 2>/dev/null | grep -o "mSubId=[0-9]*" | head -n 1 | cut -d= -f2)',
-      '[ -z "$SUB" ] || [ "$SUB" -lt 0 ] 2>/dev/null && SUB=1',
+      // The SIM to send with: the default SMS SIM first, then the first one telephony reports, then 1. (The first mSubId alone can be the other SIM.)
+      'SUB=$(settings get global multi_sim_sms 2>/dev/null | tr -d \'\\r\')',
+      'case "$SUB" in \'\'|*[!0-9]*) SUB=;; esac',
+      '[ -n "$SUB" ] || SUB=$(dumpsys isub 2>/dev/null | grep -o "defaultSmsSubId=[0-9]*" | head -n 1 | cut -d= -f2)',
+      '[ -n "$SUB" ] || SUB=$(dumpsys telephony.registry 2>/dev/null | grep -o "mSubId=[0-9]*" | head -n 1 | cut -d= -f2)',
+      '[ -n "$SUB" ] || SUB=1',
       'echo "sdk=$(getprop ro.build.version.sdk) sub=$SUB"',
-      'before=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l)',
+      'sentcount() { content query --uri content://sms/sent --projection _id 2>&1 | grep -c "^Row:"; }',
+      'if content query --uri content://sms/sent --projection _id 2>&1 | grep -qE "^Row:|No result found"; then CAN=1; else CAN=0; fi',
+      'before=$(sentcount)',
+      'confirm() { i=0; while [ $i -lt 4 ]; do sleep 1; after=$(sentcount); [ "$after" -gt "$before" ] 2>/dev/null && return 0; i=$((i+1)); done; return 1; }',
       'try() { # uid pkg code withtag',
       '  U=$1; P=$2; C=$3; G=$4',
       '  if [ "$G" = 1 ]; then TAG=\'s16 "null"\'; else TAG=; fi',
@@ -3068,19 +3094,44 @@ rm -rf "${DEVICE_TMP_DIR}"
       'if [ "$SDK" -ge 33 ] 2>/dev/null; then CODES="6 7 5 8"; GS="1"; elif [ "$SDK" -ge 30 ] 2>/dev/null; then CODES="7 6 5 8"; GS="1 0"; else CODES="5 7 6 8"; GS="0 1"; fi',
       'for G in $GS; do for C in $CODES; do',
       '  for UP in "1001 com.android.phone" "2000 com.android.shell" "1001 com.android.mms.service"; do',
-      '    set -- $UP; try $1 $2 $C $G && { sleep 2; after=$(content query --uri content://sms/sent --projection _id 2>/dev/null | wc -l); echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; exit 0; }',
+      '    set -- $UP',
+      '    if try $1 $2 $C $G; then',
+      '      if [ "$CAN" = 1 ]; then',
+      '        if confirm; then echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; exit 0; fi',
+      '        echo "accepted but not in the sent box (code=$C uid=$1), trying the next form"',
+      '      else',
+      '        echo "SENT_UNCONFIRMED code=$C uid=$1 (sent box not readable)"; exit 0',
+      '      fi',
+      '    fi',
       '  done',
       'done; done',
       'echo SENT_FAIL',
     ].join('\n');
-    const out = await sh(script, 60000);
-    if (!/SENT_OK/.test(out)) throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
+    const out = await sh(script, 110000);
+    if (/SENT_OK/.test(out)) return true;
+    if (/SENT_UNCONFIRMED/.test(out)) return false;
+    throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
+  }
+  async function androidSendOne(number, text) {
+    if (!/^\+?\d{3,20}$/.test(number)) throw new Error('bad number');
+    const parts = smsParts(text); let confirmed = true;
+    for (let i = 0; i < parts.length; i++) {
+      try { if (!(await androidSendPart(number, parts[i]))) confirmed = false; }
+      catch (e) {
+        if (i === 0) throw e;   // nothing left yet: the caller may still try another way
+        const err = new Error('part ' + (i + 1) + ' of ' + parts.length + ' to ' + number + ' failed after ' + i + ' part(s) were sent: ' + e.message);
+        err.partial = true; throw err;   // part of the text is already out: never send the whole text again
+      }
+    }
+    return confirmed;
   }
   // onSent(n) is called after each number was accepted, so a fallback never sends to a number that already got the text.
   async function androidSend(num, text, onSent) {
     const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
     if (!nums.length || nums.some((n) => !/^\+?[0-9]{3,20}$/.test(n))) throw new Error('Enter a valid number');
-    for (const n of nums) { await androidSendOne(n, text); if (onSent) onSent(n); }
+    let confirmed = true;
+    for (const n of nums) { if (!(await androidSendOne(n, text))) confirmed = false; if (onSent) onSent(n); }
+    return confirmed;
   }
   async function atSend(num, text, onSent) {
     const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
@@ -3092,7 +3143,19 @@ rm -rf "${DEVICE_TMP_DIR}"
   async function providerFetch(q) {
     const raw = await sh('content query --uri content://sms --projection _id:address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000, q);
     const out = [];
-    for (const row of raw.split(/^Row: \d+ /m).slice(1)) {
+    // The content tool prints "Row: 0 _id=..., Row: 1 _id=..." and a message body can hold line breaks, so "Row: N " at the start of a line is
+    // not enough. A real row start is numbered one after the other (0, 1, 2 ...), is followed by "_id=<n>, address=", and the text before
+    // it ends with the previous row's ", type=<n>". A body that only looks like a row start fails these checks.
+    const starts = [];
+    for (const mm of raw.matchAll(/^Row: (\d+) (?=_id=\d+, address=)/gm)) {
+      if (Number(mm[1]) !== starts.length) continue;
+      if (starts.length && !/, type=\d+\s*$/.test(raw.slice(Math.max(0, mm.index - 40), mm.index))) continue;
+      starts.push(mm);
+    }
+    const rows = starts.map((mm, i) => raw.slice(mm.index + mm[0].length, i + 1 < starts.length ? starts[i + 1].index : raw.length));
+    // "head -c 400000" can cut the last row in the middle: when the output is that long, that row is not trusted.
+    if (rows.length && new TextEncoder().encode(raw).length >= 399900) rows.pop();
+    for (const row of rows) {
       const m = row.match(/^_id=(\d+), address=(.*?), date=(\d+), body=([\s\S]*), type=(\d+)\s*$/);
       if (!m) continue;
       const d = new Date(parseInt(m[3], 10)), z = (v) => String(v).padStart(2, '0');
@@ -3303,7 +3366,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     if (!text) return createToast('Message is empty', 'red');
     const btn = el('matchi_sms_send'); btn.disabled = true;
     try {
-      let ok = false, via = '', apiErr = '';
+      let ok = false, via = '', apiErr = '', unconfirmed = false;
       let left = num.split(';').map((n) => n.trim()).filter(Boolean);   // numbers that have NOT received the text yet
       const all = left.slice(), gone = () => { left.shift(); };
       if (!useAt() && !routerSetDead()) {
@@ -3315,9 +3378,14 @@ rm -rf "${DEVICE_TMP_DIR}"
       }
       if (!ok) {
         // The router refused or could not be reached: send through the modem instead (AT commands, as root).
-        let aErr = '';
-        try { await androidSend(left.join(';'), text, gone); ok = true; via = ' (via Android)'; }
-        catch (e) { aErr = e.message; }
+        let aErr = '', aPartial = false;
+        try { const c = await androidSend(left.join(';'), text, gone); ok = true; via = ' (via Android)'; unconfirmed = c === false; }
+        catch (e) { aErr = e.message; aPartial = !!e.partial; }
+        if (!ok && aPartial) {
+          // Android already sent a part of the text: the modem must not send the whole text again.
+          const reached = all.slice(0, all.length - left.length);
+          throw new Error('Send stopped (' + aErr + ')' + (reached.length ? '. Already sent to: ' + reached.join(', ') : '') + '. Not retried through the modem, so nothing is sent twice.');
+        }
         if (!ok) {
           // Only the numbers Android did not send to are tried through the modem (the others already have the message).
           try { await atSend(left.join(';'), text, gone); ok = true; via = ' (via modem)'; }
@@ -3327,7 +3395,8 @@ rm -rf "${DEVICE_TMP_DIR}"
           }
         }
       }
-      createToast('Message sent' + via, 'green');
+      if (unconfirmed) createToast('Handed to Android, but it did not show in the sent box. Check the list before sending again.', 'orange', 9000);
+      else createToast('Message sent' + via, 'green');
       el('matchi_sms_text').value = ''; setTimeout(load, 1500);
     } catch (e) { createToast(e.message, 'red'); }
     btn.disabled = false;
@@ -6850,12 +6919,18 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;
   const atIsRead=c=>{c=String(c||'').trim();return !!c&&c.length<=64&&(AT_READS.indexOf(c.toUpperCase())>=0||AT_QUERY.test(c))};
   window.__matchiAtIsRead=atIsRead;
+  /* Idle sign-out: the host restarts a session's idle timer only for a request marked x-active, and the mark is added only
+     within 60 s of a real click, key press or touch. Polls (Live Status, host ping, SMS check) therefore no longer keep a forgotten tab signed in. */
+  let lastInput=Date.now();
+  const markInput=()=>{lastInput=Date.now()};
+  if(typeof window.addEventListener==='function')['pointerdown','keydown','touchstart','wheel'].forEach(ev=>window.addEventListener(ev,markInput,{capture:true,passive:true}));
   window.fetch=async function(input,init){
     let u=null;
     try{u=new URL(typeof input==='string'?input:(input&&input.url)||'',location.href)}catch(_){}
     if(u&&u.origin===location.origin&&u.pathname.startsWith('/api/')){
       const h=new Headers((init&&init.headers)||(input&&input.headers)||undefined);
       if(!h.has('x-token')&&TOKEN)h.set('x-token',TOKEN);
+      if(Date.now()-lastInput<60000)h.set('x-active','1');
       if((ROOTY.test(u.pathname)||(u.pathname==='/api/AT'&&!atIsRead(u.searchParams.get('command'))))&&insecurePage()){
         if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
         h.set('x-insecure-ok','1');

@@ -135,12 +135,18 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;
   const atIsRead=c=>{c=String(c||'').trim();return !!c&&c.length<=64&&(AT_READS.indexOf(c.toUpperCase())>=0||AT_QUERY.test(c))};
   window.__matchiAtIsRead=atIsRead;
+  /* Idle sign-out: the host restarts a session's idle timer only for a request marked x-active, and the mark is added only
+     within 60 s of a real click, key press or touch. Polls (Live Status, host ping, SMS check) therefore no longer keep a forgotten tab signed in. */
+  let lastInput=Date.now();
+  const markInput=()=>{lastInput=Date.now()};
+  if(typeof window.addEventListener==='function')['pointerdown','keydown','touchstart','wheel'].forEach(ev=>window.addEventListener(ev,markInput,{capture:true,passive:true}));
   window.fetch=async function(input,init){
     let u=null;
     try{u=new URL(typeof input==='string'?input:(input&&input.url)||'',location.href)}catch(_){}
     if(u&&u.origin===location.origin&&u.pathname.startsWith('/api/')){
       const h=new Headers((init&&init.headers)||(input&&input.headers)||undefined);
       if(!h.has('x-token')&&TOKEN)h.set('x-token',TOKEN);
+      if(Date.now()-lastInput<60000)h.set('x-active','1');
       if((ROOTY.test(u.pathname)||(u.pathname==='/api/AT'&&!atIsRead(u.searchParams.get('command'))))&&insecurePage()){
         if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
         h.set('x-insecure-ok','1');

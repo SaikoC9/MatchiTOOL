@@ -58,8 +58,12 @@ class SessionStore(
         return token
     }
 
-    /** True when [token] belongs to a live session; also restarts that session's idle timer. */
-    fun validate(token: String?): Boolean {
+    /**
+     * True when [token] belongs to a live session. With [touch] (the default) it also restarts that session's idle timer.
+     * Background polls from an open tab pass touch = false: otherwise a tab left open (Live Status polls every few seconds)
+     * kept the session alive until the 12 h maximum. An expired session is still removed either way.
+     */
+    fun validate(token: String?, touch: Boolean = true): Boolean {
         if (token.isNullOrEmpty() || token.length > MAX_TOKEN_LEN) return false
         val key = hash(token)
         val now = clock()
@@ -72,6 +76,7 @@ class SessionStore(
                     persistLocked()
                     false
                 }
+                !touch -> true
                 else -> {
                     e.lastSeen = now
                     if (now - lastPersistAt >= PERSIST_EVERY_MS) {
