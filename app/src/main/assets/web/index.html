@@ -1188,7 +1188,18 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
         try {
           const raw = String(await setter(on) || ''), ok = raw.includes('OK');
           const why = raw.trim() ? ' (modem said: ' + raw.replace(/\s+/g, ' ').trim().slice(0, 80) + ')' : ': the modem did not answer AT (sendat printed nothing). Run Full diagnose';
-          createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed' + why, ok ? 'green' : 'red');
+          if (ok) {
+            // "OK" only means the modem took the command. Read the switch back (after a short wait) and say so if it did not stick,
+            // instead of a green toast followed by the switch quietly jumping back.
+            await sleep(1500);
+            const getter = name === 'VoLTE' ? getVoLTE : getVoNR, readCmd = name === 'VoLTE' ? 'AT+CAVIMS?' : 'AT+SP5GCMDS="get nr synch_param",42';
+            let now = null, rawBack = '';
+            try { rawBack = String(await at(readCmd)); now = await getter(); } catch (e) { rawBack = 'read failed: ' + e.message; }
+            log('> ' + name + ' set ' + (on ? 'on' : 'off') + ' -> modem: ' + raw.replace(/\s+/g, ' ').trim() + '\n> read back (' + readCmd + '): ' + (rawBack.replace(/\s+/g, ' ').trim() || '(no output)'));
+            if (now === null) createToast(name + ': the modem said OK but the state could not be read back', 'red');
+            else if (now !== on) createToast(name + ': the modem said OK but still reads ' + (now ? 'on' : 'off') + '. The change may need a modem restart, or this firmware reads a different value. Details in the output box.', 'red');
+            else createToast(name + (on ? ' on' : ' off') + ' (confirmed by read-back)', 'green');
+          } else createToast(name + ' change failed' + why, 'red');
         }
         catch (err) { createToast(err.message, 'red'); }
         refreshSwitches();
