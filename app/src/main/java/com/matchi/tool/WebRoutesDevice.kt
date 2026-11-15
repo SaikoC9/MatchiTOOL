@@ -114,10 +114,25 @@ internal fun WebServer.usbStatus(): Response {
         .put("networkInterfaces", lines["NETIFS"].orEmpty()).put("detail", r.content))
 }
 
+/** Optional "keep after reboot": a reboot reloads persist.sys.usb.config, so the runtime switch alone falls back to the saved mode (ECM on the F50).
+ *  The saved value is written once to usb_persist_orig so "Restore default USB mode" can put it back. Only runs when the function is really active. */
+private fun keepAfterRebootScript(fn: String): String = """
+    if [ §OK = 1 ]; then
+      W="§(getprop sys.usb.config)"
+      case "§W" in *$fn*)
+        mkdir -p /data/local/matchitool
+        [ -f /data/local/matchitool/usb_persist_orig ] || getprop persist.sys.usb.config > /data/local/matchitool/usb_persist_orig
+        setprop persist.sys.usb.config "§W" && echo "Kept after reboot: persist.sys.usb.config=§(getprop persist.sys.usb.config)" ;;
+      esac
+    fi
+""".trimIndent().replace('§', '$')
+
 /** Switch the USB gadget function the way this ZTE/Unisoc build expects (via init's sys.usb.config triggers;
  *  `svc usb setFunctions` gets SIGKILLed on the F50), verify it in configfs, then bring the new USB network
  *  interface up and bridge it into br0 (the hotspot LAN) so a PC on the cable gets DHCP/NAT. */
-internal fun WebServer.usbEnableScript(fn: String): String = """
+internal fun WebServer.usbEnableScript(fn: String, persist: Boolean = false): String {
+    val keepAfterReboot = if (persist) keepAfterRebootScript(fn) else ""
+    return """
     has() { ls -l /config/usb_gadget/*/configs/*/ 2>/dev/null | grep -qi "§1"; }
     ADB="§(settings get global adb_enabled 2>/dev/null | tr -d '\r')"
     if [ "§ADB" = 1 ]; then CANDS="$fn,mtp,adb $fn,adb"; else CANDS="$fn,mtp $fn"; fi
@@ -143,6 +158,7 @@ internal fun WebServer.usbEnableScript(fn: String): String = """
         ip link set "§IF" master br0 2>&1 && echo "bridged §IF into br0"
       fi
     done
+    $keepAfterReboot
     echo "--- gadget ---"
     echo "config=§(getprop sys.usb.config) state=§(getprop sys.usb.state)"
     ls -l /config/usb_gadget/*/configs/*/ 2>&1 | grep -- '->'
@@ -150,6 +166,7 @@ internal fun WebServer.usbEnableScript(fn: String): String = """
     ip -o link show 2>/dev/null | grep -E 'usb|rndis|ecm|ncm|br0' || true
     if [ §OK = 0 ]; then echo "USB function $fn is not active"; exit 3; fi
 """.trimIndent().replace('§', '$')
+}
 
 // Shell snippets are written with § in place of $ so Kotlin does not treat shell variables as templates.
 private val USB_UNBRIDGE = "for IF in usb0 rndis0 ecm0 ncm0; do ip link set \"§IF\" nomaster 2>/dev/null; done; ".replace('§', '$')
@@ -172,6 +189,8 @@ private val USB_RESTORE = """
         *) echo "svc fallback skipped (§S is not a single Android USB function)" ;;
       esac
     fi
+    F=/data/local/matchitool/usb_persist_orig
+    if [ -f §F ]; then O="§(cat §F)"; if [ -n "§O" ]; then setprop persist.sys.usb.config "§O" && echo "Saved USB mode restored: §O"; fi; rm -f §F; fi
     echo "config=§(getprop sys.usb.config) state=§(getprop sys.usb.state)"
     [ -n "§(getprop sys.usb.config)" ]
 """.trimIndent().replace('§', '$')
@@ -182,8 +201,8 @@ internal fun WebServer.controlUsb(req: JSONObject): Response {
     val script = when (action) {
         "adb_enable" -> "settings put global adb_enabled 1 && [ \"$(settings get global adb_enabled)\" = 1 ]"
         "adb_disable" -> "settings put global adb_enabled 0 && [ \"$(settings get global adb_enabled)\" = 0 ]"
-        "rndis_enable" -> usbEnableScript("rndis")
-        "ecm_enable" -> usbEnableScript("ecm")
+        "rndis_enable" -> usbEnableScript("rndis", req.optBoolean("persist", false))
+        "ecm_enable" -> usbEnableScript("ecm", req.optBoolean("persist", false))
         "tether_disable" -> USB_UNBRIDGE + restoreDefault
         else -> throw IllegalArgumentException("unsupported USB action")
     }

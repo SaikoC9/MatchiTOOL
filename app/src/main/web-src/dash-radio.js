@@ -61,6 +61,20 @@ function mountDashRadio() {
   const liveNoService = () => { try { const s = window.MatchiLive && window.MatchiLive.snapshot(); return !!(s && s.noService); } catch (_) { return false; } };
   const lockWarnHtml = () => (lockActive() && liveNoService() && !R.isBusy()
     ? '<div class="dr-warn" role="alert" style="margin:0 0 8px;padding:6px 8px;border:1px solid #ff9a9a;border-radius:8px;color:#ff9a9a;font-size:11.5px">A band lock is active and Live Status shows no service. If the signal went away after a band change, the lock may be the cause: press <b>Unlock all</b>.</div>' : '');
+  // A band tick only changes colours and two buttons. Painting the whole card again re-created the Network mode drop-down on every click
+  // (a visible jump / flash), so the chips and buttons are updated where they stand and nothing else is touched.
+  function tickInPlace() {
+    if (st.err || !body.querySelector('.dr-b[data-t]')) { paint(); return; }
+    body.querySelectorAll('.dr-b[data-t]').forEach((el) => {
+      const lte = el.dataset.t === 'lte', b = +el.dataset.b, router = lte ? st.routerLte : st.routerNr, pend = lte ? st.pendLte : st.pendNr;
+      const inR = router.includes(b), inP = pend.has(b);
+      el.className = 'dr-b ' + (inR && inP ? 'on' : inP ? 'add' : inR ? 'rm' : '');
+      el.setAttribute('aria-pressed', String(inP));
+    });
+    const off = R.isBusy() || !dirty();
+    ['lock', 'reset'].forEach((a) => { const el = body.querySelector('[data-a="' + a + '"]'); if (el) el.disabled = off; });
+    announce();
+  }
   function paint() {
     announce();
     if (st.err) { body.textContent = 'Radio settings not available: ' + st.err; return; }
@@ -175,7 +189,7 @@ function mountDashRadio() {
       if (R.isBusy()) return;
       const set = chip.dataset.t === 'lte' ? st.pendLte : st.pendNr, b = +chip.dataset.b;
       if (set.has(b)) set.delete(b); else set.add(b);
-      paint(); return;
+      tickInPlace(); return;
     }
     const a = e.target.closest && e.target.closest('[data-a]'); if (!a) return;
     if (a.dataset.a === 'refresh') { if (!R.isBusy()) { setStatus(''); refresh(); } }

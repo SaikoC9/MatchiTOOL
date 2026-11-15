@@ -807,6 +807,7 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
     <div class="actions-buttons"><button id="adbon">Enable debugging</button><button id="adboff">Disable debugging</button></div>
     <div class="row"><span class="n">USB Ethernet mode</span><strong id="tetherstate">Unknown</strong></div>
     <div class="actions-buttons"><button id="rndison">Use RNDIS</button><button id="ecmon">Use CDC-ECM</button><button id="tetheroff">Restore default USB mode</button><button id="usbrefresh">Refresh status</button></div>
+    <label class="mut" style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" id="usbpersist"> Keep RNDIS / CDC-ECM after a reboot (changes the saved USB mode; Restore default puts the old one back)</label>
     <p class="mut">Choose RNDIS or CDC-ECM for USB Ethernet. MatchiTOOL keeps ADB in the USB function when debugging is enabled. Restore default returns to the firmware's saved USB configuration.</p>
     <pre id="usbout" style="display:none;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -4096,6 +4097,20 @@ function mountDashRadio() {
   const liveNoService = () => { try { const s = window.MatchiLive && window.MatchiLive.snapshot(); return !!(s && s.noService); } catch (_) { return false; } };
   const lockWarnHtml = () => (lockActive() && liveNoService() && !R.isBusy()
     ? '<div class="dr-warn" role="alert" style="margin:0 0 8px;padding:6px 8px;border:1px solid #ff9a9a;border-radius:8px;color:#ff9a9a;font-size:11.5px">A band lock is active and Live Status shows no service. If the signal went away after a band change, the lock may be the cause: press <b>Unlock all</b>.</div>' : '');
+  // A band tick only changes colours and two buttons. Painting the whole card again re-created the Network mode drop-down on every click
+  // (a visible jump / flash), so the chips and buttons are updated where they stand and nothing else is touched.
+  function tickInPlace() {
+    if (st.err || !body.querySelector('.dr-b[data-t]')) { paint(); return; }
+    body.querySelectorAll('.dr-b[data-t]').forEach((el) => {
+      const lte = el.dataset.t === 'lte', b = +el.dataset.b, router = lte ? st.routerLte : st.routerNr, pend = lte ? st.pendLte : st.pendNr;
+      const inR = router.includes(b), inP = pend.has(b);
+      el.className = 'dr-b ' + (inR && inP ? 'on' : inP ? 'add' : inR ? 'rm' : '');
+      el.setAttribute('aria-pressed', String(inP));
+    });
+    const off = R.isBusy() || !dirty();
+    ['lock', 'reset'].forEach((a) => { const el = body.querySelector('[data-a="' + a + '"]'); if (el) el.disabled = off; });
+    announce();
+  }
   function paint() {
     announce();
     if (st.err) { body.textContent = 'Radio settings not available: ' + st.err; return; }
@@ -4210,7 +4225,7 @@ function mountDashRadio() {
       if (R.isBusy()) return;
       const set = chip.dataset.t === 'lte' ? st.pendLte : st.pendNr, b = +chip.dataset.b;
       if (set.has(b)) set.delete(b); else set.add(b);
-      paint(); return;
+      tickInPlace(); return;
     }
     const a = e.target.closest && e.target.closest('[data-a]'); if (!a) return;
     if (a.dataset.a === 'refresh') { if (!R.isBusy()) { setStatus(''); refresh(); } }
@@ -8587,7 +8602,7 @@ async function usbAction(action){
   const labels={adb_enable:'Enable USB debugging',adb_disable:'Disable USB debugging',rndis_enable:'Switch USB Ethernet to RNDIS',ecm_enable:'Switch USB Ethernet to CDC-ECM',tether_disable:'Restore default USB mode'};
   if(!(await askConfirm(labels[action]+'? This changes Android USB settings.','Apply')))return;
   const out=document.getElementById('usbout');out.style.display='block';out.textContent='Applying USB setting…';
-  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(labels[action]+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
+  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:!!(document.getElementById('usbpersist')&&document.getElementById('usbpersist').checked)})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(labels[action]+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
 }
 document.getElementById('adbon').onclick=()=>usbAction('adb_enable');
 document.getElementById('adboff').onclick=()=>usbAction('adb_disable');
