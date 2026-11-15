@@ -803,6 +803,8 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   <div class="card pop" id="usbtools">
     <div class="mut" style="margin-bottom:8px">USB controls</div>
     <p class="mut">Choose how the USB Ethernet (tethering) connection works. This is the same setting as the router's own page (USB Internet Protocol).</p>
+    <div class="row"><span class="n">USB debugging</span><strong id="adbstate">Unknown</strong></div>
+    <div class="actions-buttons"><button id="adbon">Enable debugging</button><button id="adboff">Disable debugging</button></div>
     <div class="row"><span class="n">Router setting</span><strong id="usbsetting">Unknown</strong></div>
     <div class="row"><span class="n">USB Ethernet mode</span><strong id="tetherstate">Unknown</strong></div>
     <div class="actions-buttons"><button id="rndison">Use RNDIS</button><button id="ecmon">Use CDC-ECM</button><button id="tetheroff">Auto</button></div>
@@ -8010,7 +8012,7 @@ const ST_TOOLS=[
   {file:'Change_IP.js',btn:'matchi_changeip_btn'},
   {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
-const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','rndison','ecmon','tetheroff','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
+const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
 const ST_ERRS=[];
 /* Page errors also go to the device log (max 20 per page load, never throws). */
@@ -8601,7 +8603,7 @@ async function refreshUsbSetting(){
 async function refreshUsb(){
   refreshUsbSetting();
   const out=document.getElementById('usbout');out.style.display='block';out.textContent='Reading USB state…';
-  try{const r=await api('/api/usb/status');document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected';out.textContent=`USB config: ${r.usbConfig||'(unknown)'}\nUSB state: ${r.usbState||'(unknown)'}\nSaved config: ${r.persistConfig||'(unknown)'}\nRNDIS supported: ${r.rndisSupported?'yes':'not detected'}\nCDC-ECM supported: ${r.ecmSupported?'yes':'not detected'}\nNetwork interfaces: ${r.networkInterfaces||'(none reported)'}\n${r.success?'':'Root status read failed'}\n${r.detail||''}`}
+  try{const r=await api('/api/usb/status');document.getElementById('adbstate').textContent=r.adbEnabled?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected';out.textContent=`USB config: ${r.usbConfig||'(unknown)'}\nUSB state: ${r.usbState||'(unknown)'}\nSaved config: ${r.persistConfig||'(unknown)'}\nRNDIS supported: ${r.rndisSupported?'yes':'not detected'}\nCDC-ECM supported: ${r.ecmSupported?'yes':'not detected'}\nNetwork interfaces: ${r.networkInterfaces||'(none reported)'}\n${r.success?'':'Root status read failed'}\n${r.detail||''}`}
   catch(e){out.textContent='USB status failed: '+e.message}
 }
 /* USB Internet Protocol, no restart. Two steps:
@@ -8628,6 +8630,14 @@ async function usbAction(action){
   }catch(e){out.textContent='Saved '+m[1]+' on the router, but applying it now failed: '+e.message+'\nIt will apply after the next restart.'}
   setTimeout(refreshUsb,1500);
 }
+async function adbAction(action){
+  const label=action==='adb_enable'?'Enable USB debugging':'Disable USB debugging';
+  if(!(await askConfirm(label+'? This changes Android USB settings.','Apply')))return;
+  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Applying USB setting…';
+  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(label+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
+}
+document.getElementById('adbon').onclick=()=>adbAction('adb_enable');
+document.getElementById('adboff').onclick=()=>adbAction('adb_disable');
 document.getElementById('rndison').onclick=()=>usbAction('rndis_enable');
 document.getElementById('ecmon').onclick=()=>usbAction('ecm_enable');
 document.getElementById('tetheroff').onclick=()=>usbAction('tether_disable');
@@ -9560,7 +9570,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     'Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
     'Device diagnostics':'Diagnostics ng device','Run diagnostics':'Patakbuhin ang diagnostics',
     'Run full diagnose':'Patakbuhin ang buong diagnosis','Copy report':'Kopyahin ang ulat','Download .txt':'I-download ang .txt',
-    'USB controls':'Mga kontrol ng USB','Auto':'Awtomatiko',
+    'USB controls':'Mga kontrol ng USB','Enable debugging':'I-on ang debugging','Disable debugging':'I-off ang debugging','Auto':'Awtomatiko',
     'Firmware manifest inspector':'Tagasuri ng firmware manifest','Inspect manifest':'Suriin ang manifest',
     'Update MatchiTOOL':'I-update ang MatchiTOOL','Check file':'Suriin ang file','Install update':'I-install ang update','Check for update':'Tingnan kung may update',
     'Install online':'I-install online','Download APK':'I-download ang APK',
@@ -9625,7 +9635,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     ['.card.pop .popx','text'],['#logcatcher .popfoot button:not(.popx)','text'],
     ['#diagnostics > .mut:first-child','text'],['#diagbtn','text'],
     ['#selftest > .mut:first-child','text'],['#stbtn','text'],['#stcopy','text'],['#stdl','text'],
-    ['#usbtools > .mut:first-child','text'],['#tetheroff','text'],
+    ['#usbtools > .mut:first-child','text'],['#adbon','text'],['#adboff','text'],['#tetheroff','text'],
     ['#firmware > .mut:first-child','text'],['#fwinspect','text'],
     ['#appupdate > .mut:first-child','text'],['#updcheck','text'],['#updinstall','text'],['#updfetch','text'],['#updonline','text'],['#upddl','text'],
     ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],
