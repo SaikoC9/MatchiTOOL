@@ -3,7 +3,8 @@
  * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
  * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
  * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
- * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Everything else is still read only; the one root call (MTU / MSS tab) is a
+ * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Phase 7: the MTU / MSS tab changes both values with the router's own call (confirm, backup copy by root, send, wait for the restart, re-read, root checks).
+ * Everything else is still read only; the one root call (MTU / MSS tab) is a
  * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
@@ -17,7 +18,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null };
   let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
@@ -161,11 +162,30 @@ function mountNetTools() {
   }
   function viewMtu(d) {
     const p = N.parseMtu(d);
+    const known = !!p && p.mtu !== null && p.mss !== null;
     const router = !p || (p.mtu === null && p.mss === null) ? note(NOT + ' (MTU / MSS).')
       : h('div', {}, kv([['MTU (router setting)', p.mtu === null ? null : String(p.mtu)], ['MSS (router setting)', p.mss === null ? null : String(p.mss)]]), p.warn ? note(p.warn, 'net-warn') : null);
-    return h('div', {}, router,
+    const msg = st.mtuMsg ? h('div', {}, st.mtuMsg.lines.map((t) => note(t, st.mtuMsg.bad ? 'net-warn' : ''))) : null;
+    return h('div', {}, router, msg, known ? mtuForm(p) : note('MTU and MSS are not changed here: the router did not report both values.', 'net-mut'),
       note('On the F50 test the stock MSS rule applied to the router itself, not to devices connected to it. The real values below come from a read-only root check.', 'net-mut'),
       rootBlock());
+  }
+  // The change form: two numbers, checked by net-core.js; Apply restarts the router. The old values are saved by root before anything is sent.
+  function mtuForm(p) {
+    const base = p.mtu + '/' + p.mss;
+    if (!st.mtuForm || st.mtuForm.base !== base) st.mtuForm = { base, mtu: String(p.mtu), mss: String(p.mss) };
+    const busy = st.mtuAct || st.act || st.devAct || st.apnAct;
+    const inp = (id, v, key) => { const e = h('input', { type: 'text', id, maxlength: '4', inputmode: 'numeric', autocomplete: 'off' }); e.value = v; e.oninput = () => { st.mtuForm[key] = e.value; }; if (busy) e.disabled = true; return e; };
+    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
+    const err = h('p', { class: 'net-p net-warn', id: 'matchi_mtu_err' }, '');
+    const mtuIn = inp('matchi_mtu_mtu', st.mtuForm.mtu, 'mtu'), mssIn = inp('matchi_mtu_mss', st.mtuForm.mss, 'mss');
+    const mk = (label, id, fn, danger) => { const b = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) b.disabled = true; b.onclick = fn; return b; };
+    const useDefault = mk('MSS = MTU − 40', 'matchi_mtu_default', () => { const c = N.mtuCheck(mtuIn.value, String(N.MSS_MIN)); if (c.error && !/MSS/.test(c.error)) { err.textContent = c.error; return; } mssIn.value = String(N.mtuDefaultMss(parseInt(mtuIn.value, 10))); st.mtuForm.mss = mssIn.value; err.textContent = ''; });
+    const apply = mk('Apply (router restarts)', 'matchi_mtu_apply', () => mtuSubmit(mtuIn.value, mssIn.value, err), true);
+    return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change MTU / MSS'),
+      row('MTU', mtuIn), row('MSS', mssIn), err, h('div', { class: 'net-actions' }, apply, useDefault),
+      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. A bad value can break some sites. The old values are saved first, so "Restore saved values" can put them back.', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_mtu_restore', mtuRestore, false), mk('Forget backup (root)', 'matchi_mtu_forget', mtuForget, false)));
   }
   function rootBlock() {
     const btn = h('button', { type: 'button', id: 'matchi_net_root' }, st.rootBusy ? 'Reading…' : st.root || st.rootErr ? 'Read again (root)' : 'Read real values (root)');
@@ -193,7 +213,7 @@ function mountNetTools() {
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct || st.mtuAct;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -410,6 +430,105 @@ function mountNetTools() {
     if (f.mode === 'copy') await apnApply(steps, (x) => saved(x) && x.mode === 'manual' && N.sameProfile(x.inUse, form.name, form.apn), 'Saved and now using "' + form.name + '".', 'The router does not report "' + form.name + '" as the profile in use.', { data: true, rollback: true });
     else await apnApply(steps, saved, (f.mode === 'edit' ? 'Saved "' : 'Added "') + form.name + '".', 'The router does not list "' + form.name + '" in slot ' + f.slot + ' yet.', { data: inUse });
   }
+  // ---- MTU / MSS (Phase 7, Path A) -----------------------------------------------------------------------------------------------
+  // Steps: fresh read -> confirm naming old -> new -> backup copy written by root and read back (no backup, no change) -> SET_DEVICE_MTU -> the router restarts ->
+  // wait for the console (up to about 3 minutes, a failed read just means "not back yet") -> re-read -> data state -> root read of the real interface -> one ping.
+  // The wait stops by itself if the console asks for a new sign-in. Nothing is claimed that the re-read did not show. There is no automatic revert after the restart
+  // (that needs app code that runs at boot); the way back is "Restore saved values", which sends the saved old pair and restarts the router again.
+  const mtuReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.mtu });
+  const mtuRead = async () => N.parseMtu(await mtuReadRaw());
+  const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
+  async function mtuApply(want, why) {
+    if (st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    st.mtuAct = true; st.mtuMsg = null; syncButtons(); paint('mtu'); setStatus('Reading the router…');
+    const my = ++actId;
+    const done = (bad, lines) => { st.mtuMsg = { bad, lines }; };
+    try {
+      let cur; try { cur = await mtuRead(); } catch (e) { done(true, ['Not sent: could not read the current values (' + N.maskSecrets(e.message) + ').']); return; }
+      if (!cur || cur.mtu === null || cur.mss === null) { done(true, ['Not sent: the router did not report MTU and MSS.']); return; }
+      if (cur.mtu === want.mtu && cur.mss === want.mss) { done(false, ['The router already has MTU ' + cur.mtu + ' and MSS ' + cur.mss + '. Nothing was sent.']); return; }
+      if (my !== actId) return;
+      let call; try { call = N.mtuCall(want.mtu, want.mss); } catch (e) { done(true, ['Not sent: ' + e.message]); return; }
+      const ok = await askConfirm((why || 'Change MTU / MSS?') + '\n\nMTU ' + cur.mtu + ' → ' + want.mtu + '\nMSS ' + cur.mss + ' → ' + want.mss
+        + '\n\nThe router restarts. Internet, Wi-Fi and this console are away for about 1 to 2 minutes. The old values are saved first. MSS here applies to the router itself, not to connected devices. A bad value can break some sites.', 'Apply and restart', true);
+      if (!ok) { st.mtuAct = false; return; }
+      if (my !== actId) return;
+      // the backup copy: written, then read back; without it nothing is sent
+      try {
+        const w = await R.sh(N.mtuBackupWriteSh({ mtu: cur.mtu, mss: cur.mss }, want, Date.now()), 15000);
+        const back = N.parseMtuBackup(await R.sh(N.MTU_BACKUP_READ_SH, 15000));
+        if (!String(w).includes('MATCHI_BACKUP_OK') || !back || back.old.mtu !== cur.mtu || back.old.mss !== cur.mss) throw new Error('the copy could not be read back');
+      } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
+      setStatus('Sending…');
+      try { await R.setRouter(call, true); }
+      catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      // the router answers once more before it restarts: wait first, then ask until it is back
+      let back = null, wentDown = false, authStop = false;
+      await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return;
+      for (let i = 0; i < MTU_WAIT_TRIES; i++) {
+        try {
+          const r = await mtuRead();
+          if (r && r.mtu !== null && r.mss !== null) { back = r; if (wentDown || (r.mtu === want.mtu && r.mss === want.mss)) break; }
+        } catch (e) { wentDown = true; if (N.isAuthError(e.message)) { authStop = true; break; } }
+        if (my !== actId) return;
+        setStatus('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s');
+        await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
+      }
+      if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values. The old values are saved: "Restore saved values" puts them back.']); return; }
+      if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh. The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') are saved: "Restore saved values" puts them back.']); return; }
+      try { st.cache.mtu = { d: await mtuReadRaw(), at: Date.now() }; } catch (_) { /* the view keeps the last values */ }
+      const lines = [], same = back.mtu === want.mtu && back.mss === want.mss;
+      let bad = !same;
+      lines.push(same ? 'The router restarted and reports MTU ' + back.mtu + ', MSS ' + back.mss + '.' : 'The router is back but reports MTU ' + back.mtu + ' and MSS ' + back.mss + ', not the wanted ' + want.mtu + ' / ' + want.mss + '.');
+      let ppp = null;
+      for (let i = 0; i < MTU_DATA_TRIES; i++) {
+        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        if (my !== actId) return;
+        if (ppp && ppp.state === 'connected') break;
+        setStatus('Waiting for mobile data… ' + (i + 1) * 5 + ' s'); await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
+      }
+      if (ppp && ppp.state === 'connected') lines.push('Mobile data is connected (' + ppp.ppp + ').'); else { bad = true; lines.push('Mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + ').'); }
+      if (ppp && ppp.state === 'connected') {
+        setStatus('Checking the real interface…');
+        try {
+          st.root = N.parseRootNet(await R.sh(N.ROOT_READ_SH, 20000)); st.rootErr = '';
+          const f = N.wanFollowed(st.root, want.mtu);
+          if (want.mtu === cur.mtu) lines.push('MTU was not changed, only MSS.');
+          else if (f === true) lines.push('The mobile interface MTU is ' + st.root.wanMtu + ': it follows the new MTU.');
+          else if (f === false) { bad = true; lines.push('The mobile interface MTU is ' + st.root.wanMtu + ': it did NOT follow the router setting (' + want.mtu + '). The router value alone does not change the real interface.'); }
+          else lines.push('The real interface MTU could not be read.');
+        } catch (e) { lines.push('The real interface could not be read (' + N.maskSecrets(e.message) + ').'); }
+        try {
+          const pg = N.parsePing(await R.sh(N.PING_SH, 20000));
+          if (pg === true) lines.push('A ping to 1.1.1.1 through the mobile connection worked. That does not prove every site loads: open a page on a phone.');
+          else { bad = true; lines.push(pg === false ? 'A ping to 1.1.1.1 through the mobile connection FAILED.' : 'The ping check gave no answer.'); }
+        } catch (e) { lines.push('The ping check could not run (' + N.maskSecrets(e.message) + ').'); }
+      }
+      lines.push(bad ? 'If something is wrong, "Restore saved values" puts the old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') back; the router restarts again.' : 'The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') stay saved for "Restore saved values".');
+      done(bad, lines);
+      st.mtuForm = null;
+    } finally {
+      if (my === actId) { st.mtuAct = false; if (st.tab === 'mtu') { paint('mtu'); setStatus(st.mtuMsg && st.mtuMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
+  }
+  async function mtuSubmit(mtuText, mssText, errEl) {
+    const c = N.mtuCheck(mtuText, mssText);
+    if (c.error) { if (errEl) errEl.textContent = c.error; return; }
+    await mtuApply({ mtu: c.mtu, mss: c.mss }, 'Change MTU / MSS?');
+  }
+  async function mtuRestore() {
+    if (st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    let saved; try { saved = N.parseMtuBackup(await R.sh(N.MTU_BACKUP_READ_SH, 15000)); } catch (e) { st.mtuMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('mtu'); return; }
+    if (!saved) { st.mtuMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('mtu'); return; }
+    await mtuApply({ mtu: saved.old.mtu, mss: saved.old.mss }, 'Put the saved values back?');
+  }
+  async function mtuForget() {
+    if (st.mtuAct) return;
+    if (!(await askConfirm('Delete the saved copy of the old MTU / MSS values?\n\nAfter this "Restore saved values" has nothing to restore.', 'Delete', true))) return;
+    try { const o = await R.sh(N.MTU_BACKUP_DELETE_SH, 15000); st.mtuMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
+    catch (e) { st.mtuMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
+    paint('mtu');
+  }
   async function findMe() {
     try { const r = await api('/api/net/whoami'); st.me = r && r.ip ? N.plainIp(r.ip) : ''; } catch (_) { st.me = ''; }
     if (st.tab === 'devices' && st.cache.devices) paint('devices');
@@ -457,9 +576,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

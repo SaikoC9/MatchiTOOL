@@ -214,14 +214,35 @@ for (const good of ['ako', 'My Phone 2', 'GL-MT3000', 'a.b_c-d', 'x'.repeat(31)]
 assert.throws(() => N.renameCall('nope', 'x')); assert.throws(() => N.renameCall('28:56:5a:3a:ef:6f', 'a;b'));
 assert(N.isSelf('192.168.0.179', '::ffff:192.168.0.179') && !N.isSelf('192.168.0.2', '192.168.0.179') && !N.isSelf('192.168.0.2', '') && !N.isSelf('', ''));
 
+// ---- MTU / MSS change (Phase 7): checks, the captured call, the backup copy, the helpers -------------------------------------------------------------------
+eq(N.mtuCheck(1500, 1460), { mtu: 1500, mss: 1460 }); eq(N.mtuCheck(' 1280 ', '1240'), { mtu: 1280, mss: 1240 }); eq(N.mtuCheck('1500', '1459'), { mtu: 1500, mss: 1459 });
+for (const [a, b] of [['', '1460'], ['1500', ''], ['abc', '1460'], ['15e2', '1460'], ['-1500', '1460'], ['1500.5', '1460'], ['1279', '1240'], ['1501', '1460'], ['1500', '1461'], ['1280', '1241'], ['1500', '535'], ['99999', '1460'], [null, null]])
+  assert(N.mtuCheck(a, b).error, 'bad MTU / MSS: ' + a + '/' + b);
+eq(N.mtuDefaultMss(1500), 1460);
+eq(N.mtuCall(1500, 1459), { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1459' });     // = the captured body, mtu first, BOTH values always
+eq(Object.keys(N.mtuCall(1400, 1360)), ['goformId', 'mtu', 'tcp_mss']);
+assert.throws(() => N.mtuCall(1500, 1461)); assert.throws(() => N.mtuCall('x', 1460));
+const bk = N.mtuBackupWriteSh({ mtu: 1500, mss: 1460 }, { mtu: 1400, mss: 1360 }, 1731633600000);
+assert(bk.includes('/data/local/matchitool/mtu_backup.json') && bk.includes('umask 077') && bk.includes('MATCHI_BACKUP_OK') && bk.includes('{"old":{"mtu":1500,"mss":1460},"new":{"mtu":1400,"mss":1360},"at":1731633600000}'), bk);
+assert.throws(() => N.mtuBackupWriteSh({ mtu: "1500'; rm -rf /; '", mss: 1460 }, { mtu: 1500, mss: 1459 }, 1), /valid MTU/);   // nothing but checked integers reaches the shell
+assert.throws(() => N.mtuBackupWriteSh({ mtu: 1500, mss: 1460 }, { mtu: 1500, mss: 99999 }, 1));
+assert(!/[`$;]/.test(N.mtuBackupWriteSh({ mtu: 1500, mss: 1460 }, { mtu: 1500, mss: 1459 }, 7).replace(/ && /g, ' ').replace("printf '%s'", 'printf')), 'no shell metacharacters besides the fixed &&');
+eq(N.parseMtuBackup('{"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459},"at":5}\n'), { old: { mtu: 1500, mss: 1460 }, new: { mtu: 1500, mss: 1459 }, at: 5 });
+for (const bad of ['', 'nope', '{}', '{"old":{"mtu":1500,"mss":1460}}', '{"old":{"mtu":1500,"mss":9},"new":{"mtu":1500,"mss":1459}}', '{"old":{"mtu":"x","mss":1460},"new":{"mtu":1500,"mss":1459}}', null, undefined]) eq(N.parseMtuBackup(bad), null);
+eq(N.wanFollowed({ noRoute: false, wanMtu: 1450 }, 1450), true); eq(N.wanFollowed({ noRoute: false, wanMtu: 1500 }, 1450), false); eq(N.wanFollowed({ noRoute: true, wanMtu: null }, 1450), null); eq(N.wanFollowed(null, 1450), null);
+eq(N.parsePing('MATCHI_PING_OK\n'), true); eq(N.parsePing('MATCHI_PING_FAIL'), false); eq(N.parsePing(''), null); eq(N.parsePing('ping: unknown host'), null);
+for (const m of ['HTTP 401', 'sign in required', 'Unauthorized', 'Session expired', 'please log in', '403 Forbidden']) assert(N.isAuthError(m), m);
+for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resource', 'timeout', '', null]) assert(!N.isAuthError(m), String(m));
+
 // ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 4 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]),
-  'the only router writes: mobile data, the device call and the APN steps: ' + setCalls.join(' | '));
+assert(setCalls.length === 5 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true\)/.test(setCalls[4]),
+  'the only router writes: mobile data, the device call, the APN steps and the MTU call: ' + setCalls.join(' | '));
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');
+assert((ui.match(/call = N\.mtuCall\(/g) || []).length === 1, 'the MTU call is built by net-core.js');
 assert(!/\bsteps\s*=\s*\[\s*\{/.test(ui) && (ui.match(/call = N\.apn(DefaultCall|DeleteCall|SaveCall)\(/g) || []).length === 3 && ui.includes('apnApply([N.apnAutoCall()]'), 'every APN call is built by net-core.js');
 assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js does)');
 // the password typed into the APN form is emptied as soon as it has been used, and is never put in an attribute
@@ -230,7 +251,10 @@ assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js s
 assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
 const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
-assert((ui.match(/R\.sh\(/g) || []).length === 1 && ui.includes('R.sh(N.ROOT_READ_SH'), 'the only root call is the fixed read-only command');
+// Root commands: the read-only check, the ping, and the backup file of the MTU change. Every one is a fixed command built in net-core.js (only validated integers go in).
+const shCalls = ui.match(/R\.sh\(([^,)]*)/g) || [];
+assert(shCalls.length === 7 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH)|N\.mtuBackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
+assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock and the APN calls built by net-core.js');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls and the MTU call, all built by net-core.js');

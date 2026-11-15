@@ -54,7 +54,7 @@ const ANSWERS = {
   devices: { station_list: [{ mac_addr: 'AA:BB:CC:DD:EE:01', hostname: 'My-Phone', ip_addr: '192.168.0.10' }], lan_station_list: [{ mac_addr: 'AA:BB:CC:DD:EE:02', hostname: 'GL-MT3000', ip_addr: '192.168.0.2' }], wifi_access_sta_num: '1' },
   apn: null,   // built from apnState below
   lan: { lan_ipaddr: '192.168.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease_hour: '24h', mac_address: '02:00:00:00:00:01' },
-  mtu: { mtu: '1500', tcp_mss: '1460' },
+  mtu: null,   // built from mtuState below
 };
 // The APN part of the fake router: the real F50 layout (numbered slots, "($)" fields) and the stock APN_PROC_EX behaviour.
 const DEFS = 'default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', DITO_S = 'DITO($)internet.dito.ph($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)';
@@ -71,6 +71,10 @@ const apnWrite = (q) => {
   if (apnBreak) pppNow = 'ppp_disconnected';
 };
 let stuckApn = false;
+// The MTU part of the fake router: SET_DEVICE_MTU changes the values and the router "restarts" (the next reads fail), the backup file lives in fileText.
+const mtuState = { mtu: 1500, mss: 1460, ifMtu: 1500 }; let mtuDown = 0, stuckMtu = false, followWan = true, pingOk = true, fileText = '', failBackup = false, mtuReadErr = null;
+const mtuAnswer = () => { if (mtuDown > 0) { mtuDown--; throw new Error(mtuReadErr || 'Failed to fetch'); } return { mtu: String(mtuState.mtu), tcp_mss: String(mtuState.mss) }; };
+const rootOut = () => ROOT_OUT.replace('mtu 1500 qdisc', 'mtu ' + mtuState.ifMtu + ' qdisc');
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
   zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd);   // ACL / names are single commands, handled below if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
@@ -78,13 +82,20 @@ const R = {
     if (params.cmd === 'hostNameList') { const d = ANSWERS.devices; return { devices: [...d.station_list, ...d.lan_station_list].map((e) => ({ hostname: hostOverride && e.mac_addr === 'AA:BB:CC:DD:EE:02' ? hostOverride : e.hostname, mac: e.mac_addr.toLowerCase() })) }; }
     if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
     if (tab === 'apn') return apnAnswer();
+    if (tab === 'mtu') return mtuAnswer();
     return ANSWERS[tab]; },
-  sh: async (cmd) => { shells.push(cmd); return ROOT_OUT; },
+  sh: async (cmd) => { shells.push(cmd);
+    if (cmd.includes('mtu_backup.json') && cmd.includes("printf '%s' '")) { if (failBackup) throw new Error('read-only file system'); fileText = cmd.split("printf '%s' '")[1].split("' >")[0]; return 'MATCHI_BACKUP_OK\n'; }
+    if (cmd === N.MTU_BACKUP_READ_SH) return fileText;
+    if (cmd === N.MTU_BACKUP_DELETE_SH) { fileText = ''; return 'MATCHI_BACKUP_GONE\n'; }
+    if (cmd === N.PING_SH) return pingOk ? 'MATCHI_PING_OK\n' : 'MATCHI_PING_FAIL\n';
+    return rootOut(); },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
   sleep: async () => {},
   setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; }
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
     if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
+    if (params.goformId === 'SET_DEVICE_MTU') { if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
     if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
     if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
@@ -282,6 +293,63 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // refused write (old sign-in)
   setFail = new Error('Session too old for root commands'); await click(ab('Use')[0]); assert(/Not sent: Session too old/.test(bodyText()), 'refused: ' + bodyText());
   noSecrets();
+  await click(tabBtn('data'));
+
+  // ---- Phase 7: MTU / MSS ----
+  sets.length = 0; confirms.length = 0; shells.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
+  await click(tabBtn('mtu')); await click(doc.getElementById('matchi_net_refresh'));
+  const mt = () => doc.getElementById('matchi_net_body').textContent;
+  const mb = (id) => doc.getElementById(id);
+  assert.strictEqual(shells.length, 0, 'opening the tab runs no root command');
+  assert(mb('matchi_mtu_mtu').value === '1500' && mb('matchi_mtu_mss').value === '1460' && mb('matchi_mtu_apply'), 'the form shows the router values');
+  // bad input: refused in the form, nothing sent, no root call
+  const trySubmit = async (m1, m2) => { mb('matchi_mtu_mtu').value = m1; mb('matchi_mtu_mss').value = m2; await click(mb('matchi_mtu_apply')); };
+  for (const [a, b, re] of [['abc', '1460', /MTU must be a whole number/], ['1500', '', /MSS must be a whole number/], ['1200', '1100', /between 1280 and 1500/], ['1501', '1460', /between 1280 and 1500/], ['1500', '1461', /not be larger than MTU minus 40/], ['1500', '100', /at least 536/]]) {
+    await trySubmit(a, b); assert(re.test(mb('matchi_mtu_err').textContent), a + '/' + b + ': ' + mb('matchi_mtu_err').textContent);
+  }
+  assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0); assert.strictEqual(confirms.length, 0);
+  mb('matchi_mtu_mtu').value = '1400'; await click(mb('matchi_mtu_default')); assert.strictEqual(mb('matchi_mtu_mss').value, '1360', 'MSS = MTU - 40 button');
+  // same values: nothing sent
+  await trySubmit('1500', '1460'); assert.strictEqual(sets.length, 0); assert(/already has MTU 1500 and MSS 1460/.test(mt()), mt());
+  // declined confirm: nothing sent, no backup written
+  confirmAnswer = false; await trySubmit('1500', '1459'); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup written');
+  assert(/MTU 1500 → 1500/.test(confirms[0].msg) && /MSS 1460 → 1459/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  // the backup cannot be written: nothing is sent
+  confirmAnswer = true; failBackup = true; await trySubmit('1500', '1459'); failBackup = false;
+  assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(mt()), mt());
+  // the real change: backup written first, then the call, then the wait, then the checks
+  shells.length = 0; sets.length = 0; calls.length = 0;
+  await trySubmit('1500', '1459');
+  assert(shells[0].includes('mtu_backup.json') && shells[0].includes('"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459}'), 'backup first: ' + shells[0]);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1459' }); assert.strictEqual(sets[0].allowEmpty, true);
+  t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /ping to 1\.1\.1\.1 through the mobile connection worked/.test(t) && /Restore saved values/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);
+  assert.strictEqual(mb('matchi_mtu_mss').value, '1459', 'the form now shows the new values'); assert(!/MTU 1500 → ?1500.*stuck/.test(t));
+  assert(mtuState.mss === 1459 && fileText.includes('"old":{"mtu":1500,"mss":1460}'));
+  // restore: reads the saved copy, confirms, sends the old pair
+  sets.length = 0; confirms.length = 0; await click(mb('matchi_mtu_restore'));
+  assert(/Put the saved values back/.test(confirms[0].msg) && /MSS 1459 → 1460/.test(confirms[0].msg)); assert.deepStrictEqual(sets[0].params, { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1460' });
+  assert(/reports MTU 1500, MSS 1460/.test(mt()), 'after restore: ' + mt());
+  // an MTU change the real interface does not follow is said plainly
+  followWan = false; sets.length = 0; await trySubmit('1400', '1360'); followWan = true;
+  t = mt(); assert(/did NOT follow the router setting \(1400\)/.test(t) && /Restore saved values/.test(t), 'no follow: ' + t); mtuState.ifMtu = 1500;
+  // an MTU change the interface follows
+  await trySubmit('1500', '1460'); sets.length = 0; await trySubmit('1450', '1410');
+  assert(/mobile interface MTU is 1450: it follows the new MTU/.test(mt()), 'follow: ' + mt());
+  // ping fails: reported as a problem
+  pingOk = false; await trySubmit('1500', '1460'); pingOk = true;
+  assert(/ping to 1\.1\.1\.1 through the mobile connection FAILED/.test(mt()), 'ping: ' + mt());
+  // the router says success but keeps the old values: the real value is shown, not success
+  stuckMtu = true; sets.length = 0; await trySubmit('1500', '1459'); stuckMtu = false;
+  t = mt(); assert(/is back but reports MTU 1500 and MSS 1460, not the wanted 1500 \/ 1459/.test(t) && !/The router restarted and reports/.test(t), 'stuck: ' + t);
+  // the console asks for a new sign-in after the restart: the wait stops and says so
+  mtuReadErr = 'HTTP 401 sign in required'; await trySubmit('1500', '1459'); mtuReadErr = null;
+  assert(/asking for a new sign-in/.test(mt()) && /Restore saved values/.test(mt()), 'auth: ' + mt());
+  // refused write (old sign-in): nothing claimed
+  mtuDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await trySubmit('1500', '1458');
+  assert(/Not sent: Session too old/.test(mt()) && /Nothing was changed/.test(mt()), 'refused: ' + mt());
+  // forget the backup
+  confirms.length = 0; await click(mb('matchi_mtu_forget')); assert(/Delete the saved copy/.test(confirms[0].msg) && /saved copy was deleted/.test(mt()) && fileText === '');
+  await click(mb('matchi_mtu_restore')); assert(/No saved values found/.test(mt()), 'restore without backup: ' + mt());
   await click(tabBtn('data'));
 
   // keyboard: ArrowRight moves to the next tab

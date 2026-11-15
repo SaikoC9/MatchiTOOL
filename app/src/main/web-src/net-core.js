@@ -430,6 +430,55 @@
     return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
   }
 
+  // ---- MTU / MSS: change (Phase 7, Path A: the router's own call) ----------------------------------------------------------------
+  // Captured on the F50 (2026-11-14, part C2) and confirmed in the stock script service.js (2026-11-15):
+  //   isTest=false&goformId=SET_DEVICE_MTU&mtu=1500&tcp_mss=1459&AD=<token>      reply {"result":"success"}, then THE ROUTER REBOOTS.
+  // Both values are always sent together. Effect seen in the root checks (parts E and G): the property persist.sys.tetherconfig.sMss / sMtu follows, and the
+  // INPUT / OUTPUT TCPMSS --set-mss rules are rebuilt at boot, so MSS acts on the router's own SYN packets, NOT on connected devices. The allowed ranges
+  // are not known: the limits below are this tool's own (the cautious side).
+  const MTU_MIN = 1280, MTU_MAX = 1500, MSS_MIN = 536;
+  const mtuDefaultMss = (mtu) => mtu - 40;
+  // Returns {mtu, mss} (numbers) or {error: text}.
+  function mtuCheck(mtuText, mssText) {
+    const a = String(mtuText == null ? '' : mtuText).trim(), b = String(mssText == null ? '' : mssText).trim();
+    if (!/^\d{1,4}$/.test(a)) return { error: 'MTU must be a whole number.' };
+    if (!/^\d{1,4}$/.test(b)) return { error: 'MSS must be a whole number.' };
+    const mtu = parseInt(a, 10), mss = parseInt(b, 10);
+    if (mtu < MTU_MIN || mtu > MTU_MAX) return { error: 'MTU must be between ' + MTU_MIN + ' and ' + MTU_MAX + ' (1280 is the IPv6 minimum).' };
+    if (mss < MSS_MIN) return { error: 'MSS must be at least ' + MSS_MIN + '.' };
+    if (mss > mtuDefaultMss(mtu)) return { error: 'MSS must not be larger than MTU minus 40 (' + mtuDefaultMss(mtu) + ' for MTU ' + mtu + ').' };
+    return { mtu, mss };
+  }
+  function mtuCall(mtu, mss) {
+    const c = mtuCheck(mtu, mss); if (c.error) throw new Error(c.error);
+    return { goformId: 'SET_DEVICE_MTU', mtu: String(c.mtu), tcp_mss: String(c.mss) };
+  }
+  // The saved copy of the old values (plan "BACKUP", rule 11): written by the root shell before the change, readable only by root. Only integers go in.
+  const MTU_BACKUP_PATH = '/data/local/matchitool/mtu_backup.json';
+  function mtuBackupWriteSh(oldV, newV, at) {
+    const o = mtuCheck(oldV && oldV.mtu, oldV && oldV.mss), n = mtuCheck(newV && newV.mtu, newV && newV.mss);
+    if (o.error || n.error) throw new Error('Not a valid MTU / MSS pair for the backup.');
+    const ts = Number.isInteger(at) && at > 0 ? at : 0;
+    const json = '{"old":{"mtu":' + o.mtu + ',"mss":' + o.mss + '},"new":{"mtu":' + n.mtu + ',"mss":' + n.mss + '},"at":' + ts + '}';
+    return "mkdir -p /data/local/matchitool && umask 077 && printf '%s' '" + json + "' > " + MTU_BACKUP_PATH + ' && echo MATCHI_BACKUP_OK';
+  }
+  const MTU_BACKUP_READ_SH = 'cat ' + MTU_BACKUP_PATH + ' 2>/dev/null';
+  const MTU_BACKUP_DELETE_SH = 'rm -f ' + MTU_BACKUP_PATH + ' && echo MATCHI_BACKUP_GONE';
+  function parseMtuBackup(text) {
+    let j; try { j = JSON.parse(String(text == null ? '' : text).trim()); } catch (_) { return null; }
+    if (!isObj(j) || !isObj(j.old) || !isObj(j.new)) return null;
+    const o = mtuCheck(j.old.mtu, j.old.mss), n = mtuCheck(j.new.mtu, j.new.mss);
+    if (o.error || n.error) return null;
+    return { old: { mtu: o.mtu, mss: o.mss }, new: { mtu: n.mtu, mss: n.mss }, at: Number.isInteger(j.at) ? j.at : 0 };
+  }
+  // After the restart: does the real mobile interface carry the new MTU? true / false, or null when it cannot be told (no root read, no route).
+  const wanFollowed = (root, mtu) => (!root || root.noRoute || root.wanMtu === null ? null : root.wanMtu === mtu);
+  // One short ping to a public address from the phone itself, through the mobile interface. It shows the route works; it does NOT prove that sites load.
+  const PING_SH = 'ping -c 2 -W 3 1.1.1.1 >/dev/null 2>&1 && echo MATCHI_PING_OK || echo MATCHI_PING_FAIL';
+  const parsePing = (text) => { const t = String(text == null ? '' : text); return t.includes('MATCHI_PING_OK') ? true : t.includes('MATCHI_PING_FAIL') ? false : null; };
+  // While the router restarts the console may ask for a new sign-in: that is not "still down", so the wait stops and says so.
+  const isAuthError = (msg) => /\b(401|403)\b|unauthori[sz]ed|sign[- ]?in|log[- ]?in|session/i.test(String(msg == null ? '' : msg));
+
   return {
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
@@ -440,5 +489,7 @@
     apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,
     parseLease, leaseText, parseLan,
     parseMtu, sections, parseRootNet,
+    MTU_MIN, MTU_MAX, MSS_MIN, mtuDefaultMss, mtuCheck, mtuCall, MTU_BACKUP_PATH, mtuBackupWriteSh, MTU_BACKUP_READ_SH, MTU_BACKUP_DELETE_SH, parseMtuBackup,
+    wanFollowed, PING_SH, parsePing, isAuthError,
   };
 });
