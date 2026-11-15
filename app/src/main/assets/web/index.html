@@ -1321,7 +1321,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const REG = { '0': 'Not registered', '1': 'Registered (home)', '2': 'Searching', '3': 'Denied', '4': 'Unknown', '5': 'Registered (roaming)' };
   const KEYS = ['network_type', 'network_provider', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band', 'wan_active_channel',
     'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g',
-    'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status',
+    'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status', 'dial_mode', 'roam_setting_option',
     'nr_rsrq', 'Nr_snr'];   // last two: the names UFI-TOOLS shows for 5G RSRQ / SINR (some firmware fills these when Z5g_rsrq / Z5g_SINR are empty)   // last six: UFI-TOOLS fields (speed in bytes/s, monthly totals in bytes)
 
   // ---- helpers -------------------------------------------------------------------------------------------
@@ -1560,6 +1560,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
       rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
       ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
+      dial: has(zte.dial_mode) ? String(zte.dial_mode).trim() : undefined, roam: has(zte.roam_setting_option) ? String(zte.roam_setting_option).trim() : undefined,
       rawText: [zteNote || 'Router web API: used', 'AT+COPS?: ' + raw.cops.trim(), 'AT+CSQ: ' + raw.csq.trim(), 'AT+CESQ: ' + raw.cesq.trim(), 'AT+CEREG?: ' + raw.cereg.trim(), '', 'telephony.registry:', tele.trim() || '(no output)'].join('\n'),
       source: zteNote ? 'modem AT + Android telephony' : 'router API + modem',
     };
@@ -1582,6 +1583,24 @@ rm -f $P.g $P.4 $P.6 $P.d
   const dot = (c) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="${c}"/></svg>`;
   const fmtUp = (s) => { if (s === undefined) return '—'; const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return (d ? d + 'd ' : '') + h + 'h ' + m + 'm'; };
   const tcol = (t, warn, hot) => (t === undefined ? '#6f829e' : t >= hot ? '#ff647c' : t >= warn ? '#ffb020' : '#28d99a');
+  // Mobile data row (moved here from Network > Data): state, connection mode, roaming and the off / on button. A tile is drawn only when the router returned its key.
+  let dataBusy = null;   // 'off' | 'on' while a switch is in progress
+  function dataRow(M) {
+    if (M.ppp === undefined) return '';
+    const N = window.MatchiNetCore, state = N ? N.connState(M.ppp) : (/disconnected/i.test(M.ppp) ? 'disconnected' : /connected/i.test(M.ppp) ? 'connected' : 'changing');
+    const word = state === 'connected' ? 'Connected' : state === 'disconnected' ? 'Disconnected' : 'Changing';
+    const col = state === 'connected' ? '#28d99a' : state === 'disconnected' ? '#ff647c' : '#ffb020';
+    const mode = M.dial === undefined ? null : M.dial === 'auto_dial' ? 'Automatic' : M.dial === 'manual_dial' || M.dial === 'manual' ? 'Manual' : M.dial;
+    const roam = M.roam === undefined ? null : M.roam === '1' || /^(on|true)$/i.test(M.roam) ? 'On' : M.roam === '0' || /^(off|false)$/i.test(M.roam) ? 'Off' : M.roam;
+    const next = state === 'connected' ? 'off' : state === 'disconnected' ? 'on' : null;
+    const label = dataBusy ? (dataBusy === 'off' ? 'Turning off…' : 'Turning on…') : next === 'off' ? 'Turn off' : next === 'on' ? 'Turn on' : 'Wait…';
+    const btn = `<button type="button" class="liv-dbtn" data-liv-data="${next || ''}"${dataBusy || !next ? ' disabled' : ''} title="${next === 'off' ? 'Turn mobile data off' : next === 'on' ? 'Turn mobile data on' : 'The router is changing state'}">${label}</button>`;
+    return `<div class="liv-tiles liv-t4 liv-dd">
+      ${tile(dot(col), 'Mobile data', word)}
+      ${mode ? tile(dot('#55b6ff'), 'Mode', esc(mode)) : ''}
+      ${roam ? tile(dot('#55b6ff'), 'Roaming', esc(roam)) : ''}
+      ${btn}</div>`;
+  }
   function render(M) {
     if (!M) return '<div class="empty-state">Reading modem…</div>';
     const noData = M.bars === undefined && M.prim === undefined && M.net === '—';
@@ -1602,7 +1621,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const nt = [];
     if (M.rx !== undefined) nt.push(tile(dot('#28d99a'), 'Download', fmtSpeed(M.rx)));
     if (M.tx !== undefined) nt.push(tile(dot('#ffb020'), 'Upload', fmtSpeed(M.tx)));
-    if (M.devs !== undefined) nt.push(tile(dot('#55b6ff'), 'Devices', String(M.devs), 'on Wi-Fi'));
+    if (M.devs !== undefined) nt.push(tile(dot('#55b6ff'), 'Devices', String(M.devs), 'on Wi-Fi', ' data-liv-dev="1" role="button" tabindex="0" style="cursor:pointer" title="Show connected devices"'));
     if (M.monthRx !== undefined && M.monthTx !== undefined) nt.push(tile(dot('#55b6ff'), 'This month', fmtBytes(M.monthRx + M.monthTx), '↓ ' + fmtBytes(M.monthRx) + ' · ↑ ' + fmtBytes(M.monthTx)));
     const spark = () => {
       const n = hist.length; if (n < 2) return '';
@@ -1612,7 +1631,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     };
     const netRow = (nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '') + (nt.length ? spark() : '');
     const sys = `<div class="liv-tiles liv-t4">
-      ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu.toFixed(1) + ' %' : '—', M.cores && M.cores.some((c) => c.pct !== undefined) ? M.cores.map((c) => c.pct === undefined ? '-' : Math.round(c.pct)).join(' ') : '', ' data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"')}
+      ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu.toFixed(1) + ' %' : '—', M.cores && M.cores.some((c) => c.pct !== undefined) ? M.cores.map((c) => c.pct === undefined ? '-' : Math.round(c.pct)).join(' ') : '')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
       ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>`;
@@ -1637,7 +1656,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
       : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
       : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
-    return hero + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + coreCards + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+    return hero + dataRow(M) + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + coreCards + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
   // ---- page + popup --------------------------------------------------------------------------------------
@@ -1655,6 +1674,8 @@ rm -f $P.g $P.4 $P.6 $P.d
 .liv-kv{margin-left:auto;font-size:11px;font-weight:600;color:var(--mut);white-space:nowrap}.liv-kv b{color:var(--fg)}.liv-src{font-weight:500;font-style:italic}
 .liv-tiles{display:flex;gap:8px;margin-top:8px}.liv-tile{flex:1;min-width:0;display:flex;gap:8px;align-items:center;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:5px 10px}.liv-heat{margin-top:8px;padding:7px 10px;border-radius:9px;font-size:11px;font-weight:750}.liv-heat.warm{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24}.liv-heat.hot{background:#f9731618;border:1px solid #f9731655;color:#fb923c}.liv-heat.critical{background:#ef444418;border:1px solid #ef444466;color:#f87171}
 .liv-tl{font-size:10.5px;color:var(--mut);font-weight:700;line-height:1.2}.liv-tv{font-size:14px;font-weight:800;line-height:1.2}.liv-ts{font-size:10px;color:var(--mut)}.liv-foot{margin-top:8px;font-size:11px;color:var(--mut)}
+.liv-dbtn{font:inherit;font-size:12px;font-weight:750;padding:3px 8px;border-radius:9px;border:1px solid var(--bd);background:#101f36;color:inherit;cursor:pointer;min-width:0}.liv-dbtn:disabled{opacity:.6;cursor:default}
+.liv-dd .liv-dbtn{align-self:stretch}
 .liv-tn .liv-ts{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
 .lcpu-h{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:4px 0 6px}.lcpu-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -2067,7 +2088,36 @@ rm -f $P.g $P.4 $P.6 $P.d
 
   // CPU tile opens the CPU Governor window (one delegated listener; the tiles are re-rendered on every refresh).
   document.addEventListener('click', (e) => { const t = e.target.closest && e.target.closest('[data-liv-cpu]'); if (t) CPU.open(); });
+  // Mobile data off / on from the live row. Same request, confirm text and 30 s re-read as the Network > Data tab (MatchiNetCore.dataCall, MatchiRadio.setRouter).
+  async function dataSwitch(action) {
+    const R = window.MatchiRadio, N = window.MatchiNetCore;
+    if (dataBusy || !R || !N || (action !== 'off' && action !== 'on')) return;
+    const ok = await askConfirm(action === 'off'
+      ? 'Turn mobile data off?\n\nInternet through the SIM stops for every device. The router stays reachable on Wi-Fi and cable. To go back, press "Turn on".'
+      : 'Turn mobile data on?\n\nThe router connects to the mobile network again. This can take up to 30 seconds.', action === 'off' ? 'Turn off' : 'Turn on', action === 'off');
+    if (!ok) return;
+    dataBusy = action; paint();
+    try {
+      try { await R.setRouter(N.dataCall(action), true); }
+      catch (e) { createToast('Not sent: ' + N.maskSecrets(e.message), 'red', 6000); return; }
+      const t0 = Date.now(); let reached = false, ppp = null;
+      while (Date.now() - t0 < 30000) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: 'ppp_status' } }) });
+          if (r.data && typeof r.data === 'object' && has(r.data.ppp_status)) { ppp = String(r.data.ppp_status).trim(); zteData = { ...zteData, ppp_status: ppp }; last = build(); paint(); if (N.dataReached(action, N.connState(ppp))) { reached = true; break; } }
+        } catch (_) { /* keep waiting */ }
+      }
+      if (reached) createToast(action === 'off' ? 'Mobile data is off.' : 'Mobile data is on.', 'green');
+      else createToast('The router did not reach the wanted state within 30 seconds. It reports: ' + (ppp || 'no answer') + '.', 'red', 6000);
+    } finally { dataBusy = null; paint(); }
+  }
+  document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-liv-data]'); if (b && !b.disabled) dataSwitch(b.getAttribute('data-liv-data')); });
   document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-liv-cpu]')) { e.preventDefault(); CPU.open(); } });
+  // Devices tile: open the Network window on its Devices tab (the list with Rename / Block).
+  const openDevices = () => { if (typeof window.MatchiNetOpen === 'function') window.MatchiNetOpen('devices'); };
+  document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-liv-dev]')) openDevices(); });
+  document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-liv-dev]')) { e.preventDefault(); openDevices(); } });
 
   // The Live Status button and popup were removed: the panel above is the only view.
 })();
@@ -6306,10 +6356,11 @@ function mountNetTools() {
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
-  function open() {
+  function open(startTab) {
+    const first = typeof startTab === 'string' && VIEWS[startTab] ? startTab : 'data';   // the click on the Network button passes an event, not a tab
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
     createModal({
       name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
@@ -6328,9 +6379,10 @@ function mountNetTools() {
       tabs.appendChild(b);
     }
     $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; if (st.tab === 'lan') st.lanForm = null; if (st.tab === 'wifi') { st.wifiForm = null; st.wifiBandSel = null; } load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
-    load('data');
+    load(first); syncButtons();
     findMe();
   }
+  window.MatchiNetOpen = open;   // used by the Devices tile in Live device status
 
   const b = document.createElement('button');
   b.id = 'matchi_net_btn'; b.type = 'button'; b.textContent = 'Network'; b.onclick = open;
