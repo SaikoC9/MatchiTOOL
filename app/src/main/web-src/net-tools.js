@@ -42,7 +42,7 @@ function mountNetTools() {
   const notReported = () => h('span', { class: 'net-mut' }, NOT);
   const val = (v) => (v === null || v === undefined || v === '' ? notReported() : String(v));
   const kv = (rows) => h('dl', { class: 'net-kv' }, rows.map(([k, v, note]) => [h('dt', {}, k), h('dd', {}, val(v), note ? h('span', { class: 'net-note' }, ' ' + note) : null)]));
-  const note = (t, cls) => h('p', { class: 'net-p' + (cls ? ' ' + cls : '') }, t);
+  const note = (t, cls) => (window.MatchiTip && String(t).length >= window.MatchiTip.LONG ? window.MatchiTip.make(t) : h('p', { class: 'net-p' + (cls ? ' ' + cls : '') }, t));   // a long explanation becomes an icon button; a click shows the text
   const allEmpty = (o, keys) => !o || keys.every((k) => o[k] === null || o[k] === undefined || (Array.isArray(o[k]) && !o[k].length));
 
   // ---- tab renderers: parsed router answer -> a node ------------------------------------------------------------------------

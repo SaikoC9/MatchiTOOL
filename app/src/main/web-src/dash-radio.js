@@ -30,10 +30,11 @@ function mountDashRadio() {
   document.head.appendChild(css);
   const card = document.createElement('div'); card.id = 'dash_radio';
   card.innerHTML = '<div class="dr-h"><span class="dr-t">Radio settings</span><button type="button" data-a="refresh">Refresh</button></div>' +
-    '<div class="dr-note">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
+    '<div class="dr-note" data-tip="info">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
     '<div class="dr-body">reading…</div><div class="dr-s"></div><pre class="dr-log"></pre>';
   const inl = document.getElementById('liv_inline');
   if (inl && inl.parentNode === home) inl.after(card); else home.appendChild(card);
+  if (window.MatchiTip) window.MatchiTip.enhance(card);
   const body = card.querySelector('.dr-body'), statusEl = card.querySelector('.dr-s'), logEl = card.querySelector('.dr-log');
 
   // routerLte / routerNr = what the router reported at the last read. pendLte / pendNr = what is ticked now.
@@ -89,10 +90,11 @@ function mountDashRadio() {
     if (st.haveLte || st.haveNr) {
       h += `<div class="dr-row"><button type="button" data-a="lock"${dis || (dirty() ? '' : ' disabled')}>Lock ticked bands</button><button type="button" data-a="unlock"${dis}>Unlock all</button>` +
         `<button type="button" data-a="reset"${dis || (dirty() ? '' : ' disabled')}>Reset ticks</button></div>` +
-        '<div class="dr-note" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
+        '<div class="dr-note" data-tip="info" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
     }
     warnShown = !!lockWarnHtml();
     body.innerHTML = h ? lockWarnHtml() + h : 'The router reports neither a network mode nor band locks.';
+    if (window.MatchiTip) window.MatchiTip.enhance(body);
   }
   // Live Status painted again: show or clear the warning without reading the router. Ticks are kept (they live in st), only the warning line changes.
   let warnShown = false;

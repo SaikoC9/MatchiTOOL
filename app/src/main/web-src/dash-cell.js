@@ -51,13 +51,14 @@ function mountDashCell() {
     '<span class="dc-hb"><button type="button" data-a="refresh">Refresh</button><button type="button" data-a="unlock">Unlock all cells</button></span></div>' +
     '<div class="dc-s"></div>' +
     '<div class="dc-body" style="display:none">' +
-    '<div class="dc-warn">Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.</div>' +
+    '<div class="dc-warn" data-tip="warning">Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.</div>' +
     '<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" data-a="auto"> Auto-unlock if not registered after 60 s</label>' +
     '<div class="dc-dyn">reading…</div>' +
     '<div class="dc-l">Lock by hand</div>' +
     '<div class="dc-row"><input type="text" inputmode="numeric" data-f="pci" placeholder="PCI" aria-label="PCI"><input type="text" inputmode="numeric" data-f="earfcn" placeholder="EARFCN" aria-label="EARFCN">' +
     '<select data-f="rat" aria-label="Type"><option value="">Type…</option><option value="12">4G</option><option value="16">5G</option></select><button type="button" class="dc-lk" data-a="manual">Lock cell</button></div>' +
     '<pre class="dc-log"></pre></div>';
+  if (window.MatchiTip) window.MatchiTip.enhance(card);
   // Wide screens (the two-column console): under Live device status. Narrow screens: under Radio settings, as before.
   const wide = window.matchMedia ? window.matchMedia('(min-width:1000px)') : null;
   function place() {

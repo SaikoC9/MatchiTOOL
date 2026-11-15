@@ -4080,6 +4080,93 @@ window.MatchiRadio = (() => {
 })();
 
 /* @end-include web-src/radio-core.js */
+/* @include web-src/info-tip.js */
+/* Info tips: a long explanation is shown as a small icon button; a click opens or closes the text under it.
+   The icon follows the kind of message: "?" blue (information), warning triangle amber, "!" red (high risk), circular arrow purple (the router restarts).
+   window.MatchiTip.make(text, kind)  -> a node: the icon button plus the hidden text. kind is optional: without it kindOf(text) picks one.
+   window.MatchiTip.enhance(root)     -> turns every element with a data-tip="kind" attribute under root into the same thing: the element stays
+                                         (class, text and translation untouched) and is hidden until its icon button is clicked.
+   window.MatchiTip.LONG              -> texts of this length or more are shown as a tip, shorter ones stay as plain lines.
+   Text only: the text is put on the page with textContent, never as markup. */
+(function () {
+  'use strict';
+  if (window.MatchiTip) return;
+  const LONG = 100;
+  const KINDS = {
+    info:    { glyph: '?',      label: 'More information' },
+    warning: { glyph: '\u26A0\uFE0E', label: 'Warning' },
+    danger:  { glyph: '!',      label: 'High risk' },
+    restart: { glyph: '\u21BB', label: 'The router restarts' }
+  };
+  const kindOf = (t) => {
+    t = String(t || '');
+    if (/highest risk|no signal|may still be off|may lose signal/i.test(t)) return 'danger';
+    if (/warning|do not block|disconnects? every|wrong apn|cut off|will be off/i.test(t)) return 'warning';
+    if (/restart/i.test(t)) return 'restart';
+    return 'info';
+  };
+  let seq = 0, styled = false;
+  function addStyle() {
+    if (styled || !document.head) return;
+    styled = true;
+    const s = document.createElement('style');
+    s.textContent = `.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:28px;height:28px;min-width:28px;min-height:0;padding:0;margin:4px 0;border:0;border-radius:8px;font:700 15px/1 system-ui,sans-serif;color:#fff;cursor:pointer;vertical-align:middle}
+.mt-tip-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.mt-tip-btn[aria-expanded="true"]{box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+.mt-tip-info{background:#2a8cf0}.mt-tip-warning{background:#f0a21a;color:#1a1200}.mt-tip-danger{background:#e04458}.mt-tip-restart{background:#8d63e8}
+.mt-tip-body{margin:4px 0 8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);border-left-width:4px;background:rgba(255,255,255,.04);line-height:1.45}
+.mt-tip-body.mt-tip-info{border-left-color:#2a8cf0}.mt-tip-body.mt-tip-warning{border-left-color:#f0a21a}.mt-tip-body.mt-tip-danger{border-left-color:#e04458}.mt-tip-body.mt-tip-restart{border-left-color:#8d63e8}
+.mt-tip-body.mt-tip-info,.mt-tip-body.mt-tip-warning,.mt-tip-body.mt-tip-danger,.mt-tip-body.mt-tip-restart{background-image:none}`;
+    document.head.appendChild(s);
+  }
+  // The button for a text element; the element is the panel.
+  function attach(panel, kind) {
+    addStyle();
+    const k = KINDS[kind] || KINDS.info, kk = KINDS[kind] ? kind : 'info';
+    const id = 'mt_tip_' + (++seq);
+    panel.id = panel.id || id;
+    panel.className = (panel.className ? panel.className + ' ' : '') + 'mt-tip-body mt-tip-' + kk;
+    panel.style.display = 'none';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mt-tip-btn mt-tip-' + kk;
+    btn.textContent = k.glyph;
+    btn.setAttribute('aria-label', k.label);
+    btn.setAttribute('title', k.label);
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-controls', panel.id);
+    btn.addEventListener('click', (ev) => {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      const open = btn.getAttribute('aria-expanded') !== 'true';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      panel.style.display = open ? '' : 'none';
+    });
+    return btn;
+  }
+  function make(text, kind, cls) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mt-tip' + (cls ? ' ' + cls : '');
+    const panel = document.createElement('p');
+    panel.className = 'net-p';
+    panel.textContent = String(text);
+    wrap.append(attach(panel, kind || kindOf(text)), panel);
+    return wrap;
+  }
+  function enhance(root) {
+    if (!root || !root.querySelectorAll) return;
+    const list = root.querySelectorAll('[data-tip]');
+    for (let i = 0; i < list.length; i++) {
+      const el = list[i];
+      if (el.getAttribute('data-tip-done') === '1' || !el.parentNode) continue;
+      el.setAttribute('data-tip-done', '1');
+      const btn = attach(el, el.getAttribute('data-tip'));
+      el.parentNode.insertBefore(btn, el);
+    }
+  }
+  window.MatchiTip = { make: make, enhance: enhance, kindOf: kindOf, LONG: LONG, KINDS: KINDS };
+})();
+
+/* @end-include web-src/info-tip.js */
 /* @include web-src/dash-radio.js */
 /*
  * Dashboard card "Radio settings": network mode and LTE / 5G band lock under Live device status. UI only; everything that talks to the
@@ -4113,10 +4200,11 @@ function mountDashRadio() {
   document.head.appendChild(css);
   const card = document.createElement('div'); card.id = 'dash_radio';
   card.innerHTML = '<div class="dr-h"><span class="dr-t">Radio settings</span><button type="button" data-a="refresh">Refresh</button></div>' +
-    '<div class="dr-note">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
+    '<div class="dr-note" data-tip="info">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
     '<div class="dr-body">reading…</div><div class="dr-s"></div><pre class="dr-log"></pre>';
   const inl = document.getElementById('liv_inline');
   if (inl && inl.parentNode === home) inl.after(card); else home.appendChild(card);
+  if (window.MatchiTip) window.MatchiTip.enhance(card);
   const body = card.querySelector('.dr-body'), statusEl = card.querySelector('.dr-s'), logEl = card.querySelector('.dr-log');
 
   // routerLte / routerNr = what the router reported at the last read. pendLte / pendNr = what is ticked now.
@@ -4172,10 +4260,11 @@ function mountDashRadio() {
     if (st.haveLte || st.haveNr) {
       h += `<div class="dr-row"><button type="button" data-a="lock"${dis || (dirty() ? '' : ' disabled')}>Lock ticked bands</button><button type="button" data-a="unlock"${dis}>Unlock all</button>` +
         `<button type="button" data-a="reset"${dis || (dirty() ? '' : ' disabled')}>Reset ticks</button></div>` +
-        '<div class="dr-note" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
+        '<div class="dr-note" data-tip="info" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
     }
     warnShown = !!lockWarnHtml();
     body.innerHTML = h ? lockWarnHtml() + h : 'The router reports neither a network mode nor band locks.';
+    if (window.MatchiTip) window.MatchiTip.enhance(body);
   }
   // Live Status painted again: show or clear the warning without reading the router. Ticks are kept (they live in st), only the warning line changes.
   let warnShown = false;
@@ -4346,13 +4435,14 @@ function mountDashCell() {
     '<span class="dc-hb"><button type="button" data-a="refresh">Refresh</button><button type="button" data-a="unlock">Unlock all cells</button></span></div>' +
     '<div class="dc-s"></div>' +
     '<div class="dc-body" style="display:none">' +
-    '<div class="dc-warn">Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.</div>' +
+    '<div class="dc-warn" data-tip="warning">Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.</div>' +
     '<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" data-a="auto"> Auto-unlock if not registered after 60 s</label>' +
     '<div class="dc-dyn">reading…</div>' +
     '<div class="dc-l">Lock by hand</div>' +
     '<div class="dc-row"><input type="text" inputmode="numeric" data-f="pci" placeholder="PCI" aria-label="PCI"><input type="text" inputmode="numeric" data-f="earfcn" placeholder="EARFCN" aria-label="EARFCN">' +
     '<select data-f="rat" aria-label="Type"><option value="">Type…</option><option value="12">4G</option><option value="16">5G</option></select><button type="button" class="dc-lk" data-a="manual">Lock cell</button></div>' +
     '<pre class="dc-log"></pre></div>';
+  if (window.MatchiTip) window.MatchiTip.enhance(card);
   // Wide screens (the two-column console): under Live device status. Narrow screens: under Radio settings, as before.
   const wide = window.matchMedia ? window.matchMedia('(min-width:1000px)') : null;
   function place() {
@@ -5450,7 +5540,7 @@ function mountNetTools() {
   const notReported = () => h('span', { class: 'net-mut' }, NOT);
   const val = (v) => (v === null || v === undefined || v === '' ? notReported() : String(v));
   const kv = (rows) => h('dl', { class: 'net-kv' }, rows.map(([k, v, note]) => [h('dt', {}, k), h('dd', {}, val(v), note ? h('span', { class: 'net-note' }, ' ' + note) : null)]));
-  const note = (t, cls) => h('p', { class: 'net-p' + (cls ? ' ' + cls : '') }, t);
+  const note = (t, cls) => (window.MatchiTip && String(t).length >= window.MatchiTip.LONG ? window.MatchiTip.make(t) : h('p', { class: 'net-p' + (cls ? ' ' + cls : '') }, t));   // a long explanation becomes an icon button; a click shows the text
   const allEmpty = (o, keys) => !o || keys.every((k) => o[k] === null || o[k] === undefined || (Array.isArray(o[k]) && !o[k].length));
 
   // ---- tab renderers: parsed router answer -> a node ------------------------------------------------------------------------
