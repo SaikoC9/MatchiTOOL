@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /**
- * Which router "set" calls of the Network tools (Wi-Fi, devices, APN, LAN / DHCP, MTU / MSS, mobile data) need the fresh sign-in
+ * Which router "set" calls of the Network tools (Wi-Fi, devices, APN, LAN / DHCP, MTU / MSS, mobile data, USB protocol) need the fresh sign-in
  * (RootGate) before the host forwards them. Such a call can cut the person off or break the data connection, and /api/zte and
  * /api/goform/ are otherwise open to any console session. Pure Kotlin, no Android classes, unit tested (NetGoformTest).
  *
@@ -22,6 +22,8 @@ object NetGoform {
         "APN_PROC_EX",
         // router LAN / DHCP and MTU / MSS
         "DHCP_SETTING", "SET_DEVICE_MTU",
+        // USB Internet Protocol (Auto / RNDIS / CDC-ECM) and the restart the stock page sends after it
+        "SET_USB_NETWORK_PROTOCAL", "REBOOT_DEVICE",
     )
 
     private val gatedLower: Set<String> = GATED.map { it.lowercase() }.toSet()
