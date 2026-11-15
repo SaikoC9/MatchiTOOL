@@ -24,6 +24,7 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var busy = false
     private var visible = false
+    private var blocked = false   // not a ZTE F50: only the "not supported" screen is shown
 
     private lateinit var hostPill: StatusPill
     private lateinit var webSub: TextView
@@ -53,6 +54,18 @@ class MainActivity : Activity() {
         super.onCreate(b)
         LogCatcher.initialize(this)
         LogCatcher.log("INFO", "MainActivity", "Application home opened")
+
+        if (!DeviceGate.supported) {
+            blocked = true
+            LogCatcher.log("WARNING", "MainActivity", "Device not supported (ZTE F50 only): ${DeviceGate.describe().replace('\n', ' ')}")
+            val msg = TextView(this).apply {
+                text = "MatchiTOOL works only on the ZTE F50.\n\nThis device reports:\n${DeviceGate.describe()}\n\nThis app will close in 5 seconds."
+                textSize = 16f; setTextColor(Color.WHITE); setPadding(dp(24), dp(48), dp(24), dp(24))
+            }
+            setContentView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0B1220")); addView(msg) })
+            handler.postDelayed({ if (!isFinishing) finish() }, 5000)   // long enough to read the message, then the app closes
+            return
+        }
 
         val svc = Intent(this, HostService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
@@ -86,6 +99,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (blocked) return
         visible = true
         refreshStatic()
         handler.removeCallbacks(tick)
@@ -96,6 +110,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        if (blocked) return
         visible = false
         handler.removeCallbacks(tick)
         handler.removeCallbacks(staticTick)
@@ -129,25 +144,15 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(16), dp(18), dp(16))
             val g = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#1B86FF"), Color.parseColor("#0B63DB"))).apply { cornerRadius = Ui.dpf(this@MainActivity, 18f) }
-            background = Ui.withRipple(this@MainActivity, g, 18f)
-            isClickable = true
-            isFocusable = true
+            background = g
             elevation = Ui.dpf(this@MainActivity, 6f)
-            setOnClickListener {
-                if (!Tls.ready) {
-                    // The scheme is not final until the host has started: opening now could use http against an https server.
-                    Toast.makeText(this@MainActivity, "The web console is still starting - try again in a moment", Toast.LENGTH_SHORT).show()
-                    handler.removeCallbacks(staticTick); handler.post(staticTick)
-                } else openAddress("${Tls.scheme}://${HostControl.localAddress()}")
-            }
-        }
+        }   // information only: the F50 has no browser, so nothing here opens a page (the console is reached from another device)
         btn.addView(Ui.icon(this, R.drawable.ic_globe, Color.WHITE, 26))
         val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        t.addView(Ui.label(this, "Open web console", 16f, Color.WHITE, true))
+        t.addView(Ui.label(this, "Web console", 16f, Color.WHITE, true))
         webSub = Ui.label(this, "", 12.5f, Color.parseColor("#CFE3FF"))
         t.addView(webSub, Ui.lp(-2, -2, 3, this))
         btn.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14) })
-        btn.addView(Ui.icon(this, R.drawable.ic_open, Color.WHITE, 20))
         return btn
     }
 
@@ -222,7 +227,7 @@ class MainActivity : Activity() {
     /** Values that come from preferences, not from the modem. */
     private fun refreshStatic() {
         webSub.text = if (!Tls.ready) "Starting the web console…"
-            else "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
+            else "Open on your phone: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
         lanSub.text = if (Tls.ready && Tls.active) "Trusted hotspot only · HTTPS (self-signed)" else "Trusted hotspot only · HTTP is unencrypted"
         routerSub.text = Prefs.zteHost(this)
     }

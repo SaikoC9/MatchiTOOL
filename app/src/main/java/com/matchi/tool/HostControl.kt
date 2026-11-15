@@ -78,9 +78,6 @@ object HostControl {
         return hotspotNets(ctx).any { (v and it.mask) == (it.addr and it.mask) }
     }
 
-    /** Always works on the device that runs MatchiTOOL itself, with or without any network. */
-    fun localAddress(): String = "127.0.0.1:${Prefs.PORT}"
-
     /**
      * Address other devices on the ZTE network (e.g. your phone) should use: the private IPv4 of this device's hotspot
      * interface, read from the network interfaces.

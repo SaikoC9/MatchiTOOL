@@ -1,0 +1,259 @@
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/AndroidManifest.xml app/src/main/AndroidManifest.xml
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/AndroidManifest.xml	2026-11-14 17:56:41.000000000 +0000
++++ app/src/main/AndroidManifest.xml	2026-11-14 18:33:48.290718026 +0000
+@@ -21,6 +21,7 @@
+         <receiver android:name=".BootReceiver" android:exported="false">
+             <intent-filter>
+                 <action android:name="android.intent.action.BOOT_COMPLETED" />
++                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+             </intent-filter>
+         </receiver>
+     </application>
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/BootReceiver.kt app/src/main/java/com/matchi/tool/BootReceiver.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/BootReceiver.kt	2026-11-14 17:56:41.000000000 +0000
++++ app/src/main/java/com/matchi/tool/BootReceiver.kt	2026-11-14 19:31:06.163838661 +0000
+@@ -5,12 +5,26 @@
+ import android.content.Intent
+ import android.os.Build
+ 
+-/** Restarts the app's web host after boot. Root access remains managed by Android's su manager. */
++/**
++ * Restarts the app's web host after boot and after an app update. Root access remains managed by Android's su manager.
++ * After a boot the boot tasks run too; after an update only the host restarts (the boot scripts already ran at boot, and their
++ * background jobs survive the update, so running them again could start them twice).
++ */
+ class BootReceiver : BroadcastReceiver() {
+     override fun onReceive(context: Context, intent: Intent) {
+-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+-        val service = Intent(context, HostService::class.java).setAction(HostService.ACTION_RUN_BOOT_TASKS)
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(service)
+-        else context.startService(service)
++        val action = when (intent.action) {
++            Intent.ACTION_BOOT_COMPLETED -> HostService.ACTION_RUN_BOOT_TASKS
++            Intent.ACTION_MY_PACKAGE_REPLACED -> HostService.ACTION_AFTER_UPDATE
++            else -> return
++        }
++        if (!DeviceGate.supported) return   // ZTE F50 only
++        val service = Intent(context, HostService::class.java).setAction(action)
++        // Android may refuse a background start of a foreground service; that must never crash the app.
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(service)
++            else context.startService(service)
++        } catch (e: Exception) {
++            LogCatcher.log("WARNING", "BootReceiver", "Could not start the host after ${intent.action}: ${e.javaClass.simpleName}: ${e.message}")
++        }
+     }
+ }
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/DeviceGate.kt app/src/main/java/com/matchi/tool/DeviceGate.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/DeviceGate.kt	1970-01-01 00:00:00.000000000 +0000
++++ app/src/main/java/com/matchi/tool/DeviceGate.kt	2026-11-14 19:16:14.516741223 +0000
+@@ -0,0 +1,15 @@
++package com.matchi.tool
++
++import android.os.Build
++
++/**
++ * MatchiTOOL is built for the ZTE F50 only. The device must say ZTE in its manufacturer or brand AND F50 in its model, device
++ * or product name (any letter case); see [DeviceRule]. On any other device the app shows a message and the web host never starts.
++ */
++object DeviceGate {
++    val supported: Boolean by lazy { DeviceRule.isSupported(Build.MANUFACTURER, Build.BRAND, Build.MODEL, Build.DEVICE, Build.PRODUCT) }
++
++    /** What this device reports, shown on the "not supported" screen so a wrong match can be reported. */
++    fun describe(): String =
++        "manufacturer: ${Build.MANUFACTURER}\nbrand: ${Build.BRAND}\nmodel: ${Build.MODEL}\ndevice: ${Build.DEVICE}\nproduct: ${Build.PRODUCT}"
++}
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/DeviceRule.kt app/src/main/java/com/matchi/tool/DeviceRule.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/DeviceRule.kt	1970-01-01 00:00:00.000000000 +0000
++++ app/src/main/java/com/matchi/tool/DeviceRule.kt	2026-11-14 19:16:14.514957574 +0000
+@@ -0,0 +1,11 @@
++package com.matchi.tool
++
++/** The pure ZTE F50 rule (no Android classes, so the pure-Kotlin test script can compile and run its test). */
++object DeviceRule {
++    fun isSupported(manufacturer: String?, brand: String?, model: String?, device: String?, product: String?): Boolean {
++        fun has(s: String?, word: String) = s?.contains(word, ignoreCase = true) == true
++        val zte = has(manufacturer, "zte") || has(brand, "zte")
++        val f50 = has(model, "f50") || has(device, "f50") || has(product, "f50")
++        return zte && f50
++    }
++}
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/HostControl.kt app/src/main/java/com/matchi/tool/HostControl.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/HostControl.kt	2026-11-14 17:56:41.000000000 +0000
++++ app/src/main/java/com/matchi/tool/HostControl.kt	2026-11-14 19:18:41.864069929 +0000
+@@ -78,9 +78,6 @@
+         return hotspotNets(ctx).any { (v and it.mask) == (it.addr and it.mask) }
+     }
+ 
+-    /** Always works on the device that runs MatchiTOOL itself, with or without any network. */
+-    fun localAddress(): String = "127.0.0.1:${Prefs.PORT}"
+-
+     /**
+      * Address other devices on the ZTE network (e.g. your phone) should use: the private IPv4 of this device's hotspot
+      * interface, read from the network interfaces.
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/HostService.kt app/src/main/java/com/matchi/tool/HostService.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/HostService.kt	2026-11-14 17:56:41.000000000 +0000
++++ app/src/main/java/com/matchi/tool/HostService.kt	2026-11-14 19:38:45.075460163 +0000
+@@ -28,9 +28,33 @@
+             .setContentTitle("MatchiTOOL running").setContentText("LAN · port ${Prefs.PORT}")
+             .setSmallIcon(R.drawable.ic_stat_matchi).build()
+         startForeground(1, n)
++        if (!DeviceGate.supported) {   // ZTE F50 only: nothing may start on another device
++            LogCatcher.log("WARNING", "HostService", "Device not supported (ZTE F50 only): ${DeviceGate.describe().replace('\n', ' ')}")
++            stopForeground(Service.STOP_FOREGROUND_REMOVE); stopSelf()
++            return START_NOT_STICKY
++        }
+ 
+         if (initialized.compareAndSet(false, true)) {
+             workers.execute { startWebHost() }
++            // Hide the "MatchiTOOL running" notification. Android needs a notification for a foreground service, so the service keeps
++            // running; the root manager is asked to stop showing this app's notifications (the same switch as Settings > Apps >
++            // MatchiTOOL > Notifications). Needs root; without it nothing changes and the silent notification stays.
++            // Root is often not ready right after boot, so it is tried a few times and stops after the first success.
++            val notificationHidden = AtomicBoolean(false)
++            for (delay in longArrayOf(6, 45, 120)) {
++                workers.schedule(Runnable {
++                    try {
++                        if (!notificationHidden.get()) {
++                            // Set it, then read it back: "yes" only when Android really reports the switch as ignore (an unknown
++                            // operation name on this ROM must not count as success and stop the retries).
++                            val r = RootShell.run(applicationContext, "cmd appops set $packageName POST_NOTIFICATION ignore; cmd appops get $packageName POST_NOTIFICATION", 10_000)
++                            val done = r.success && r.content.contains("ignore", ignoreCase = true)
++                            if (done) notificationHidden.set(true)
++                            LogCatcher.log("INFO", "HostService", "Notification hidden: ${if (done) "yes" else "no (root not available, or this Android does not accept it): ${r.content.take(120)}"}")
++                        }
++                    } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Hide notification failed: ${e.message}") }
++                }, delay, TimeUnit.SECONDS)
++            }
+             // The router web API (and root) are often not ready 4 s after boot, so the password search is retried a few times;
+             // each call returns at once when the password is already known or the search has ended.
+             for (delay in longArrayOf(4, 30, 90, 180)) {
+@@ -68,6 +92,10 @@
+             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
+         }
+         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
++        // After an app update only the boot-capture script is refreshed (it asks for no root when capture is off).
++        if (i?.action == ACTION_AFTER_UPDATE) workers.execute {
++            try { BootLogd.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot capture check failed: ${e.message}") }
++        }
+         return START_STICKY
+     }
+ 
+@@ -269,6 +297,7 @@
+ 
+     companion object {
+         const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS"
++        const val ACTION_AFTER_UPDATE = "com.matchi.tool.AFTER_UPDATE"
+ 
+         /** Files that versions before the root-only temp folder left behind (names are fixed, nothing is matched by pattern). */
+         private const val OLD_TMP_CLEANUP = "rm -rf /data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean\n" +
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/MainActivity.kt app/src/main/java/com/matchi/tool/MainActivity.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/main/java/com/matchi/tool/MainActivity.kt	2026-11-14 17:56:41.000000000 +0000
++++ app/src/main/java/com/matchi/tool/MainActivity.kt	2026-11-14 19:29:17.836554090 +0000
+@@ -24,6 +24,7 @@
+     private val handler = Handler(Looper.getMainLooper())
+     private var busy = false
+     private var visible = false
++    private var blocked = false   // not a ZTE F50: only the "not supported" screen is shown
+ 
+     private lateinit var hostPill: StatusPill
+     private lateinit var webSub: TextView
+@@ -54,6 +55,18 @@
+         LogCatcher.initialize(this)
+         LogCatcher.log("INFO", "MainActivity", "Application home opened")
+ 
++        if (!DeviceGate.supported) {
++            blocked = true
++            LogCatcher.log("WARNING", "MainActivity", "Device not supported (ZTE F50 only): ${DeviceGate.describe().replace('\n', ' ')}")
++            val msg = TextView(this).apply {
++                text = "MatchiTOOL works only on the ZTE F50.\n\nThis device reports:\n${DeviceGate.describe()}\n\nThis app will close in 5 seconds."
++                textSize = 16f; setTextColor(Color.WHITE); setPadding(dp(24), dp(48), dp(24), dp(24))
++            }
++            setContentView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0B1220")); addView(msg) })
++            handler.postDelayed({ if (!isFinishing) finish() }, 5000)   // long enough to read the message, then the app closes
++            return
++        }
++
+         val svc = Intent(this, HostService::class.java)
+         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+ 
+@@ -86,6 +99,7 @@
+ 
+     override fun onResume() {
+         super.onResume()
++        if (blocked) return
+         visible = true
+         refreshStatic()
+         handler.removeCallbacks(tick)
+@@ -96,6 +110,7 @@
+ 
+     override fun onPause() {
+         super.onPause()
++        if (blocked) return
+         visible = false
+         handler.removeCallbacks(tick)
+         handler.removeCallbacks(staticTick)
+@@ -129,25 +144,15 @@
+             setPadding(dp(18), dp(16), dp(18), dp(16))
+             val g = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                 intArrayOf(Color.parseColor("#1B86FF"), Color.parseColor("#0B63DB"))).apply { cornerRadius = Ui.dpf(this@MainActivity, 18f) }
+-            background = Ui.withRipple(this@MainActivity, g, 18f)
+-            isClickable = true
+-            isFocusable = true
++            background = g
+             elevation = Ui.dpf(this@MainActivity, 6f)
+-            setOnClickListener {
+-                if (!Tls.ready) {
+-                    // The scheme is not final until the host has started: opening now could use http against an https server.
+-                    Toast.makeText(this@MainActivity, "The web console is still starting - try again in a moment", Toast.LENGTH_SHORT).show()
+-                    handler.removeCallbacks(staticTick); handler.post(staticTick)
+-                } else openAddress("${Tls.scheme}://${HostControl.localAddress()}")
+-            }
+-        }
++        }   // information only: the F50 has no browser, so nothing here opens a page (the console is reached from another device)
+         btn.addView(Ui.icon(this, R.drawable.ic_globe, Color.WHITE, 26))
+         val t = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+-        t.addView(Ui.label(this, "Open web console", 16f, Color.WHITE, true))
++        t.addView(Ui.label(this, "Web console", 16f, Color.WHITE, true))
+         webSub = Ui.label(this, "", 12.5f, Color.parseColor("#CFE3FF"))
+         t.addView(webSub, Ui.lp(-2, -2, 3, this))
+         btn.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14) })
+-        btn.addView(Ui.icon(this, R.drawable.ic_open, Color.WHITE, 20))
+         return btn
+     }
+ 
+@@ -222,7 +227,7 @@
+     /** Values that come from preferences, not from the modem. */
+     private fun refreshStatic() {
+         webSub.text = if (!Tls.ready) "Starting the web console…"
+-            else "Other devices: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
++            else "Open on your phone: ${Tls.scheme}://${HostControl.webAddress(this)}" + if (Tls.active) "" else "  (NOT encrypted)"
+         lanSub.text = if (Tls.ready && Tls.active) "Trusted hotspot only · HTTPS (self-signed)" else "Trusted hotspot only · HTTP is unencrypted"
+         routerSub.text = Prefs.zteHost(this)
+     }
+diff -ruN /home/claude/orig/MatchiTOOL-main/app/src/test/java/com/matchi/tool/DeviceRuleTest.kt app/src/test/java/com/matchi/tool/DeviceRuleTest.kt
+--- /home/claude/orig/MatchiTOOL-main/app/src/test/java/com/matchi/tool/DeviceRuleTest.kt	1970-01-01 00:00:00.000000000 +0000
++++ app/src/test/java/com/matchi/tool/DeviceRuleTest.kt	2026-11-14 19:16:14.532805640 +0000
+@@ -0,0 +1,22 @@
++package com.matchi.tool
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class DeviceRuleTest {
++    @Test fun zteF50IsSupported() {
++        assertTrue(DeviceRule.isSupported("ZTE", "ZTE", "ZTE F50", "F50", "F50"))
++        assertTrue(DeviceRule.isSupported("zte", null, "f50", null, null))
++    }
++
++    @Test fun otherZteModelIsNotSupported() {
++        assertFalse(DeviceRule.isSupported("ZTE", "ZTE", "ZTE U60", "U60", "U60"))
++    }
++
++    @Test fun otherBrandIsNotSupported() {
++        assertFalse(DeviceRule.isSupported("Google", "google", "Pixel 8", "shiba", "shiba"))
++        assertFalse(DeviceRule.isSupported("Acme", "Acme", "F50", "F50", "F50"))   // F50 alone is not enough
++        assertFalse(DeviceRule.isSupported(null, null, null, null, null))
++    }
++}

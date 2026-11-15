@@ -28,9 +28,33 @@ class HostService : Service() {
             .setContentTitle("MatchiTOOL running").setContentText("LAN · port ${Prefs.PORT}")
             .setSmallIcon(R.drawable.ic_stat_matchi).build()
         startForeground(1, n)
+        if (!DeviceGate.supported) {   // ZTE F50 only: nothing may start on another device
+            LogCatcher.log("WARNING", "HostService", "Device not supported (ZTE F50 only): ${DeviceGate.describe().replace('\n', ' ')}")
+            stopForeground(Service.STOP_FOREGROUND_REMOVE); stopSelf()
+            return START_NOT_STICKY
+        }
 
         if (initialized.compareAndSet(false, true)) {
             workers.execute { startWebHost() }
+            // Hide the "MatchiTOOL running" notification. Android needs a notification for a foreground service, so the service keeps
+            // running; the root manager is asked to stop showing this app's notifications (the same switch as Settings > Apps >
+            // MatchiTOOL > Notifications). Needs root; without it nothing changes and the silent notification stays.
+            // Root is often not ready right after boot, so it is tried a few times and stops after the first success.
+            val notificationHidden = AtomicBoolean(false)
+            for (delay in longArrayOf(6, 45, 120)) {
+                workers.schedule(Runnable {
+                    try {
+                        if (!notificationHidden.get()) {
+                            // Set it, then read it back: "yes" only when Android really reports the switch as ignore (an unknown
+                            // operation name on this ROM must not count as success and stop the retries).
+                            val r = RootShell.run(applicationContext, "cmd appops set $packageName POST_NOTIFICATION ignore; cmd appops get $packageName POST_NOTIFICATION", 10_000)
+                            val done = r.success && r.content.contains("ignore", ignoreCase = true)
+                            if (done) notificationHidden.set(true)
+                            LogCatcher.log("INFO", "HostService", "Notification hidden: ${if (done) "yes" else "no (root not available, or this Android does not accept it): ${r.content.take(120)}"}")
+                        }
+                    } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Hide notification failed: ${e.message}") }
+                }, delay, TimeUnit.SECONDS)
+            }
             // The router web API (and root) are often not ready 4 s after boot, so the password search is retried a few times;
             // each call returns at once when the password is already known or the search has ended.
             for (delay in longArrayOf(4, 30, 90, 180)) {
@@ -68,6 +92,10 @@ class HostService : Service() {
             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
         }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
+        // After an app update only the boot-capture script is refreshed (it asks for no root when capture is off).
+        if (i?.action == ACTION_AFTER_UPDATE) workers.execute {
+            try { BootLogd.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot capture check failed: ${e.message}") }
+        }
         return START_STICKY
     }
 
@@ -269,6 +297,7 @@ class HostService : Service() {
 
     companion object {
         const val ACTION_RUN_BOOT_TASKS = "com.matchi.tool.RUN_BOOT_TASKS"
+        const val ACTION_AFTER_UPDATE = "com.matchi.tool.AFTER_UPDATE"
 
         /** Files that versions before the root-only temp folder left behind (names are fixed, nothing is matched by pattern). */
         private const val OLD_TMP_CLEANUP = "rm -rf /data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean\n" +
