@@ -308,6 +308,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
     await trySubmit(a, b); assert(re.test(mb('matchi_mtu_err').textContent), a + '/' + b + ': ' + mb('matchi_mtu_err').textContent);
   }
   assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0); assert.strictEqual(confirms.length, 0);
+  mb('matchi_mtu_mtu').value = '1200'; await click(mb('matchi_mtu_default')); assert(/Fix the MTU first/.test(mb('matchi_mtu_err').textContent) && mb('matchi_mtu_mss').value !== '1160', 'bad MTU: the default button explains');
+  mb('matchi_mtu_mtu').value = 'abc'; await click(mb('matchi_mtu_default')); assert(/Type a whole-number MTU first/.test(mb('matchi_mtu_err').textContent));
+  // Refresh puts the form back to the router values
+  await click(doc.getElementById('matchi_net_refresh')); assert(mb('matchi_mtu_mtu').value === '1500' && mb('matchi_mtu_mss').value === '1460', 'Refresh resets the MTU form');
   mb('matchi_mtu_mtu').value = '1400'; await click(mb('matchi_mtu_default')); assert.strictEqual(mb('matchi_mtu_mss').value, '1360', 'MSS = MTU - 40 button');
   // same values: nothing sent
   await trySubmit('1500', '1460'); assert.strictEqual(sets.length, 0); assert(/already has MTU 1500 and MSS 1460/.test(mt()), mt());

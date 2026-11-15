@@ -180,7 +180,13 @@ function mountNetTools() {
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_mtu_err' }, '');
     const mtuIn = inp('matchi_mtu_mtu', st.mtuForm.mtu, 'mtu'), mssIn = inp('matchi_mtu_mss', st.mtuForm.mss, 'mss');
     const mk = (label, id, fn, danger) => { const b = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) b.disabled = true; b.onclick = fn; return b; };
-    const useDefault = mk('MSS = MTU − 40', 'matchi_mtu_default', () => { const c = N.mtuCheck(mtuIn.value, String(N.MSS_MIN)); if (c.error && !/MSS/.test(c.error)) { err.textContent = c.error; return; } mssIn.value = String(N.mtuDefaultMss(parseInt(mtuIn.value, 10))); st.mtuForm.mss = mssIn.value; err.textContent = ''; });
+    const useDefault = mk('MSS = MTU − 40', 'matchi_mtu_default', () => {
+      const m = String(mtuIn.value).trim();
+      if (!/^\d{1,4}$/.test(m)) { err.textContent = 'Type a whole-number MTU first, then press this button.'; return; }
+      const mtu = parseInt(m, 10);
+      if (mtu < N.MTU_MIN || mtu > N.MTU_MAX) { err.textContent = 'Fix the MTU first: it must be between ' + N.MTU_MIN + ' and ' + N.MTU_MAX + '. Then press this button.'; return; }
+      mssIn.value = String(N.mtuDefaultMss(mtu)); st.mtuForm.mss = mssIn.value; err.textContent = '';
+    });
     const apply = mk('Apply (router restarts)', 'matchi_mtu_apply', () => mtuSubmit(mtuIn.value, mssIn.value, err), true);
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change MTU / MSS'),
       row('MTU', mtuIn), row('MSS', mssIn), err, h('div', { class: 'net-actions' }, apply, useDefault),
@@ -594,7 +600,7 @@ function mountNetTools() {
       };
       tabs.appendChild(b);
     }
-    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; load(st.tab); } };
+    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
     load('data');
     findMe();
   }

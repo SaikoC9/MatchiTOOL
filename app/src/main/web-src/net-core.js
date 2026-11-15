@@ -295,7 +295,8 @@
     return null;
   }
   // The profile in use matches a profile of the list? (by name and APN; the slot keys are only reported in Manual mode and their meaning is not confirmed)
-  const sameProfile = (p, name, apn) => !!p && p.name === name && p.apn === apn;
+  // Right after a switch the router can report the profile name with an EMPTY wan_apn for a while (seen on the F50, 2026-11-15): an empty APN on either side counts as a name match.
+  const sameProfile = (p, name, apn) => !!p && !!name && p.name === name && (p.apn === apn || p.apn === '' || apn === '');
   const isInUse = (a, p) => !!a && !!a.inUse && sameProfile(p, a.inUse.name, a.inUse.apn);
   // Is this slot the one the router calls current? Slot keys are a second signal, used only to refuse a delete, never to claim a success.
   const slotLooksActive = (a, p) => isInUse(a, p) || (a && a.mode === 'manual' && a.indexKeys.includes(p.slot));

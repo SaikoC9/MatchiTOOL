@@ -113,6 +113,8 @@ assert(/only usable profile/.test(N.apnDeleteRefusal(mk('manual', [HOME, ''], ['
 assert(!N.apnCanUse(mk('auto', ['Blank($)($)manual($)*99#($)none($)($)($)IPv4v6($)'], ['DITO', 'x']), { slot: 0, name: 'Blank', apn: '', pdp: 'IPv4v6' }), 'a profile with no APN cannot be used');
 assert(!N.apnCanAdd(mk('manual', Array.from({ length: 20 }, () => HOME), ['x', 'y'])), 'no free slot, no Add');
 eq(N.autoAsForm(apnAuto), { name: 'DITO', apn: 'internet.dito.ph', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' }); eq(N.autoAsForm({ auto: null }), null);
+assert(N.sameProfile({ name: 'DITO', apn: '' }, 'DITO', 'internet.dito.ph') && N.sameProfile({ name: 'DITO', apn: 'internet.dito.ph' }, 'DITO', '') && N.sameProfile({ name: 'DITO', apn: 'a' }, 'DITO', 'a'), 'empty APN right after a switch still matches by name');
+assert(!N.sameProfile({ name: 'DITO', apn: 'a' }, 'DITO', 'b') && !N.sameProfile({ name: 'X', apn: '' }, 'DITO', '') && !N.sameProfile(null, 'DITO', 'a') && !N.sameProfile({ name: '', apn: '' }, '', ''), 'different names or different non-empty APNs never match');
 // form checks
 const okForm = { name: 'Test', apn: 'internet.dito.ph', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' };
 eq(N.apnFormError(okForm), null);
