@@ -802,13 +802,11 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   </div>
   <div class="card pop" id="usbtools">
     <div class="mut" style="margin-bottom:8px">USB controls</div>
-    <p class="mut">Manage Android USB debugging and USB tethering. These actions require granted root access and support varies by device and ROM.</p>
-    <div class="row"><span class="n">USB debugging</span><strong id="adbstate">Unknown</strong></div>
-    <div class="actions-buttons"><button id="adbon">Enable debugging</button><button id="adboff">Disable debugging</button></div>
+    <p class="mut">Choose how the USB Ethernet (tethering) connection works. This is the same setting as the router's own page (USB Internet Protocol).</p>
+    <div class="row"><span class="n">Router setting</span><strong id="usbsetting">Unknown</strong></div>
     <div class="row"><span class="n">USB Ethernet mode</span><strong id="tetherstate">Unknown</strong></div>
-    <div class="actions-buttons"><button id="rndison">Use RNDIS</button><button id="ecmon">Use CDC-ECM</button><button id="tetheroff">Restore default USB mode</button><button id="usbrefresh">Refresh status</button></div>
-    <label class="mut" style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" id="usbpersist"> Keep RNDIS / CDC-ECM after a reboot (changes the saved USB mode; Restore default puts the old one back)</label>
-    <p class="mut">Choose RNDIS or CDC-ECM for USB Ethernet. MatchiTOOL keeps ADB in the USB function when debugging is enabled. Restore default returns to the firmware's saved USB configuration.</p>
+    <div class="actions-buttons"><button id="rndison">Use RNDIS</button><button id="ecmon">Use CDC-ECM</button><button id="tetheroff">Auto</button></div>
+    <p class="mut">Auto lets the router choose. The router saves your choice and it is applied right away, without a restart. The USB connection may drop for a few seconds. Needs a fresh sign-in and root access.</p>
     <pre id="usbout" style="display:none;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
@@ -8012,7 +8010,7 @@ const ST_TOOLS=[
   {file:'Change_IP.js',btn:'matchi_changeip_btn'},
   {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
-const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','usbrefresh','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
+const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','rndison','ecmon','tetheroff','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
 const ST_ERRS=[];
 /* Page errors also go to the device log (max 20 per page load, never throws). */
@@ -8593,23 +8591,46 @@ async function start(){
   try{await loadPlugins()}catch(e){createToast('Plugin manager: '+e.message,'red',6000)}
   refreshUsb();
 }
+const USB_PROTO={'0':'Auto','1':'RNDIS','2':'CDC-ECM'};
+async function refreshUsbSetting(){
+  /* The router's own saved choice (the stock page's USB Internet Protocol). A read, no sign-in needed. */
+  const el=document.getElementById('usbsetting');
+  try{const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params:{cmd:'usb_network_protocal'},retry:0})});const v=r&&r.data?String(r.data.usb_network_protocal===undefined?'':r.data.usb_network_protocal).trim():'';el.textContent=USB_PROTO[v]||'Unknown'}
+  catch(e){el.textContent='Unknown'}
+}
 async function refreshUsb(){
+  refreshUsbSetting();
   const out=document.getElementById('usbout');out.style.display='block';out.textContent='Reading USB state…';
-  try{const r=await api('/api/usb/status');document.getElementById('adbstate').textContent=r.adbEnabled?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected';out.textContent=`USB config: ${r.usbConfig||'(unknown)'}\nUSB state: ${r.usbState||'(unknown)'}\nSaved config: ${r.persistConfig||'(unknown)'}\nRNDIS supported: ${r.rndisSupported?'yes':'not detected'}\nCDC-ECM supported: ${r.ecmSupported?'yes':'not detected'}\nNetwork interfaces: ${r.networkInterfaces||'(none reported)'}\n${r.success?'':'Root status read failed'}\n${r.detail||''}`}
+  try{const r=await api('/api/usb/status');document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected';out.textContent=`USB config: ${r.usbConfig||'(unknown)'}\nUSB state: ${r.usbState||'(unknown)'}\nSaved config: ${r.persistConfig||'(unknown)'}\nRNDIS supported: ${r.rndisSupported?'yes':'not detected'}\nCDC-ECM supported: ${r.ecmSupported?'yes':'not detected'}\nNetwork interfaces: ${r.networkInterfaces||'(none reported)'}\n${r.success?'':'Root status read failed'}\n${r.detail||''}`}
   catch(e){out.textContent='USB status failed: '+e.message}
 }
+/* USB Internet Protocol, no restart. Two steps:
+   1. Save the router's own setting, as the stock page does (captured on the F50, 2026-11-15; the host adds the AD token):
+        isTest=false&usb_network_protocal=0|1|2&goformId=SET_USB_NETWORK_PROTOCAL      (0 = Auto, 1 = RNDIS, 2 = CDC-ECM), reply {"result":"success"}
+      The stock page then sends goformId=REBOOT_DEVICE to apply it. This page does NOT send that.
+   2. Apply it now with the root USB script (/api/usb/control, persist off), so no restart is needed.
+   Both steps need the fresh sign-in. If step 1 is refused nothing else runs; if step 2 fails the saved setting still applies after the next restart. */
 async function usbAction(action){
-  const labels={adb_enable:'Enable USB debugging',adb_disable:'Disable USB debugging',rndis_enable:'Switch USB Ethernet to RNDIS',ecm_enable:'Switch USB Ethernet to CDC-ECM',tether_disable:'Restore default USB mode'};
-  if(!(await askConfirm(labels[action]+'? This changes Android USB settings.','Apply')))return;
-  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Applying USB setting…';
-  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:!!(document.getElementById('usbpersist')&&document.getElementById('usbpersist').checked)})});out.textContent=(r.output||'')+'\n'+(r.note||'');if(!r.success)throw new Error(r.output||'Command failed');createToast(labels[action]+' command completed');setTimeout(refreshUsb,1200)}catch(e){out.textContent='USB action failed: '+e.message}
+  const MAP={rndis_enable:['1','RNDIS'],ecm_enable:['2','CDC-ECM'],tether_disable:['0','Auto']};
+  const m=MAP[action];if(!m)return;
+  if(!(await askConfirm('Set USB Internet Protocol to '+m[1]+'? The router saves it and the change is applied now, without a restart. The USB connection may drop for a few seconds.','Apply')))return;
+  const out=document.getElementById('usbout');out.style.display='block';out.textContent='Saving '+m[1]+'…';
+  const zset=async(params)=>{const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'set',params,retry:0})});if(r.error)throw new Error(r.error);const d=r.data;const res=d&&typeof d==='object'?d.result:d;if(String(res===undefined||res===null?'':res).trim()!=='success')throw new Error('Router refused the change ('+(res===undefined?'no answer':String(res).slice(0,80))+')');};
+  try{
+    await zset({goformId:'SET_USB_NETWORK_PROTOCAL',usb_network_protocal:m[0]});
+  }catch(e){out.textContent='USB action failed: '+e.message;return}
+  out.textContent='Saved '+m[1]+'. Applying it now…';
+  try{
+    const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});
+    out.textContent=(r.output||'')+'\n'+(r.note||'');
+    if(!r.success)throw new Error(r.output||'Command failed');
+    createToast(m[1]+' saved and applied.');
+  }catch(e){out.textContent='Saved '+m[1]+' on the router, but applying it now failed: '+e.message+'\nIt will apply after the next restart.'}
+  setTimeout(refreshUsb,1500);
 }
-document.getElementById('adbon').onclick=()=>usbAction('adb_enable');
-document.getElementById('adboff').onclick=()=>usbAction('adb_disable');
 document.getElementById('rndison').onclick=()=>usbAction('rndis_enable');
 document.getElementById('ecmon').onclick=()=>usbAction('ecm_enable');
 document.getElementById('tetheroff').onclick=()=>usbAction('tether_disable');
-document.getElementById('usbrefresh').onclick=refreshUsb;
 
 document.getElementById('diagbtn').onclick=async()=>{
   const out=document.getElementById('diagout');out.style.display='block';out.textContent='Collecting read-only diagnostics…';
@@ -9539,8 +9560,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     'Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
     'Device diagnostics':'Diagnostics ng device','Run diagnostics':'Patakbuhin ang diagnostics',
     'Run full diagnose':'Patakbuhin ang buong diagnosis','Copy report':'Kopyahin ang ulat','Download .txt':'I-download ang .txt',
-    'USB controls':'Mga kontrol ng USB','Enable debugging':'I-on ang debugging','Disable debugging':'I-off ang debugging','Refresh status':'I-refresh ang status',
-    'Restore default USB mode':'Ibalik ang default na USB mode',
+    'USB controls':'Mga kontrol ng USB','Auto':'Awtomatiko',
     'Firmware manifest inspector':'Tagasuri ng firmware manifest','Inspect manifest':'Suriin ang manifest',
     'Update MatchiTOOL':'I-update ang MatchiTOOL','Check file':'Suriin ang file','Install update':'I-install ang update','Check for update':'Tingnan kung may update',
     'Install online':'I-install online','Download APK':'I-download ang APK',
@@ -9579,9 +9599,9 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     'All':'Lahat','Errors':'Mga error','Plugins':'Mga plugin','Back to basket':'Bumalik sa basket',
     'Read-only checks for root, Android build, network, storage and available tools.':'Mga read-only na check para sa root, Android build, network, storage at mga available na tool.',
     'Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.':'Sinusuri ang bawat function sa isang takbo: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager at ang mga built-in na tool. Read-only ito: walang binabago sa device at walang SMS na ipinapadala. Hindi kailanman nilalaman ng ulat ang iyong password o token.',
-    'Manage Android USB debugging and USB tethering. These actions require granted root access and support varies by device and ROM.':'Pamahalaan ang Android USB debugging at USB tethering. Kailangan ng ibinigay na root access ang mga aksyong ito at nag-iiba ang suporta ayon sa device at ROM.',
+    'Choose how the USB Ethernet (tethering) connection works. This is the same setting as the router\'s own page (USB Internet Protocol).':'Piliin kung paano gagana ang USB Ethernet (tethering) na koneksyon. Ito ang parehong setting ng sariling page ng router (USB Internet Protocol).',
     'Unknown':'Hindi alam','Enabled':'Naka-enable','Disabled':'Naka-disable','CDC-ECM active':'Aktibo ang CDC-ECM','RNDIS active':'Aktibo ang RNDIS','No USB Ethernet mode detected':'Walang nakitang USB Ethernet mode',
-    'Choose RNDIS or CDC-ECM for USB Ethernet. MatchiTOOL keeps ADB in the USB function when debugging is enabled. Restore default returns to the firmware\'s saved USB configuration.':'Pumili ng RNDIS o CDC-ECM para sa USB Ethernet. Pinapanatili ng MatchiTOOL ang ADB sa USB function kapag naka-enable ang debugging. Ibinabalik ng Restore default ang naka-save na USB configuration ng firmware.',
+    'Auto lets the router choose. The router saves your choice and it is applied right away, without a restart. The USB connection may drop for a few seconds. Needs a fresh sign-in and root access.':'Ang Auto ay hinahayaan ang router na pumili. Sine-save ng router ang pinili mo at inilalapat ito agad, nang walang restart. Maaaring maputol ang USB connection nang ilang segundo. Kailangan ng bagong sign-in at root access.',
     'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
     'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
     'Add plugin (.js or UFI-TOOLS .txt)':'Magdagdag ng plugin (.js o UFI-TOOLS .txt)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
@@ -9605,7 +9625,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     ['.card.pop .popx','text'],['#logcatcher .popfoot button:not(.popx)','text'],
     ['#diagnostics > .mut:first-child','text'],['#diagbtn','text'],
     ['#selftest > .mut:first-child','text'],['#stbtn','text'],['#stcopy','text'],['#stdl','text'],
-    ['#usbtools > .mut:first-child','text'],['#adbon','text'],['#adboff','text'],['#tetheroff','text'],['#usbrefresh','text'],
+    ['#usbtools > .mut:first-child','text'],['#tetheroff','text'],
     ['#firmware > .mut:first-child','text'],['#fwinspect','text'],
     ['#appupdate > .mut:first-child','text'],['#updcheck','text'],['#updinstall','text'],['#updfetch','text'],['#updonline','text'],['#upddl','text'],
     ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],
