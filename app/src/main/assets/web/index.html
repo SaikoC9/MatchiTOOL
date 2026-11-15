@@ -3189,7 +3189,8 @@ rm -rf "${DEVICE_TMP_DIR}"
       left.append(mk('b', 'font-size:13.5px', c.number), mutDiv((last.out ? '→ ' : '') + last.text.replace(/\s+/g, ' '), 'font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'));
       const right = mutDiv('', 'text-align:right;font-size:11.5px;flex:none');
       right.append(mk('div', '', last.date.slice(0, 16)), mk('div', 'font-weight:700', c.items.length + (c.items.length === 1 ? ' message' : ' messages')));
-      const nNew = c.items.filter((m) => !m.out && fresh.has(sig(m))).length;
+      const rem = new Map(fresh); let nNew = 0;   // newest first: a repeated text counts only as often as it is new
+      for (let i = c.items.length - 1; i >= 0; i--) { const m = c.items[i]; if (m.out) continue; const k = sig(m), r = rem.get(k) || 0; if (r > 0) { rem.set(k, r - 1); nNew++; } }
       if (nNew) { const pill = mk('span', 'display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:999px;background:#168cff;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center', String(nNew)); pill.title = nNew + ' new'; left.firstChild.after(pill); }
       row.append(left, right);
       const go = () => { openKey = c.key; const n = el('matchi_sms_num'); if (n) n.value = c.number; paint(); };
@@ -3333,7 +3334,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   function open() {
     createModal({
-      name: MODAL, title: 'SMS', maxWidth: '620px', showConfirm: false, onClose: () => { fresh = new Set(); return true; },
+      name: MODAL, title: 'SMS', maxWidth: '620px', showConfirm: false, onClose: () => { fresh = new Map(); return true; },
       content:
         '<div style="display:flex;gap:8px;margin-bottom:8px"><input id="matchi_sms_num" placeholder="Number, e.g. +639171234567" inputmode="tel" autocomplete="off"></div>' +
         '<textarea id="matchi_sms_text" rows="3" placeholder="Message" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:9px;font:inherit"></textarea>' +
@@ -3355,17 +3356,25 @@ rm -rf "${DEVICE_TMP_DIR}"
   // ---- New-message count: on the SMS button, in the browser tab title and on the tab icon --------------------------
   // A received message is "new" until the SMS window has shown it. What was already in the inbox the first time this
   // runs counts as read (so the badge starts at 0 and only grows when a message really arrives).
-  const SEENKEY = 'matchi_sms_seen';
-  const sig = (m) => { const d = String(m.number || '').replace(/\D/g, ''); return (d.length >= 7 ? d.slice(-9) : String(m.number || '').trim().toLowerCase()) + '|' + m.date + '|' + String(m.text || '').slice(0, 40); };
-  let seen = null, unread = 0, fresh = new Set();
-  try { const r = JSON.parse(localStorage.getItem(SEENKEY) || 'null'); if (Array.isArray(r)) seen = new Set(r); } catch (_) {}
-  const saveSeen = () => { try { localStorage.setItem(SEENKEY, JSON.stringify([...seen].slice(-1500))); } catch (_) {} };
+  const SEENKEY = 'matchi_sms_seen2';
+  // A message is identified by sender + text, not by its date: the router, the modem and Android write dates differently (and
+  // the SMS tool switches between them), so a date in the key would make every old message look new after a switch.
+  // Identical messages (the same text twice from one sender) are counted.
+  const sig = (m) => { const d = String(m.number || '').replace(/\D/g, ''); return (d.length >= 7 ? d.slice(-9) : String(m.number || '').trim().toLowerCase()) + '|' + String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 80); };
+  let seen = null, unread = 0, fresh = new Map();   // seen / fresh: sig -> how many
+  try { const r = JSON.parse(localStorage.getItem(SEENKEY) || 'null'); if (r && typeof r === 'object' && !Array.isArray(r)) seen = new Map(Object.entries(r).map(([k, v]) => [k, +v || 0])); } catch (_) {}
+  const saveSeen = () => { try { localStorage.setItem(SEENKEY, JSON.stringify(Object.fromEntries([...seen].slice(-1500)))); } catch (_) {} };
   function noteMsgs(list, markRead) {
-    const inc = list.filter((m) => !m.out);
-    if (seen === null) { if (!inc.length) return; seen = new Set(inc.map(sig)); saveSeen(); }   // first run: nothing is "new" yet
-    for (const m of inc) if (!seen.has(sig(m))) fresh.add(sig(m));
-    if (markRead) { let ch = false; for (const m of inc) { const k = sig(m); if (!seen.has(k)) { seen.add(k); ch = true; } } if (ch) saveSeen(); }
-    unread = markRead ? 0 : inc.filter((m) => !seen.has(sig(m))).length;
+    const cnt = new Map();
+    for (const m of list) if (!m.out) { const k = sig(m); cnt.set(k, (cnt.get(k) || 0) + 1); }
+    if (seen === null) { if (!cnt.size) return; seen = new Map(cnt); saveSeen(); }   // first run: what is already there is not "new"
+    let n = 0, ch = false;
+    for (const [k, c] of cnt) {
+      const was = seen.get(k) || 0;
+      if (c > was) { n += c - was; fresh.set(k, Math.max(fresh.get(k) || 0, c - was)); if (markRead) { seen.set(k, c); ch = true; } }
+    }
+    if (ch) saveSeen();
+    unread = markRead ? 0 : n;
     showBadge();
   }
 
@@ -3423,18 +3432,21 @@ rm -rf "${DEVICE_TMP_DIR}"
   let polling = false;
   async function poll() {
     if (polling || el('matchi_sms_list')) return;
-    polling = true;
+    polling = true; api._quiet = true;   // a background check never opens a dialog or toast (sign-in too old, HTTP confirm, ...)
     try {
       if (pwSet === null) await loadCfg();
       const hid = new Set(getHidden());
       const list = (await fetchAll()).filter((m) => !hid.has(hk(m)));
       if (!el('matchi_sms_list')) noteMsgs(list, false);
     } catch (_) {}
-    polling = false;
+    polling = false; api._quiet = false;
   }
-  setTimeout(poll, 4000);
-  setInterval(poll, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+  // Every minute through the router; every 3 minutes when it has to ask the modem (several AT commands per check).
+  let lastPollAt = 0;
+  const tick = () => { if (Date.now() - lastPollAt >= (useAt() ? 180000 : 60000) - 1000) { lastPollAt = Date.now(); poll(); } };
+  setTimeout(tick, 4000);
+  setInterval(tick, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastPollAt > 20000) { lastPollAt = Date.now(); poll(); } });
 
   const host = document.querySelector('.actions-buttons'); if (!host) return;
   const b = document.createElement('button');
@@ -3931,6 +3943,7 @@ async function api(path,opt={},_retried){
   const headers={...(opt.headers||{}),'x-token':TOKEN};
   /* Over plain HTTP (HTTPS could not start) root commands cross the network unencrypted: ask once per page load, shared by all callers; a "no" is remembered until the page is reloaded, so pollers do not bring the dialog back every few seconds. */
   if(path==='/api/shell'&&insecurePage()){
+    if(api._quiet)throw new Error('Skipped: the connection is not encrypted (HTTP)');   /* background checks never open a dialog */
     if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.')
     headers['x-insecure-ok']='1';
   }
@@ -3947,7 +3960,7 @@ async function api(path,opt={},_retried){
   try{data=raw?JSON.parse(raw):{}}catch(_){data={error:raw||'Invalid server response'}}
   if(!r.ok){
     /* Other root-capable calls (AT writes, IMEI, USB, screen input, install, plugins) are only confirmed when the host asks for it, then retried once. */
-    if(r.status===403&&data.code==='insecure'&&!_retried&&path!=='/api/shell'){
+    if(r.status===403&&data.code==='insecure'&&!_retried&&path!=='/api/shell'&&!api._quiet){
       if(await insecureOk())return api(path,{...opt,headers:{...(opt.headers||{}),'x-insecure-ok':'1'}},true);
       throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
     }
@@ -3976,7 +3989,7 @@ async function api(path,opt={},_retried){
         return api(path,{...opt,body:JSON.stringify({...o,confirmCaps:true})},true);
       throw new Error('Update cancelled: it adds new abilities');
     }
-    if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
+    if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(!api._quiet&&t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
     else if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
     const message=r.status===401?(data.error||'Invalid password'):r.status===429?(data.error||'Too many attempts. Wait a minute and retry.'):(data.error||data.message||`Request failed (${r.status})`);
     throw new Error(message);
