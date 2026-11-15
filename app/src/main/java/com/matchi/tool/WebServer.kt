@@ -311,13 +311,19 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         // session token (after the password or token changed) used to rack up failures by polling, which then
         // locked the real login out ("Too many attempts"). Session tokens are 96-bit random, so they need no lockout.
         if (uri == "/api/login" && s.method == Method.POST) {
-            val wait = guard.retryAfterMs(ip, isLoopbackIp(ip))
-            if (wait > 0) {
-                val secs = (wait + 999) / 1000
-                return json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
-                    .also { it.addHeader("Retry-After", secs.toString()) }
-            }
-            return login(ip, s)
+            val loop = isLoopbackIp(ip)
+            // Only a few password checks at the same moment (see LoginGuard.tryBeginAttempt): parallel guesses cannot all pass the lock check before one is counted.
+            val slot = loop || guard.tryBeginAttempt()
+            if (!slot) return json(tooMany, JSONObject().put("error", "too many attempts at once, wait a moment")).also { it.addHeader("Retry-After", "2") }
+            try {
+                val wait = guard.retryAfterMs(ip, loop)   // asked after the slot was taken
+                if (wait > 0) {
+                    val secs = (wait + 999) / 1000
+                    return json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
+                        .also { it.addHeader("Retry-After", secs.toString()) }
+                }
+                return login(ip, s)
+            } finally { if (!loop) guard.endAttempt() }
         }
         if (!authed(s)) return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again"))
 

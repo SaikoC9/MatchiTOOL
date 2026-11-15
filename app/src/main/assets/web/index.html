@@ -2819,8 +2819,8 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   const isOut = (tag) => ['2', '3', '4'].includes(String(tag)); // 2 sent, 3 send failed, 4 draft
 
-  async function zte(op, params, retry) {
-    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: retry || 0 }) });
+  async function zte(op, params, retry, q) {
+    const r = await api('/api/zte', { method: 'POST', quiet: !!q, body: JSON.stringify({ op, params, retry: retry || 0 }) });
     if (r.error) throw new Error(r.error);
     lastInfo = r.info || '';
     return r.data;
@@ -2836,13 +2836,13 @@ rm -rf "${DEVICE_TMP_DIR}"
   const useAt = () => pwSet === false || (atMode && Date.now() - atSince < 60000);
   const markAt = () => { atMode = true; atSince = Date.now(); };
   const setMode = (t) => { const m = el('matchi_sms_mode'); if (m) m.textContent = t || ''; };
-  const at = async (command) => {
-    const r = await api('/api/at', { method: 'POST', body: JSON.stringify({ command, slot: 0 }) });
+  const at = async (command, q) => {   // q = background check: never opens a dialog or toast
+    const r = await api('/api/at', { method: 'POST', quiet: !!q, body: JSON.stringify({ command, slot: 0 }) });
     if (r.error) throw new Error(r.error);
     return String(r.result || '');
   };
-  const sh = async (cmd, timeout) => {
-    const r = await api('/api/shell', { method: 'POST', body: JSON.stringify({ cmd, timeout }) });
+  const sh = async (cmd, timeout, q) => {
+    const r = await api('/api/shell', { method: 'POST', quiet: !!q, body: JSON.stringify({ cmd, timeout }) });
     if (r.error) throw new Error(r.error);
     return String(r.content || '');
   };
@@ -2856,14 +2856,14 @@ rm -rf "${DEVICE_TMP_DIR}"
     return m ? `20${m[1]}-${m[2]}-${m[3]} ${m[4]}` : String(d || '');
   }
 
-  async function atFetch(scanAll) {
-    await at('AT+CMGF=1');
-    const ucs = atGood(await at('AT+CSCS="UCS2"'));   // with UCS2 every number and text comes back as UTF-16BE hex
+  async function atFetch(scanAll, q) {
+    await at('AT+CMGF=1', q);
+    const ucs = atGood(await at('AT+CSCS="UCS2"', q));   // with UCS2 every number and text comes back as UTF-16BE hex
     const dec = (v) => (ucs ? strictHex(v) : v);
     const out = [];
     for (const store of ['ME', 'SM']) {
-      if (atBad(await at('AT+CPMS="' + store + '"'))) continue;
-      const raw = String(await at('AT+CMGL="ALL"')).replace(/OK\s*$/, '');
+      if (atBad(await at('AT+CPMS="' + store + '"', q))) continue;
+      const raw = String(await at('AT+CMGL="ALL"', q)).replace(/OK\s*$/, '');
       let cur = null;
       for (const line of raw.split(/\r?\n/)) {
         // +CMGL: <idx>,"<stat>","<number>",[<alpha>],"<date>"  (alpha is often empty and unquoted: ,,)
@@ -2892,8 +2892,8 @@ rm -rf "${DEVICE_TMP_DIR}"
     }));
   }
 
-  async function apiList() {
-    const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' });
+  async function apiList(q) {
+    const d = await zte('get', { cmd: 'sms_data_total', page: '0', data_per_page: '500', mem_store: '1', tags: '10', order_by: 'order by id desc' }, 0, q);
     return (d && d.messages) || [];
   }
   // Numbers compare on their last 9 digits; senders without digits ("DITO", "GCASH") compare as text.
@@ -2968,22 +2968,22 @@ rm -rf "${DEVICE_TMP_DIR}"
     throw err;
   }
 
-  async function apiFetch() {
-    return (await apiList()).map((m) => ({
+  async function apiFetch(q) {
+    return (await apiList(q)).map((m) => ({
       out: isOut(m.tag), number: m.number, date: fmtDate(m.date), text: decodeBody(m.content), key: 'r' + m.id,
       del: () => apiDelete(m),
     }));
   }
 
-  async function fetchAll() {
+  async function fetchAll(q) {   // q = background check (silent)
     if (!useAt()) {
-      try { const l = await apiFetch(); atMode = false; setMode(''); return l; }
+      try { const l = await apiFetch(q); atMode = false; setMode(''); return l; }
       catch (e) { if (!UNREACH.test(e.message)) throw e; markAt(); }
     }
     setMode('Using the modem directly: no router login or password needed.');
-    const l = await atFetch();
+    const l = await atFetch(false, q);
     if (l.length) return l;
-    try { const p = await providerFetch(); if (p.length) { setMode('Using the modem directly (messages read from the Android SMS store, read-only).'); return p; } } catch (_) {}
+    try { const p = await providerFetch(q); if (p.length) { setMode('Using the modem directly (messages read from the Android SMS store, read-only).'); return p; } } catch (_) {}
     return l;
   }
 
@@ -3076,20 +3076,21 @@ rm -rf "${DEVICE_TMP_DIR}"
     const out = await sh(script, 60000);
     if (!/SENT_OK/.test(out)) throw new Error('Android telephony did not accept the message: ' + out.split('\n').slice(0, 14).join(' | ').slice(0, 700));
   }
-  async function androidSend(num, text) {
+  // onSent(n) is called after each number was accepted, so a fallback never sends to a number that already got the text.
+  async function androidSend(num, text, onSent) {
     const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
     if (!nums.length || nums.some((n) => !/^\+?[0-9]{3,20}$/.test(n))) throw new Error('Enter a valid number');
-    for (const n of nums) await androidSendOne(n, text);
+    for (const n of nums) { await androidSendOne(n, text); if (onSent) onSent(n); }
   }
-  async function atSend(num, text) {
+  async function atSend(num, text, onSent) {
     const nums = num.split(';').map((n) => n.trim()).filter(Boolean);
     if (!nums.length || nums.some((n) => !/^\+?[0-9]{3,20}$/.test(n))) throw new Error('Enter a valid number');
-    for (const n of nums) await atSendOne(n, text);
+    for (const n of nums) { await atSendOne(n, text); if (onSent) onSent(n); }
   }
 
   // Android's own SMS store, read as root. Used when the modem storage is empty (read-only here).
-  async function providerFetch() {
-    const raw = await sh('content query --uri content://sms --projection _id:address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000);
+  async function providerFetch(q) {
+    const raw = await sh('content query --uri content://sms --projection _id:address:date:body:type --sort "date DESC" 2>&1 | head -c 400000', 20000, q);
     const out = [];
     for (const row of raw.split(/^Row: \d+ /m).slice(1)) {
       const m = row.match(/^_id=(\d+), address=(.*?), date=(\d+), body=([\s\S]*), type=(\d+)\s*$/);
@@ -3298,11 +3299,13 @@ rm -rf "${DEVICE_TMP_DIR}"
 
   async function send() {
     const num = el('matchi_sms_num').value.trim(), text = el('matchi_sms_text').value;
-    if (!/^\+?[0-9;]{3,40}$/.test(num)) return createToast('Enter a valid number', 'red');
+    if (!/^\+?[0-9]{3,20}(;\+?[0-9]{3,20})*;?$/.test(num)) return createToast('Enter a valid number', 'red');   // one or more numbers, each with an optional leading +
     if (!text) return createToast('Message is empty', 'red');
     const btn = el('matchi_sms_send'); btn.disabled = true;
     try {
       let ok = false, via = '', apiErr = '';
+      let left = num.split(';').map((n) => n.trim()).filter(Boolean);   // numbers that have NOT received the text yet
+      const all = left.slice(), gone = () => { left.shift(); };
       if (!useAt() && !routerSetDead()) {
         try {
           const d = await zte('set', { goformId: 'SEND_SMS', notCallback: 'true', Number: num, sms_time: smsTime(), MessageBody: textToHex(text), ID: '-1', encode_type: isGsm7(text) ? 'GSM7_default' : 'UNICODE' });
@@ -3313,11 +3316,15 @@ rm -rf "${DEVICE_TMP_DIR}"
       if (!ok) {
         // The router refused or could not be reached: send through the modem instead (AT commands, as root).
         let aErr = '';
-        try { await androidSend(num, text); ok = true; via = ' (via Android)'; }
+        try { await androidSend(left.join(';'), text, gone); ok = true; via = ' (via Android)'; }
         catch (e) { aErr = e.message; }
         if (!ok) {
-          try { await atSend(num, text); ok = true; via = ' (via modem)'; }
-          catch (e) { throw new Error('Send failed. ' + (apiErr ? 'Router: ' + apiErr + '. ' : '') + 'Android: ' + aErr + '. Modem: ' + e.message); }
+          // Only the numbers Android did not send to are tried through the modem (the others already have the message).
+          try { await atSend(left.join(';'), text, gone); ok = true; via = ' (via modem)'; }
+          catch (e) {
+            const reached = all.slice(0, all.length - left.length);
+            throw new Error('Send failed' + (reached.length ? ' (already sent to: ' + reached.join(', ') + ')' : '') + '. ' + (apiErr ? 'Router: ' + apiErr + '. ' : '') + 'Android: ' + aErr + '. Modem: ' + e.message);
+          }
         }
       }
       createToast('Message sent' + via, 'green');
@@ -3361,13 +3368,22 @@ rm -rf "${DEVICE_TMP_DIR}"
   // the SMS tool switches between them), so a date in the key would make every old message look new after a switch.
   // Identical messages (the same text twice from one sender) are counted.
   const sig = (m) => { const d = String(m.number || '').replace(/\D/g, ''); return (d.length >= 7 ? d.slice(-9) : String(m.number || '').trim().toLowerCase()) + '|' + String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 80); };
+  let emptyRuns = 0;
   let seen = null, unread = 0, fresh = new Map();   // seen / fresh: sig -> how many
   try { const r = JSON.parse(localStorage.getItem(SEENKEY) || 'null'); if (r && typeof r === 'object' && !Array.isArray(r)) seen = new Map(Object.entries(r).map(([k, v]) => [k, +v || 0])); } catch (_) {}
   const saveSeen = () => { try { localStorage.setItem(SEENKEY, JSON.stringify(Object.fromEntries([...seen].slice(-1500)))); } catch (_) {} };
   function noteMsgs(list, markRead) {
     const cnt = new Map();
     for (const m of list) if (!m.out) { const k = sig(m); cnt.set(k, (cnt.get(k) || 0) + 1); }
-    if (seen === null) { if (!cnt.size) return; seen = new Map(cnt); saveSeen(); }   // first run: what is already there is not "new"
+    if (seen === null) {   // first run: what is already there is not "new"
+      if (!cnt.size) {
+        // An empty inbox may be a failed read, so one empty answer proves nothing; after two in a row the inbox really is empty and the FIRST message that
+        // arrives later must count as new (before, it was taken as "already there" and never showed a badge).
+        if (++emptyRuns >= 2) { seen = new Map(); saveSeen(); }
+        return;
+      }
+      seen = new Map(cnt); saveSeen();
+    }
     let n = 0, ch = false;
     for (const [k, c] of cnt) {
       const was = seen.get(k) || 0;
@@ -3432,14 +3448,14 @@ rm -rf "${DEVICE_TMP_DIR}"
   let polling = false;
   async function poll() {
     if (polling || el('matchi_sms_list')) return;
-    polling = true; api._quiet = true;   // a background check never opens a dialog or toast (sign-in too old, HTTP confirm, ...)
+    polling = true;   // a background check never opens a dialog or toast (sign-in too old, HTTP confirm, ...): its calls carry quiet:true, nothing global
     try {
       if (pwSet === null) await loadCfg();
       const hid = new Set(getHidden());
-      const list = (await fetchAll()).filter((m) => !hid.has(hk(m)));
+      const list = (await fetchAll(true)).filter((m) => !hid.has(hk(m)));
       if (!el('matchi_sms_list')) noteMsgs(list, false);
     } catch (_) {}
-    polling = false; api._quiet = false;
+    polling = false;
   }
   // Every minute through the router; every 3 minutes when it has to ask the modem (several AT commands per check).
   let lastPollAt = 0;
@@ -3940,10 +3956,13 @@ function pluginTraceInit(url,init,stack){
 
 /* @end-include web-src/plugin-trace.js */
 async function api(path,opt={},_retried){
+  /* A background check asks for silence PER CALL (opt.quiet); the old global api._quiet flag also silenced the person's own calls that ran at the same time. */
+  const quiet=!!opt.quiet||!!api._quiet;
+  if(opt.quiet!==undefined){opt={...opt};delete opt.quiet}
   const headers={...(opt.headers||{}),'x-token':TOKEN};
   /* Over plain HTTP (HTTPS could not start) root commands cross the network unencrypted: ask once per page load, shared by all callers; a "no" is remembered until the page is reloaded, so pollers do not bring the dialog back every few seconds. */
   if(path==='/api/shell'&&insecurePage()){
-    if(api._quiet)throw new Error('Skipped: the connection is not encrypted (HTTP)');   /* background checks never open a dialog */
+    if(quiet)throw new Error('Skipped: the connection is not encrypted (HTTP)');   /* background checks never open a dialog */
     if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.')
     headers['x-insecure-ok']='1';
   }
@@ -3960,7 +3979,7 @@ async function api(path,opt={},_retried){
   try{data=raw?JSON.parse(raw):{}}catch(_){data={error:raw||'Invalid server response'}}
   if(!r.ok){
     /* Other root-capable calls (AT writes, IMEI, USB, screen input, install, plugins) are only confirmed when the host asks for it, then retried once. */
-    if(r.status===403&&data.code==='insecure'&&!_retried&&path!=='/api/shell'&&!api._quiet){
+    if(r.status===403&&data.code==='insecure'&&!_retried&&path!=='/api/shell'&&!quiet){
       if(await insecureOk())return api(path,{...opt,headers:{...(opt.headers||{}),'x-insecure-ok':'1'}},true);
       throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
     }
@@ -3989,7 +4008,7 @@ async function api(path,opt={},_retried){
         return api(path,{...opt,body:JSON.stringify({...o,confirmCaps:true})},true);
       throw new Error('Update cancelled: it adds new abilities');
     }
-    if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(!api._quiet&&t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
+    if(r.status===403&&data.code==='reauth'){/* root commands need a sign-in younger than 4 h: keep the token; pollers call this every few seconds, so tell the user only once a minute */const t=Date.now();if(!quiet&&t-(api._reauthAt||0)>60000){api._reauthAt=t;try{createToast('Sign in again to run root commands: sign out, then sign back in.','orange',8000)}catch(_){}}}
     else if(r.status===401&&TOKEN&&path!=='/api/login')sessionLost('Session ended - sign in again');
     const message=r.status===401?(data.error||'Invalid password'):r.status===429?(data.error||'Too many attempts. Wait a minute and retry.'):(data.error||data.message||`Request failed (${r.status})`);
     throw new Error(message);

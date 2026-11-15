@@ -89,7 +89,7 @@ TABLE = {
   ('POST', '/api/set_cookie'): ('GATE', ''),
   ('POST', '/api/zte/page'): ('OPEN', ''),
   ('GET',  '/api/zte/config'): ('OPEN', ''),
-  ('POST', '/api/zte/config'): ('OPEN', 'changing the router password ends the other sessions'),
+  ('POST', '/api/zte/config'): ('GATE', 'a changed address or password also needs the current password again (counts toward the login lockout); changing the password ends the other sessions'),
   ('POST', '/api/update/stage'): ('OPEN', 'stages a file only; installing is gated'),
   ('POST', '/api/update/check'): ('OPEN', ''),
   ('POST', '/api/update/fetch'): ('OPEN', 'download only; installing is gated'),

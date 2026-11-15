@@ -26,6 +26,7 @@ class LoginGuard(private val clock: () -> Long = { System.currentTimeMillis() })
     private var loopSleepers = 0
     private var loopDayStart = 0L
     private var loopDayFails = 0
+    private var attemptsInFlight = 0
     private val routerAsks = ArrayDeque<Long>()
     private val routerAsksByIp = HashMap<String, ArrayDeque<Long>>()
 
@@ -43,6 +44,16 @@ class LoginGuard(private val clock: () -> Long = { System.currentTimeMillis() })
         }
         maxOf(0L, wait)
     }
+
+    /**
+     * C2 (1.4.3): a bad password is only counted AFTER the slow password check, so requests that arrive together all passed [retryAfterMs] and could each
+     * try a password before the lock applied. Non-loopback logins therefore take one of [MAX_PARALLEL_ATTEMPTS] slots first; false = answer 429 at once.
+     * Always pair a true answer with [endAttempt] (finally), and ask [retryAfterMs] again after getting the slot.
+     */
+    fun tryBeginAttempt(): Boolean = synchronized(this) {
+        if (attemptsInFlight >= MAX_PARALLEL_ATTEMPTS) false else { attemptsInFlight++; true }
+    }
+    fun endAttempt() = synchronized(this) { if (attemptsInFlight > 0) attemptsInFlight-- }
 
     /** Record a wrong password. */
     fun failed(ip: String, loopback: Boolean) = synchronized(this) {
@@ -133,6 +144,7 @@ class LoginGuard(private val clock: () -> Long = { System.currentTimeMillis() })
         const val LOOP_BASE_MS = 2_000L
         const val LOOP_MAX_MS = 10_000L
         const val MAX_LOOPBACK_SLEEPERS = 4
+        const val MAX_PARALLEL_ATTEMPTS = 2   // password checks (non-loopback) running at the same moment
         const val ROUTER_BUDGET = 3          // per address
         const val ROUTER_GLOBAL_BUDGET = 9   // whole app: three addresses' worth, so the router's own lockout is still protected
         const val ROUTER_WINDOW_MS = 10L * 60_000L

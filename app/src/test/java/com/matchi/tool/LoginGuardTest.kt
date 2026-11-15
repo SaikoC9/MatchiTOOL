@@ -134,4 +134,14 @@ class LoginGuardTest {
         now += LoginGuard.LOOP_DAY_MS + 1
         assertTrue(g.loopbackDelayMs() <= LoginGuard.LOOP_MAX_MS)       // and it expires after a day
     }
+
+    @Test fun onlyAFewPasswordChecksRunAtTheSameTime() {
+        val g = guard()
+        repeat(LoginGuard.MAX_PARALLEL_ATTEMPTS) { assertTrue(g.tryBeginAttempt()) }
+        assertFalse(g.tryBeginAttempt())      // a burst cannot all pass the lock check before one failure is counted
+        g.endAttempt()
+        assertTrue(g.tryBeginAttempt())       // a finished check frees its slot
+        repeat(LoginGuard.MAX_PARALLEL_ATTEMPTS + 3) { g.endAttempt() }
+        assertTrue(g.tryBeginAttempt())       // extra endAttempt calls never make the counter negative
+    }
 }

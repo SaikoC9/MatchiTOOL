@@ -92,9 +92,30 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
     uri == "/api/zte/config" && s.method == Method.GET ->
         json(Response.Status.OK, JSONObject().put("host", Prefs.zteHost(ctx)).put("passwordSet", Prefs.ztePass(ctx).isNotEmpty())
             .put("passwordStorageReset", Prefs.passwordStorageReset(ctx)).put("passwordStoredInClear", Prefs.passwordStoredInClear(ctx)))
-    uri == "/api/zte/config" && s.method == Method.POST -> {
+    // C1 (1.4.3): changing the router address or password needs the fresh sign-in AND the current password again (same lockout as /api/login). The router
+    // password is also the console password unless a separate one is set, and the address decides where the router login is sent, so a stale, stolen or plugin-held
+    // session must not be able to change either one silently. A change that changes nothing needs no password.
+    uri == "/api/zte/config" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
         var routerChanged = false
+        val newHost = if (req.has("host")) req.optString("host").trim() else null
+        val newPass = if (req.has("password")) req.optString("password") else null
+        val wouldChange = (newHost != null && newHost != Prefs.zteHost(ctx)) || (newPass != null && newPass != Prefs.ztePass(ctx))
+        if (wouldChange && Prefs.hasAdminPassword(ctx)) {
+            val ip = s.remoteIpAddress ?: "?"
+            val loop = isLoopbackIp(ip)
+            val wait = guard.retryAfterMs(ip, loop)
+            if (wait > 0) {
+                val secs = (wait + 999) / 1000
+                return@run json(tooMany, JSONObject().put("error", "too many bad attempts, wait $secs s")).also { it.addHeader("Retry-After", secs.toString()) }
+            }
+            if (!Prefs.checkAdminPassword(ctx, req.optString("current").take(200))) {
+                guard.failed(ip, loop)
+                throw IllegalArgumentException("Current password is wrong (send it as \"current\")")
+            }
+            guard.succeeded(ip, loop)
+            auditShell(ip, "zte-config host=" + (newHost != null) + " password=" + (newPass != null), "zte-config")
+        }
         if (req.has("host")) {
             val host = req.optString("host").trim()
             val hostChanged = host != Prefs.zteHost(ctx)
