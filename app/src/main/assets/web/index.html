@@ -4590,9 +4590,10 @@ function mountPerfMode() {
   }
 
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
-  // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz is a strong
-  // guess from the stock page (chip 1 is the one that is on while the page says 5.0GHz Only), not confirmed yet: the label says so.
-  const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (probably 2.4 GHz)' : chip === 1 ? 'Chip 1 (probably 5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
+  // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
+  // while the stock page says 5.0GHz Only, and the captured band switch agrees (ChipEnum=chip1 is "2.4GHz Only", chip2 is "5.0GHz Only", part M of the plan).
+  // Phase 3 still checks it after every band switch: the re-read must show the wanted chip on.
+  const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (2.4 GHz)' : chip === 1 ? 'Chip 1 (5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
   const authLabel = (v) => {
     const t = clean(v); if (t === null) return null;
     const MAP = { OPEN: 'Open', WPA2PSK: 'WPA2-PSK', WPA3PSK: 'WPA3-PSK', WPA2PSKWPA3PSK: 'WPA2-PSK / WPA3-PSK', WPAPSKWPA2PSK: 'WPA-PSK / WPA2-PSK', WPAPSK: 'WPA-PSK' };
@@ -4609,20 +4610,29 @@ function mountPerfMode() {
         chip, band: chipLabel(chip), on: clean(e.AccessPointSwitchStatus) === null ? null : clean(e.AccessPointSwitchStatus) === '1',
         ssid: clean(e.SSID), auth: authLabel(e.AuthMode), authRaw: clean(e.AuthMode),
         broadcast: dis === null ? null : dis === '0', maxStations: num(e.ApMaxStationNumber), country: clean(e.CountryCode),
+        // Only whether the router reports a password, never the password itself.
+        pwSet: clean(e.Password) !== null || clean(e.PasswordShow) !== null,
       };
     });
     if (sw === null && !entries.length) return { moduleOn: null, entries: [], clients: num(d.wifi_access_sta_num) };
     return { moduleOn: sw === null ? null : sw === '1', entries, clients: num(d.wifi_access_sta_num) };
   }
+  // Which band is on: 'off', '2g', '5g', 'both' (both chips report on), 'other' (an unknown chip), or null when it cannot be told.
+  function wifiMode(w) {
+    if (!w || w.moduleOn === null) return null;
+    if (!w.moduleOn) return 'off';
+    const on = w.entries.filter((e) => e.on);
+    if (!on.length) return 'off';
+    if (on.length > 1) return 'both';
+    return on[0].chip === 0 ? '2g' : on[0].chip === 1 ? '5g' : 'other';
+  }
   // The mode the stock page shows: one of "2.4 GHz only", "5 GHz only", "Off" (null when it cannot be told).
   function wifiSummary(w) {
-    if (!w || w.moduleOn === null) return null;
-    if (!w.moduleOn) return 'Off';
-    const on = w.entries.filter((e) => e.on);
-    if (!on.length) return 'Off';
-    if (on.length > 1) return 'Both chips on';
-    return on[0].chip === 0 ? '2.4 GHz only (probably)' : on[0].chip === 1 ? '5 GHz only (probably)' : 'On';
+    const m = wifiMode(w);
+    return m === null ? null : { off: 'Off', both: 'Both chips on', '2g': '2.4 GHz only', '5g': '5 GHz only', other: 'On' }[m];
   }
+  // The one band that is on (its parsed entry), or null when none or both are on.
+  const wifiActive = (w) => { const on = w && w.entries ? w.entries.filter((e) => e.on) : []; return on.length === 1 ? on[0] : null; };
 
   // ---- Devices ----------------------------------------------------------------------------------------------------------------
   // station_list = Wi-Fi, lan_station_list = cable. Each entry has only mac_addr, hostname, ip_addr (mac_address is accepted too).
@@ -4997,6 +5007,166 @@ function mountPerfMode() {
     return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
   }
 
+  // ---- Wi-Fi: change (Phase 3) -------------------------------------------------------------------------------------------------
+  // Formats captured on the F50 stock page (2026-11-15, part M of the plan, AD token added by the host):
+  //   band:  switchWiFiChip   isTest=false&goformId=switchWiFiChip&ChipEnum=chip1&GuestEnable=0      (chip1 = "2.4GHz Only", chip2 = "5.0GHz Only"; also turns Wi-Fi on from Off)
+  //          switchWiFiModule isTest=false&goformId=switchWiFiModule&SwitchOption=0                  (Wi-Fi OFF)
+  //   save:  goformId=setAccessPointInfo&isTest=false&ChipIndex=0&AccessPointIndex=0&SSID=CE+2&ApIsolate=0&AuthMode=WPA2PSKWPA3PSK&ApBroadcastDisabled=0
+  //          &ApMaxStationNumber=10&EncrypType=CCMP&Password=<base64>        (the stock page sends ChipIndex=0 whichever band is on; PASSWORD_ENCODE is on in config.js)
+  //          AuthMode WPA3PSK and WPA2PSK also use EncrypType=CCMP; OPEN sends EncrypType=NONE and NO Password. ApBroadcastDisabled=1 hides the SSID.
+  // The whole set is sent every time, so a change of one field needs the current password: it is read from the router's reply at apply time, encoded here
+  // and sent. It is never put in a parsed object, never shown and never stored; the one place it can reach a file is the backup (see wifiBackupWriteSh).
+  const WIFI_AUTH = [['OPEN', 'Open (no password)'], ['WPA2PSK', 'WPA2-PSK (AES)'], ['WPA3PSK', 'WPA3-PSK'], ['WPA2PSKWPA3PSK', 'WPA2-PSK / WPA3-PSK']];   // config.js AUTH_MODES
+  const WIFI_MAX_STATIONS = 10;   // config.js MAX_STATION_NUMBER and MAX_STATION_NUMBER_5G
+  const WIFI_BANDS = [['2g', '2.4 GHz only'], ['5g', '5 GHz only'], ['off', 'Off']];
+  const wifiAuthKnown = (a) => WIFI_AUTH.some((x) => x[0] === a);
+  const B64A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const pwOk = (p) => typeof p === 'string' && /^[\x20-\x7e]{8,63}$/.test(p);
+  // Base64 of printable ASCII only (a password with other characters is refused: how the stock page encodes them is not known).
+  function b64Ascii(s) {
+    const t = String(s); let out = '';
+    if (!/^[\x20-\x7e]*$/.test(t)) throw new Error('The password may use only printable ASCII characters (letters, digits, symbols, space).');
+    for (let i = 0; i < t.length; i += 3) {
+      const a = t.charCodeAt(i), b = i + 1 < t.length ? t.charCodeAt(i + 1) : -1, c = i + 2 < t.length ? t.charCodeAt(i + 2) : -1, n = (a << 16) | ((b < 0 ? 0 : b) << 8) | (c < 0 ? 0 : c);
+      out += B64A[(n >> 18) & 63] + B64A[(n >> 12) & 63] + (b < 0 ? '=' : B64A[(n >> 6) & 63]) + (c < 0 ? '=' : B64A[n & 63]);
+    }
+    return out;
+  }
+  // Strict decode back to text (null when it is not valid base64 or not printable ASCII).
+  function b64Dec(t) {
+    const x = String(t == null ? '' : t); if (x.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(x)) return null;
+    let out = '';
+    for (let i = 0; i < x.length; i += 4) {
+      const q = [0, 1, 2, 3].map((k) => (x[i + k] === '=' ? -2 : B64A.indexOf(x[i + k])));
+      if (q[0] < 0 || q[1] < 0 || (q[2] === -2 && q[3] !== -2) || (i + 4 < x.length && (q[2] === -2 || q[3] === -2))) return null;
+      const n = (q[0] << 18) | (q[1] << 12) | ((q[2] < 0 ? 0 : q[2]) << 6) | (q[3] < 0 ? 0 : q[3]);
+      out += String.fromCharCode((n >> 16) & 255); if (q[2] !== -2) out += String.fromCharCode((n >> 8) & 255); if (q[3] !== -2) out += String.fromCharCode(n & 255);
+    }
+    return /^[\x20-\x7e]*$/.test(out) ? out : null;
+  }
+  const utf8Len = (s) => { let n = 0; for (const ch of String(s)) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+  // strict = a name typed now (no space at either end); loose = a saved or read name, which only has to be usable.
+  function wifiSsidError(s, strict) {
+    if (typeof s !== 'string' || s === '') return 'The network name must not be empty.';
+    if (/[\u0000-\u001f\u007f]/.test(s)) return 'The network name must not contain control characters.';
+    if (utf8Len(s) > 32) return 'The network name must be at most 32 bytes (accented letters and symbols take 2 to 4 bytes each).';
+    if (strict && s !== s.trim()) return 'The network name must not start or end with a space.';
+    return null;
+  }
+  // The password the router reports now, for the chip(s) that are on (all chips when none is). Returns {pw} or {error}; the caller must not keep or show it.
+  function wifiCurrentPw(raw) {
+    const entries = toList(pick(raw, 'ResponseList')).filter(isObj), on = entries.filter((e) => clean(e.AccessPointSwitchStatus) === '1'), use = on.length ? on : entries, set = new Set();
+    for (const e of use) { const p = clean(e.Password) !== null ? String(e.Password) : clean(e.PasswordShow) !== null ? String(e.PasswordShow) : null; if (p !== null) set.add(p); }
+    if (!set.size) return { error: 'The router reports no Wi-Fi password to keep: type one.' };
+    if (set.size > 1) return { error: 'The router reports different passwords for its two chips: type a new password.' };
+    return { pw: [...set][0] };
+  }
+  // true / false: does the router report exactly this password now? (Used to confirm a password change without ever returning the password.)
+  const wifiHasPassword = (raw, plain) => { const c = wifiCurrentPw(raw); return !c.error && typeof plain === 'string' && c.pw === plain; };
+  // The settings of one parsed entry as a plain set, or null when the router does not report all of them (or reports a mode this tool does not offer).
+  function wifiSnapOk(v) {
+    if (!isObj(v) || typeof v.ssid !== 'string' || wifiSsidError(v.ssid, false) || !wifiAuthKnown(v.auth) || typeof v.hidden !== 'boolean') return null;
+    if (!Number.isInteger(v.max) || v.max < 1 || v.max > WIFI_MAX_STATIONS) return null;
+    const o = { ssid: v.ssid, auth: v.auth, hidden: v.hidden, max: v.max };
+    if (v.pwB64 !== undefined && v.pwB64 !== null) { const p = b64Dec(v.pwB64); if (p === null || !pwOk(p) || v.auth === 'OPEN') return null; o.pwB64 = v.pwB64; }
+    return o;
+  }
+  const wifiSnapOf = (e) => (e ? wifiSnapOk({ ssid: e.ssid, auth: e.authRaw, hidden: e.broadcast === null ? null : !e.broadcast, max: e.maxStations }) : null);
+  // What the form checks: returns {ssid, auth, hidden, max, pw} (pw = a typed password, or null to keep the current one) or {error: text}.
+  // entry = the parsed active entry (does the router have a password to keep?).
+  function wifiFormCheck(entry, f) {
+    const x = f || {};
+    const e1 = wifiSsidError(x.ssid, true); if (e1) return { error: e1 };
+    if (!wifiAuthKnown(x.auth)) return { error: 'Choose a security mode from the list.' };
+    if (typeof x.hidden !== 'boolean') return { error: 'Broadcast SSID must be ticked or not.' };
+    const mt = String(x.max == null ? '' : x.max).trim();
+    if (!/^\d{1,2}$/.test(mt) || parseInt(mt, 10) < 1 || parseInt(mt, 10) > WIFI_MAX_STATIONS) return { error: 'Max devices must be a whole number from 1 to ' + WIFI_MAX_STATIONS + '.' };
+    const out = { ssid: x.ssid, auth: x.auth, hidden: x.hidden, max: parseInt(mt, 10), pw: null };
+    if (x.auth === 'OPEN') return out;
+    const pw = typeof x.pw === 'string' ? x.pw : '';
+    if (pw !== '') {
+      if (!/^[\x20-\x7e]*$/.test(pw)) return { error: 'The password may use only printable ASCII characters (letters, digits, symbols, space).' };
+      if (!pwOk(pw)) return { error: 'The password must be 8 to 63 characters long.' };
+      out.pw = pw; return out;
+    }
+    if (!entry || !entry.pwSet || entry.authRaw === 'OPEN') return { error: 'Type a password (8 to 63 characters): the router has none to keep.' };
+    return out;
+  }
+  // The call that saves the settings, exactly as the stock page sends it. want = {ssid, auth, hidden, max} plus the password source:
+  // pw (typed, plain) or pwB64 (already encoded, from a backup); neither = keep the current one, read from `raw` (the router's reply) here.
+  function wifiSaveCall(raw, want) {
+    const w = want || {};
+    const ssidErr = wifiSsidError(w.ssid, false); if (ssidErr) throw new Error(ssidErr);
+    if (!wifiAuthKnown(w.auth)) throw new Error('The security mode is not one this tool offers.');
+    if (typeof w.hidden !== 'boolean') throw new Error('Broadcast SSID is not set.');
+    if (!Number.isInteger(w.max) || w.max < 1 || w.max > WIFI_MAX_STATIONS) throw new Error('Max devices must be from 1 to ' + WIFI_MAX_STATIONS + '.');
+    const open = w.auth === 'OPEN';
+    const call = { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: w.ssid, ApIsolate: '0', AuthMode: w.auth, ApBroadcastDisabled: w.hidden ? '1' : '0', ApMaxStationNumber: String(w.max), EncrypType: open ? 'NONE' : 'CCMP' };
+    if (open) return call;
+    let plain;
+    if (typeof w.pwB64 === 'string') { plain = b64Dec(w.pwB64); if (plain === null) throw new Error('The saved password is not valid.'); }
+    else if (typeof w.pw === 'string' && w.pw !== '') plain = w.pw;
+    else { const c = wifiCurrentPw(raw); if (c.error) throw new Error(c.error); plain = c.pw; }
+    if (!pwOk(plain)) throw new Error('The password must be 8 to 63 printable ASCII characters. Type a new one.');
+    call.Password = b64Ascii(plain);
+    return call;
+  }
+  // The plain password a want carries (typed or saved), or null when it keeps the current one.
+  const wifiWantPw = (want) => (want && typeof want.pwB64 === 'string' ? b64Dec(want.pwB64) : want && typeof want.pw === 'string' && want.pw !== '' ? want.pw : null);
+  // Does this want change the password the router holds now? (false when it keeps it, or when it asks for what is already there)
+  const wifiPwChange = (raw, want) => { const p = wifiWantPw(want); return p !== null && !wifiHasPassword(raw, p); };
+  const wifiSame = (a, b) => !!a && !!b && a.ssid === b.ssid && a.auth === b.auth && a.hidden === b.hidden && a.max === b.max;
+  // Did the re-read show the wanted settings on the band that is on?
+  const wifiReached = (entry, want) => !!entry && !!want && entry.on === true && entry.ssid === want.ssid && entry.authRaw === want.auth && entry.broadcast === !want.hidden && entry.maxStations === want.max;
+  // The lines of the confirm dialog: what changes, never the password itself.
+  function wifiChangeLines(cur, want, pwChanges) {
+    const out = []; const authName = (a) => (WIFI_AUTH.find((x) => x[0] === a) || [a, a])[1];
+    if (cur.ssid !== want.ssid) out.push('Network name: "' + cur.ssid + '" → "' + want.ssid + '"');
+    if (cur.auth !== want.auth) out.push('Security: ' + authName(cur.auth) + ' → ' + authName(want.auth));
+    if (cur.hidden !== want.hidden) out.push('SSID broadcast: ' + (cur.hidden ? 'Hidden' : 'Visible') + ' → ' + (want.hidden ? 'Hidden' : 'Visible'));
+    if (cur.max !== want.max) out.push('Max devices: ' + cur.max + ' → ' + want.max);
+    if (pwChanges) out.push('Password: will change');
+    if (want.auth === 'OPEN' && cur.auth !== 'OPEN') out.push('The network will have NO password: anyone in range can join.');
+    return out;
+  }
+  // Band switch: '2g' / '5g' / 'off'. Which one is on is read back by wifiMode.
+  function wifiBandCall(mode) {
+    if (mode === '2g') return { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' };
+    if (mode === '5g') return { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' };
+    if (mode === 'off') return { goformId: 'switchWiFiModule', SwitchOption: '0' };
+    throw new Error('Unknown Wi-Fi band: ' + mode);
+  }
+  const wifiBandReached = (w, mode) => (mode === '2g' || mode === '5g' || mode === 'off') && wifiMode(w) === mode;
+  // The saved copy of the old settings (plan "BACKUP", rule 11): written by the root shell before the change, readable only by root. The old password goes in
+  // (as the base64 the router takes, under the key "Password" so the log redactors hide it) ONLY when the change would otherwise lose it: the password changes
+  // or the network becomes open. Otherwise a restore keeps the password the router has now.
+  const WIFI_BACKUP_DIR = '/data/local/matchitool', WIFI_BACKUP_FILE = 'wifi_backup.json';
+  const WIFI_BACKUP_PATH = WIFI_BACKUP_DIR + '/' + WIFI_BACKUP_FILE;
+  const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+  function wifiBackupSnap(raw, cur, want, pwChanges) {
+    const o = { ssid: cur.ssid, auth: cur.auth, hidden: cur.hidden, max: cur.max };
+    if (cur.auth !== 'OPEN' && (pwChanges || want.auth === 'OPEN')) { const c = wifiCurrentPw(raw); if (c.error || !pwOk(c.pw)) throw new Error('The current password cannot be saved (' + (c.error || 'it is not 8 to 63 printable ASCII characters') + ').'); o.pwB64 = b64Ascii(c.pw); }
+    return o;
+  }
+  function wifiBackupWriteSh(oldV, newV, at, dir) {
+    const o = wifiSnapOk(oldV), n = wifiSnapOk(newV);
+    if (!o || !n) throw new Error('Not a valid Wi-Fi set for the backup.');
+    const d = dir === undefined ? WIFI_BACKUP_DIR : dir; if (!/^\/[A-Za-z0-9_./-]+$/.test(d) || d.includes('..')) throw new Error('Bad backup folder.');
+    const ts = Number.isInteger(at) && at > 0 ? at : 0;
+    const one = (x) => { const r = { ssid: x.ssid, auth: x.auth, hidden: x.hidden, max: x.max }; if (x.pwB64) r.Password = x.pwB64; return r; };
+    const json = JSON.stringify({ old: one(o), new: one({ ssid: n.ssid, auth: n.auth, hidden: n.hidden, max: n.max }), at: ts });
+    return 'mkdir -p ' + d + ' && umask 077 && printf ' + shq('%s') + ' ' + shq(json) + ' > ' + d + '/' + WIFI_BACKUP_FILE + ' && echo MATCHI_BACKUP_OK';
+  }
+  const WIFI_BACKUP_READ_SH = 'cat ' + WIFI_BACKUP_PATH + ' 2>/dev/null || true';
+  const WIFI_BACKUP_DELETE_SH = 'rm -f ' + WIFI_BACKUP_PATH + ' && echo MATCHI_BACKUP_GONE';
+  function parseWifiBackup(text) {
+    let j; try { j = JSON.parse(String(text == null ? '' : text).trim()); } catch (_) { return null; }
+    if (!isObj(j) || !isObj(j.old) || !isObj(j.new)) return null;
+    const o = wifiSnapOk({ ssid: j.old.ssid, auth: j.old.auth, hidden: j.old.hidden, max: j.old.max, pwB64: j.old.Password }), n = wifiSnapOk({ ssid: j.new.ssid, auth: j.new.auth, hidden: j.new.hidden, max: j.new.max });
+    if (!o || !n) return null;
+    return { old: o, new: n, at: Number.isInteger(j.at) ? j.at : 0 };
+  }
+
   // ---- MTU / MSS: change (Phase 7, Path A: the router's own call) ----------------------------------------------------------------
   // Captured on the F50 (2026-11-14, part C2) and confirmed in the stock script service.js (2026-11-15):
   //   isTest=false&goformId=SET_DEVICE_MTU&mtu=1500&tcp_mss=1459&AD=<token>      reply {"result":"success"}, then THE ROUTER REBOOTS.
@@ -5050,7 +5220,9 @@ function mountPerfMode() {
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
-    chipLabel, authLabel, parseWifi, wifiSummary,
+    chipLabel, authLabel, parseWifi, wifiSummary, wifiMode, wifiActive,
+    WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
+    wifiChangeLines, wifiBandCall, wifiBandReached, WIFI_BACKUP_PATH, wifiBackupSnap, wifiBackupWriteSh, WIFI_BACKUP_READ_SH, WIFI_BACKUP_DELETE_SH, parseWifiBackup,
     mergeDevices, parseDevices, isMac, parseAcl, aclRefusal, hostnameError, renameCall, blockCall, unblockCall, plainIp, isSelf,
     APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,
     apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,
@@ -5071,6 +5243,7 @@ function mountPerfMode() {
  * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
  * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Phase 7: the MTU / MSS tab changes both values with the router's own call (confirm, backup copy by root, send, wait for the restart, re-read, root checks).
  * Phase 6a: the LAN / DHCP tab changes only the DHCP pool and the lease (same steps: confirm, backup copy by root, send, wait for the restart, re-read); the router IP, the mask and DHCP on / off are not changed here.
+ * Phase 3: the Wi-Fi tab switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices (confirm, backup copy by root, send, wait for Wi-Fi to restart, re-read).
  * Everything else is still read only; the one root call (MTU / MSS tab) is a
  * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
@@ -5085,8 +5258,10 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, prog: '' };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, prog: '' };
   let epoch = 0, actId = 0;
+  // Any write or wait in progress (one change at a time, whichever tab it started on).
+  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct);
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
   const h = (tag, attrs, ...kids) => {
@@ -5121,15 +5296,58 @@ function mountNetTools() {
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
       note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
+  // Phase 3: a band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
+  // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
   function viewWifi(d) {
     const w = N.parseWifi(d);
     if (!w || (w.moduleOn === null && !w.entries.length)) return note(NOT + ' (Wi-Fi settings).');
+    const mode = N.wifiMode(w), busy = anyAct();
     const top = kv([['Wi-Fi', w.moduleOn === null ? null : w.moduleOn ? 'On' : 'Off'], ['Band in use', N.wifiSummary(w)], ['Devices on Wi-Fi', w.clients === null ? null : String(w.clients)]]);
+    const msg = st.wifiMsg ? h('div', {}, st.wifiMsg.lines.map((t) => note(t, st.wifiMsg.bad ? 'net-warn' : ''))) : null;
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    // band choice
+    if (!st.wifiBandSel || st.wifiBandSel.base !== String(mode)) st.wifiBandSel = { base: String(mode), value: mode === '2g' || mode === '5g' || mode === 'off' ? mode : '' };
+    const sel = h('select', { id: 'matchi_wifi_band' }, (st.wifiBandSel.value ? [] : [h('option', { value: '' }, '(choose)')]).concat(N.WIFI_BANDS.map(([k, t]) => h('option', { value: k }, t))));
+    sel.value = st.wifiBandSel.value; if (busy) sel.disabled = true; sel.onchange = () => { st.wifiBandSel.value = sel.value; };
+    const bandSec = h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Wi-Fi switch'),
+      h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_band' }, 'Band'), sel),
+      h('div', { class: 'net-actions' }, mk('Apply band (Wi-Fi restarts)', 'matchi_wifi_band_apply', () => wifiBandSubmit(sel.value), true)),
+      note('Only one band is on at a time. Switching band, or turning Wi-Fi Off, disconnects every Wi-Fi device, including the one you are using if it is on Wi-Fi. If Wi-Fi is Off, this console is reachable only from a cable (USB / Ethernet) connection: choose a band here to turn it on again.', 'net-mut'));
+    const act = N.wifiActive(w), snap = N.wifiSnapOf(act);
     const blocks = w.entries.map((e) => h('section', { class: 'net-sec' },
       h('h4', {}, e.band + (e.on === null ? '' : e.on ? ' · on' : ' · off')),
       kv([['Network name (SSID)', e.ssid], ['Security', e.auth], ['SSID broadcast', e.broadcast === null ? null : e.broadcast ? 'Visible' : 'Hidden'],
         ['Max devices', e.maxStations === null ? null : String(e.maxStations)], ['Country code', e.country]])));
-    return h('div', {}, top, blocks, note('The Wi-Fi password is not shown or kept here. Which chip is which band is a guess until the band switch is captured.', 'net-mut'));
+    let form;
+    if (mode === 'off') form = note('Wi-Fi is Off. Choose a band above to turn it on; the settings form appears for the band that is on.', 'net-mut');
+    else if (!act || !snap) form = note('The settings are not changed here: the router must report one band on, with its name, security mode (one this tool offers), SSID broadcast and max devices.', 'net-mut');
+    else form = wifiForm(snap, act, busy);
+    return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, form, blocks,
+      note('The Wi-Fi password is not shown or kept in this window. A band change or a save restarts Wi-Fi.', 'net-mut'));
+  }
+  function wifiForm(snap, act, busy) {
+    const base = [snap.ssid, snap.auth, snap.hidden, snap.max].join('|');
+    if (!st.wifiForm || st.wifiForm.base !== base) st.wifiForm = { base, ssid: snap.ssid, auth: snap.auth, visible: !snap.hidden, max: String(snap.max) };
+    const f = st.wifiForm;
+    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
+    const ssid = h('input', { type: 'text', id: 'matchi_wifi_ssid', maxlength: '32', autocomplete: 'off', spellcheck: 'false' }); ssid.value = f.ssid; ssid.oninput = () => { f.ssid = ssid.value; };
+    const auth = h('select', { id: 'matchi_wifi_auth' }, N.WIFI_AUTH.map(([k, t]) => h('option', { value: k }, t))); auth.value = f.auth;
+    const pass = h('input', { type: 'password', id: 'matchi_wifi_pass', maxlength: '63', autocomplete: 'new-password', spellcheck: 'false' });
+    const show = h('input', { type: 'checkbox', id: 'matchi_wifi_show' }); show.onchange = () => { pass.type = show.checked ? 'text' : 'password'; };
+    const vis = h('input', { type: 'checkbox', id: 'matchi_wifi_visible' }); vis.checked = f.visible; vis.onchange = () => { f.visible = vis.checked; };
+    const max = h('select', { id: 'matchi_wifi_max' }, Array.from({ length: N.WIFI_MAX_STATIONS }, (_, i) => h('option', { value: String(i + 1) }, String(i + 1)))); max.value = f.max; max.onchange = () => { f.max = max.value; };
+    const syncPass = () => { pass.disabled = busy || auth.value === 'OPEN'; };
+    auth.onchange = () => { f.auth = auth.value; syncPass(); };
+    for (const e of [ssid, auth, pass, show, vis, max]) if (busy) e.disabled = true;
+    syncPass();
+    const err = h('p', { class: 'net-p net-warn', id: 'matchi_wifi_err' }, '');
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change Wi-Fi settings (' + act.band + ')'),
+      row('Network name (SSID)', ssid), row('Broadcast SSID (visible)', vis), row('Security mode', auth),
+      row('Wi-Fi password', pass), row('Display password', show), row('Max devices', max), err,
+      h('div', { class: 'net-actions' }, mk('Apply settings (Wi-Fi restarts)', 'matchi_wifi_apply', () => wifiSubmit(ssid.value, auth.value, vis.checked, max.value, pass, err), true)),
+      note('Leave the password empty to keep the current one (8 to 63 characters when you type one). Open means no password. The old values are saved first, so "Restore saved values" can put them back. If you are on Wi-Fi you are disconnected: reconnect to the new name and password, then press Refresh.', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_wifi_restore', wifiRestore, false), mk('Forget backup (root)', 'matchi_wifi_forget', wifiForget, false)));
   }
   function viewDevices(d) {
     const p = N.parseDevices(d);
@@ -5170,7 +5388,7 @@ function mountNetTools() {
   function viewApn(d) {
     const a = N.parseApn(d);
     if (!a || (!a.mode && !a.hasSlots && !a.inUse && !a.auto)) return note(NOT + ' (APN).');
-    const refusal = N.apnRefusal(a), busy = st.apnAct || st.act || st.devAct;
+    const refusal = N.apnRefusal(a), busy = st.apnAct || st.act || st.devAct || st.wifiAct;
     const act = (label, fn, danger, id) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (id) b.id = id; if (busy) b.disabled = true; b.onclick = fn; return b; };
     const line = (p) => (p ? (p.name || '(no name)') + (p.apn ? ' · ' + p.apn : '') : null);
     const modeWord = a.mode === 'auto' ? 'Auto' : a.mode === 'manual' ? 'Manual' : a.mode;
@@ -5236,7 +5454,7 @@ function mountNetTools() {
   function lanForm(p) {
     const base = [p.start, p.end, p.leaseHours].join('/');
     if (!st.lanForm || st.lanForm.base !== base) st.lanForm = { base, start: p.start, end: p.end, lease: String(p.leaseHours) };
-    const busy = st.lanAct || st.act || st.devAct || st.apnAct || st.mtuAct;
+    const busy = st.lanAct || st.act || st.devAct || st.apnAct || st.mtuAct || st.wifiAct;
     const inp = (id, v, key, max) => { const e = h('input', { type: 'text', id, maxlength: String(max), autocomplete: 'off' }); e.value = v; e.oninput = () => { st.lanForm[key] = e.value; }; if (busy) e.disabled = true; return e; };
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lan_err' }, '');
@@ -5262,7 +5480,7 @@ function mountNetTools() {
   function mtuForm(p) {
     const base = p.mtu + '/' + p.mss;
     if (!st.mtuForm || st.mtuForm.base !== base) st.mtuForm = { base, mtu: String(p.mtu), mss: String(p.mss) };
-    const busy = st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct;
+    const busy = st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct || st.wifiAct;
     const inp = (id, v, key) => { const e = h('input', { type: 'text', id, maxlength: '4', inputmode: 'numeric', autocomplete: 'off' }); e.value = v; e.oninput = () => { st.mtuForm[key] = e.value; }; if (busy) e.disabled = true; return e; };
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_mtu_err' }, '');
@@ -5310,7 +5528,7 @@ function mountNetTools() {
   const progress = (t) => { st.prog = t || ''; const e = $('matchi_net_prog'); if (e) e.textContent = st.prog; setStatus(st.prog); };
   const progNote = () => (st.prog ? h('p', { class: 'net-p net-prog', id: 'matchi_net_prog', role: 'status', 'aria-live': 'polite' }, st.prog) : null);
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || anyAct();
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -5539,7 +5757,7 @@ function mountNetTools() {
   const mtuRead = async () => N.parseMtu(await mtuReadRaw());
   const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
   async function mtuApply(want, why) {
-    if (st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct) return;
+    if (anyAct()) return;
     st.mtuAct = true; st.mtuMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('mtu');
     const my = ++actId;
     const done = (bad, lines) => { st.mtuMsg = { bad, lines }; };
@@ -5620,7 +5838,7 @@ function mountNetTools() {
     await mtuApply({ mtu: c.mtu, mss: c.mss }, 'Change MTU / MSS?');
   }
   async function mtuRestore() {
-    if (st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct) return;
+    if (anyAct()) return;
     let saved; try { saved = N.parseMtuBackup(await R.sh(N.MTU_BACKUP_READ_SH, 15000)); } catch (e) { st.mtuMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('mtu'); return; }
     if (!saved) { st.mtuMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('mtu'); return; }
     await mtuApply({ mtu: saved.old.mtu, mss: saved.old.mss }, 'Put the saved values back?');
@@ -5639,7 +5857,7 @@ function mountNetTools() {
   const lanReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.lan });
   const lanRead = async () => N.parseLan(await lanReadRaw());
   async function lanApply(want, why, restore) {
-    if (st.lanAct || st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    if (anyAct()) return;
     st.lanAct = true; st.lanMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('lan');
     const my = ++actId;
     const done = (bad, lines) => { st.lanMsg = { bad, lines }; };
@@ -5708,7 +5926,7 @@ function mountNetTools() {
     await lanApply({ start: c.start, end: c.end, lease: c.lease }, 'Change the DHCP pool / lease?', false);
   }
   async function lanRestore() {
-    if (st.lanAct || st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    if (anyAct()) return;
     let saved; try { saved = N.parseLanBackup(await R.sh(N.LAN_BACKUP_READ_SH, 15000)); } catch (e) { st.lanMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('lan'); return; }
     if (!saved) { st.lanMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('lan'); return; }
     await lanApply(saved.old, 'Put the saved values back?', true);   // saved.old also holds the saved IP and mask: the restore refuses if they differ now
@@ -5719,6 +5937,127 @@ function mountNetTools() {
     try { const o = await R.sh(N.LAN_BACKUP_DELETE_SH, 15000); st.lanMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
     catch (e) { st.lanMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('lan');
+  }
+  // ---- Wi-Fi: band switch and settings (Phase 3) ----------------------------------------------------------------------------------
+  // Both restart Wi-Fi. A device on Wi-Fi (maybe the one showing this page) is disconnected, so the wait loop treats a failed read as "not back yet" and
+  // keeps asking for about 90 s. Nothing is claimed that the re-read did not show. The settings change saves the old values by root first (no backup, no write);
+  // a band switch needs no file: the way back is to choose the old band.
+  const WIFI_WAIT_FIRST_MS = 8000, WIFI_WAIT_STEP_MS = 4000, WIFI_WAIT_TRIES = 22;
+  const wifiReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.wifi });
+  // Ask until check(parsed, raw) holds; returns {w, raw, wentDown, authStop, got}. Reads that fail are "not back yet", except a sign-in demand, which stops the wait.
+  async function wifiWait(my, check, label) {
+    let w = null, raw = null, wentDown = false, authStop = false, got = false, ok = false;
+    await R.sleep(WIFI_WAIT_FIRST_MS); if (my !== actId) return null;
+    for (let i = 0; i < WIFI_WAIT_TRIES; i++) {
+      try { raw = await wifiReadRaw(); w = N.parseWifi(raw); got = true; if (check(w, raw)) { ok = true; break; } }
+      catch (e) { wentDown = true; if (N.isAuthError(e.message)) { authStop = true; break; } }
+      if (my !== actId) return null;
+      progress(label + ' ' + Math.round((WIFI_WAIT_FIRST_MS + (i + 1) * WIFI_WAIT_STEP_MS) / 1000) + ' s of up to ' + Math.round((WIFI_WAIT_FIRST_MS + WIFI_WAIT_TRIES * WIFI_WAIT_STEP_MS) / 1000) + ' s. Keep this window open.');
+      await R.sleep(WIFI_WAIT_STEP_MS); if (my !== actId) return null;
+    }
+    return { w, raw, wentDown, authStop, got, ok };
+  }
+  const wifiEnd = (my) => { if (my === actId) { st.wifiAct = false; st.prog = ''; if (st.tab === 'wifi') { paint('wifi'); setStatus(st.wifiMsg && st.wifiMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); } };
+  async function wifiBandSubmit(mode) {
+    if (anyAct()) return;
+    if (mode !== '2g' && mode !== '5g' && mode !== 'off') { st.wifiMsg = { bad: true, lines: ['Choose 2.4 GHz only, 5 GHz only or Off first.'] }; paint('wifi'); return; }
+    st.wifiAct = true; st.wifiMsg = null; progress('Reading the current Wi-Fi state from the router…'); syncButtons(); paint('wifi');
+    const my = ++actId, done = (bad, lines) => { st.wifiMsg = { bad, lines }; };
+    const nameOf = (m) => (N.WIFI_BANDS.find((b) => b[0] === m) || [m, String(m)])[1];
+    try {
+      let w; try { w = N.parseWifi(await wifiReadRaw()); } catch (e) { done(true, ['Not sent: could not read the current state (' + N.maskSecrets(e.message) + ').']); return; }
+      const now = N.wifiMode(w);
+      if (now === null) { done(true, ['Not sent: the router did not report the Wi-Fi state.']); return; }
+      if (now === mode) { done(false, ['Wi-Fi is already ' + nameOf(mode) + '. Nothing was sent.']); return; }
+      if (my !== actId) return;
+      let call; try { call = N.wifiBandCall(mode); } catch (e) { done(true, ['Not sent: ' + e.message]); return; }
+      const lockout = mode === 'off' ? '\n\nWi-Fi will be OFF. This console is then reachable only from a cable (USB / Ethernet) connection. If you are not on a cable you lose it, and Wi-Fi stays off until it is turned on from a cable connection.'
+        : '\n\nDevices that do not support this band cannot reconnect.';
+      const ok = await askConfirm((mode === 'off' ? 'Turn Wi-Fi off?' : 'Switch Wi-Fi to ' + nameOf(mode) + '?') + '\n\nNow: ' + (N.wifiSummary(w) || 'unknown') + ' → ' + nameOf(mode)
+        + '\n\nWi-Fi restarts. Every device on Wi-Fi is disconnected, including the one you are using if it is on Wi-Fi. They reconnect on their own if the network name and password stay the same.' + lockout
+        + '\n\nWay back: choose ' + nameOf(now === 'both' || now === 'other' ? '5g' : now) + ' here.', mode === 'off' ? 'Turn off' : 'Switch band', true);
+      if (!ok) { st.wifiAct = false; return; }
+      if (my !== actId) return;
+      progress('Sending the band change to the router…');
+      try { await R.setRouter(call, true); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      progress('Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.');
+      const r = await wifiWait(my, (x) => N.wifiBandReached(x, mode), 'Wi-Fi is restarting…'); if (!r) return;
+      if (r.authStop) { done(true, ['The console is asking for a new sign-in. Sign in again and press Refresh to see the Wi-Fi state.']); return; }
+      if (!r.got) { done(true, ['The console did not answer within about ' + Math.round((WIFI_WAIT_FIRST_MS + WIFI_WAIT_TRIES * WIFI_WAIT_STEP_MS) / 1000) + ' s. If you were on Wi-Fi, reconnect to it (it may be Off now) and press Refresh.']); return; }
+      if (r.raw) st.cache.wifi = { d: r.raw, at: Date.now() };
+      st.wifiForm = null; st.wifiBandSel = null;
+      done(!r.ok, r.ok ? ['The router reports Wi-Fi: ' + N.wifiSummary(r.w) + '.' + (mode === 'off' ? ' To turn it on again choose a band here (from a cable connection).' : ' Wi-Fi devices reconnect on their own; one that does not reconnect may not support this band.')]
+        : ['The router answers but reports Wi-Fi: ' + (N.wifiSummary(r.w) || 'unknown') + ', not ' + nameOf(mode) + '. Press Refresh to read it again.']);
+    } finally { wifiEnd(my); }
+  }
+  async function wifiApply(want, why, restore) {
+    if (anyAct()) return;
+    st.wifiAct = true; st.wifiMsg = null; progress('Reading the current Wi-Fi settings from the router…'); syncButtons(); paint('wifi');
+    const my = ++actId, done = (bad, lines) => { st.wifiMsg = { bad, lines }; };
+    try {
+      let raw, w; try { raw = await wifiReadRaw(); w = N.parseWifi(raw); } catch (e) { done(true, ['Not sent: could not read the current settings (' + N.maskSecrets(e.message) + ').']); return; }
+      const act = N.wifiActive(w), cur = N.wifiSnapOf(act);
+      if (!act || !cur) { done(true, ['Not sent: the router must report one band on, with its name, a security mode this tool offers, SSID broadcast and max devices.']); return; }
+      if (my !== actId) return;
+      const pwChanges = N.wifiPwChange(raw, want);
+      if (N.wifiSame(cur, want) && !pwChanges) { done(false, ['The router already has these settings. Nothing was sent.']); return; }
+      let call; try { call = N.wifiSaveCall(raw, want); } catch (e) { done(true, ['Not sent: ' + e.message]); return; }
+      let oldSnap; try { oldSnap = N.wifiBackupSnap(raw, cur, want, pwChanges); } catch (e) { done(true, ['Not sent: ' + e.message + ' Nothing was changed.']); return; }
+      const newSnap = { ssid: want.ssid, auth: want.auth, hidden: want.hidden, max: want.max };
+      const lines = N.wifiChangeLines(cur, want, pwChanges), rejoin = cur.ssid !== want.ssid || cur.auth !== want.auth || pwChanges;
+      const ok = await askConfirm((why || 'Change the Wi-Fi settings?') + '\n\n' + act.band + '\n' + lines.join('\n')
+        + '\n\nWi-Fi restarts. Every device on Wi-Fi is disconnected, including the one you are using if it is on Wi-Fi.' + (rejoin ? ' Reconnect to the new name and password, then press Refresh.' : ' They reconnect on their own.')
+        + '\n\nThe old values are saved first; "Restore saved values" puts them back.', 'Apply and restart Wi-Fi', true);
+      if (!ok) { st.wifiAct = false; return; }
+      if (my !== actId) return;
+      progress('Saving a backup copy of the old values…');
+      try {
+        const wr = await R.sh(N.wifiBackupWriteSh(oldSnap, newSnap, Date.now()), 15000);
+        const back = N.parseWifiBackup(await R.sh(N.WIFI_BACKUP_READ_SH, 15000));
+        if (!String(wr).includes('MATCHI_BACKUP_OK') || !back || !N.wifiSame(back.old, oldSnap) || (oldSnap.pwB64 || null) !== (back.old.pwB64 || null)) throw new Error('the copy could not be read back');
+      } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
+      progress('Sending the Wi-Fi settings to the router…');
+      try { await R.setRouter(call, true); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      call = null;
+      progress('Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.');
+      const r = await wifiWait(my, (x, rawNow) => N.wifiReached(N.wifiActive(x), want) && (!pwChanges || N.wifiHasPassword(rawNow, N.wifiWantPw(want))), 'Wi-Fi is restarting…'); if (!r) return;
+      const way = 'The old values are saved: "Restore saved values" puts them back (if you are on Wi-Fi, reconnect first).';
+      if (r.authStop) { done(true, ['The console is asking for a new sign-in. Sign in again and press Refresh to see the values. ' + way]); return; }
+      if (!r.got) { done(true, ['The console did not answer within about ' + Math.round((WIFI_WAIT_FIRST_MS + WIFI_WAIT_TRIES * WIFI_WAIT_STEP_MS) / 1000) + ' s. If you were on Wi-Fi, reconnect to ' + (rejoin ? '"' + want.ssid + '" with the new settings' : 'your Wi-Fi') + ' and press Refresh. ' + way]); return; }
+      if (r.raw) st.cache.wifi = { d: r.raw, at: Date.now() };
+      const e2 = N.wifiActive(r.w), out = [];
+      if (r.ok) out.push('The router reports the new settings: "' + want.ssid + '", ' + (N.WIFI_AUTH.find((x) => x[0] === want.auth) || [0, want.auth])[1] + ', ' + (want.hidden ? 'hidden' : 'visible') + ', max ' + want.max + ' devices' + (pwChanges ? ', and the new password' : '') + '.');
+      else {
+        out.push('The router answers but does not report all the wanted settings.' + (e2 ? ' It reports "' + e2.ssid + '", ' + (e2.auth || 'no security mode') + ', ' + (e2.broadcast === null ? 'broadcast not reported' : e2.broadcast ? 'visible' : 'hidden') + ', max ' + (e2.maxStations === null ? 'not reported' : e2.maxStations) + ' devices.' : ' No band is reported as on.'));
+        if (e2 && N.wifiReached(e2, want) && pwChanges) out.push('The name, security, SSID broadcast and max devices match, but the router does not report the new password.');
+      }
+      out.push(r.ok ? 'The old values stay saved for "Restore saved values". If a device cannot join, check the password it uses.' : way + ' Press Refresh to read the settings again.');
+      done(!r.ok, out); st.wifiForm = null;
+    } finally { wifiEnd(my); }
+  }
+  async function wifiSubmit(ssid, auth, visible, max, passEl, errEl) {
+    const w = st.cache.wifi && st.cache.wifi.d ? N.parseWifi(st.cache.wifi.d) : null, act = N.wifiActive(w);
+    const typed = passEl ? passEl.value : '';
+    const c = N.wifiFormCheck(act, { ssid, auth, hidden: !visible, max, pw: typed });
+    if (c.error) { if (errEl) errEl.textContent = c.error; return; }
+    if (errEl) errEl.textContent = '';
+    const want = { ssid: c.ssid, auth: c.auth, hidden: c.hidden, max: c.max, pw: c.pw };
+    if (passEl) passEl.value = '';   // the typed password lives only in `want` from here on
+    await wifiApply(want, 'Change the Wi-Fi settings?', false);
+  }
+  async function wifiRestore() {
+    if (anyAct()) return;
+    let saved; try { saved = N.parseWifiBackup(await R.sh(N.WIFI_BACKUP_READ_SH, 15000)); } catch (e) { st.wifiMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('wifi'); return; }
+    if (!saved) { st.wifiMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('wifi'); return; }
+    const o = saved.old;
+    await wifiApply({ ssid: o.ssid, auth: o.auth, hidden: o.hidden, max: o.max, pwB64: o.pwB64 }, 'Put the saved values back?', true);
+  }
+  async function wifiForget() {
+    if (st.wifiAct) return;
+    if (!(await askConfirm('Delete the saved copy of the old Wi-Fi settings?\n\nAfter this "Restore saved values" has nothing to restore. The copy may hold the old Wi-Fi password.', 'Delete', true))) return;
+    try { const o = await R.sh(N.WIFI_BACKUP_DELETE_SH, 15000); st.wifiMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
+    catch (e) { st.wifiMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
+    paint('wifi');
   }
   async function findMe() {
     try { const r = await api('/api/net/whoami'); st.me = r && r.ip ? N.plainIp(r.ip) : ''; } catch (_) { st.me = ''; }
@@ -5768,9 +6107,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.prog = ''; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
@@ -5786,7 +6125,7 @@ function mountNetTools() {
       };
       tabs.appendChild(b);
     }
-    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; if (st.tab === 'lan') st.lanForm = null; load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
+    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; if (st.tab === 'lan') st.lanForm = null; if (st.tab === 'wifi') { st.wifiForm = null; st.wifiBandSel = null; } load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
     load('data');
     findMe();
   }

@@ -110,9 +110,10 @@
   }
 
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
-  // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz is a strong
-  // guess from the stock page (chip 1 is the one that is on while the page says 5.0GHz Only), not confirmed yet: the label says so.
-  const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (probably 2.4 GHz)' : chip === 1 ? 'Chip 1 (probably 5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
+  // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
+  // while the stock page says 5.0GHz Only, and the captured band switch agrees (ChipEnum=chip1 is "2.4GHz Only", chip2 is "5.0GHz Only", part M of the plan).
+  // Phase 3 still checks it after every band switch: the re-read must show the wanted chip on.
+  const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (2.4 GHz)' : chip === 1 ? 'Chip 1 (5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
   const authLabel = (v) => {
     const t = clean(v); if (t === null) return null;
     const MAP = { OPEN: 'Open', WPA2PSK: 'WPA2-PSK', WPA3PSK: 'WPA3-PSK', WPA2PSKWPA3PSK: 'WPA2-PSK / WPA3-PSK', WPAPSKWPA2PSK: 'WPA-PSK / WPA2-PSK', WPAPSK: 'WPA-PSK' };
@@ -129,20 +130,29 @@
         chip, band: chipLabel(chip), on: clean(e.AccessPointSwitchStatus) === null ? null : clean(e.AccessPointSwitchStatus) === '1',
         ssid: clean(e.SSID), auth: authLabel(e.AuthMode), authRaw: clean(e.AuthMode),
         broadcast: dis === null ? null : dis === '0', maxStations: num(e.ApMaxStationNumber), country: clean(e.CountryCode),
+        // Only whether the router reports a password, never the password itself.
+        pwSet: clean(e.Password) !== null || clean(e.PasswordShow) !== null,
       };
     });
     if (sw === null && !entries.length) return { moduleOn: null, entries: [], clients: num(d.wifi_access_sta_num) };
     return { moduleOn: sw === null ? null : sw === '1', entries, clients: num(d.wifi_access_sta_num) };
   }
+  // Which band is on: 'off', '2g', '5g', 'both' (both chips report on), 'other' (an unknown chip), or null when it cannot be told.
+  function wifiMode(w) {
+    if (!w || w.moduleOn === null) return null;
+    if (!w.moduleOn) return 'off';
+    const on = w.entries.filter((e) => e.on);
+    if (!on.length) return 'off';
+    if (on.length > 1) return 'both';
+    return on[0].chip === 0 ? '2g' : on[0].chip === 1 ? '5g' : 'other';
+  }
   // The mode the stock page shows: one of "2.4 GHz only", "5 GHz only", "Off" (null when it cannot be told).
   function wifiSummary(w) {
-    if (!w || w.moduleOn === null) return null;
-    if (!w.moduleOn) return 'Off';
-    const on = w.entries.filter((e) => e.on);
-    if (!on.length) return 'Off';
-    if (on.length > 1) return 'Both chips on';
-    return on[0].chip === 0 ? '2.4 GHz only (probably)' : on[0].chip === 1 ? '5 GHz only (probably)' : 'On';
+    const m = wifiMode(w);
+    return m === null ? null : { off: 'Off', both: 'Both chips on', '2g': '2.4 GHz only', '5g': '5 GHz only', other: 'On' }[m];
   }
+  // The one band that is on (its parsed entry), or null when none or both are on.
+  const wifiActive = (w) => { const on = w && w.entries ? w.entries.filter((e) => e.on) : []; return on.length === 1 ? on[0] : null; };
 
   // ---- Devices ----------------------------------------------------------------------------------------------------------------
   // station_list = Wi-Fi, lan_station_list = cable. Each entry has only mac_addr, hostname, ip_addr (mac_address is accepted too).
@@ -517,6 +527,166 @@
     return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
   }
 
+  // ---- Wi-Fi: change (Phase 3) -------------------------------------------------------------------------------------------------
+  // Formats captured on the F50 stock page (2026-11-15, part M of the plan, AD token added by the host):
+  //   band:  switchWiFiChip   isTest=false&goformId=switchWiFiChip&ChipEnum=chip1&GuestEnable=0      (chip1 = "2.4GHz Only", chip2 = "5.0GHz Only"; also turns Wi-Fi on from Off)
+  //          switchWiFiModule isTest=false&goformId=switchWiFiModule&SwitchOption=0                  (Wi-Fi OFF)
+  //   save:  goformId=setAccessPointInfo&isTest=false&ChipIndex=0&AccessPointIndex=0&SSID=CE+2&ApIsolate=0&AuthMode=WPA2PSKWPA3PSK&ApBroadcastDisabled=0
+  //          &ApMaxStationNumber=10&EncrypType=CCMP&Password=<base64>        (the stock page sends ChipIndex=0 whichever band is on; PASSWORD_ENCODE is on in config.js)
+  //          AuthMode WPA3PSK and WPA2PSK also use EncrypType=CCMP; OPEN sends EncrypType=NONE and NO Password. ApBroadcastDisabled=1 hides the SSID.
+  // The whole set is sent every time, so a change of one field needs the current password: it is read from the router's reply at apply time, encoded here
+  // and sent. It is never put in a parsed object, never shown and never stored; the one place it can reach a file is the backup (see wifiBackupWriteSh).
+  const WIFI_AUTH = [['OPEN', 'Open (no password)'], ['WPA2PSK', 'WPA2-PSK (AES)'], ['WPA3PSK', 'WPA3-PSK'], ['WPA2PSKWPA3PSK', 'WPA2-PSK / WPA3-PSK']];   // config.js AUTH_MODES
+  const WIFI_MAX_STATIONS = 10;   // config.js MAX_STATION_NUMBER and MAX_STATION_NUMBER_5G
+  const WIFI_BANDS = [['2g', '2.4 GHz only'], ['5g', '5 GHz only'], ['off', 'Off']];
+  const wifiAuthKnown = (a) => WIFI_AUTH.some((x) => x[0] === a);
+  const B64A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const pwOk = (p) => typeof p === 'string' && /^[\x20-\x7e]{8,63}$/.test(p);
+  // Base64 of printable ASCII only (a password with other characters is refused: how the stock page encodes them is not known).
+  function b64Ascii(s) {
+    const t = String(s); let out = '';
+    if (!/^[\x20-\x7e]*$/.test(t)) throw new Error('The password may use only printable ASCII characters (letters, digits, symbols, space).');
+    for (let i = 0; i < t.length; i += 3) {
+      const a = t.charCodeAt(i), b = i + 1 < t.length ? t.charCodeAt(i + 1) : -1, c = i + 2 < t.length ? t.charCodeAt(i + 2) : -1, n = (a << 16) | ((b < 0 ? 0 : b) << 8) | (c < 0 ? 0 : c);
+      out += B64A[(n >> 18) & 63] + B64A[(n >> 12) & 63] + (b < 0 ? '=' : B64A[(n >> 6) & 63]) + (c < 0 ? '=' : B64A[n & 63]);
+    }
+    return out;
+  }
+  // Strict decode back to text (null when it is not valid base64 or not printable ASCII).
+  function b64Dec(t) {
+    const x = String(t == null ? '' : t); if (x.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(x)) return null;
+    let out = '';
+    for (let i = 0; i < x.length; i += 4) {
+      const q = [0, 1, 2, 3].map((k) => (x[i + k] === '=' ? -2 : B64A.indexOf(x[i + k])));
+      if (q[0] < 0 || q[1] < 0 || (q[2] === -2 && q[3] !== -2) || (i + 4 < x.length && (q[2] === -2 || q[3] === -2))) return null;
+      const n = (q[0] << 18) | (q[1] << 12) | ((q[2] < 0 ? 0 : q[2]) << 6) | (q[3] < 0 ? 0 : q[3]);
+      out += String.fromCharCode((n >> 16) & 255); if (q[2] !== -2) out += String.fromCharCode((n >> 8) & 255); if (q[3] !== -2) out += String.fromCharCode(n & 255);
+    }
+    return /^[\x20-\x7e]*$/.test(out) ? out : null;
+  }
+  const utf8Len = (s) => { let n = 0; for (const ch of String(s)) { const c = ch.codePointAt(0); n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4; } return n; };
+  // strict = a name typed now (no space at either end); loose = a saved or read name, which only has to be usable.
+  function wifiSsidError(s, strict) {
+    if (typeof s !== 'string' || s === '') return 'The network name must not be empty.';
+    if (/[\u0000-\u001f\u007f]/.test(s)) return 'The network name must not contain control characters.';
+    if (utf8Len(s) > 32) return 'The network name must be at most 32 bytes (accented letters and symbols take 2 to 4 bytes each).';
+    if (strict && s !== s.trim()) return 'The network name must not start or end with a space.';
+    return null;
+  }
+  // The password the router reports now, for the chip(s) that are on (all chips when none is). Returns {pw} or {error}; the caller must not keep or show it.
+  function wifiCurrentPw(raw) {
+    const entries = toList(pick(raw, 'ResponseList')).filter(isObj), on = entries.filter((e) => clean(e.AccessPointSwitchStatus) === '1'), use = on.length ? on : entries, set = new Set();
+    for (const e of use) { const p = clean(e.Password) !== null ? String(e.Password) : clean(e.PasswordShow) !== null ? String(e.PasswordShow) : null; if (p !== null) set.add(p); }
+    if (!set.size) return { error: 'The router reports no Wi-Fi password to keep: type one.' };
+    if (set.size > 1) return { error: 'The router reports different passwords for its two chips: type a new password.' };
+    return { pw: [...set][0] };
+  }
+  // true / false: does the router report exactly this password now? (Used to confirm a password change without ever returning the password.)
+  const wifiHasPassword = (raw, plain) => { const c = wifiCurrentPw(raw); return !c.error && typeof plain === 'string' && c.pw === plain; };
+  // The settings of one parsed entry as a plain set, or null when the router does not report all of them (or reports a mode this tool does not offer).
+  function wifiSnapOk(v) {
+    if (!isObj(v) || typeof v.ssid !== 'string' || wifiSsidError(v.ssid, false) || !wifiAuthKnown(v.auth) || typeof v.hidden !== 'boolean') return null;
+    if (!Number.isInteger(v.max) || v.max < 1 || v.max > WIFI_MAX_STATIONS) return null;
+    const o = { ssid: v.ssid, auth: v.auth, hidden: v.hidden, max: v.max };
+    if (v.pwB64 !== undefined && v.pwB64 !== null) { const p = b64Dec(v.pwB64); if (p === null || !pwOk(p) || v.auth === 'OPEN') return null; o.pwB64 = v.pwB64; }
+    return o;
+  }
+  const wifiSnapOf = (e) => (e ? wifiSnapOk({ ssid: e.ssid, auth: e.authRaw, hidden: e.broadcast === null ? null : !e.broadcast, max: e.maxStations }) : null);
+  // What the form checks: returns {ssid, auth, hidden, max, pw} (pw = a typed password, or null to keep the current one) or {error: text}.
+  // entry = the parsed active entry (does the router have a password to keep?).
+  function wifiFormCheck(entry, f) {
+    const x = f || {};
+    const e1 = wifiSsidError(x.ssid, true); if (e1) return { error: e1 };
+    if (!wifiAuthKnown(x.auth)) return { error: 'Choose a security mode from the list.' };
+    if (typeof x.hidden !== 'boolean') return { error: 'Broadcast SSID must be ticked or not.' };
+    const mt = String(x.max == null ? '' : x.max).trim();
+    if (!/^\d{1,2}$/.test(mt) || parseInt(mt, 10) < 1 || parseInt(mt, 10) > WIFI_MAX_STATIONS) return { error: 'Max devices must be a whole number from 1 to ' + WIFI_MAX_STATIONS + '.' };
+    const out = { ssid: x.ssid, auth: x.auth, hidden: x.hidden, max: parseInt(mt, 10), pw: null };
+    if (x.auth === 'OPEN') return out;
+    const pw = typeof x.pw === 'string' ? x.pw : '';
+    if (pw !== '') {
+      if (!/^[\x20-\x7e]*$/.test(pw)) return { error: 'The password may use only printable ASCII characters (letters, digits, symbols, space).' };
+      if (!pwOk(pw)) return { error: 'The password must be 8 to 63 characters long.' };
+      out.pw = pw; return out;
+    }
+    if (!entry || !entry.pwSet || entry.authRaw === 'OPEN') return { error: 'Type a password (8 to 63 characters): the router has none to keep.' };
+    return out;
+  }
+  // The call that saves the settings, exactly as the stock page sends it. want = {ssid, auth, hidden, max} plus the password source:
+  // pw (typed, plain) or pwB64 (already encoded, from a backup); neither = keep the current one, read from `raw` (the router's reply) here.
+  function wifiSaveCall(raw, want) {
+    const w = want || {};
+    const ssidErr = wifiSsidError(w.ssid, false); if (ssidErr) throw new Error(ssidErr);
+    if (!wifiAuthKnown(w.auth)) throw new Error('The security mode is not one this tool offers.');
+    if (typeof w.hidden !== 'boolean') throw new Error('Broadcast SSID is not set.');
+    if (!Number.isInteger(w.max) || w.max < 1 || w.max > WIFI_MAX_STATIONS) throw new Error('Max devices must be from 1 to ' + WIFI_MAX_STATIONS + '.');
+    const open = w.auth === 'OPEN';
+    const call = { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: w.ssid, ApIsolate: '0', AuthMode: w.auth, ApBroadcastDisabled: w.hidden ? '1' : '0', ApMaxStationNumber: String(w.max), EncrypType: open ? 'NONE' : 'CCMP' };
+    if (open) return call;
+    let plain;
+    if (typeof w.pwB64 === 'string') { plain = b64Dec(w.pwB64); if (plain === null) throw new Error('The saved password is not valid.'); }
+    else if (typeof w.pw === 'string' && w.pw !== '') plain = w.pw;
+    else { const c = wifiCurrentPw(raw); if (c.error) throw new Error(c.error); plain = c.pw; }
+    if (!pwOk(plain)) throw new Error('The password must be 8 to 63 printable ASCII characters. Type a new one.');
+    call.Password = b64Ascii(plain);
+    return call;
+  }
+  // The plain password a want carries (typed or saved), or null when it keeps the current one.
+  const wifiWantPw = (want) => (want && typeof want.pwB64 === 'string' ? b64Dec(want.pwB64) : want && typeof want.pw === 'string' && want.pw !== '' ? want.pw : null);
+  // Does this want change the password the router holds now? (false when it keeps it, or when it asks for what is already there)
+  const wifiPwChange = (raw, want) => { const p = wifiWantPw(want); return p !== null && !wifiHasPassword(raw, p); };
+  const wifiSame = (a, b) => !!a && !!b && a.ssid === b.ssid && a.auth === b.auth && a.hidden === b.hidden && a.max === b.max;
+  // Did the re-read show the wanted settings on the band that is on?
+  const wifiReached = (entry, want) => !!entry && !!want && entry.on === true && entry.ssid === want.ssid && entry.authRaw === want.auth && entry.broadcast === !want.hidden && entry.maxStations === want.max;
+  // The lines of the confirm dialog: what changes, never the password itself.
+  function wifiChangeLines(cur, want, pwChanges) {
+    const out = []; const authName = (a) => (WIFI_AUTH.find((x) => x[0] === a) || [a, a])[1];
+    if (cur.ssid !== want.ssid) out.push('Network name: "' + cur.ssid + '" → "' + want.ssid + '"');
+    if (cur.auth !== want.auth) out.push('Security: ' + authName(cur.auth) + ' → ' + authName(want.auth));
+    if (cur.hidden !== want.hidden) out.push('SSID broadcast: ' + (cur.hidden ? 'Hidden' : 'Visible') + ' → ' + (want.hidden ? 'Hidden' : 'Visible'));
+    if (cur.max !== want.max) out.push('Max devices: ' + cur.max + ' → ' + want.max);
+    if (pwChanges) out.push('Password: will change');
+    if (want.auth === 'OPEN' && cur.auth !== 'OPEN') out.push('The network will have NO password: anyone in range can join.');
+    return out;
+  }
+  // Band switch: '2g' / '5g' / 'off'. Which one is on is read back by wifiMode.
+  function wifiBandCall(mode) {
+    if (mode === '2g') return { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' };
+    if (mode === '5g') return { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' };
+    if (mode === 'off') return { goformId: 'switchWiFiModule', SwitchOption: '0' };
+    throw new Error('Unknown Wi-Fi band: ' + mode);
+  }
+  const wifiBandReached = (w, mode) => (mode === '2g' || mode === '5g' || mode === 'off') && wifiMode(w) === mode;
+  // The saved copy of the old settings (plan "BACKUP", rule 11): written by the root shell before the change, readable only by root. The old password goes in
+  // (as the base64 the router takes, under the key "Password" so the log redactors hide it) ONLY when the change would otherwise lose it: the password changes
+  // or the network becomes open. Otherwise a restore keeps the password the router has now.
+  const WIFI_BACKUP_DIR = '/data/local/matchitool', WIFI_BACKUP_FILE = 'wifi_backup.json';
+  const WIFI_BACKUP_PATH = WIFI_BACKUP_DIR + '/' + WIFI_BACKUP_FILE;
+  const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+  function wifiBackupSnap(raw, cur, want, pwChanges) {
+    const o = { ssid: cur.ssid, auth: cur.auth, hidden: cur.hidden, max: cur.max };
+    if (cur.auth !== 'OPEN' && (pwChanges || want.auth === 'OPEN')) { const c = wifiCurrentPw(raw); if (c.error || !pwOk(c.pw)) throw new Error('The current password cannot be saved (' + (c.error || 'it is not 8 to 63 printable ASCII characters') + ').'); o.pwB64 = b64Ascii(c.pw); }
+    return o;
+  }
+  function wifiBackupWriteSh(oldV, newV, at, dir) {
+    const o = wifiSnapOk(oldV), n = wifiSnapOk(newV);
+    if (!o || !n) throw new Error('Not a valid Wi-Fi set for the backup.');
+    const d = dir === undefined ? WIFI_BACKUP_DIR : dir; if (!/^\/[A-Za-z0-9_./-]+$/.test(d) || d.includes('..')) throw new Error('Bad backup folder.');
+    const ts = Number.isInteger(at) && at > 0 ? at : 0;
+    const one = (x) => { const r = { ssid: x.ssid, auth: x.auth, hidden: x.hidden, max: x.max }; if (x.pwB64) r.Password = x.pwB64; return r; };
+    const json = JSON.stringify({ old: one(o), new: one({ ssid: n.ssid, auth: n.auth, hidden: n.hidden, max: n.max }), at: ts });
+    return 'mkdir -p ' + d + ' && umask 077 && printf ' + shq('%s') + ' ' + shq(json) + ' > ' + d + '/' + WIFI_BACKUP_FILE + ' && echo MATCHI_BACKUP_OK';
+  }
+  const WIFI_BACKUP_READ_SH = 'cat ' + WIFI_BACKUP_PATH + ' 2>/dev/null || true';
+  const WIFI_BACKUP_DELETE_SH = 'rm -f ' + WIFI_BACKUP_PATH + ' && echo MATCHI_BACKUP_GONE';
+  function parseWifiBackup(text) {
+    let j; try { j = JSON.parse(String(text == null ? '' : text).trim()); } catch (_) { return null; }
+    if (!isObj(j) || !isObj(j.old) || !isObj(j.new)) return null;
+    const o = wifiSnapOk({ ssid: j.old.ssid, auth: j.old.auth, hidden: j.old.hidden, max: j.old.max, pwB64: j.old.Password }), n = wifiSnapOk({ ssid: j.new.ssid, auth: j.new.auth, hidden: j.new.hidden, max: j.new.max });
+    if (!o || !n) return null;
+    return { old: o, new: n, at: Number.isInteger(j.at) ? j.at : 0 };
+  }
+
   // ---- MTU / MSS: change (Phase 7, Path A: the router's own call) ----------------------------------------------------------------
   // Captured on the F50 (2026-11-14, part C2) and confirmed in the stock script service.js (2026-11-15):
   //   isTest=false&goformId=SET_DEVICE_MTU&mtu=1500&tcp_mss=1459&AD=<token>      reply {"result":"success"}, then THE ROUTER REBOOTS.
@@ -570,7 +740,9 @@
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
-    chipLabel, authLabel, parseWifi, wifiSummary,
+    chipLabel, authLabel, parseWifi, wifiSummary, wifiMode, wifiActive,
+    WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
+    wifiChangeLines, wifiBandCall, wifiBandReached, WIFI_BACKUP_PATH, wifiBackupSnap, wifiBackupWriteSh, WIFI_BACKUP_READ_SH, WIFI_BACKUP_DELETE_SH, parseWifiBackup,
     mergeDevices, parseDevices, isMac, parseAcl, aclRefusal, hostnameError, renameCall, blockCall, unblockCall, plainIp, isSelf,
     APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,
     apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,

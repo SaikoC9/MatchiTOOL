@@ -50,8 +50,8 @@ eq(w.entries[0].chip, 0); eq(w.entries[0].on, false); eq(w.entries[1].chip, 1); 
 eq(w.entries[1].ssid, 'HomeNet'); eq(w.entries[1].auth, 'WPA2-PSK / WPA3-PSK'); eq(w.entries[1].broadcast, true); eq(w.entries[1].maxStations, 10); eq(w.entries[1].country, 'CN');
 assert(!JSON.stringify(w).includes('TopSecret'), 'the Wi-Fi password must not be in the parsed object');
 assert(!/password/i.test(JSON.stringify(w)), 'no password key in the parsed object');
-eq(N.wifiSummary(w), '5 GHz only (probably)');
-eq(N.wifiSummary(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [chip(0, true), chip(1, false)] })), '2.4 GHz only (probably)');
+eq(N.wifiSummary(w), '5 GHz only');
+eq(N.wifiSummary(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [chip(0, true), chip(1, false)] })), '2.4 GHz only');
 eq(N.wifiSummary(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [chip(0, false), chip(1, false)] })), 'Off');
 eq(N.wifiSummary(N.parseWifi({ WiFiModuleSwitch: '0', ResponseList: [chip(0, false), chip(1, false)] })), 'Off');
 eq(N.wifiSummary(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [chip(0, true), chip(1, true)] })), 'Both chips on');
@@ -64,7 +64,7 @@ eq(N.parseWifi({}), { moduleOn: null, entries: [], clients: null });            
 eq(N.wifiSummary(N.parseWifi({})), null);
 eq(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [chip(1, true)], wifi_access_sta_num: '2' }).clients, 2);
 eq(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [{ ChipIndex: 1 }] }).entries[0].ssid, null);   // an empty field is null
-eq(N.chipLabel(0), 'Chip 0 (probably 2.4 GHz)'); eq(N.chipLabel(1), 'Chip 1 (probably 5 GHz)'); eq(N.chipLabel(2), 'Chip 2'); eq(N.chipLabel(null), 'Unknown band');
+eq(N.chipLabel(0), 'Chip 0 (2.4 GHz)'); eq(N.chipLabel(1), 'Chip 1 (5 GHz)'); eq(N.chipLabel(2), 'Chip 2'); eq(N.chipLabel(null), 'Unknown band');
 eq(N.authLabel('OPEN'), 'Open'); eq(N.authLabel('WPA2PSK'), 'WPA2-PSK'); eq(N.authLabel('SomethingNew'), 'SomethingNew'); eq(N.authLabel(''), null);
 
 // ---- Devices: Wi-Fi + cable merged, three fields only ----------------------------------------------------------------------
@@ -299,15 +299,105 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
 }
 
 
+// ---- Wi-Fi: band switch and settings (Phase 3; formats captured on the F50, part M of the plan) --------------------------------------------------------------
+{
+  const cp = require('child_process'), os = require('os');
+  // base64 matches the platform's, and the decoder is strict
+  for (const t of ['', 'a', 'ab', 'abc', 'abcd', 'Passw0rd! ~x', '12345678901234567890123456789012345678901234567890123456789012']) { eq(N.b64Ascii(t), Buffer.from(t).toString('base64')); eq(N.b64Dec(N.b64Ascii(t)), t); }
+  assert.throws(() => N.b64Ascii('caf\u00e9pass1'), /printable ASCII/); eq(N.b64Dec('abc'), null); eq(N.b64Dec('a$b='), null); eq(N.b64Dec('QUJD='), null); eq(N.b64Dec('QQ==QQ=='), null);
+  // SSID rules
+  eq(N.utf8Len('abc'), 3); eq(N.utf8Len('\u00e9'), 2); eq(N.utf8Len('\u20ac'), 3);
+  eq(N.wifiSsidError('CE 2', true), null); eq(N.wifiSsidError('', true) !== null, true); eq(N.wifiSsidError('a'.repeat(32), true), null); assert(N.wifiSsidError('a'.repeat(33), true));
+  assert(N.wifiSsidError('\u00e9'.repeat(17), true), '17 x 2 bytes is 34 bytes'); assert(N.wifiSsidError('a\nb', true)); assert(N.wifiSsidError(' x', true)); eq(N.wifiSsidError(' x', false), null);
+  // reply shapes as the F50 gives them (real key names; the password is a dummy)
+  const PW = 'Dummy-pass-123';
+  const ent = (i, on, o) => Object.assign({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: on ? '1' : '0', SSID: 'CE 2', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '', Password: PW, PasswordShow: PW }, o || {});
+  const raw5 = { WiFiModuleSwitch: '1', ResponseList: [ent(0, false), ent(1, true)] };
+  const w5 = N.parseWifi(raw5), act = N.wifiActive(w5);
+  eq(act.chip, 1); eq(act.pwSet, true); eq(N.wifiMode(w5), '5g'); eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, false)] })), '2g');
+  eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '0', ResponseList: [ent(0, false), ent(1, false)] })), 'off'); eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, true)] })), 'both'); eq(N.wifiMode(null), null);
+  eq(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, true)] })), null);
+  assert(!/pass/i.test(JSON.stringify(w5)) || !JSON.stringify(w5).includes(PW), 'no password text in the parsed object');
+  const snap = N.wifiSnapOf(act); eq(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
+  eq(N.wifiSnapOf(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'WPAPSKWPA2PSK' })] }))), null);   // a mode this tool does not offer: not editable
+  eq(N.wifiSnapOf(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { ApBroadcastDisabled: '' })] }))), null); eq(N.wifiSnapOf(null), null);
+  eq(N.wifiHasPassword(raw5, PW), true); eq(N.wifiHasPassword(raw5, 'other-pass-9'), false); eq(N.wifiHasPassword({}, PW), false);
+  // the call = the captured bodies, field for field, in the stock order (isTest first and AD last are added by the host)
+  const pwB = Buffer.from(PW).toString('base64');
+  const keep = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 1 };
+  eq(N.wifiSaveCall(raw5, keep), { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'CE 2', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', ApMaxStationNumber: '1', EncrypType: 'CCMP', Password: pwB });   // "max station number 10 to 1"
+  eq(Object.keys(N.wifiSaveCall(raw5, keep)), ['goformId', 'ChipIndex', 'AccessPointIndex', 'SSID', 'ApIsolate', 'AuthMode', 'ApBroadcastDisabled', 'ApMaxStationNumber', 'EncrypType', 'Password']);
+  eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, hidden: true })).ApBroadcastDisabled, '1');                                    // "Broadcast SSID from on to off"
+  eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, ssid: 'AKO' })).SSID, 'AKO');                                                  // "CE 2 to AKO"
+  eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'WPA3PSK' })).AuthMode, 'WPA3PSK'); eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'WPA2PSK' })).EncrypType, 'CCMP');
+  const open = N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'OPEN' }));                                                    // "wpa2 to open": EncrypType=NONE, no Password
+  eq(open, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'CE 2', ApIsolate: '0', AuthMode: 'OPEN', ApBroadcastDisabled: '0', ApMaxStationNumber: '10', EncrypType: 'NONE' }); assert(!('Password' in open));
+  const fromOpen = N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'CE 2', auth: 'WPA3PSK', hidden: false, max: 10, pw: 'new-pass-1234' });   // "OPEN to wpa3 plus the password"
+  eq(fromOpen.Password, Buffer.from('new-pass-1234').toString('base64')); eq(fromOpen.EncrypType, 'CCMP');
+  // keep-the-password needs one to keep; a typed one wins; a saved one (base64) is used as is; bad ones are refused
+  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'x', auth: 'WPA2PSK', hidden: false, max: 5 }), /no Wi-Fi password to keep/);
+  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(0, false, { Password: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2' })] }, keep) && N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2' })] }, keep), /different passwords/);
+  eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pw: 'typed-pass-77' }).Password, Buffer.from('typed-pass-77').toString('base64'));
+  eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pwB64: Buffer.from('saved-pass-88').toString('base64') }).Password, Buffer.from('saved-pass-88').toString('base64'));
+  for (const bad of [{ ssid: '', auth: 'OPEN', hidden: false, max: 1 }, { ssid: 'a', auth: 'WEP', hidden: false, max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: 'no', max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 0 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 11 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: '5' },
+    { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: 1, pw: 'short' }, { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: 1, pwB64: '!!!!' }]) assert.throws(() => N.wifiSaveCall(raw5, bad), undefined, JSON.stringify(bad));
+  assert.throws(() => N.wifiSaveCall(null, null));
+  // the form check
+  const fc = (o) => N.wifiFormCheck(act, Object.assign({ ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: '7', pw: '' }, o));
+  eq(fc({}), { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7, pw: null });
+  eq(fc({ pw: 'abcdefgh' }).pw, 'abcdefgh'); assert(/8 to 63/.test(fc({ pw: 'abcdefg' }).error)); assert(/8 to 63/.test(fc({ pw: 'a'.repeat(64) }).error)); assert(/ASCII/.test(fc({ pw: 'caf\u00e9caf\u00e9' }).error));
+  assert(/empty/.test(fc({ ssid: '' }).error)); assert(/space/.test(fc({ ssid: 'x ' }).error)); assert(/security/.test(fc({ auth: 'WEP' }).error)); assert(/Max devices/.test(fc({ max: '0' }).error) && /Max devices/.test(fc({ max: '11' }).error) && /Max devices/.test(fc({ max: 'x' }).error) && /Max devices/.test(fc({ max: '' }).error));
+  eq(fc({ auth: 'OPEN', pw: 'ignored-1234' }).pw, null);   // open: a typed password is not used
+  assert(/none to keep/.test(N.wifiFormCheck(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] })), { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: '3', pw: '' }).error));
+  // password change detection and the confirming checks
+  eq(N.wifiPwChange(raw5, { pw: PW }), false); eq(N.wifiPwChange(raw5, { pw: 'brand-new-pw1' }), true); eq(N.wifiPwChange(raw5, {}), false); eq(N.wifiPwChange(raw5, { pwB64: Buffer.from('old-saved-pw1').toString('base64') }), true);
+  eq(N.wifiSame(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }), true); eq(N.wifiSame(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: true, max: 10 }), false);
+  const want7 = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7 };
+  eq(N.wifiReached(act, Object.assign({}, want7, { max: 10 })), true); eq(N.wifiReached(act, want7), false); eq(N.wifiReached(null, want7), false);
+  eq(N.wifiReached(Object.assign({}, act, { on: false }), Object.assign({}, want7, { max: 10 })), false);
+  eq(N.wifiChangeLines(snap, { ssid: 'AKO', auth: 'OPEN', hidden: true, max: 3 }, true), ['Network name: "CE 2" → "AKO"', 'Security: WPA2-PSK / WPA3-PSK → Open (no password)', 'SSID broadcast: Visible → Hidden', 'Max devices: 10 → 3', 'Password: will change', 'The network will have NO password: anyone in range can join.']);
+  assert(!N.wifiChangeLines(snap, { ssid: 'AKO', auth: 'WPA3PSK', hidden: false, max: 10 }, true).join('\n').includes('new-pass'), 'the confirm lines never carry a password');
+  // the band calls = the captured bodies
+  eq(N.wifiBandCall('2g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' }); eq(N.wifiBandCall('5g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' }); eq(N.wifiBandCall('off'), { goformId: 'switchWiFiModule', SwitchOption: '0' });
+  for (const m of ['both', '', undefined, '__proto__', 'on']) assert.throws(() => N.wifiBandCall(m));
+  eq(N.wifiBandReached(w5, '5g'), true); eq(N.wifiBandReached(w5, '2g'), false); eq(N.wifiBandReached(w5, 'off'), false); eq(N.wifiBandReached(null, 'off'), false); eq(N.wifiBandReached(w5, 'both'), false);
+  eq(N.wifiBandReached(N.parseWifi({ WiFiModuleSwitch: '0', ResponseList: [ent(0, false), ent(1, false)] }), 'off'), true);
+  // backup: the old password goes in only when the change would lose it; the key is "Password" so the log redactors hide it
+  const cur = snap;
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'AKO', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, false), { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, true).pwB64, pwB);
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'CE 2', auth: 'OPEN', hidden: false, max: 10 }, false).pwB64, pwB);
+  assert.throws(() => N.wifiBackupSnap({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'x', PasswordShow: 'x' })] }, cur, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 1 }, true), /cannot be saved/);
+  // the backup command written for real: nasty names survive the shell and come back unchanged
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'matchi-wifi-'));
+  const nasty = ['it\'s a "net"', '$(touch pwned)', '`touch pwned2`', 'a;b&c|d>e', 'back\\slash', "'; rm -rf / #", '\u00e9\u20ac net'];
+  for (const name of nasty) {
+    const o = Object.assign({}, snap, { ssid: name, pwB64: pwB }), n = Object.assign({}, snap, { ssid: 'AKO' });
+    const sh = N.wifiBackupWriteSh(o, n, 1700000000000, tmp);
+    const out = cp.execFileSync('/bin/sh', ['-c', sh], { encoding: 'utf8', cwd: tmp }); assert(out.includes('MATCHI_BACKUP_OK'), out);
+    const back = N.parseWifiBackup(fs.readFileSync(path.join(tmp, 'wifi_backup.json'), 'utf8'));
+    eq(back.old, { ssid: name, auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10, pwB64: pwB }); eq(back.new.ssid, 'AKO'); eq(back.at, 1700000000000);
+  }
+  assert(!fs.existsSync(path.join(tmp, 'pwned')) && !fs.existsSync(path.join(tmp, 'pwned2')), 'no command in a name was run');
+  assert(/"Password":"/.test(fs.readFileSync(path.join(tmp, 'wifi_backup.json'), 'utf8')), 'the saved password sits under the key Password');
+  fs.rmSync(tmp, { recursive: true, force: true });
+  assert.throws(() => N.wifiBackupWriteSh(snap, snap, 1, '/tmp/x y'), /Bad backup folder/); assert.throws(() => N.wifiBackupWriteSh(snap, snap, 1, '/tmp/../etc'), /Bad backup folder/); assert.throws(() => N.wifiBackupWriteSh({ ssid: '' }, snap, 1));
+  assert(/^mkdir -p \/data\/local\/matchitool && umask 077 && printf '%s' '/.test(N.wifiBackupWriteSh(snap, snap, 1)) && N.WIFI_BACKUP_PATH === '/data/local/matchitool/wifi_backup.json');
+  eq(N.parseWifiBackup(''), null); eq(N.parseWifiBackup('{"old":{}}'), null); eq(N.parseWifiBackup('junk'), null);
+  eq(N.parseWifiBackup('{"old":{"ssid":"a","auth":"OPEN","hidden":false,"max":3,"Password":"QUJDREVGR0g="},"new":{"ssid":"a","auth":"OPEN","hidden":false,"max":3},"at":1}'), null);   // an open network has no password to restore
+  eq(N.parseWifiBackup('{"old":{"ssid":"a","auth":"WEP","hidden":false,"max":3},"new":{"ssid":"a","auth":"OPEN","hidden":false,"max":3}}'), null);
+}
+
 // ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 6 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true\)/.test(setCalls[4]) && /^R\.setRouter\(call, true\)/.test(setCalls[5]),
-  'the only router writes: mobile data, the device call, the APN steps, the MTU call and the DHCP call: ' + setCalls.join(' | '));
+assert(setCalls.length === 8 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true\)/.test(setCalls[4]) && /^R\.setRouter\(call, true\)/.test(setCalls[5]) && /^R\.setRouter\(call, true\)/.test(setCalls[6]) && /^R\.setRouter\(call, true\)/.test(setCalls[7]),
+  'the only router writes: mobile data, the device call, the APN steps, the MTU call, the DHCP call, the Wi-Fi band call and the Wi-Fi settings call: ' + setCalls.join(' | '));
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');
 assert((ui.match(/call = N\.mtuCall\(/g) || []).length === 1, 'the MTU call is built by net-core.js');
+assert((ui.match(/call = N\.wifiBandCall\(mode\)/g) || []).length === 1 && (ui.match(/call = N\.wifiSaveCall\(raw, want\)/g) || []).length === 1, 'the Wi-Fi calls are built by net-core.js (wifiBandCall / wifiSaveCall)');
 assert((ui.match(/call = restore \? N\.lanRestoreCall\(cur, want\) : N\.lanCall\(cur, want\)/g) || []).length === 1, 'the DHCP call is built by net-core.js (lanCall / lanRestoreCall)');
 assert(!/\bsteps\s*=\s*\[\s*\{/.test(ui) && (ui.match(/call = N\.apn(DefaultCall|DeleteCall|SaveCall)\(/g) || []).length === 3 && ui.includes('apnApply([N.apnAutoCall()]'), 'every APN call is built by net-core.js');
 assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js does)');
@@ -319,8 +409,8 @@ const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
 // Root commands: the read-only check, the ping, and the backup file of the MTU change. Every one is a fixed command built in net-core.js (only validated integers go in).
 const shCalls = ui.match(/R\.sh\(([^,)]*)/g) || [];
-assert(shCalls.length === 11 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH)|N\.(mtu|lan)BackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
+assert(shCalls.length === 15 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH|WIFI_BACKUP_READ_SH|WIFI_BACKUP_DELETE_SH)|N\.(mtu|lan|wifi)BackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
 assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls and the MTU call, all built by net-core.js');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls, the MTU call, the DHCP pool / lease call and the Wi-Fi band and settings calls, all built by net-core.js');
