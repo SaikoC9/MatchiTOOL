@@ -74,6 +74,9 @@ let stuckApn = false, sleepSpy = null;
 // The MTU part of the fake router: SET_DEVICE_MTU changes the values and the router "restarts" (the next reads fail), the backup file lives in fileText.
 const mtuState = { mtu: 1500, mss: 1460, ifMtu: 1500 }; let mtuDown = 0, stuckMtu = false, followWan = true, pingOk = true, fileText = '', failBackup = false, mtuReadErr = null;
 const mtuAnswer = () => { if (mtuDown > 0) { mtuDown--; throw new Error(mtuReadErr || 'Failed to fetch'); } return { mtu: String(mtuState.mtu), tcp_mss: String(mtuState.mss) }; };
+// The LAN part of the fake router: DHCP_SETTING changes pool / lease and the router "restarts" (the next reads fail); the backup file lives in lanFile.
+const lanState = { ip: '192.168.0.1', mask: '255.255.255.0', dhcp: '1', start: '192.168.0.2', end: '192.168.0.253', lease: 24 }; let lanDown = 0, stuckLan = false, lanFile = '', failLanBackup = false, lanReadErr = null;
+const lanAnswer = () => { if (lanDown > 0) { lanDown--; throw new Error(lanReadErr || 'Failed to fetch'); } return { lan_ipaddr: lanState.ip, lan_netmask: lanState.mask, dhcpEnabled: lanState.dhcp, dhcpStart: lanState.start, dhcpEnd: lanState.end, dhcpLease_hour: lanState.lease + 'h', mac_address: '02:00:00:00:00:01' }; };
 const rootOut = () => ROOT_OUT.replace('mtu 1500 qdisc', 'mtu ' + mtuState.ifMtu + ' qdisc');
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
@@ -83,9 +86,13 @@ const R = {
     if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
     if (tab === 'apn') return apnAnswer();
     if (tab === 'mtu') return mtuAnswer();
+    if (tab === 'lan') return lanAnswer();
     return ANSWERS[tab]; },
   sh: async (cmd) => { shells.push(cmd);
     if (cmd.includes('mtu_backup.json') && cmd.includes("printf '%s' '")) { if (failBackup) throw new Error('read-only file system'); fileText = cmd.split("printf '%s' '")[1].split("' >")[0]; return 'MATCHI_BACKUP_OK\n'; }
+    if (cmd.includes('lan_backup.json') && cmd.includes("printf '%s' '")) { if (failLanBackup) throw new Error('read-only file system'); lanFile = cmd.split("printf '%s' '")[1].split("' >")[0]; return 'MATCHI_BACKUP_OK\n'; }
+    if (cmd === N.LAN_BACKUP_READ_SH) return lanFile;
+    if (cmd === N.LAN_BACKUP_DELETE_SH) { lanFile = ''; return 'MATCHI_BACKUP_GONE\n'; }
     if (cmd === N.MTU_BACKUP_READ_SH) return fileText;
     if (cmd === N.MTU_BACKUP_DELETE_SH) { fileText = ''; return 'MATCHI_BACKUP_GONE\n'; }
     if (cmd === N.PING_SH) return pingOk ? 'MATCHI_PING_OK\n' : 'MATCHI_PING_FAIL\n';
@@ -96,6 +103,7 @@ const R = {
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
     if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
     if (params.goformId === 'SET_DEVICE_MTU') { if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
+    if (params.goformId === 'DHCP_SETTING') { if (!stuckLan) { lanState.ip = params.lanIp; lanState.mask = params.lanNetmask; lanState.start = params.dhcpStart; lanState.end = params.dhcpEnd; lanState.lease = Number(params.dhcpLease); lanDown = 2; } return; }
     if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
     if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
@@ -357,6 +365,63 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // forget the backup
   confirms.length = 0; await click(mb('matchi_mtu_forget')); assert(/Delete the saved copy/.test(confirms[0].msg) && /saved copy was deleted/.test(mt()) && fileText === '');
   await click(mb('matchi_mtu_restore')); assert(/No saved values found/.test(mt()), 'restore without backup: ' + mt());
+  await click(tabBtn('data'));
+
+  // ---- Phase 6a: LAN / DHCP pool and lease ----
+  sets.length = 0; confirms.length = 0; shells.length = 0; calls.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
+  await click(tabBtn('lan')); await click(doc.getElementById('matchi_net_refresh'));
+  const lb = (id) => doc.getElementById(id), lt = () => bodyText();
+  assert(lb('matchi_lan_start').value === '192.168.0.2' && lb('matchi_lan_end').value === '192.168.0.253' && lb('matchi_lan_lease').value === '24' && lb('matchi_lan_apply'), 'the form shows the router values: ' + lt());
+  assert(/IP address, the subnet mask and DHCP on \/ off are not changed/.test(lt()) && shells.length === 0, 'no root command when the tab opens');
+  const lanTry = async (a, b, c) => { lb('matchi_lan_start').value = a; lb('matchi_lan_end').value = b; lb('matchi_lan_lease').value = c; await click(lb('matchi_lan_apply')); };
+  for (const [a, b, c, re] of [['x', '192.168.0.9', '24', /start is not a valid/], ['192.168.0.2', '192.168.1.9', '24', /outside the router network/], ['192.168.0.1', '192.168.0.9', '24', /must not be inside the pool/],
+    ['192.168.0.9', '192.168.0.2', '24', /must not be after/], ['192.168.0.2', '192.168.0.9', '0', /whole number of hours/], ['192.168.0.2', '192.168.0.255', '24', /network or the broadcast/]]) {
+    await lanTry(a, b, c); assert(re.test(lb('matchi_lan_err').textContent), a + '/' + b + '/' + c + ': ' + lb('matchi_lan_err').textContent);
+    assert.strictEqual(sets.length, 0); assert.strictEqual(confirms.length, 0); assert.strictEqual(shells.length, 0);
+  }
+  // unchanged values: nothing sent
+  await lanTry('192.168.0.2', '192.168.0.253', '24'); assert.strictEqual(sets.length, 0); assert(/already has pool 192\.168\.0\.2 - 192\.168\.0\.253 and lease 24 hours\. Nothing was sent/.test(lt()), lt());
+  // declined confirm: nothing sent, no backup
+  confirmAnswer = false; await lanTry('192.168.0.10', '192.168.0.200', '12'); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup');
+  assert(/Pool 192\.168\.0\.2 - 192\.168\.0\.253 → 192\.168\.0\.10 - 192\.168\.0\.200/.test(confirms[0].msg) && /Lease 24 hours → 12 hours/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg) && /192\.168\.0\.1 and mask 255\.255\.255\.0 stay the same/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  // the backup cannot be written: nothing is sent
+  confirmAnswer = true; failLanBackup = true; await lanTry('192.168.0.10', '192.168.0.200', '12'); failLanBackup = false;
+  assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(lt()) && /Nothing was changed/.test(lt()), lt());
+  // the real change
+  shells.length = 0; sets.length = 0; calls.length = 0;
+  sleepSpy = []; await lanTry('192.168.0.10', '192.168.0.200', '12'); const lspy = sleepSpy; sleepSpy = null;
+  assert(lspy.length >= 3 && lspy.every((x) => x) && /router is restarting now.*Keep this window open/.test(lspy[0]) && lspy.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'banner at every wait: ' + JSON.stringify(lspy));
+  assert(!lb('matchi_net_prog') && !lb('matchi_lan_apply').disabled, 'the banner is gone when done');
+  assert(shells[0].includes('lan_backup.json') && shells[0].includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2","end":"192.168.0.253","lease":24}') && shells[0].includes('"new":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.10","end":"192.168.0.200","lease":12}'), 'backup first: ' + shells[0]);
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '0' }); assert.strictEqual(sets[0].allowEmpty, true);
+  t = lt(); assert(/The router restarted and reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && /Mobile data is connected/.test(t) && /Devices renew their address/.test(t) && /Restore saved values/.test(t), 'result: ' + t);
+  assert(!/is back but reports/.test(t) && lb('matchi_lan_start').value === '192.168.0.10' && lb('matchi_lan_lease').value === '12', 'the form now shows the new values');
+  assert(lanState.start === '192.168.0.10' && lanFile.includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2"'));
+  // a lease-only change keeps the pool exactly
+  sets.length = 0; shells.length = 0; await lanTry('192.168.0.10', '192.168.0.200', '48');
+  assert.strictEqual(sets.length, 1); assert(sets[0].params.dhcpLease === '48' && sets[0].params.dhcpStart === '192.168.0.10' && sets[0].params.dhcpEnd === '192.168.0.200' && sets[0].params.lanIp === '192.168.0.1', JSON.stringify(sets[0].params));
+  // restore: reads the file, confirms, sends the OLD set (saved before the 48 h change: pool .10-.200, lease 12)
+  sets.length = 0; confirms.length = 0; await click(lb('matchi_lan_restore'));
+  assert(/Put the saved values back/.test(confirms[0].msg) && /Lease 48 hours → 12 hours/.test(confirms[0].msg), confirms[0].msg); assert.deepStrictEqual(sets[0].params.dhcpLease, '12');
+  assert(/reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(lt()), 'after restore: ' + lt());
+  // restore refuses when the router IP is not the saved one any more
+  lanState.ip = '192.168.5.1'; lanFile = lanFile.replace(/"ip":"192\.168\.0\.1"/, '"ip":"192.168.0.1"'); sets.length = 0; await click(lb('matchi_net_refresh')); await click(lb('matchi_lan_restore'));
+  assert.strictEqual(sets.length, 0); assert(/not the saved one any more/.test(lt()), 'restore with another IP: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
+  // the router comes back with other values: said plainly
+  stuckLan = true; sets.length = 0; await lanTry('192.168.0.20', '192.168.0.100', '6'); stuckLan = false;
+  t = lt(); assert(/is back but reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && !/The router restarted and reports/.test(t) && /Restore saved values/.test(t), 'stuck: ' + t);
+  // the console asks for a new sign-in after the restart: the wait stops and says so
+  lanReadErr = 'HTTP 401 sign in required'; await lanTry('192.168.0.30', '192.168.0.100', '6'); lanReadErr = null;
+  assert(/asking for a new sign-in/.test(lt()) && /Restore saved values/.test(lt()), 'auth: ' + lt());
+  // refused write (old sign-in): nothing claimed
+  lanDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await lanTry('192.168.0.40', '192.168.0.100', '6');
+  assert(/Not sent: Session too old/.test(lt()) && /Nothing was changed/.test(lt()), 'refused: ' + lt());
+  // DHCP Off or a missing value: no form, no write
+  lanState.dhcp = '0'; await click(lb('matchi_net_refresh')); assert(!lb('matchi_lan_apply') && /DHCP server is not changed|not changed here: the router must report/.test(lt()), 'dhcp off: ' + lt()); lanState.dhcp = '1'; await click(lb('matchi_net_refresh'));
+  // forget the backup
+  confirms.length = 0; await click(lb('matchi_lan_forget')); assert(/Delete the saved copy of the old LAN/.test(confirms[0].msg) && /saved copy was deleted/.test(lt()) && lanFile === '');
+  await click(lb('matchi_lan_restore')); assert(/No saved values found/.test(lt()), 'restore without backup: ' + lt());
+  // one change at a time: the MTU form cannot start while a LAN change runs (flags checked in the source guard); the data tab still works after
   await click(tabBtn('data'));
 
   // keyboard: ArrowRight moves to the next tab

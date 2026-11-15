@@ -4,6 +4,7 @@
  * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
  * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
  * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Phase 7: the MTU / MSS tab changes both values with the router's own call (confirm, backup copy by root, send, wait for the restart, re-read, root checks).
+ * Phase 6a: the LAN / DHCP tab changes only the DHCP pool and the lease (same steps: confirm, backup copy by root, send, wait for the restart, re-read); the router IP, the mask and DHCP on / off are not changed here.
  * Everything else is still read only; the one root call (MTU / MSS tab) is a
  * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
@@ -18,7 +19,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, prog: '' };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, prog: '' };
   let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
@@ -157,8 +158,29 @@ function mountNetTools() {
     const p = N.parseLan(d);
     if (allEmpty(p, ['ip', 'mask', 'dhcp', 'start', 'end', 'leaseRaw', 'mac'])) return note(NOT + ' (LAN / DHCP).');
     const pool = p.start && p.end ? p.start + ' - ' + p.end : null;
-    return kv([['Router IP address', p.ip], ['Subnet mask', p.mask], ['DHCP server', p.dhcp], ['DHCP pool', pool],
+    const info = kv([['Router IP address', p.ip], ['Subnet mask', p.mask], ['DHCP server', p.dhcp], ['DHCP pool', pool],
       ['Lease time', p.leaseHours !== null ? N.leaseText(p.leaseHours) : p.leaseRaw], ['Router MAC address', p.mac]]);
+    const msg = st.lanMsg ? h('div', {}, st.lanMsg.lines.map((t) => note(t, st.lanMsg.bad ? 'net-warn' : ''))) : null;
+    const known = p.ip && p.mask && p.dhcp === 'On' && p.start && p.end && p.leaseHours !== null;
+    return h('div', {}, st.lanAct ? progNote() : null, info, msg,
+      known ? lanForm(p) : note('The pool and the lease are not changed here: the router must report its IP, mask, pool and lease, with the DHCP server On.', 'net-mut'),
+      note('The router IP address, the subnet mask and DHCP on / off are not changed in this window.', 'net-mut'));
+  }
+  // The pool / lease form: three fields, checked by net-core.js; Apply restarts the router. The old values are saved by root before anything is sent.
+  function lanForm(p) {
+    const base = [p.start, p.end, p.leaseHours].join('/');
+    if (!st.lanForm || st.lanForm.base !== base) st.lanForm = { base, start: p.start, end: p.end, lease: String(p.leaseHours) };
+    const busy = st.lanAct || st.act || st.devAct || st.apnAct || st.mtuAct;
+    const inp = (id, v, key, max) => { const e = h('input', { type: 'text', id, maxlength: String(max), autocomplete: 'off' }); e.value = v; e.oninput = () => { st.lanForm[key] = e.value; }; if (busy) e.disabled = true; return e; };
+    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
+    const err = h('p', { class: 'net-p net-warn', id: 'matchi_lan_err' }, '');
+    const a = inp('matchi_lan_start', st.lanForm.start, 'start', 15), b = inp('matchi_lan_end', st.lanForm.end, 'end', 15), c = inp('matchi_lan_lease', st.lanForm.lease, 'lease', 3);
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change DHCP pool / lease'),
+      row('Pool start', a), row('Pool end', b), row('Lease (hours)', c), err,
+      h('div', { class: 'net-actions' }, mk('Apply (router restarts)', 'matchi_lan_apply', () => lanSubmit(a.value, b.value, c.value, err), true)),
+      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. Devices keep their address until they renew it; one that holds an address outside the new pool gets a new one. The old values are saved first, so \"Restore saved values\" can put them back. Lease: ' + N.LEASE_MIN + ' to ' + N.LEASE_MAX + ' hours (this tool\'s own limit).', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_lan_restore', lanRestore, false), mk('Forget backup (root)', 'matchi_lan_forget', lanForget, false)));
   }
   function viewMtu(d) {
     const p = N.parseMtu(d);
@@ -174,7 +196,7 @@ function mountNetTools() {
   function mtuForm(p) {
     const base = p.mtu + '/' + p.mss;
     if (!st.mtuForm || st.mtuForm.base !== base) st.mtuForm = { base, mtu: String(p.mtu), mss: String(p.mss) };
-    const busy = st.mtuAct || st.act || st.devAct || st.apnAct;
+    const busy = st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct;
     const inp = (id, v, key) => { const e = h('input', { type: 'text', id, maxlength: '4', inputmode: 'numeric', autocomplete: 'off' }); e.value = v; e.oninput = () => { st.mtuForm[key] = e.value; }; if (busy) e.disabled = true; return e; };
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_mtu_err' }, '');
@@ -222,7 +244,7 @@ function mountNetTools() {
   const progress = (t) => { st.prog = t || ''; const e = $('matchi_net_prog'); if (e) e.textContent = st.prog; setStatus(st.prog); };
   const progNote = () => (st.prog ? h('p', { class: 'net-p net-prog', id: 'matchi_net_prog', role: 'status', 'aria-live': 'polite' }, st.prog) : null);
   const syncButtons = () => {
-    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct || st.mtuAct;
+    const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
   };
   function paint(tab) {
@@ -451,7 +473,7 @@ function mountNetTools() {
   const mtuRead = async () => N.parseMtu(await mtuReadRaw());
   const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
   async function mtuApply(want, why) {
-    if (st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    if (st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct) return;
     st.mtuAct = true; st.mtuMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('mtu');
     const my = ++actId;
     const done = (bad, lines) => { st.mtuMsg = { bad, lines }; };
@@ -532,7 +554,7 @@ function mountNetTools() {
     await mtuApply({ mtu: c.mtu, mss: c.mss }, 'Change MTU / MSS?');
   }
   async function mtuRestore() {
-    if (st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    if (st.mtuAct || st.act || st.devAct || st.apnAct || st.lanAct) return;
     let saved; try { saved = N.parseMtuBackup(await R.sh(N.MTU_BACKUP_READ_SH, 15000)); } catch (e) { st.mtuMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('mtu'); return; }
     if (!saved) { st.mtuMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('mtu'); return; }
     await mtuApply({ mtu: saved.old.mtu, mss: saved.old.mss }, 'Put the saved values back?');
@@ -543,6 +565,94 @@ function mountNetTools() {
     try { const o = await R.sh(N.MTU_BACKUP_DELETE_SH, 15000); st.mtuMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
     catch (e) { st.mtuMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('mtu');
+  }
+  // ---- LAN / DHCP pool and lease (Phase 6a) ---------------------------------------------------------------------------------------
+  // Same steps as the MTU / MSS change: fresh read -> confirm naming old -> new -> backup copy by root, read back (no backup, no change) -> DHCP_SETTING with the whole
+  // set (IP and mask unchanged) -> the router restarts -> wait for the console -> re-read -> data state. The router IP does not change, so the console stays on the
+  // same address. No automatic revert (the way back is "Restore saved values"); the router IP and DHCP on / off are not part of this step.
+  const lanReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.lan });
+  const lanRead = async () => N.parseLan(await lanReadRaw());
+  async function lanApply(want, why, restore) {
+    if (st.lanAct || st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    st.lanAct = true; st.lanMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('lan');
+    const my = ++actId;
+    const done = (bad, lines) => { st.lanMsg = { bad, lines }; };
+    try {
+      let cur; try { cur = await lanRead(); } catch (e) { done(true, ['Not sent: could not read the current values (' + N.maskSecrets(e.message) + ').']); return; }
+      const oldSnap = N.lanSnapOf(cur);
+      if (!cur || !oldSnap || cur.dhcp !== 'On') { done(true, ['Not sent: the router did not report a complete LAN / DHCP set with the DHCP server On.']); return; }
+      if (cur.start === want.start && cur.end === want.end && cur.leaseHours === want.lease) { done(false, ['The router already has pool ' + cur.start + ' - ' + cur.end + ' and lease ' + N.leaseText(cur.leaseHours) + '. Nothing was sent.']); return; }
+      if (my !== actId) return;
+      let call; try { call = restore ? N.lanRestoreCall(cur, want) : N.lanCall(cur, want); } catch (e) { done(true, ['Not sent: ' + e.message]); return; }
+      const newSnap = N.lanSnapOk({ ip: cur.ip, mask: cur.mask, start: want.start, end: want.end, lease: want.lease });
+      const ok = await askConfirm((why || 'Change the DHCP pool / lease?') + '\n\nPool ' + cur.start + ' - ' + cur.end + ' → ' + want.start + ' - ' + want.end + '\nLease ' + N.leaseText(cur.leaseHours) + ' → ' + N.leaseText(want.lease)
+        + '\nRouter IP ' + cur.ip + ' and mask ' + cur.mask + ' stay the same.\n\nThe router restarts. Internet, Wi-Fi and this console are away for about 1 to 2 minutes. The old values are saved first. Devices renew their address on their own afterwards; one with an address outside the new pool gets a new one.', 'Apply and restart', true);
+      if (!ok) { st.lanAct = false; return; }
+      if (my !== actId) return;
+      progress('Saving a backup copy of the old values…');
+      try {
+        const w = await R.sh(N.lanBackupWriteSh(oldSnap, newSnap, Date.now()), 15000);
+        const back = N.parseLanBackup(await R.sh(N.LAN_BACKUP_READ_SH, 15000));
+        if (!String(w).includes('MATCHI_BACKUP_OK') || !back || back.old.start !== oldSnap.start || back.old.end !== oldSnap.end || back.old.lease !== oldSnap.lease) throw new Error('the copy could not be read back');
+      } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
+      progress('Sending the change to the router…');
+      try { await R.setRouter(call, true); }
+      catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      let back = null, wentDown = false, authStop = false;
+      progress('Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.');
+      await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return;
+      for (let i = 0; i < MTU_WAIT_TRIES; i++) {
+        try {
+          const r = await lanRead();
+          if (r && r.start !== null && r.end !== null && r.leaseHours !== null) { back = r; if (wentDown || N.lanReached(r, want)) break; }
+        } catch (e) { wentDown = true; if (N.isAuthError(e.message)) { authStop = true; break; } }
+        if (my !== actId) return;
+        progress('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s of up to 3 minutes. Keep this window open.');
+        await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
+      }
+      const way = 'The old values (pool ' + cur.start + ' - ' + cur.end + ', lease ' + N.leaseText(cur.leaseHours) + ') are saved: \"Restore saved values\" puts them back.';
+      if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values. ' + way]); return; }
+      if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh. ' + way]); return; }
+      progress('The router is back. Reading the values…');
+      try { st.cache.lan = { d: await lanReadRaw(), at: Date.now() }; } catch (_) { /* the view keeps the last values */ }
+      const lines = [], same = N.lanReached(back, want);
+      let bad = !same;
+      lines.push(same ? 'The router restarted and reports pool ' + back.start + ' - ' + back.end + ', lease ' + N.leaseText(back.leaseHours) + '.'
+        : 'The router is back but reports pool ' + back.start + ' - ' + back.end + ', lease ' + (back.leaseHours === null ? back.leaseRaw : N.leaseText(back.leaseHours)) + ', DHCP ' + (back.dhcp || 'not reported') + ', not the wanted values.');
+      if (back.ip !== cur.ip || back.mask !== cur.mask) { bad = true; lines.push('The router IP / mask now read ' + back.ip + ' / ' + back.mask + ', not ' + cur.ip + ' / ' + cur.mask + '.'); }
+      let ppp = null;
+      for (let i = 0; i < MTU_DATA_TRIES; i++) {
+        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        if (my !== actId) return;
+        if (ppp && ppp.state === 'connected') break;
+        progress('The router is back. Waiting for mobile data… ' + (i + 1) * 5 + ' s of up to 60 s.'); await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
+      }
+      if (ppp && ppp.state === 'connected') lines.push('Mobile data is connected (' + ppp.ppp + ').'); else { bad = true; lines.push('Mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + ').'); }
+      lines.push('Devices renew their address on their own: reconnect one that does not get internet. ' + (bad ? '\"Restore saved values\" puts the old values back; the router restarts again.' : 'The old values stay saved for \"Restore saved values\".'));
+      done(bad, lines);
+      st.lanForm = null;
+    } finally {
+      if (my === actId) { st.lanAct = false; st.prog = ''; if (st.tab === 'lan') { paint('lan'); setStatus(st.lanMsg && st.lanMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
+  }
+  async function lanSubmit(startT, endT, leaseT, errEl) {
+    const cur = st.cache.lan && st.cache.lan.d ? N.parseLan(st.cache.lan.d) : null, c = N.lanPoolCheck(cur, startT, endT, leaseT);
+    if (c.error) { if (errEl) errEl.textContent = c.error; return; }
+    if (errEl) errEl.textContent = '';
+    await lanApply({ start: c.start, end: c.end, lease: c.lease }, 'Change the DHCP pool / lease?', false);
+  }
+  async function lanRestore() {
+    if (st.lanAct || st.mtuAct || st.act || st.devAct || st.apnAct) return;
+    let saved; try { saved = N.parseLanBackup(await R.sh(N.LAN_BACKUP_READ_SH, 15000)); } catch (e) { st.lanMsg = { bad: true, lines: ['Could not read the saved values (' + N.maskSecrets(e.message) + ').'] }; paint('lan'); return; }
+    if (!saved) { st.lanMsg = { bad: true, lines: ['No saved values found (or the file is not valid).'] }; paint('lan'); return; }
+    await lanApply(saved.old, 'Put the saved values back?', true);   // saved.old also holds the saved IP and mask: the restore refuses if they differ now
+  }
+  async function lanForget() {
+    if (st.lanAct) return;
+    if (!(await askConfirm('Delete the saved copy of the old LAN / DHCP values?\n\nAfter this \"Restore saved values\" has nothing to restore.', 'Delete', true))) return;
+    try { const o = await R.sh(N.LAN_BACKUP_DELETE_SH, 15000); st.lanMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
+    catch (e) { st.lanMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
+    paint('lan');
   }
   async function findMe() {
     try { const r = await api('/api/net/whoami'); st.me = r && r.ip ? N.plainIp(r.ip) : ''; } catch (_) { st.me = ''; }
@@ -592,9 +702,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.prog = ''; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.prog = ''; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
@@ -610,7 +720,7 @@ function mountNetTools() {
       };
       tabs.appendChild(b);
     }
-    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
+    $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; if (st.tab === 'lan') st.lanForm = null; load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
     load('data');
     findMe();
   }

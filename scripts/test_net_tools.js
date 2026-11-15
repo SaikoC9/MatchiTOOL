@@ -236,15 +236,79 @@ eq(N.parsePing('MATCHI_PING_OK\n'), true); eq(N.parsePing('MATCHI_PING_FAIL'), f
 for (const m of ['HTTP 401', 'sign in required', 'Unauthorized', 'Session expired', 'please log in', '403 Forbidden']) assert(N.isAuthError(m), m);
 for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resource', 'timeout', '', null]) assert(!N.isAuthError(m), String(m));
 
+// ---- LAN / DHCP pool and lease (Phase 6a) -----------------------------------------------------------------------------------
+{
+  const L = N.parseLan({ lan_ipaddr: '192.168.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease_hour: '24h', mac_address: 'AA:BB' });
+  eq(N.ipv4Int('192.168.0.1'), 3232235521); eq(N.ipv4Int('0.0.0.0'), 0); eq(N.ipv4Int('256.1.1.1'), null); eq(N.ipv4Int('1.2.3'), null); eq(N.ipv4Int('192.168.00.1'), null); eq(N.ipv4Int('192.168.0.1 '), 3232235521); eq(N.ipv4Int(''), null); eq(N.ipv4Int('a.b.c.d'), null);
+  eq(N.maskInt('255.255.255.0') !== null, true); eq(N.maskInt('255.255.255.248') !== null, true); eq(N.maskInt('255.0.0.0') !== null, true);
+  for (const bad of ['255.0.255.0', '255.255.255.252', '255.255.255.255', '254.0.0.0', '0.0.0.0', '255.255.255.1', '', 'x']) eq(N.maskInt(bad), null, 'mask ' + bad);
+  eq(N.isPrivateIp(N.ipv4Int('10.1.2.3')), true); eq(N.isPrivateIp(N.ipv4Int('172.16.0.1')), true); eq(N.isPrivateIp(N.ipv4Int('172.31.255.1')), true); eq(N.isPrivateIp(N.ipv4Int('172.32.0.1')), false); eq(N.isPrivateIp(N.ipv4Int('8.8.8.8')), false); eq(N.isPrivateIp(null), false);
+  const ok = (a, b, c) => N.lanPoolCheck(L, a, b, c);
+  eq(ok('192.168.0.2', '192.168.0.253', '24'), { start: '192.168.0.2', end: '192.168.0.253', lease: 24 });
+  eq(ok('192.168.0.10', '192.168.0.10', '1'), { start: '192.168.0.10', end: '192.168.0.10', lease: 1 }, 'one address is allowed');
+  eq(ok(' 192.168.0.20 ', '192.168.0.30', ' 168 ').start, '192.168.0.20');
+  // the table of bad examples
+  const bad = [
+    [['192.168.0.2', '192.168.1.5', '24'], /outside the router network/], [['192.168.1.2', '192.168.0.50', '24'], /outside the router network/],
+    [['192.168.0.0', '192.168.0.50', '24'], /network or the broadcast/], [['192.168.0.2', '192.168.0.255', '24'], /network or the broadcast/],
+    [['192.168.0.50', '192.168.0.20', '24'], /must not be after/], [['192.168.0.1', '192.168.0.50', '24'], /must not be inside the pool/], [['192.168.0.2', '192.168.0.1', '24'], /must not be after|inside the pool/],
+    [['192.168.0.2', '192.168.0.200', '0'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '169'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '1.5'], /whole number of hours/],
+    [['192.168.0.2', '192.168.0.200', '24h'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', ''], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '-5'], /whole number of hours/],
+    [['abc', '192.168.0.200', '24'], /start is not a valid/], [['192.168.0.2', '192.168.0.300', '24'], /end is not a valid/], [['', '', ''], /start is not a valid/],
+  ];
+  for (const [args, re] of bad) { const r = ok(...args); assert(r.error && re.test(r.error), JSON.stringify(args) + ' -> ' + JSON.stringify(r)); }
+  // the pool is checked against the router's real subnet: a router on 10.0.0.0/24, and a /16
+  const L10 = N.parseLan({ lan_ipaddr: '10.0.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '10.0.0.2', dhcpEnd: '10.0.0.200', dhcpLease_hour: '24h' });
+  assert(N.lanPoolCheck(L10, '10.0.0.2', '10.0.0.9', '2').lease === 2 && N.lanPoolCheck(L10, '192.168.0.2', '192.168.0.9', '2').error);
+  const L16 = N.parseLan({ lan_ipaddr: '172.20.0.1', lan_netmask: '255.255.0.0', dhcpEnabled: '1', dhcpStart: '172.20.0.2', dhcpEnd: '172.20.0.200', dhcpLease_hour: '24h' });
+  assert(!N.lanPoolCheck(L16, '172.20.1.5', '172.20.200.9', '2').error && /network or the broadcast/.test(N.lanPoolCheck(L16, '172.20.0.0', '172.20.9.9', '2').error) && /network or the broadcast/.test(N.lanPoolCheck(L16, '172.20.9.9', '172.20.255.255', '2').error));
+  // refused when the router state is not what this step needs
+  for (const [lan, re] of [[null, /did not report/], [{}, /did not report/], [Object.assign({}, L, { dhcp: 'Off' }), /not On/], [Object.assign({}, L, { dhcp: null }), /not On/], [Object.assign({}, L, { ip: '8.8.8.8' }), /not a private address/], [Object.assign({}, L, { mask: '255.0.255.0' }), /not valid/], [Object.assign({}, L, { ip: '192.168.0.300' }), /not a private address/]]) {
+    const r = N.lanPoolCheck(lan, '192.168.0.2', '192.168.0.100', '24'); assert(r.error && re.test(r.error), JSON.stringify(lan) + ' -> ' + JSON.stringify(r));
+  }
+  // the call: the WHOLE set, as captured (part C); key order starts with goformId; IP and mask sent back unchanged; strings only
+  eq(N.lanCall(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 48 }), { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease: '48', dhcp_reboot_flag: '1', mac_ip_reset: '0' });
+  eq(Object.keys(N.lanCall(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 48 })), ['goformId', 'lanIp', 'lanNetmask', 'lanDhcpType', 'dhcpStart', 'dhcpEnd', 'dhcpLease', 'dhcp_reboot_flag', 'mac_ip_reset']);
+  assert(Object.values(N.lanCall(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 48 })).every((v) => typeof v === 'string'));
+  assert.throws(() => N.lanCall(L, { start: '192.168.0.2', end: '192.168.1.253', lease: 48 }), /outside the router network/);
+  assert.throws(() => N.lanCall(Object.assign({}, L, { dhcp: 'Off' }), { start: '192.168.0.2', end: '192.168.0.9', lease: 1 }), /not On/);
+  assert.throws(() => N.lanCall(L, null), /start is not a valid/);
+  // snapshots, backup file, restore
+  const snap = N.lanSnapOf(L); eq(snap, { ip: '192.168.0.1', mask: '255.255.255.0', start: '192.168.0.2', end: '192.168.0.253', lease: 24 });
+  eq(N.lanSnapOf(Object.assign({}, L, { leaseHours: null })), null); eq(N.lanSnapOf(null), null);
+  eq(N.lanSnapOk({ ip: '192.168.0.1', mask: '255.255.255.0', start: '192.168.0.2', end: '192.168.0.253', lease: 500 }).lease, 500, 'an old lease over 168 h can still be saved and restored');
+  eq(N.lanSnapOk({ ip: '192.168.0.1', mask: '255.255.255.0', start: '192.168.0.9', end: '192.168.0.2', lease: 5 }), null);
+  const newSnap = Object.assign({}, snap, { start: '192.168.0.10', lease: 2 });
+  const sh = N.lanBackupWriteSh(snap, newSnap, 1700000000000);
+  assert(sh.startsWith('mkdir -p /data/local/matchitool && umask 077 && printf \'%s\' \'{"old":{"ip":"192.168.0.1"') && sh.endsWith("' > /data/local/matchitool/lan_backup.json && echo MATCHI_BACKUP_OK"), sh);
+  const body = sh.split("printf '%s' '")[1].split("' >")[0];
+  eq(N.parseLanBackup(body), { old: snap, new: newSnap, at: 1700000000000 });
+  assert.throws(() => N.lanBackupWriteSh(snap, Object.assign({}, newSnap, { start: "1.2.3.4'; reboot; '" }), 1), /Not a valid/);
+  assert.throws(() => N.lanBackupWriteSh(Object.assign({}, snap, { ip: '192.168.0.1$(id)' }), newSnap, 1), /Not a valid/);
+  eq(N.parseLanBackup(''), null); eq(N.parseLanBackup('garbage'), null); eq(N.parseLanBackup('{"old":{},"new":{}}'), null); eq(N.parseLanBackup(null), null);
+  eq(N.LAN_BACKUP_READ_SH, 'cat /data/local/matchitool/lan_backup.json 2>/dev/null'); eq(N.LAN_BACKUP_DELETE_SH, 'rm -f /data/local/matchitool/lan_backup.json && echo MATCHI_BACKUP_GONE');
+  eq(N.lanRestoreCall(L, snap).dhcpLease, '24');
+  eq(N.lanRestoreCall(L, Object.assign({}, snap, { lease: 500 })).dhcpLease, '500', 'restore does not apply the new-value limits');
+  assert.throws(() => N.lanRestoreCall(Object.assign({}, L, { ip: '192.168.5.1' }), snap), /not the saved one any more/);
+  assert.throws(() => N.lanRestoreCall(Object.assign({}, L, { mask: '255.255.0.0' }), snap), /not the saved one any more/);
+  assert.throws(() => N.lanRestoreCall(Object.assign({}, L, { dhcp: 'Off' }), snap), /not On/);
+  assert.throws(() => N.lanRestoreCall(L, { ip: 'x' }), /not valid/);
+  // the confirming re-read
+  eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), true); eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 12 }), false);
+  eq(N.lanReached(Object.assign({}, L, { dhcp: 'Off' }), { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), false); eq(N.lanReached(null, {}), false);
+}
+
+
 // ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 5 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true\)/.test(setCalls[4]),
-  'the only router writes: mobile data, the device call, the APN steps and the MTU call: ' + setCalls.join(' | '));
+assert(setCalls.length === 6 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true\)/.test(setCalls[4]) && /^R\.setRouter\(call, true\)/.test(setCalls[5]),
+  'the only router writes: mobile data, the device call, the APN steps, the MTU call and the DHCP call: ' + setCalls.join(' | '));
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');
 assert((ui.match(/call = N\.mtuCall\(/g) || []).length === 1, 'the MTU call is built by net-core.js');
+assert((ui.match(/call = restore \? N\.lanRestoreCall\(cur, want\) : N\.lanCall\(cur, want\)/g) || []).length === 1, 'the DHCP call is built by net-core.js (lanCall / lanRestoreCall)');
 assert(!/\bsteps\s*=\s*\[\s*\{/.test(ui) && (ui.match(/call = N\.apn(DefaultCall|DeleteCall|SaveCall)\(/g) || []).length === 3 && ui.includes('apnApply([N.apnAutoCall()]'), 'every APN call is built by net-core.js');
 assert(!/zte\(\s*['"]set['"]/.test(ui) && !/goform_set_cmd_process|goformId/.test(ui), 'net-tools.js must not build a router set call itself (net-core.js does)');
 // the password typed into the APN form is emptied as soon as it has been used, and is never put in an attribute
@@ -255,7 +319,7 @@ const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
 // Root commands: the read-only check, the ping, and the backup file of the MTU change. Every one is a fixed command built in net-core.js (only validated integers go in).
 const shCalls = ui.match(/R\.sh\(([^,)]*)/g) || [];
-assert(shCalls.length === 7 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH)|N\.mtuBackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
+assert(shCalls.length === 11 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH)|N\.(mtu|lan)BackupWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
 assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');

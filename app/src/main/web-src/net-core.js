@@ -385,6 +385,92 @@
     };
   }
 
+  // ---- LAN / DHCP: pool and lease (Phase 6a) ----------------------------------------------------------------------------------
+  // Captured on the F50 (2026-11-14, part C): the stock page sends the WHOLE set every time and THE ROUTER RESTARTS after it:
+  //   isTest=false&goformId=DHCP_SETTING&lanIp=192.168.0.1&lanNetmask=255.255.255.0&lanDhcpType=SERVER&dhcpStart=192.168.0.2&dhcpEnd=192.168.0.253
+  //   &dhcpLease=24&dhcp_reboot_flag=1&mac_ip_reset=0&AD=<token>          reply {"result":"success"} (before the restart)
+  // 6a changes ONLY the pool and the lease: the router IP and mask are sent back exactly as read, DHCP must be On (the "off" value was never captured),
+  // so the console address does not change. The allowed lease range is not known: 1 to 168 hours is this tool's own limit (the cautious side).
+  const LEASE_MIN = 1, LEASE_MAX = 168;
+  const octet = '(0|[1-9]\\d{0,2})';
+  const IPV4_RE = new RegExp('^' + [octet, octet, octet, octet].join('\\.') + '$');
+  // a.b.c.d -> unsigned 32-bit number, or null (no leading zeros, each part 0-255)
+  function ipv4Int(t) {
+    const m = IPV4_RE.exec(String(t === undefined || t === null ? '' : t).trim()); if (!m) return null;
+    const p = m.slice(1).map(Number); if (p.some((x) => x > 255)) return null;
+    return ((p[0] * 16777216) + (p[1] * 65536) + (p[2] * 256) + p[3]) >>> 0;
+  }
+  // a mask of /8 to /29 made of ones then zeros (255.255.255.0 yes, 255.0.255.0 no)
+  function maskInt(t) {
+    const m = ipv4Int(t); if (m === null) return null;
+    const inv = (~m) >>> 0;
+    if (inv & ((inv + 1) >>> 0)) return null;
+    return m >= 0xFF000000 && m <= 0xFFFFFFF8 ? m : null;
+  }
+  const isPrivateIp = (n) => n !== null && ((n >>> 24) === 10 || (n >>> 20) === 0xAC1 || (n >>> 16) === 0xC0A8);
+  const leaseOk = (t) => /^\d{1,4}$/.test(String(t === undefined || t === null ? '' : t).trim()) && parseInt(t, 10) >= LEASE_MIN && parseInt(t, 10) <= LEASE_MAX;
+  // lan = parseLan(...). Returns {start, end, lease} (strings, number) or {error: text}.
+  function lanPoolCheck(lan, startT, endT, leaseT) {
+    if (!lan || !lan.ip || !lan.mask) return { error: 'The router did not report its IP address and subnet mask.' };
+    if (lan.dhcp !== 'On') return { error: 'The DHCP server is not On (or not reported). Only the pool and the lease are changed here, and only while DHCP is On.' };
+    const ip = ipv4Int(lan.ip), mask = maskInt(lan.mask);
+    if (!isPrivateIp(ip)) return { error: 'The router IP ' + lan.ip + ' is not a private address (10.x, 172.16-31.x or 192.168.x).' };
+    if (mask === null) return { error: 'The subnet mask ' + lan.mask + ' is not valid (it must run from /8 to /29).' };
+    const start = ipv4Int(startT), end = ipv4Int(endT);
+    if (start === null) return { error: 'The pool start is not a valid IPv4 address.' };
+    if (end === null) return { error: 'The pool end is not a valid IPv4 address.' };
+    const net = (ip & mask) >>> 0, bc = (net | ((~mask) >>> 0)) >>> 0;
+    for (const [n, label] of [[start, 'start'], [end, 'end']]) {
+      if (((n & mask) >>> 0) !== net) return { error: 'The pool ' + label + ' is outside the router network (' + lan.ip + ' / ' + lan.mask + ').' };
+      if (n === net || n === bc) return { error: 'The pool ' + label + ' must not be the network or the broadcast address.' };
+    }
+    if (start > end) return { error: 'The pool start must not be after the pool end.' };
+    if (ip >= start && ip <= end) return { error: 'The router IP ' + lan.ip + ' must not be inside the pool.' };
+    if (!leaseOk(leaseT)) return { error: 'The lease must be a whole number of hours from ' + LEASE_MIN + ' to ' + LEASE_MAX + '.' };
+    return { start: String(startT).trim(), end: String(endT).trim(), lease: parseInt(leaseT, 10) };
+  }
+  // The whole set, as the stock page sends it. cur = parseLan(...) (IP and mask are sent back unchanged); want = {start, end, lease}.
+  function lanCall(cur, want) {
+    const c = lanPoolCheck(cur, want && want.start, want && want.end, want && want.lease); if (c.error) throw new Error(c.error);
+    return { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: c.start, dhcpEnd: c.end, dhcpLease: String(c.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' };
+  }
+  // A saved copy is looser than a new value: an old state that the router itself held may break this tool's own rules (pool next to the limit, lease over 168 h),
+  // and the way back must still work. Only the shape is checked: valid addresses, start <= end, a whole number of hours.
+  function lanSnapOk(v) {
+    if (!v || typeof v !== 'object') return null;
+    const ip = ipv4Int(v.ip), mask = maskInt(v.mask), a = ipv4Int(v.start), b = ipv4Int(v.end);
+    const lease = typeof v.lease === 'number' ? v.lease : (/^\d{1,4}$/.test(String(v.lease)) ? parseInt(v.lease, 10) : NaN);
+    if (ip === null || mask === null || a === null || b === null || a > b || !Number.isInteger(lease) || lease < 1 || lease > 9999) return null;
+    return { ip: String(v.ip).trim(), mask: String(v.mask).trim(), start: String(v.start).trim(), end: String(v.end).trim(), lease };
+  }
+  const lanSnapOf = (lan) => (lan ? lanSnapOk({ ip: lan.ip, mask: lan.mask, start: lan.start, end: lan.end, lease: lan.leaseHours }) : null);
+  // Restore: the old pool and lease go back through the router's own call, but only while the router IP and mask are still the saved ones.
+  function lanRestoreCall(cur, old) {
+    const o = lanSnapOk(old); if (!o) throw new Error('The saved values are not valid.');
+    if (!cur || cur.ip !== o.ip || cur.mask !== o.mask) throw new Error('The router IP or subnet mask is not the saved one any more. Nothing is restored.');
+    if (cur.dhcp !== 'On') throw new Error('The DHCP server is not On.');
+    return { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: o.start, dhcpEnd: o.end, dhcpLease: String(o.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' };
+  }
+  const LAN_BACKUP_PATH = '/data/local/matchitool/lan_backup.json';
+  function lanBackupWriteSh(oldV, newV, at) {
+    const o = lanSnapOk(oldV), n = lanSnapOk(newV);
+    if (!o || !n) throw new Error('Not a valid LAN / DHCP set for the backup.');
+    const ts = Number.isInteger(at) && at > 0 ? at : 0;
+    const one = (x) => '{"ip":"' + x.ip + '","mask":"' + x.mask + '","start":"' + x.start + '","end":"' + x.end + '","lease":' + x.lease + '}';
+    const json = '{"old":' + one(o) + ',"new":' + one(n) + ',"at":' + ts + '}';
+    return "mkdir -p /data/local/matchitool && umask 077 && printf '%s' '" + json + "' > " + LAN_BACKUP_PATH + ' && echo MATCHI_BACKUP_OK';
+  }
+  const LAN_BACKUP_READ_SH = 'cat ' + LAN_BACKUP_PATH + ' 2>/dev/null';
+  const LAN_BACKUP_DELETE_SH = 'rm -f ' + LAN_BACKUP_PATH + ' && echo MATCHI_BACKUP_GONE';
+  function parseLanBackup(text) {
+    let j; try { j = JSON.parse(String(text === undefined || text === null ? '' : text).trim()); } catch (_) { return null; }
+    if (!isObj(j)) return null;
+    const o = lanSnapOk(j.old), n = lanSnapOk(j.new); if (!o || !n) return null;
+    return { old: o, new: n, at: Number.isInteger(j.at) ? j.at : 0 };
+  }
+  // After the restart: does the router report the wanted pool and lease (and the same IP, mask, DHCP On)?
+  const lanReached = (lan, want) => !!lan && lan.dhcp === 'On' && lan.start === want.start && lan.end === want.end && lan.leaseHours === want.lease;
+
   // ---- MTU / MSS --------------------------------------------------------------------------------------------------------------
   function parseMtu(d) {
     if (!isObj(d)) return null;
@@ -489,6 +575,7 @@
     APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,
     apnCanUse, apnCanEdit, apnCanAdd, apnDeleteRefusal, isInUse, sameProfile, autoAsForm, authLabelApn, pdpLabel,
     parseLease, leaseText, parseLan,
+    LEASE_MIN, LEASE_MAX, ipv4Int, maskInt, isPrivateIp, lanPoolCheck, lanCall, lanSnapOk, lanSnapOf, lanRestoreCall, LAN_BACKUP_PATH, lanBackupWriteSh, LAN_BACKUP_READ_SH, LAN_BACKUP_DELETE_SH, parseLanBackup, lanReached,
     parseMtu, sections, parseRootNet,
     MTU_MIN, MTU_MAX, MSS_MIN, mtuDefaultMss, mtuCheck, mtuCall, MTU_BACKUP_PATH, mtuBackupWriteSh, MTU_BACKUP_READ_SH, MTU_BACKUP_DELETE_SH, parseMtuBackup,
     wanFollowed, PING_SH, parsePing, isAuthError,
