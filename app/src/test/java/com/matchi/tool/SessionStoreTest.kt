@@ -46,8 +46,9 @@ class SessionStoreTest {
 
     @Test fun backgroundPollsDoNotKeepASessionAlive() {
         val s = store(); val t = s.issue()
-        repeat(5) { now += idle / 2; assertTrue(s.validate(t, touch = false)) }   // polls only: idle timer keeps running
-        assertFalse(s.validate(t, touch = false))                                   // 2.5 x idle later it is gone
+        now += idle / 2; assertTrue(s.validate(t, touch = false))    // 500 ms: still inside the idle time
+        now += idle / 2; assertTrue(s.validate(t, touch = false))    // 1000 ms: exactly the idle time, not over it yet
+        now += 1;        assertFalse(s.validate(t, touch = false))   // 1001 ms: the polls did not restart the timer, so it is gone
         assertEquals(0, s.count())
     }
 
