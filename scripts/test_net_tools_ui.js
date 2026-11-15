@@ -150,8 +150,11 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await click(tabBtn('wifi'));
   let t = bodyText();
   assert(/HomeNet/.test(t) && /5 GHz only/.test(t) && /WPA2-PSK \/ WPA3-PSK/.test(t) && /Chip 0/.test(t) && /Visible/.test(t), 'wifi tab: ' + t);
-  assert(!t.includes('TopSecret'), 'the Wi-Fi password must not reach the page');
-  assert(!JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).includes('TopSecret'), 'nor any attribute of the page');
+  assert(!t.includes('TopSecret'), 'the Wi-Fi password is never written as visible text');
+  const pwBox = doc.getElementById('matchi_wifi_pass');
+  assert(pwBox && pwBox.value === 'TopSecret-pass-1' && pwBox.attrs.type === 'password', 'the password box is pre-filled and masked, like the stock page');
+  const dump = JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v));
+  assert.strictEqual(dump.split('TopSecret').length - 1, 1, 'the password is in the password box only, no other node or attribute');
 
   await click(tabBtn('devices'));
   t = bodyText();
@@ -445,7 +448,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   const wb = (id) => doc.getElementById(id), wt = () => bodyText();
   const b64 = (x) => Buffer.from(x).toString('base64');
   assert(wb('matchi_wifi_ssid').value === 'HomeNet' && wb('matchi_wifi_max').value === '10' && wb('matchi_wifi_visible').checked === true && wb('matchi_wifi_auth').value === 'WPA2PSKWPA3PSK' && wb('matchi_wifi_band').value === '5g', 'the form shows the router values: ' + wt());
-  assert.strictEqual(wb('matchi_wifi_pass').value || '', '', 'the password field starts empty'); assert.strictEqual(wb('matchi_wifi_pass').attrs.type, 'password');
+  assert.strictEqual(wb('matchi_wifi_pass').value, 'TopSecret-pass-1', 'the password field is pre-filled with the current password, like the stock page'); assert.strictEqual(wb('matchi_wifi_pass').attrs.type, 'password');
   assert.strictEqual(shells.length, 0, 'no root command when the tab opens');
   const wifiTry = async (o) => { const f = Object.assign({ ssid: wifiState.ssid, vis: wifiState.hidden === '0', auth: wifiState.auth, max: String(wifiState.max), pass: '' }, o); wb('matchi_wifi_ssid').value = f.ssid; wb('matchi_wifi_visible').checked = f.vis; wb('matchi_wifi_auth').value = f.auth; wb('matchi_wifi_max').value = f.max; wb('matchi_wifi_pass').value = f.pass; await click(wb('matchi_wifi_apply')); };
   // the show-password box only flips the field type
@@ -486,7 +489,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.deepStrictEqual(sets[0].params, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'Home Net 2', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '1', ApMaxStationNumber: '7', EncrypType: 'CCMP', Password: b64('brand-new-pass-9') });
   assert(JSON.parse(fs.readFileSync(wifiFile, 'utf8')).old.Password === b64('TopSecret-pass-1') && wifiState.pw === 'brand-new-pass-9' && wifiState.hidden === '1', 'the old password is in the saved copy; the router has the new one');
   t = wt(); assert(/The router reports the new settings: "Home Net 2".*hidden, max 7 devices, and the new password\./.test(t), 'result: ' + t);
-  assert(!JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).match(/brand-new|TopSecret/), 'no password anywhere on the page, before or after');
+  assert(!wt().match(/brand-new|TopSecret/) && (JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).match(/brand-new|TopSecret/g) || []).length <= 1, 'the password is only in the masked password box, never in text, a message or a confirm');
   // restore: reads the saved copy, confirms, sends the OLD name, visibility and password (the saved one)
   sets.length = 0; confirms.length = 0; await click(wb('matchi_wifi_restore'));
   assert(/Put the saved values back/.test(confirms[0].msg) && /Network name: "Home Net 2" → "HomeNet"/.test(confirms[0].msg) && /Password: will change/.test(confirms[0].msg) && /SSID broadcast: Hidden → Visible/.test(confirms[0].msg), confirms[0].msg);
@@ -542,7 +545,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // forget the backup
   confirms.length = 0; await click(wb('matchi_wifi_forget')); assert(/Delete the saved copy of the old Wi-Fi settings/.test(confirms[0].msg) && /may hold the old Wi-Fi password/.test(confirms[0].msg) && /saved copy was deleted/.test(wt()) && !fs.existsSync(wifiFile), wt());
   await click(wb('matchi_wifi_restore')); assert(/No saved values found/.test(wt()), 'restore without backup: ' + wt());
-  assert(!JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).match(/brand-new|TopSecret|second-pass/), 'no password on the page at the end');
+  assert(!wt().match(/brand-new|TopSecret|second-pass/) && (JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).match(/brand-new|TopSecret|second-pass/g) || []).length <= 1, 'the password is only in the masked password box at the end');
   fs.rmSync(wifiTmp, { recursive: true, force: true });
   await click(tabBtn('data'));
 

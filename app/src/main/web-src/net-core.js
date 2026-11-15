@@ -573,10 +573,19 @@
     if (strict && s !== s.trim()) return 'The network name must not start or end with a space.';
     return null;
   }
+  // The plain password of one router entry. PASSWORD_ENCODE is on, so a firmware may hand back Password as Base64 and PasswordShow as the plain text (or the other way round):
+  // when the two differ and one is the Base64 of the other, the decoded one is the plain password. Otherwise PasswordShow wins, then Password (as the router reports it).
+  function wifiEntryPlain(e) {
+    const P = clean(e.Password) !== null ? String(e.Password) : null, S = clean(e.PasswordShow) !== null ? String(e.PasswordShow) : null;
+    if (P !== null && S !== null && P !== S) { if (b64Dec(P) === S) return S; if (b64Dec(S) === P) return P; }
+    return S !== null ? S : P;
+  }
+  // The password the router reports now, as plain text, or null (for the form to pre-fill, like the stock page). The caller keeps it in memory only.
+  function wifiPlainPw(raw) { const c = wifiCurrentPw(raw); return c.error ? null : c.pw; }
   // The password the router reports now, for the chip(s) that are on (all chips when none is). Returns {pw} or {error}; the caller must not keep or show it.
   function wifiCurrentPw(raw) {
     const entries = toList(pick(raw, 'ResponseList')).filter(isObj), on = entries.filter((e) => clean(e.AccessPointSwitchStatus) === '1'), use = on.length ? on : entries, set = new Set();
-    for (const e of use) { const p = clean(e.Password) !== null ? String(e.Password) : clean(e.PasswordShow) !== null ? String(e.PasswordShow) : null; if (p !== null) set.add(p); }
+    for (const e of use) { const p = wifiEntryPlain(e); if (p !== null) set.add(p); }
     if (!set.size) return { error: 'The router reports no Wi-Fi password to keep: type one.' };
     if (set.size > 1) return { error: 'The router reports different passwords for its two chips: type a new password.' };
     return { pw: [...set][0] };
@@ -741,7 +750,7 @@
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
     chipLabel, authLabel, parseWifi, wifiSummary, wifiMode, wifiActive,
-    WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
+    WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiPlainPw, wifiEntryPlain, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
     wifiChangeLines, wifiBandCall, wifiBandReached, WIFI_BACKUP_PATH, wifiBackupSnap, wifiBackupWriteSh, WIFI_BACKUP_READ_SH, WIFI_BACKUP_DELETE_SH, parseWifiBackup,
     mergeDevices, parseDevices, isMac, parseAcl, aclRefusal, hostnameError, renameCall, blockCall, unblockCall, plainIp, isSelf,
     APN_SLOTS, PDP_TYPES, APN_AUTH, parseProfile, parseApn, apnRefusal, apnNameError, apnApnError, apnFormError, apnAutoCall, apnSaveCall, apnDefaultCall, apnDeleteCall,

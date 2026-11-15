@@ -85,16 +85,17 @@ function mountNetTools() {
     else if (!act || !snap) form = note('The settings are not changed here: the router must report one band on, with its name, security mode (one this tool offers), SSID broadcast and max devices.', 'net-mut');
     else form = wifiForm(snap, act, busy);
     return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, form, blocks,
-      note('The Wi-Fi password is not shown or kept in this window. A band change or a save restarts Wi-Fi.', 'net-mut'));
+      note('A band change or a save restarts Wi-Fi.', 'net-mut'));
   }
   function wifiForm(snap, act, busy) {
-    const base = [snap.ssid, snap.auth, snap.hidden, snap.max].join('|');
-    if (!st.wifiForm || st.wifiForm.base !== base) st.wifiForm = { base, ssid: snap.ssid, auth: snap.auth, visible: !snap.hidden, max: String(snap.max) };
+    const curPw = st.cache.wifi && st.cache.wifi.d ? N.wifiPlainPw(st.cache.wifi.d) : null;   // shown like the stock page (dots + Display password); kept in memory only
+    const base = [snap.ssid, snap.auth, snap.hidden, snap.max, curPw || ''].join('|');
+    if (!st.wifiForm || st.wifiForm.base !== base) st.wifiForm = { base, ssid: snap.ssid, auth: snap.auth, visible: !snap.hidden, max: String(snap.max), pw: snap.auth === 'OPEN' ? '' : (curPw || '') };
     const f = st.wifiForm;
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const ssid = h('input', { type: 'text', id: 'matchi_wifi_ssid', maxlength: '32', autocomplete: 'off', spellcheck: 'false' }); ssid.value = f.ssid; ssid.oninput = () => { f.ssid = ssid.value; };
     const auth = h('select', { id: 'matchi_wifi_auth' }, N.WIFI_AUTH.map(([k, t]) => h('option', { value: k }, t))); auth.value = f.auth;
-    const pass = h('input', { type: 'password', id: 'matchi_wifi_pass', maxlength: '63', autocomplete: 'new-password', spellcheck: 'false' });
+    const pass = h('input', { type: 'password', id: 'matchi_wifi_pass', maxlength: '63', autocomplete: 'new-password', spellcheck: 'false' }); pass.value = f.pw || ''; pass.oninput = () => { f.pw = pass.value; };
     const show = h('input', { type: 'checkbox', id: 'matchi_wifi_show' }); show.onchange = () => { pass.type = show.checked ? 'text' : 'password'; };
     const vis = h('input', { type: 'checkbox', id: 'matchi_wifi_visible' }); vis.checked = f.visible; vis.onchange = () => { f.visible = vis.checked; };
     const max = h('select', { id: 'matchi_wifi_max' }, Array.from({ length: N.WIFI_MAX_STATIONS }, (_, i) => h('option', { value: String(i + 1) }, String(i + 1)))); max.value = f.max; max.onchange = () => { f.max = max.value; };
@@ -108,7 +109,7 @@ function mountNetTools() {
       row('Network name (SSID)', ssid), row('Broadcast SSID (visible)', vis), row('Security mode', auth),
       row('Wi-Fi password', pass), row('Display password', show), row('Max devices', max), err,
       h('div', { class: 'net-actions' }, mk('Apply settings (Wi-Fi restarts)', 'matchi_wifi_apply', () => wifiSubmit(ssid.value, auth.value, vis.checked, max.value, pass, err), true)),
-      note('Leave the password empty to keep the current one (8 to 63 characters when you type one). Open means no password. The old values are saved first, so "Restore saved values" can put them back. If you are on Wi-Fi you are disconnected: reconnect to the new name and password, then press Refresh.', 'net-mut'),
+      note('The password box shows the current password as dots (tick Display password to read it). Edit it to change it, or empty it to keep the current one (8 to 63 characters). Open means no password. The old values are saved first, so "Restore saved values" can put them back. If you are on Wi-Fi you are disconnected: reconnect to the new name and password, then press Refresh.', 'net-mut'),
       h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_wifi_restore', wifiRestore, false), mk('Forget backup (root)', 'matchi_wifi_forget', wifiForget, false)));
   }
   function viewDevices(d) {
@@ -805,6 +806,7 @@ function mountNetTools() {
     if (errEl) errEl.textContent = '';
     const want = { ssid: c.ssid, auth: c.auth, hidden: c.hidden, max: c.max, pw: c.pw };
     if (passEl) passEl.value = '';   // the typed password lives only in `want` from here on
+    if (st.wifiForm) st.wifiForm.pw = '';
     await wifiApply(want, 'Change the Wi-Fi settings?', false);
   }
   async function wifiRestore() {

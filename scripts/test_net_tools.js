@@ -336,7 +336,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(fromOpen.Password, Buffer.from('new-pass-1234').toString('base64')); eq(fromOpen.EncrypType, 'CCMP');
   // keep-the-password needs one to keep; a typed one wins; a saved one (base64) is used as is; bad ones are refused
   assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'x', auth: 'WPA2PSK', hidden: false, max: 5 }), /no Wi-Fi password to keep/);
-  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(0, false, { Password: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2' })] }, keep) && N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2' })] }, keep), /different passwords/);
+  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(0, false, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep) && N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep), /different passwords/);
   eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pw: 'typed-pass-77' }).Password, Buffer.from('typed-pass-77').toString('base64'));
   eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pwB64: Buffer.from('saved-pass-88').toString('base64') }).Password, Buffer.from('saved-pass-88').toString('base64'));
   for (const bad of [{ ssid: '', auth: 'OPEN', hidden: false, max: 1 }, { ssid: 'a', auth: 'WEP', hidden: false, max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: 'no', max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 0 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 11 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: '5' },
@@ -413,4 +413,14 @@ assert(shCalls.length === 15 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|
 assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');
 assert(ui.includes('R.beginBusy(') && ui.includes('release()'), 'Live Status is paused while the window is open (plan rule 7)');
 assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b|['"](Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)['"]/.test(ui), 'the window never reads a password field of the router');
+// The router may report Password as Base64 and PasswordShow as plain text (PASSWORD_ENCODE): the plain one is used and a save never double-encodes it.
+{
+  const plain = '@716241PLDThome@', b = N.b64Ascii(plain);
+  const mk = (o) => ({ WiFiModuleSwitch: '1', ResponseList: [Object.assign({ ChipIndex: 1, AccessPointIndex: '0', AccessPointSwitchStatus: '1', SSID: 'CE 2', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '' }, o)] });
+  const keep = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 2 };
+  for (const o of [{ Password: b, PasswordShow: plain }, { Password: plain, PasswordShow: b }, { Password: plain, PasswordShow: plain }]) {
+    assert.strictEqual(N.wifiPlainPw(mk(o)), plain);
+    assert.strictEqual(N.wifiSaveCall(mk(o), keep).Password, b, 'sent as Base64 of the plain password, once');
+  }
+}
 console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls, the MTU call, the DHCP pool / lease call and the Wi-Fi band and settings calls, all built by net-core.js');
