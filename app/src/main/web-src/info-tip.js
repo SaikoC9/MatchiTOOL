@@ -39,7 +39,7 @@
     styled = true;
     const s = document.createElement('style');
     s.textContent = `.mt-tip-btn{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:19px;height:19px;min-width:19px;min-height:0;padding:0;margin:2px 0;border:0;border-radius:50%;cursor:pointer;background:var(--tb);color:var(--tc);line-height:0}
-.mt-tip-btn svg{display:block}
+.mt-tip-btn svg{display:block;flex:none;width:12px;height:12px}\nbutton.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn{width:20px!important;height:20px!important;min-width:20px!important;min-height:20px!important;padding:0!important;margin:2px 0!important;border:0!important;border-radius:50%!important;box-shadow:none!important;font-size:0!important;line-height:0!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
