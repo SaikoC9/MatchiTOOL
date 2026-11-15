@@ -195,6 +195,8 @@ window.MatchiRadio = (() => {
     'SA=/data/data/com.matchi.tool/files/sendat',
     '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',
     'tx() { "$SA" -n "$1" -c "$2" 2>&1 | tr "\\n\\r" "  "; }',
+    'p0=$(tx 0 AT); p1=$(tx 1 AT)',
+    'case "$p0$p1" in *OK*) ;; *) echo "NOAT:$p0$p1"; exit 0;; esac',
     'o0=$(tx 0 AT+SFUN=5); echo "OFF0:$o0"',
     'o1=$(tx 1 AT+SFUN=5); echo "OFF1:$o1"',
     'sleep 0.1',
@@ -215,6 +217,7 @@ window.MatchiRadio = (() => {
     const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
     if (!lost) {
       if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
+      if (/^NOAT:/m.test(text)) { log('The modem did not answer a plain AT on either slot (sendat gave no OK), so the radio was NOT switched off. Nothing was changed. Run Full diagnose and look at "sendat architecture & execution".'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
       for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
       const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
       if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }

@@ -18,8 +18,9 @@
   const atSlot = (command, sl) => R.at(command, sl);
   const getVoLTE = async () => parseInt(fields(await at('AT+CAVIMS?'))[0], 10) === 1;
   const getVoNR = async () => parseInt(fields(await at('AT+SP5GCMDS="get nr synch_param",42'))[2], 10) === 1;
-  const setVoLTE = async (on) => (await at('AT+CAVIMS=' + (on ? 1 : 0))).includes('OK');
-  const setVoNR = async (on) => (await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0))).includes('OK');
+  // The setters return the modem's raw reply: the caller tells "modem said no" from "modem said nothing" (sendat silent).
+  const setVoLTE = async (on) => await at('AT+CAVIMS=' + (on ? 1 : 0));
+  const setVoNR = async (on) => await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0));
 
   // ---- IMEI ---------------------------------------------------------------------------------------------
   // Unisoc modems write the IMEI with AT+SPIMEI=<slot>,"<imei>". Safety rules built into this flow:
@@ -304,7 +305,11 @@
       document.getElementById(id).onchange = async (e) => {
         const on = e.target.checked;
         for (const x of ['matchi_volte', 'matchi_vonr']) { const c = document.getElementById(x); if (c) c.disabled = true; }   // one modem write at a time
-        try { const ok = await setter(on); createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed', ok ? 'green' : 'red'); }
+        try {
+          const raw = String(await setter(on) || ''), ok = raw.includes('OK');
+          const why = raw.trim() ? ' (modem said: ' + raw.replace(/\s+/g, ' ').trim().slice(0, 80) + ')' : ': the modem did not answer AT (sendat printed nothing). Run Full diagnose';
+          createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed' + why, ok ? 'green' : 'red');
+        }
         catch (err) { createToast(err.message, 'red'); }
         refreshSwitches();
       };

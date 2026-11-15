@@ -131,7 +131,7 @@ assert 'fun closeAll()' in root_shell and 'RootShell.closeAll()' in service, 'ro
 assert 'RootShell.status(this)' in main and 'managerHint' in main, 'native root manager status missing'
 assert 'handler.postDelayed(this, 60000)' in main, 'root status polling should be rate-limited'
 network = dict(tools)['Network_Diagnostics.js']
-for marker in ('ip -4 route show default', 'ip -6 route show default', 'ping -c 2 -W 2 1.1.1.1', 'getent hosts example.com', 'Read-only checks'):
+for marker in ('ip -4 route show table all', 'ip -6 route show table all', 'ping -c 2 -W 2 1.1.1.1', 'getent hosts example.com', 'Read-only checks'):
     assert marker in network, f'network diagnostics safety/check marker missing: {marker}'
 live = dict(tools)['Live_Status.js']
 assert 'atAt = 0, atCache = []' in live and 'Date.now() - atAt >= 60000' in live, 'modem AT cache missing'

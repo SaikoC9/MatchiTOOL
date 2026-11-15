@@ -898,8 +898,9 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   const atSlot = (command, sl) => R.at(command, sl);
   const getVoLTE = async () => parseInt(fields(await at('AT+CAVIMS?'))[0], 10) === 1;
   const getVoNR = async () => parseInt(fields(await at('AT+SP5GCMDS="get nr synch_param",42'))[2], 10) === 1;
-  const setVoLTE = async (on) => (await at('AT+CAVIMS=' + (on ? 1 : 0))).includes('OK');
-  const setVoNR = async (on) => (await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0))).includes('OK');
+  // The setters return the modem's raw reply: the caller tells "modem said no" from "modem said nothing" (sendat silent).
+  const setVoLTE = async (on) => await at('AT+CAVIMS=' + (on ? 1 : 0));
+  const setVoNR = async (on) => await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0));
 
   // ---- IMEI ---------------------------------------------------------------------------------------------
   // Unisoc modems write the IMEI with AT+SPIMEI=<slot>,"<imei>". Safety rules built into this flow:
@@ -1184,7 +1185,11 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
       document.getElementById(id).onchange = async (e) => {
         const on = e.target.checked;
         for (const x of ['matchi_volte', 'matchi_vonr']) { const c = document.getElementById(x); if (c) c.disabled = true; }   // one modem write at a time
-        try { const ok = await setter(on); createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed', ok ? 'green' : 'red'); }
+        try {
+          const raw = String(await setter(on) || ''), ok = raw.includes('OK');
+          const why = raw.trim() ? ' (modem said: ' + raw.replace(/\s+/g, ' ').trim().slice(0, 80) + ')' : ': the modem did not answer AT (sendat printed nothing). Run Full diagnose';
+          createToast(ok ? name + (on ? ' on' : ' off') : name + ' change failed' + why, ok ? 'green' : 'red');
+        }
         catch (err) { createToast(err.message, 'red'); }
         refreshSwitches();
       };
@@ -1219,27 +1224,35 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
 T=/data/local/tmp; { [ -d $T ] && [ -w $T ]; } || T=/data/local
 P=$T/.nd$$
 HAVEPING=0; command -v ping >/dev/null 2>&1 && HAVEPING=1
-gw=$(ip -4 route show default 2>/dev/null | awk 'NR==1{print $3}')
+P6=ping; command -v ping6 >/dev/null 2>&1 && P6=ping6
+# A mobile link has its default route in its own routing table (policy routing), so "ip route" alone shows nothing: read every table.
+R4=$(ip -4 route show table all 2>/dev/null | grep '^default' | grep -v dummy | head -n 3)
+R6=$(ip -6 route show table all 2>/dev/null | grep '^default' | grep -v dummy | head -n 3)
+gw=$(echo "$R4" | awk '{for(i=1;i<NF;i++)if($i=="via"){print $(i+1);exit}}')
 if [ "$HAVEPING" = 1 ]; then
   [ -n "$gw" ] && ( ping -c 2 -W 2 "$gw" 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.g 2>/dev/null &
   ( ping -c 2 -W 2 1.1.1.1 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.4 2>/dev/null &
-  ( ping -6 -c 2 -W 2 2606:4700:4700::1111 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.6 2>/dev/null &
-fi
-if command -v getent >/dev/null 2>&1; then
+  ( $P6 -c 2 -W 2 2606:4700:4700::1111 2>&1 | tail -n 2 | tr '\n' ' ' ) > $P.6 2>/dev/null &
+  # No getent/nslookup on Android: ping resolves the name first, so its first line shows the address the DNS server gave.
+  ( ping -c 1 -W 3 example.com 2>&1 | head -n 1 | tr '\n' ' ' ) > $P.d 2>/dev/null &
+elif command -v getent >/dev/null 2>&1; then
   ( getent hosts example.com 2>&1 | head -n 2 | tr '\n' ' ' ) > $P.d 2>/dev/null &
 elif command -v nslookup >/dev/null 2>&1; then
   ( nslookup example.com 2>&1 | tail -n 5 | tr '\n' ' ' ) > $P.d 2>/dev/null &
-else echo "No getent/nslookup utility" > $P.d; fi
-echo "ipv4_addr=$(ip -4 -o addr show 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
-echo "ipv6_addr=$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $2 " " $4}' | head -n 12)"
-echo "route4=$(ip -4 route show default 2>/dev/null | head -n 3)"
-echo "route6=$(ip -6 route show default 2>/dev/null | head -n 3)"
-echo "dns_props=$(getprop | grep -iE 'net.dns[0-9]' | head -n 4 | tr '\n' ' ')"
+else echo "No getent/nslookup/ping utility" > $P.d; fi
+# One line per key: values are joined with " ; " (the page reads "key=value" line by line).
+echo "ipv4_addr=$(ip -4 -o addr show 2>/dev/null | awk '{print $2 " " $4}' | grep -v '^lo ' | head -n 12 | tr '\n' ';')"
+echo "ipv6_addr=$(ip -6 -o addr show scope global 2>/dev/null | awk '{print $2 " " $4}' | head -n 12 | tr '\n' ';')"
+echo "route4=$(echo "$R4" | tr '\n' ';')"
+echo "route6=$(echo "$R6" | tr '\n' ';')"
+echo "dns_props=$(getprop 2>/dev/null | grep -iE '\.dns[0-9]|ipv6_dns[0-9]' | sed 's/\[//g;s/\]//g' | head -n 6 | tr '\n' ';')"
 wait
-if [ -n "$gw" ] && [ "$HAVEPING" = 1 ]; then echo "gateway_ping=$(cat $P.g 2>/dev/null)"; else echo "gateway_ping=No IPv4 gateway or ping utility"; fi
+if [ -n "$gw" ] && [ "$HAVEPING" = 1 ]; then echo "gateway_ping=$(cat $P.g 2>/dev/null)"; elif [ -n "$R4" ]; then echo "gateway_ping=No gateway address: the mobile link is point-to-point (normal)"; else echo "gateway_ping=No IPv4 default route"; fi
 if [ "$HAVEPING" = 1 ]; then
   echo "public_ipv4=$(cat $P.4 2>/dev/null)"
-  echo "public_ipv6=$(cat $P.6 2>/dev/null)"
+  v6=$(cat $P.6 2>/dev/null)
+  case "$v6" in *[Uu]sage*|*"[-"*) v6="IPv6 ping is not supported by this device's ping tool (not a network fault)";; esac
+  echo "public_ipv6=$v6"
 else echo "public_ipv4=ping utility unavailable"; fi
 echo "dns=$(cat $P.d 2>/dev/null)"
 rm -f $P.g $P.4 $P.6 $P.d
@@ -1250,7 +1263,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       ['IPv4 addresses',o.ipv4_addr],['IPv6 global addresses',o.ipv6_addr],['IPv4 default route',o.route4],['IPv6 default route',o.route6],
       ['Gateway reachability',o.gateway_ping],['Public IPv4 reachability',o.public_ipv4],['Public IPv6 reachability',o.public_ipv6],['DNS lookup',o.dns],['Android DNS properties',o.dns_props]
     ];
-    return tests.map(([k,v])=>'<tr><td style="padding:6px 8px 6px 0;vertical-align:top;border-bottom:1px solid var(--bd);opacity:.75">'+esc(k)+'</td><td style="padding:6px 0;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid var(--bd)">'+esc(v||'Not reported')+'</td></tr>').join('');
+    return tests.map(([k,v])=>'<tr><td style="padding:6px 8px 6px 0;vertical-align:top;border-bottom:1px solid var(--bd);opacity:.75">'+esc(k)+'</td><td style="padding:6px 0;text-align:right;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid var(--bd)">'+esc(String(v||'').replace(/;\s*$/,'').replace(/;\s*/g,'\n')||'Not reported')+'</td></tr>').join('');
   }
   let running=false;
   async function run(){
@@ -3923,6 +3936,8 @@ window.MatchiRadio = (() => {
     'SA=/data/data/com.matchi.tool/files/sendat',
     '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',
     'tx() { "$SA" -n "$1" -c "$2" 2>&1 | tr "\\n\\r" "  "; }',
+    'p0=$(tx 0 AT); p1=$(tx 1 AT)',
+    'case "$p0$p1" in *OK*) ;; *) echo "NOAT:$p0$p1"; exit 0;; esac',
     'o0=$(tx 0 AT+SFUN=5); echo "OFF0:$o0"',
     'o1=$(tx 1 AT+SFUN=5); echo "OFF1:$o1"',
     'sleep 0.1',
@@ -3943,6 +3958,7 @@ window.MatchiRadio = (() => {
     const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
     if (!lost) {
       if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
+      if (/^NOAT:/m.test(text)) { log('The modem did not answer a plain AT on either slot (sendat gave no OK), so the radio was NOT switched off. Nothing was changed. Run Full diagnose and look at "sendat architecture & execution".'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
       for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
       const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
       if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
@@ -8409,11 +8425,21 @@ async function runSelfTest(onStep){
   });
   add(S13,'sendat architecture & execution',async()=>{
     const n=needRoot();if(n)return n;
-    const r=await sh('F=/data/data/com.matchi.tool/files/sendat; [ -x $F ] || F=/data/user/0/com.matchi.tool/files/sendat; echo "abi=$(getprop ro.product.cpu.abi)"; echo "elf=$(od -An -tx1 -j18 -N1 $F 2>/dev/null | tr -d " ")"; echo "out=$(timeout 5 $F -h 2>&1 | head -2 | tr "\\n" " ")"');
-    const k=stKV(r.text),want=/arm64/.test(k.abi||'')?'b7':/armeabi|arm/.test(k.abi||'')?'28':/x86_64/.test(k.abi||'')?'3e':'03';
-    if(k.elf&&k.elf!==want)return R.fail('sendat is built for ELF machine 0x'+k.elf+' but the device ABI is '+k.abi,'Wrong CPU build: AT features cannot work; use a build for '+k.abi+'.');
-    return /not found|exec format|permission denied|cannot link/i.test(k.out||'')?R.fail('sendat does not run: '+k.out,'Reinstall the app (restores sendat and its permissions).'):R.ok('sendat matches '+k.abi+' and starts');
-  });
+    // The ELF header is read as 20 plain bytes (head -c) and split here: od -j/-N behaves differently between toybox builds and once
+    // reported machine 0x00 for a good arm64 file. The real AT test below prints exit code and text, so a silent sendat can be told apart.
+    const r=await sh('F=/data/data/com.matchi.tool/files/sendat; [ -x $F ] || F=/data/user/0/com.matchi.tool/files/sendat; echo "abi=$(getprop ro.product.cpu.abi)"; echo "hdr=$(head -c 20 $F 2>/dev/null | od -An -tx1 | tr "\\n" " ")"; echo "size=$(wc -c < $F 2>/dev/null)"; echo "sha=$(sha256sum $F 2>/dev/null | cut -c1-16)"; o=$(timeout 8 $F -n 0 -c AT </dev/null 2>&1); echo "rc=$?"; echo "out=$(echo "$o" | head -3 | tr "\\n\\r" "  ")"; echo "ps=$(ps -A 2>/dev/null | grep -i sendat | grep -v grep | wc -l)"');
+    const k=stKV(r.text),h=(k.hdr||'').trim().split(/\s+/).filter(Boolean);
+    raw('sendat check','abi='+k.abi+'\nheader bytes: '+(k.hdr||'(unreadable)')+'\nsize='+k.size+' sha256(first 16)='+k.sha+' (bundled build: f0da6be08ed2cdb4)\nAT test exit='+k.rc+' output='+(k.out||'(none)')+'\nsendat processes still running='+k.ps);
+    const want=/arm64/.test(k.abi||'')?0xb7:/armeabi|arm/.test(k.abi||'')?0x28:/x86_64/.test(k.abi||'')?0x3e:0x03;
+    if(h.length>=20){
+      if(h.slice(0,4).join('')!=='7f454c46')return R.fail('sendat is not an ELF file (header '+h.slice(0,8).join(' ')+', size '+k.size+')','The copy is damaged: force-stop MatchiTOOL and reinstall the app so sendat is copied again.');
+      const m=parseInt(h[19]+h[18],16);
+      if(m!==want)return R.fail('sendat is built for ELF machine 0x'+m.toString(16)+' but the device ABI is '+k.abi,'Wrong CPU build: AT features cannot work; use a build for '+k.abi+'.');
+    }
+    if(/not found|exec format|permission denied|cannot link/i.test(k.out||''))return R.fail('sendat does not run: '+k.out,'Reinstall the app (restores sendat and its permissions).');
+    if(!/OK/.test(k.out||''))return R.warn('sendat is the right build and starts, but the modem gave no OK (exit '+k.rc+', output: '+(k.out||'none')+'; '+k.ps+' sendat still running)','The binary is fine; the AT channel is silent. See the sendat check text above and send it with the log.');
+    return R.ok('sendat matches '+k.abi+' and the modem answered: '+k.out);
+  },30000);
   add(S13,'Plugin and tool code compiles',async()=>{
     const bad=[];let n=0;
     document.querySelectorAll('script.webtool').forEach(s=>{n++;try{new Function(s.textContent)}catch(e){bad.push(s.dataset.name+': '+e.message)}});
