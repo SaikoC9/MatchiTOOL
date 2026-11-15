@@ -4082,7 +4082,8 @@ window.MatchiRadio = (() => {
 /* @end-include web-src/radio-core.js */
 /* @include web-src/info-tip.js */
 /* Info tips: a long explanation is shown as a small icon button; a click opens or closes the text under it.
-   The icon follows the kind of message: "?" blue (information), warning triangle amber, "!" red (high risk), circular arrow purple (the router restarts).
+   Small soft-tinted round icon (line drawing) that follows the kind of message: info circle blue, warning triangle amber, alert circle red (high risk),
+   circular arrow purple (the router restarts). The opened text is a plain thin box.
    window.MatchiTip.make(text, kind)  -> a node: the icon button plus the hidden text. kind is optional: without it kindOf(text) picks one.
    window.MatchiTip.enhance(root)     -> turns every element with a data-tip="kind" attribute under root into the same thing: the element stays
                                          (class, text and translation untouched) and is hidden until its icon button is clicked.
@@ -4092,12 +4093,22 @@ window.MatchiRadio = (() => {
   'use strict';
   if (window.MatchiTip) return;
   const LONG = 100;
+  // Line icons on a 24 x 24 grid: [tag, attributes]. Drawn with createElementNS; where that is missing a plain character stands in.
+  const DOT = ['circle', { cx: 12, cy: 16.4, r: 0.7, fill: 'currentColor' }];
   const KINDS = {
-    info:    { glyph: '?',      label: 'More information' },
-    warning: { glyph: '\u26A0\uFE0E', label: 'Warning' },
-    danger:  { glyph: '!',      label: 'High risk' },
-    restart: { glyph: '\u21BB', label: 'The router restarts' }
+    info:    { glyph: 'i',      label: 'More information', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 11v5.5' }], ['circle', { cx: 12, cy: 7.8, r: 0.7, fill: 'currentColor' }]] },
+    warning: { glyph: '\u26A0\uFE0E', label: 'Warning', shapes: [['path', { d: 'M12 4 21 19H3Z' }], ['path', { d: 'M12 10v4' }], DOT] },
+    danger:  { glyph: '!',      label: 'High risk', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7.5v5' }], DOT] },
+    restart: { glyph: '\u21BB', label: 'The router restarts', shapes: [['path', { d: 'M20 12a8 8 0 1 1-2.6-5.9' }], ['path', { d: 'M20 4v4.5h-4.5' }]] }
   };
+  const NS = 'http://www.w3.org/2000/svg';
+  function icon(k) {
+    if (!document.createElementNS) return document.createTextNode(k.glyph);
+    const svg = document.createElementNS(NS, 'svg');
+    for (const [n, v] of [['width', 12], ['height', 12], ['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', 2], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(n, String(v));
+    for (const [tag, at] of k.shapes) { const e = document.createElementNS(NS, tag); for (const n of Object.keys(at)) e.setAttribute(n, String(at[n])); svg.appendChild(e); }
+    return svg;
+  }
   const kindOf = (t) => {
     t = String(t || '');
     if (/highest risk|no signal|may still be off|may lose signal/i.test(t)) return 'danger';
@@ -4110,13 +4121,16 @@ window.MatchiRadio = (() => {
     if (styled || !document.head) return;
     styled = true;
     const s = document.createElement('style');
-    s.textContent = `.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:28px;height:28px;min-width:28px;min-height:0;padding:0;margin:4px 0;border:0;border-radius:8px;font:700 15px/1 system-ui,sans-serif;color:#fff;cursor:pointer;vertical-align:middle}
-.mt-tip-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.mt-tip-btn[aria-expanded="true"]{box-shadow:0 0 0 2px rgba(255,255,255,.35)}
-.mt-tip-info{background:#2a8cf0}.mt-tip-warning{background:#f0a21a;color:#1a1200}.mt-tip-danger{background:#e04458}.mt-tip-restart{background:#8d63e8}
-.mt-tip-body{margin:4px 0 8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);border-left-width:4px;background:rgba(255,255,255,.04);line-height:1.45}
-.mt-tip-body.mt-tip-info{border-left-color:#2a8cf0}.mt-tip-body.mt-tip-warning{border-left-color:#f0a21a}.mt-tip-body.mt-tip-danger{border-left-color:#e04458}.mt-tip-body.mt-tip-restart{border-left-color:#8d63e8}
-.mt-tip-body.mt-tip-info,.mt-tip-body.mt-tip-warning,.mt-tip-body.mt-tip-danger,.mt-tip-body.mt-tip-restart{background-image:none}`;
+    s.textContent = `.mt-tip-btn{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:19px;height:19px;min-width:19px;min-height:0;padding:0;margin:2px 0;border:0;border-radius:50%;cursor:pointer;background:var(--tb);color:var(--tc);line-height:0}
+.mt-tip-btn svg{display:block}
+.mt-tip-btn:hover{background:var(--th)}
+.mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
+.mt-tip-btn[aria-expanded="true"]{background:var(--th)}
+.mt-tip-info{--tc:#5aa9ff;--tb:rgba(90,169,255,.16);--th:rgba(90,169,255,.3)}
+.mt-tip-warning{--tc:#f2b13a;--tb:rgba(242,177,58,.16);--th:rgba(242,177,58,.3)}
+.mt-tip-danger{--tc:#ff6b7d;--tb:rgba(255,107,125,.16);--th:rgba(255,107,125,.3)}
+.mt-tip-restart{--tc:#a98bff;--tb:rgba(169,139,255,.16);--th:rgba(169,139,255,.3)}
+.mt-tip-body{box-sizing:border-box;margin:4px 0 8px!important;padding:8px 11px!important;border:1px solid rgba(255,255,255,.13)!important;border-radius:8px;background:rgba(255,255,255,.03)!important;color:var(--mut,#aab6c8)!important;font-size:12.5px!important;line-height:1.45!important}`;
     document.head.appendChild(s);
   }
   // The button for a text element; the element is the panel.
@@ -4130,7 +4144,7 @@ window.MatchiRadio = (() => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mt-tip-btn mt-tip-' + kk;
-    btn.textContent = k.glyph;
+    btn.appendChild(icon(k));
     btn.setAttribute('aria-label', k.label);
     btn.setAttribute('title', k.label);
     btn.setAttribute('aria-expanded', 'false');
