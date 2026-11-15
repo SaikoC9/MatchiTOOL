@@ -135,6 +135,8 @@ internal fun WebServer.usbEnableScript(fn: String, persist: Boolean = false): St
     return """
     has() { ls -l /config/usb_gadget/*/configs/*/ 2>/dev/null | grep -qi "§1"; }
     ADB="§(settings get global adb_enabled 2>/dev/null | tr -d '\r')"
+    # the stock USB debugging switch may be on while Android's own flag is not: an adb already in the live config counts as on
+    case ",§(getprop sys.usb.config)," in *,adb,*) ADB=1 ;; esac
     if [ "§ADB" = 1 ]; then CANDS="$fn,mtp,adb $fn,adb"; else CANDS="$fn,mtp $fn"; fi
     echo "Before: sys.usb.config=§(getprop sys.usb.config)"
     OK=0
@@ -178,7 +180,9 @@ private val USB_RESTORE = """
     BASE="§(getprop persist.sys.usb.config)"; [ -n "§BASE" ] || BASE=mtp
     BASE="§(printf '%s' "§BASE" | sed 's/\(^\|,\)rndis\($\|,\)/\1/g; s/\(^\|,\)ecm\($\|,\)/\1/g; s/\(^\|,\)cdc_ecm\($\|,\)/\1/g; s/,,*/,/g; s/^,//; s/,$//')"
     [ -n "§BASE" ] || BASE=mtp
-    if [ "§(settings get global adb_enabled 2>/dev/null | tr -d '\r')" = 1 ]; then case ",§BASE," in *,adb,*) ;; *) BASE="§BASE,adb" ;; esac; fi
+    ADBON=0; [ "§(settings get global adb_enabled 2>/dev/null | tr -d '\r')" = 1 ] && ADBON=1
+    case ",§(getprop sys.usb.config)," in *,adb,*) ADBON=1 ;; esac
+    if [ "§ADBON" = 1 ]; then case ",§BASE," in *,adb,*) ;; *) BASE="§BASE,adb" ;; esac; fi
     echo "Restoring sys.usb.config=§BASE"
     setprop sys.usb.config "§BASE"
     sleep 3

@@ -8653,7 +8653,7 @@ async function refreshUsbSetting(){
 }
 async function refreshUsb(){
   refreshUsbSetting();
-  try{const r=await api('/api/usb/status');document.getElementById('adbstate').textContent=r.adbEnabled?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected'}
+  try{const r=await api('/api/usb/status');let dbg=!!r.adbEnabled;try{const q=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params:{cmd:'usb_port_switch'},retry:0})});const pv=q&&q.data?String(q.data.usb_port_switch===undefined?'':q.data.usb_port_switch).trim():'';if(pv==='1')dbg=true;else if(pv==='0')dbg=false}catch(_){}document.getElementById('adbstate').textContent=dbg?'Enabled':'Disabled';document.getElementById('tetherstate').textContent=r.rndisActive?'RNDIS active':r.ecmActive?'CDC-ECM active':'No USB Ethernet mode detected'}
   catch(e){createToast('USB status failed: '+e.message)}
 }
 /* USB Internet Protocol, no restart. Two steps:
@@ -8677,10 +8677,24 @@ async function usbAction(action){
   }catch(e){createToast('Saved '+m[1]+' on the router, but applying it now failed: '+e.message+'. It will apply after the next restart.')}
   setTimeout(refreshUsb,1500);
 }
+/* USB debugging, the stock way (captured on the F50, 2026-11-15; the host adds the AD token):
+     goformId=USB_PORT_SETTING&isTest=false&usb_port_switch=1|0      (1 = on, 0 = off)
+   Needs the fresh sign-in. If the router refuses it, the old root command (settings put global adb_enabled) is used instead.
+   The RNDIS / CDC-ECM script keeps adb in the USB function list whenever debugging is on, so both work with it on or off. */
 async function adbAction(action){
-  const label=action==='adb_enable'?'Enable USB debugging':'Disable USB debugging';
-  if(!(await askConfirm(label+'? This changes Android USB settings.','Apply')))return;
-  try{const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});if(!r.success)throw new Error(r.output||'Command failed');createToast(label+' command completed');setTimeout(refreshUsb,1200)}catch(e){createToast('USB action failed: '+e.message)}
+  const on=action==='adb_enable',label=on?'Enable USB debugging':'Disable USB debugging';
+  if(!(await askConfirm(label+'? This changes the router USB setting.','Apply')))return;
+  const zset=async(params)=>{const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'set',params,retry:0})});if(r.error)throw new Error(r.error);const d=r.data;const res=d&&typeof d==='object'?d.result:d;if(String(res===undefined||res===null?'':res).trim()!=='success')throw new Error('Router refused the change ('+(res===undefined?'no answer':String(res).slice(0,80))+')');};
+  try{
+    let stockErr='';
+    try{await zset({goformId:'USB_PORT_SETTING',usb_port_switch:on?'1':'0'})}catch(e){stockErr=e.message}
+    if(stockErr){
+      const r=await api('/api/usb/control',{method:'POST',body:JSON.stringify({action,persist:false})});
+      if(!r.success)throw new Error(stockErr+'; root command also failed: '+(r.output||'no output'));
+      createToast(label+' done with the root command (the router refused the stock request: '+stockErr+')');
+    }else createToast(label+' done');
+    setTimeout(refreshUsb,1500);
+  }catch(e){createToast('USB action failed: '+e.message)}
 }
 document.getElementById('adbon').onclick=()=>adbAction('adb_enable');
 document.getElementById('adboff').onclick=()=>adbAction('adb_disable');

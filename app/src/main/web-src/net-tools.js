@@ -946,10 +946,11 @@ function mountNetTools() {
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
-  function open() {
+  function open(startTab) {
+    const first = typeof startTab === 'string' && VIEWS[startTab] ? startTab : 'data';   // the click on the Network button passes an event, not a tab
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
     createModal({
       name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
@@ -968,9 +969,10 @@ function mountNetTools() {
       tabs.appendChild(b);
     }
     $('matchi_net_refresh').onclick = () => { if (!st.loading) { delete st.cache[st.tab]; if (st.tab === 'mtu') st.mtuForm = null; if (st.tab === 'lan') st.lanForm = null; if (st.tab === 'wifi') { st.wifiForm = null; st.wifiBandSel = null; } load(st.tab); } };   // Refresh also puts the MTU form back to the router's values
-    load('data');
+    load(first); syncButtons();
     findMe();
   }
+  window.MatchiNetOpen = open;   // used by the Devices tile in Live device status
 
   const b = document.createElement('button');
   b.id = 'matchi_net_btn'; b.type = 'button'; b.textContent = 'Network'; b.onclick = open;

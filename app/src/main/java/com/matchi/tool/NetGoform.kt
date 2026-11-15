@@ -24,6 +24,8 @@ object NetGoform {
         "DHCP_SETTING", "SET_DEVICE_MTU",
         // USB Internet Protocol (Auto / RNDIS / CDC-ECM) and the restart the stock page sends after it
         "SET_USB_NETWORK_PROTOCAL", "REBOOT_DEVICE",
+        // USB debugging switch of the stock page (usb_port_switch = 1 / 0)
+        "USB_PORT_SETTING",
     )
 
     private val gatedLower: Set<String> = GATED.map { it.lowercase() }.toSet()

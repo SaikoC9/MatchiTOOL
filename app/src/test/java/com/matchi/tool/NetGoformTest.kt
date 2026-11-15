@@ -11,7 +11,7 @@ class NetGoformTest {
             "CONNECT_NETWORK", "DISCONNECT_NETWORK", "SET_CONNECTION_MODE",
             "setAccessPointInfo", "switchWiFiModule", "switchWiFiChip", "SET_WIFI_SLEEP_INFO", "WIFI_NFC_SET",
             "EDIT_HOSTNAME", "setDeviceAccessControlList", "APN_PROC_EX", "DHCP_SETTING", "SET_DEVICE_MTU",
-            "SET_USB_NETWORK_PROTOCAL", "REBOOT_DEVICE",
+            "SET_USB_NETWORK_PROTOCAL", "REBOOT_DEVICE", "USB_PORT_SETTING",
         )) assertTrue("must be gated: $id", NetGoform.needsGate(id))
     }
 
