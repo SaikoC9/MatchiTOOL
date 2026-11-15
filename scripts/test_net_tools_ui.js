@@ -67,10 +67,10 @@ const apnWrite = (q) => {
   if (q.apn_mode === 'auto' && !q.apn_action) { apnState.mode = 'auto'; apnState.used = ['DITO', 'internet.dito.ph']; apnState.idx = ''; }
   else if (q.apn_action === 'save') { apnState.mode = 'manual'; apnState.slots[i] = [q.profile_name, q.wan_apn || q.ipv6_wan_apn, 'manual', '*99#', q.ppp_auth_mode || q.ipv6_ppp_auth_mode, '', '', q.pdp_type, '', '', '', ''].join('($)'); }
   else if (q.apn_action === 'set_default') { const f = apnState.slots[i].split('($)'); apnState.mode = 'manual'; apnState.used = [f[0], f[1]]; apnState.idx = String(i); }
-  else if (q.apn_action === 'delete') apnState.slots[i] = '';
+  else if (q.apn_action === 'delete') { apnState.slots.splice(i, 1); apnState.slots.push(''); }   // the real router moves the later profiles up one slot
   if (apnBreak) pppNow = 'ppp_disconnected';
 };
-let stuckApn = false;
+let stuckApn = false, sleepSpy = null;
 // The MTU part of the fake router: SET_DEVICE_MTU changes the values and the router "restarts" (the next reads fail), the backup file lives in fileText.
 const mtuState = { mtu: 1500, mss: 1460, ifMtu: 1500 }; let mtuDown = 0, stuckMtu = false, followWan = true, pingOk = true, fileText = '', failBackup = false, mtuReadErr = null;
 const mtuAnswer = () => { if (mtuDown > 0) { mtuDown--; throw new Error(mtuReadErr || 'Failed to fetch'); } return { mtu: String(mtuState.mtu), tcp_mss: String(mtuState.mss) }; };
@@ -91,7 +91,7 @@ const R = {
     if (cmd === N.PING_SH) return pingOk ? 'MATCHI_PING_OK\n' : 'MATCHI_PING_FAIL\n';
     return rootOut(); },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
-  sleep: async () => {},
+  sleep: async () => { if (sleepSpy) { const e = doc.getElementById('matchi_net_prog'); sleepSpy.push(e ? e.textContent : null); } },
   setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; }
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
     if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
@@ -323,7 +323,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(mt()), mt());
   // the real change: backup written first, then the call, then the wait, then the checks
   shells.length = 0; sets.length = 0; calls.length = 0;
-  await trySubmit('1500', '1459');
+  sleepSpy = []; await trySubmit('1500', '1459'); const spied = sleepSpy; sleepSpy = null;
+  assert(spied.length >= 3 && spied.every((x) => x), 'a progress banner is on the screen at every wait: ' + JSON.stringify(spied));
+  assert(/router is restarting now.*Keep this window open/.test(spied[0]) && spied.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'the banner says what is happening: ' + JSON.stringify(spied));
+  assert(!doc.getElementById('matchi_mtu_apply').disabled && !doc.getElementById('matchi_net_prog'), 'the banner is gone when the change is done');
   assert(shells[0].includes('mtu_backup.json') && shells[0].includes('"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1459' }); assert.strictEqual(sets[0].allowEmpty, true);
   t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /ping to 1\.1\.1\.1 through the mobile connection worked/.test(t) && /Restore saved values/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);

@@ -18,7 +18,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, prog: '' };
   let epoch = 0, actId = 0;
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
@@ -131,7 +131,7 @@ function mountNetTools() {
     if (refusal) notes.push(note(refusal, 'net-mut'));
     else if (a.mode === 'auto') notes.push(note('Add, Edit and Delete work only in Manual mode. "Use" switches the router to Manual mode with that profile; "Switch to Auto" brings the automatic profile back.', 'net-mut'));
     notes.push(note('User names and passwords are not read from the router and never shown. When you edit a profile that has a login, type both again. A wrong APN means no mobile data: press "Switch to Auto" to get it back.', 'net-mut'));
-    return h('div', {}, top, bar, msg, st.apnForm ? apnFormView(a) : null, table || (a.hasSlots ? note('No manual profiles are stored.', 'net-mut') : note('Profile list: ' + NOT.toLowerCase() + '.', 'net-mut')), notes);
+    return h('div', {}, st.apnAct ? progNote() : null, top, bar, msg, st.apnForm ? apnFormView(a) : null, table || (a.hasSlots ? note('No manual profiles are stored.', 'net-mut') : note('Profile list: ' + NOT.toLowerCase() + '.', 'net-mut')), notes);
   }
   // The add / edit / copy form. Values are read from the inputs when Save is pressed; the password input is emptied as soon as it has been used.
   function apnFormView(a) {
@@ -166,7 +166,7 @@ function mountNetTools() {
     const router = !p || (p.mtu === null && p.mss === null) ? note(NOT + ' (MTU / MSS).')
       : h('div', {}, kv([['MTU (router setting)', p.mtu === null ? null : String(p.mtu)], ['MSS (router setting)', p.mss === null ? null : String(p.mss)]]), p.warn ? note(p.warn, 'net-warn') : null);
     const msg = st.mtuMsg ? h('div', {}, st.mtuMsg.lines.map((t) => note(t, st.mtuMsg.bad ? 'net-warn' : ''))) : null;
-    return h('div', {}, router, msg, known ? mtuForm(p) : note('MTU and MSS are not changed here: the router did not report both values.', 'net-mut'),
+    return h('div', {}, st.mtuAct ? progNote() : null, router, msg, known ? mtuForm(p) : note('MTU and MSS are not changed here: the router did not report both values.', 'net-mut'),
       note('On the F50 test the stock MSS rule applied to the router itself, not to devices connected to it. The real values below come from a read-only root check.', 'net-mut'),
       rootBlock());
   }
@@ -218,6 +218,9 @@ function mountNetTools() {
 
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
+  // The progress banner at the top of the APN and MTU / MSS tabs while a change is running: what is happening now, in words (the small status line is easy to miss).
+  const progress = (t) => { st.prog = t || ''; const e = $('matchi_net_prog'); if (e) e.textContent = st.prog; setStatus(st.prog); };
+  const progNote = () => (st.prog ? h('p', { class: 'net-p net-prog', id: 'matchi_net_prog', role: 'status', 'aria-live': 'polite' }, st.prog) : null);
   const syncButtons = () => {
     const r = $('matchi_net_refresh'); if (r) r.disabled = st.loading || !!st.act || st.devAct || st.apnAct || st.mtuAct;
     document.querySelectorAll('#matchi_net_tabs [role=tab]').forEach((b) => { const on = b.dataset.tab === st.tab; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; b.classList.toggle('on', on); });
@@ -354,7 +357,7 @@ function mountNetTools() {
   const readApnRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.apn });
   async function apnApply(steps, check, okText, badText, opts) {
     const o = opts || {};
-    st.apnAct = true; st.apnMsg = null; syncButtons(); paint('apn'); setStatus('Sending…');
+    st.apnAct = true; st.apnMsg = null; progress('Sending the change to the router…'); syncButtons(); paint('apn');
     const my = ++actId;
     try {
       for (let i = 0; i < steps.length; i++) {
@@ -366,6 +369,7 @@ function mountNetTools() {
         }
         if (i < steps.length - 1) { await R.sleep(1000); if (my !== actId) return; }
       }
+      progress('Sent. Reading the profile list back to check it…');
       let d = null, good = false;
       for (let i = 0; i < 5 && !good; i++) {
         await R.sleep(2000);
@@ -382,14 +386,14 @@ function mountNetTools() {
         try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
-        setStatus('Waiting for mobile data… ' + (i + 1) * 2 + ' s');
+        progress('Changed. Waiting for mobile data to reconnect… ' + (i + 1) * 2 + ' s of up to 20 s.');
         await R.sleep(2000);
         if (my !== actId) return;
       }
       st.apnMsg = ppp && ppp.state === 'connected' ? { bad: false, text: okText + ' Mobile data is connected (' + ppp.ppp + ').' }
         : { bad: true, text: okText + ' But mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + '). If it does not come back, press "Switch to Auto".' };
     } finally {
-      if (my === actId) { st.apnAct = false; if (st.tab === 'apn') { paint('apn'); setStatus(st.apnMsg && st.apnMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.apnAct = false; st.prog = ''; if (st.tab === 'apn') { paint('apn'); setStatus(st.apnMsg && st.apnMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
     }
   }
   const profText = (p) => '"' + (p.name || '(no name)') + '"\nAPN ' + (p.apn || '(none)') + '\n' + N.pdpLabel(p.pdp) + ' · login ' + N.authLabelApn(p.auth);
@@ -409,7 +413,9 @@ function mountNetTools() {
     const r = N.apnDeleteRefusal(a, p); if (r) { st.apnMsg = { bad: true, text: r }; paint('apn'); return; }
     if (!(await askConfirm('Delete this profile?\n\n' + profText(p) + '\nslot ' + p.slot + '\n\nThe profile is removed from the router. The router stays in Manual mode.', 'Delete', true))) return;
     let call; try { call = N.apnDeleteCall(p.slot); } catch (e) { st.apnMsg = { bad: true, text: e.message }; paint('apn'); return; }
-    await apnApply([call], (x) => !!x && !x.profiles.some((q) => q.slot === p.slot), 'Deleted "' + p.name + '".', 'The router still lists "' + p.name + '".');
+    // The router moves the later profiles up one slot after a delete (seen on the F50), so the check is by name and APN, not by slot: fewer copies than before.
+    const same = (q) => q.name === p.name && q.apn === p.apn, before = a.profiles.filter(same).length;
+    await apnApply([call], (x) => !!x && x.profiles.filter(same).length < before, 'Deleted "' + p.name + '".', 'The router still lists "' + p.name + '".');
   }
   function apnOpenForm(f) { if (st.apnAct) return; st.apnForm = f; st.apnMsg = null; paint('apn'); }
   function apnCloseForm() {
@@ -446,7 +452,7 @@ function mountNetTools() {
   const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
   async function mtuApply(want, why) {
     if (st.mtuAct || st.act || st.devAct || st.apnAct) return;
-    st.mtuAct = true; st.mtuMsg = null; syncButtons(); paint('mtu'); setStatus('Reading the router…');
+    st.mtuAct = true; st.mtuMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('mtu');
     const my = ++actId;
     const done = (bad, lines) => { st.mtuMsg = { bad, lines }; };
     try {
@@ -460,16 +466,18 @@ function mountNetTools() {
       if (!ok) { st.mtuAct = false; return; }
       if (my !== actId) return;
       // the backup copy: written, then read back; without it nothing is sent
+      progress('Saving a backup copy of the old values…');
       try {
         const w = await R.sh(N.mtuBackupWriteSh({ mtu: cur.mtu, mss: cur.mss }, want, Date.now()), 15000);
         const back = N.parseMtuBackup(await R.sh(N.MTU_BACKUP_READ_SH, 15000));
         if (!String(w).includes('MATCHI_BACKUP_OK') || !back || back.old.mtu !== cur.mtu || back.old.mss !== cur.mss) throw new Error('the copy could not be read back');
       } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
-      setStatus('Sending…');
+      progress('Sending the change to the router…');
       try { await R.setRouter(call, true); }
       catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
       // the router answers once more before it restarts: wait first, then ask until it is back
       let back = null, wentDown = false, authStop = false;
+      progress('Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.');
       await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return;
       for (let i = 0; i < MTU_WAIT_TRIES; i++) {
         try {
@@ -477,11 +485,12 @@ function mountNetTools() {
           if (r && r.mtu !== null && r.mss !== null) { back = r; if (wentDown || (r.mtu === want.mtu && r.mss === want.mss)) break; }
         } catch (e) { wentDown = true; if (N.isAuthError(e.message)) { authStop = true; break; } }
         if (my !== actId) return;
-        setStatus('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s');
+        progress('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s of up to 3 minutes. Keep this window open.');
         await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
       }
       if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values. The old values are saved: "Restore saved values" puts them back.']); return; }
       if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh. The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') are saved: "Restore saved values" puts them back.']); return; }
+      progress('The router is back. Reading the values…');
       try { st.cache.mtu = { d: await mtuReadRaw(), at: Date.now() }; } catch (_) { /* the view keeps the last values */ }
       const lines = [], same = back.mtu === want.mtu && back.mss === want.mss;
       let bad = !same;
@@ -491,11 +500,11 @@ function mountNetTools() {
         try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
-        setStatus('Waiting for mobile data… ' + (i + 1) * 5 + ' s'); await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
+        progress('The router is back. Waiting for mobile data… ' + (i + 1) * 5 + ' s of up to 60 s.'); await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
       }
       if (ppp && ppp.state === 'connected') lines.push('Mobile data is connected (' + ppp.ppp + ').'); else { bad = true; lines.push('Mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + ').'); }
       if (ppp && ppp.state === 'connected') {
-        setStatus('Checking the real interface…');
+        progress('Mobile data is up. Checking the real interface and the connection…');
         try {
           st.root = N.parseRootNet(await R.sh(N.ROOT_READ_SH, 20000)); st.rootErr = '';
           const f = N.wanFollowed(st.root, want.mtu);
@@ -514,7 +523,7 @@ function mountNetTools() {
       done(bad, lines);
       st.mtuForm = null;
     } finally {
-      if (my === actId) { st.mtuAct = false; if (st.tab === 'mtu') { paint('mtu'); setStatus(st.mtuMsg && st.mtuMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.mtuAct = false; st.prog = ''; if (st.tab === 'mtu') { paint('mtu'); setStatus(st.mtuMsg && st.mtuMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
     }
   }
   async function mtuSubmit(mtuText, mssText, errEl) {
@@ -575,6 +584,7 @@ function mountNetTools() {
 #matchi_net_modal .net-ul{margin:4px 0;padding-left:18px}
 #matchi_net_modal .net-rowact{white-space:nowrap}#matchi_net_modal .net-act{margin-right:4px;min-height:26px;padding:2px 8px}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(110px,32%) 1fr;gap:8px;align-items:center;margin:5px 0}#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:30px;padding:3px 8px}
+#matchi_net_modal .net-prog{padding:8px 10px;border-radius:8px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
 #matchi_net_modal .net-danger{border-color:rgba(255,100,124,.5)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
@@ -582,9 +592,9 @@ function mountNetTools() {
   function open() {
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = 'data'; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.prog = ''; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; release(); return true; },
+      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
