@@ -325,6 +325,10 @@ object ZteClient {
         }
         if (r.code >= 400) throw IllegalStateException("Router returned HTTP ${r.code}")
         lastUse = System.currentTimeMillis()
+        // These calls restart the router's network and drop the console port's firewall rule: open it again soon.
+        if (op == "set" && params["goformId"] in FIREWALL_DROPPING_SETS) HostControl.reopenFirewallSoon(ctx, params["goformId"] ?: "set")
         return r.body
     }
+
+    private val FIREWALL_DROPPING_SETS = setOf("DHCP_SETTING", "SET_DEVICE_MTU")
 }

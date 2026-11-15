@@ -3,6 +3,9 @@ package com.matchi.tool
 import android.content.Context
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Host-level actions shared by the native screens (addresses, LAN firewall, host health). */
 object HostControl {
@@ -119,6 +122,23 @@ object HostControl {
      */
     fun openLanFirewall(ctx: Context) {
         RootShell.run(ctx, lanFirewallScript(Prefs.PORT), 15_000)
+    }
+
+    private val burstPool by lazy { Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "fw-burst").apply { isDaemon = true } } }
+    private val burstGen = AtomicInteger(0)
+
+    /**
+     * A router restart (LAN IP, pool / lease, MTU / MSS) rebuilds the firewall and drops the rule for the console port, while the
+     * interface names stay the same, so the interface watcher sees nothing new. This opens the firewall again at 5, 15, 30, 60 and
+     * 120 s. A newer call replaces an older one (the older timers do nothing), and the script checks with -C first, so a repeat is harmless.
+     */
+    fun reopenFirewallSoon(ctx: Context, reason: String) {
+        val app = ctx.applicationContext
+        val gen = burstGen.incrementAndGet()
+        LogCatcher.log("INFO", "HostControl", "LAN firewall will be opened again after: $reason")
+        for (d in longArrayOf(5, 15, 30, 60, 120)) burstPool.schedule({
+            if (burstGen.get() == gen) try { openLanFirewall(app) } catch (e: Exception) { LogCatcher.log("WARNING", "HostControl", "LAN firewall re-open failed: ${e.message}") }
+        }, d, TimeUnit.SECONDS)
     }
 
     /**
