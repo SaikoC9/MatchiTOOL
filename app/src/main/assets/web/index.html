@@ -8431,6 +8431,7 @@ async function runSelfTest(onStep){
     const k=stKV(r.text),h=(k.hdr||'').trim().split(/\s+/).filter(Boolean);
     raw('sendat check','abi='+k.abi+'\nheader bytes: '+(k.hdr||'(unreadable)')+'\nsize='+k.size+' sha256(first 16)='+k.sha+' (bundled build: f0da6be08ed2cdb4)\nAT test exit='+k.rc+' output='+(k.out||'(none)')+'\nsendat processes still running='+k.ps);
     const want=/arm64/.test(k.abi||'')?0xb7:/armeabi|arm/.test(k.abi||'')?0x28:/x86_64/.test(k.abi||'')?0x3e:0x03;
+    if(h.length&&h.every(x=>x==='00'||x==='*'))return R.fail('sendat is damaged: the file has the right size ('+k.size+' bytes) but every byte is zero','Restart MatchiTOOL (it checks the file against the bundled copy and copies it again), or reinstall the app. Then run Full diagnose again.');
     if(h.length>=20){
       if(h.slice(0,4).join('')!=='7f454c46')return R.fail('sendat is not an ELF file (header '+h.slice(0,8).join(' ')+', size '+k.size+')','The copy is damaged: force-stop MatchiTOOL and reinstall the app so sendat is copied again.');
       const m=parseInt(h[19]+h[18],16);

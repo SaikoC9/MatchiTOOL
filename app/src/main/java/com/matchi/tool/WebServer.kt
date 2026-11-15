@@ -77,21 +77,46 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
         val sendat = File(ctx.filesDir, "sendat")
         var copied = true
-        if (refresh || !sendat.exists()) copied = installSendat(sendat)
+        if (refresh || !intact("bin/sendat", sendat)) copied = installSendat(sendat)
         try { sendat.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // curl (arm64, from UFI-TOOLS V4.0.0) is for plugins that download files (for example ADGuard Home). Android has no curl.
         val curl = File(ctx.filesDir, "curl")
-        if (refresh || !curl.exists()) installBundledBinary("bin/curl", curl)
+        if (refresh || !intact("bin/curl", curl)) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // jq, sha256 and zreq (arm64, from UFI-TOOLS 4.1.5) are for plugins that call them by the UFI path
         // /data/data/com.minikano.f50_sms/files/NAME, which UfiPathMap rewrites to this folder. Same copy-then-rename as curl.
         for (tool in BUNDLED_TOOLS) {
             val dest = File(ctx.filesDir, tool)
-            if (refresh || !dest.exists()) installBundledBinary("bin/$tool", dest)
+            if (refresh || !intact("bin/$tool", dest)) installBundledBinary("bin/$tool", dest)
             try { dest.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         }
         // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
         if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
+    }
+
+    /**
+     * Copies a bundled file and forces it to disk before the rename. The F50 mounts /data with fsync_mode=nobarrier, so a copy that was
+     * only in the page cache when the device rebooted came back as a file of the right size filled with zero bytes (found 15 Nov 2026: sendat
+     * "ran", exit 0, printed nothing, and every AT command was silent). The sync closes that window.
+     */
+    private fun copyAsset(asset: String, tmp: File) {
+        ctx.assets.open(asset).use { i -> java.io.FileOutputStream(tmp).use { o -> i.copyTo(o); o.flush(); o.fd.sync() } }
+    }
+
+    private fun sha256Of(s: java.io.InputStream): String {
+        val md = MessageDigest.getInstance("SHA-256"); val b = ByteArray(65536)
+        while (true) { val n = s.read(b); if (n < 0) break; md.update(b, 0, n) }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** True when [dest] exists and is byte-for-byte the bundled [asset]. A damaged copy (zeros, truncated) is copied again at the next start. */
+    private fun intact(asset: String, dest: File): Boolean {
+        if (!dest.exists()) return false
+        return try {
+            val ok = dest.inputStream().use { sha256Of(it) } == ctx.assets.open(asset).use { sha256Of(it) }
+            if (!ok) LogCatcher.log("WARNING", "WebServer", "${dest.name} is damaged (does not match the bundled copy), copying it again")
+            ok
+        } catch (e: Exception) { Quiet.note("WebServer.intact", e); false }
     }
 
     /**
@@ -103,7 +128,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
     private fun installSendat(dest: File): Boolean {
         val tmp = File(dest.parentFile, "sendat.new")
         return try {
-            ctx.assets.open("bin/sendat").use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            copyAsset("bin/sendat", tmp)
             tmp.setExecutable(true, false)
             if (!tmp.renameTo(dest)) throw java.io.IOException("could not move sendat into place")
             true
@@ -118,7 +143,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
     private fun installBundledBinary(asset: String, dest: File): Boolean {
         val tmp = File(dest.parentFile, dest.name + ".new")
         return try {
-            ctx.assets.open(asset).use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            copyAsset(asset, tmp)
             tmp.setExecutable(true, false)
             if (!tmp.renameTo(dest)) throw java.io.IOException("could not move ${dest.name} into place")
             true
