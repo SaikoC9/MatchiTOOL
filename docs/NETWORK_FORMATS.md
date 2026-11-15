@@ -17,7 +17,7 @@ Opening a tab only reads. The Wi-Fi password is never copied to the page.
 
 ## Writes (goform_set_cmd_process, POST)
 
-All of these need the fresh sign-in (`NetGoform.kt`, `GATED`). The host adds `isTest=false` first and the `AD` token last.
+All of these need the fresh sign-in (`NetGoform.kt`: every router set call needs it except the names in `OPEN_SET`; `GATED` lists the names these tools send). The host adds `isTest=false` first and the `AD` token last.
 
 | Action | goformId and fields |
 |---|---|

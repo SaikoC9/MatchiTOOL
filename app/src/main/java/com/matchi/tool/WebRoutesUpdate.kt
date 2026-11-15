@@ -63,9 +63,20 @@ internal fun WebServer.updateStatus(s: IHTTPSession): Response {
 }
 
 internal fun WebServer.routeUpdate(s: IHTTPSession, uri: String): Response? = when {
-    uri == "/api/update/stage" && s.method == Method.POST -> updateStage(s)
-    uri == "/api/update/check" && s.method == Method.POST -> updateCheck(body(s))
-    uri == "/api/update/fetch" && s.method == Method.POST -> updateFetch(body(s))
+    // C11 (1.4.3): stage, check and fetch need the fresh sign-in like install. Check and fetch make the device contact any https address and fetch / stage
+    // write up to ApkUpdater.MAX_BYTES to the disk, so a stale, stolen or plugin-held session must not be able to trigger them. All three are started by the
+    // person in the Update window (no background poll uses them).
+    uri == "/api/update/stage" && s.method == Method.POST -> rootGate(s) ?: updateStage(s)
+    uri == "/api/update/check" && s.method == Method.POST -> rootGate(s) ?: run {
+        val req = body(s)
+        auditBusy(s.remoteIpAddress ?: "?", "update-check")
+        updateCheck(req)
+    }
+    uri == "/api/update/fetch" && s.method == Method.POST -> rootGate(s) ?: run {
+        val req = body(s)
+        auditShell(s.remoteIpAddress ?: "?", req.toString(), "update-fetch")
+        updateFetch(req)
+    }
     uri == "/api/update/install" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
         auditShell(s.remoteIpAddress ?: "?", req.toString(), "update-install")

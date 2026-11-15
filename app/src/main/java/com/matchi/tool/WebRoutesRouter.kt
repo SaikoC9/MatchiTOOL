@@ -41,7 +41,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val po = req.optJSONObject("params") ?: JSONObject()
         val p = LinkedHashMap<String, String>()
         for (k in po.keys()) p[k] = po.optString(k)
-        // Network tools (Wi-Fi, devices, APN, LAN / DHCP, MTU / MSS, mobile data): these writes can cut the person off, so they need the fresh sign-in like /api/proxy POST. Reads and the radio calls stay open.
+        // Positive list (C10): a set call needs the fresh sign-in like /api/proxy POST unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS). Reads stay open.
         if (op == "set" && NetGoform.needsGate(p)) rootGate(s)?.let { return@run it }
         val raw = ZteClient.call(ctx, op, p, req.optInt("retry", 0).coerceIn(0, 2))
         val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
@@ -57,7 +57,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
         val isSet = name == "goform_set_cmd_process"
         if (isSet != (s.method == Method.POST)) throw IllegalArgumentException(if (isSet) "goform_set_cmd_process needs POST" else "goform_get_cmd_process needs GET")
-        // Same rule as /api/zte: a network-changing goformId needs the fresh sign-in; every other call and every read stays open.
+        // Same rule as /api/zte: a set call needs the fresh sign-in unless its goformId is in NetGoform.OPEN_SET; every read stays open.
         if (isSet && NetGoform.needsGate(p)) rootGate(s)?.let { return@run it }
         val raw = ZteClient.call(ctx, if (isSet) "set" else "get", p.filterKeys { it != "isTest" })
         harden(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", raw))

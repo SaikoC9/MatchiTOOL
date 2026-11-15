@@ -37,6 +37,17 @@ object RootGate {
         else -> null
     }
 
+    // The exact read-only listing of Android's SMS store that the SMS tool's background check sends through /api/shell (about every 3 minutes
+    // in modem mode). Anything that adds a pipe, a second command, an insert / delete / update or another URI does not match.
+    private val smsListRx = Regex("^content query --uri content://sms --projection [a-z_]+(:[a-z_]+)* --sort \"date DESC\" 2>&1 \\| head -c [0-9]{1,7}$")
+
+    /**
+     * True when [cmd] is only that read-only listing of Android's SMS store. /api/shell writes one audit line per call; the background check
+     * would fill the size-capped audit log (and push failed logins, password and update changes out of it), so these calls use the
+     * once-per-minute audit line instead. Exact match only: a plugin cannot hide another shell command behind this.
+     */
+    fun isSmsListRead(cmd: String): Boolean = cmd.length <= 200 && smsListRx.matches(cmd.trim())
+
     private val queryRx = Regex("^AT(\\+[A-Z0-9_]+)?(\\?|=\\?)$", RegexOption.IGNORE_CASE)
     private val bareReads = setOf("AT", "ATI", "AT+CSQ", "AT+CESQ", "AT+CGSN", "AT+CIMI", "AT+CCID", "AT+CNUM", "AT+CGMR", "AT+CGMM", "AT+CGMI")
 

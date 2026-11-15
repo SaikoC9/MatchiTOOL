@@ -2833,6 +2833,8 @@ rm -rf "${DEVICE_TMP_DIR}"
   const UNREACH = /unreachable|failed to connect|timed out|timeout|refused|econn|no route/i;
   let atMode = false, atSince = 0;
   let pwSet = null;   // router admin password saved? false => skip the router login entirely
+  // Errors that mean the root call was turned away (sign-in older than 4 h, plain HTTP not confirmed): asking again another way would be refused too.
+  const GATEERR = /sign in again|Session too old|not encrypted|Skipped|cancelled/i;
   const useAt = () => pwSet === false || (atMode && Date.now() - atSince < 60000);
   const markAt = () => { atMode = true; atSince = Date.now(); };
   const setMode = (t) => { const m = el('matchi_sms_mode'); if (m) m.textContent = t || ''; };
@@ -2857,8 +2859,16 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
 
   async function atFetch(scanAll, q) {
+    // The listing switches the modem to text mode and to UCS2 (numbers and texts come back as UTF-16BE hex). The character set the
+    // modem had before is read first and put back at the end, so other AT output (the AT & Radio window, Live Status) does not turn into hex.
+    let prevCs = null;
+    try { const mm = String(await at('AT+CSCS?', q)).match(/\+CSCS:\s*"([A-Za-z0-9_ -]{1,16})"/i); if (mm) prevCs = mm[1]; } catch (_) {}
     await at('AT+CMGF=1', q);
-    const ucs = atGood(await at('AT+CSCS="UCS2"', q));   // with UCS2 every number and text comes back as UTF-16BE hex
+    const ucs = atGood(await at('AT+CSCS="UCS2"', q));
+    try { return await atFetchBody(scanAll, q, ucs); }
+    finally { if (ucs && prevCs && prevCs.toUpperCase() !== 'UCS2') { try { await at('AT+CSCS="' + prevCs + '"', q); } catch (_) {} } }
+  }
+  async function atFetchBody(scanAll, q, ucs) {
     const dec = (v) => (ucs ? strictHex(v) : v);
     const out = [];
     for (const store of ['ME', 'SM']) {
@@ -2981,6 +2991,13 @@ rm -rf "${DEVICE_TMP_DIR}"
       catch (e) { if (!UNREACH.test(e.message)) throw e; markAt(); }
     }
     setMode('Using the modem directly: no router login or password needed.');
+    // A background check does not touch the modem: AT+CMGL changes the modem's message state ("received unread" becomes "read", which the
+    // router's own page shows) and the listing sets text mode and the character set. It reads Android's SMS store, which only reads. Only when
+    // that read FAILS (and not because the sign-in is too old) does it ask the modem. An empty store is a valid answer.
+    if (q) {
+      try { return await providerFetch(q); }
+      catch (e) { if (GATEERR.test(String(e && e.message))) throw e; }
+    }
     const l = await atFetch(false, q);
     if (l.length) return l;
     try { const p = await providerFetch(q); if (p.length) { setMode('Using the modem directly (messages read from the Android SMS store, read-only).'); return p; } } catch (_) {}
@@ -3438,6 +3455,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   // Identical messages (the same text twice from one sender) are counted.
   const sig = (m) => { const d = String(m.number || '').replace(/\D/g, ''); return (d.length >= 7 ? d.slice(-9) : String(m.number || '').trim().toLowerCase()) + '|' + String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 80); };
   let emptyRuns = 0;
+  const lowRuns = new Map();   // sig -> checks in a row that showed fewer of that text than "seen" holds (see noteMsgs)
   let seen = null, unread = 0, fresh = new Map();   // seen / fresh: sig -> how many
   try { const r = JSON.parse(localStorage.getItem(SEENKEY) || 'null'); if (r && typeof r === 'object' && !Array.isArray(r)) seen = new Map(Object.entries(r).map(([k, v]) => [k, +v || 0])); } catch (_) {}
   const saveSeen = () => { try { localStorage.setItem(SEENKEY, JSON.stringify(Object.fromEntries([...seen].slice(-1500)))); } catch (_) {} };
@@ -3458,6 +3476,20 @@ rm -rf "${DEVICE_TMP_DIR}"
       const was = seen.get(k) || 0;
       if (c > was) { n += c - was; fresh.set(k, Math.max(fresh.get(k) || 0, c - was)); if (markRead) { seen.set(k, c); ch = true; } }
     }
+    // A message that was deleted must not stay counted as "seen": otherwise a NEW identical text (recurring promo / balance messages) from
+    // the same sender gives count 1 against seen 1 and no badge. "seen" goes down for a text only after two checks in a row show fewer of it
+    // (one short read, for example a cut-off list, must not make old messages look new). An empty answer needs four checks in a row.
+    if (cnt.size) emptyRuns = 0; else emptyRuns++;
+    for (const [k, was] of seen) {
+      const c = cnt.get(k) || 0;
+      if (c >= was || (!cnt.size && emptyRuns < 4)) { lowRuns.delete(k); continue; }
+      const r = cnt.size ? (lowRuns.get(k) || 0) + 1 : 2;   // an empty answer already waited for its 4 checks above
+      if (r < 2) { lowRuns.set(k, r); continue; }
+      lowRuns.delete(k);
+      if (c) seen.set(k, c); else seen.delete(k);
+      ch = true;
+    }
+    for (const k of [...lowRuns.keys()]) if (!seen.has(k)) lowRuns.delete(k);
     if (ch) saveSeen();
     unread = markRead ? 0 : n;
     showBadge();
@@ -3499,7 +3531,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   const titleEl = document.querySelector('title');
   if (titleEl) new MutationObserver(applyTitle).observe(titleEl, { childList: true, characterData: true, subtree: true });
 
-  let btnEl = null, badgeEl = null;
+  let btnEl = null, badgeEl = null, paused = false;
   function showBadge() {
     if (btnEl) {
       if (unread > 0 && !badgeEl) {
@@ -3508,6 +3540,7 @@ rm -rf "${DEVICE_TMP_DIR}"
         btnEl.appendChild(badgeEl);
       }
       if (badgeEl) { badgeEl.style.display = unread > 0 ? '' : 'none'; badgeEl.textContent = label(); }
+      btnEl.title = paused ? 'New-message check paused: sign in again to resume' : '';
       btnEl.setAttribute('aria-label', unread > 0 ? 'SMS, ' + unread + ' new message' + (unread === 1 ? '' : 's') : 'SMS');
     }
     drawFav(); applyTitle();
@@ -3522,8 +3555,13 @@ rm -rf "${DEVICE_TMP_DIR}"
       if (pwSet === null) await loadCfg();
       const hid = new Set(getHidden());
       const list = (await fetchAll(true)).filter((m) => !hid.has(hk(m)));
+      if (paused) { paused = false; showBadge(); }
       if (!el('matchi_sms_list')) noteMsgs(list, false);
-    } catch (_) {}
+    } catch (e) {
+      // The root call was turned away (sign-in too old, plain HTTP): the check cannot run until the person signs in again. Say so quietly on the button.
+      const p = GATEERR.test(String(e && e.message));
+      if (p !== paused) { paused = p; showBadge(); }
+    }
     polling = false;
   }
   // Every minute through the router; every 3 minutes when it has to ask the modem (several AT commands per check).
@@ -5050,7 +5088,7 @@ function mountPerfMode() {
   const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
   // Mobile data off / on (Phase 2). Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
   //   isTest=false&notCallback=true&goformId=DISCONNECT_NETWORK      isTest=false&notCallback=true&goformId=CONNECT_NETWORK
-  // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt).
+  // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt: every set call not in OPEN_SET does).
   const DATA_CALLS = {
     off: { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' },
     on: { goformId: 'CONNECT_NETWORK', notCallback: 'true' },
@@ -9126,7 +9164,10 @@ document.getElementById('updcheck').onclick=async()=>{
   out.textContent='Uploading and checking '+f.name+'…';
   try{
     const fd=new FormData();fd.append('apk',f,'update.apk');
-    const resp=await fetch('/api/update/stage',{method:'POST',headers:{'x-token':TOKEN},body:fd});
+    /* The upload is root-gated like the install (C11); this call does not go through api(), so the plain-HTTP confirmation is asked here. */
+    const hd={'x-token':TOKEN};
+    if(insecurePage()){if(!(await insecureOk()))throw new Error('Cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');hd['x-insecure-ok']='1'}
+    const resp=await fetch('/api/update/stage',{method:'POST',headers:hd,body:fd});
     const raw=await resp.text();let r={};try{r=JSON.parse(raw)}catch(_){r={error:raw}}
     if(!resp.ok)throw new Error(r.error||('Request failed ('+resp.status+')'));
     updShow(r);

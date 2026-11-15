@@ -80,6 +80,28 @@ class SessionStoreTest {
         assertEquals(2, s.count())
     }
 
+    @Test fun theSessionUsedLeastRecentlyIsEvictedNotAnActiveOne() {
+        val s = store(max = 2)
+        val a = s.issue()            // oldest login
+        now += 100; val b = s.issue()
+        now += 100; assertTrue(s.validate(a))   // a is in use, b is not
+        now += 100; val c = s.issue()
+        assertTrue("the active session must stay", s.validate(a))
+        assertFalse("the idle one goes", s.validate(b))
+        assertTrue(s.validate(c))
+        assertEquals(2, s.count())
+    }
+
+    @Test fun backgroundPollsDoNotMakeASessionLookRecentlyUsed() {
+        val s = store(max = 2)
+        val a = s.issue()
+        now += 100; val b = s.issue()
+        now += 100; s.validate(a, touch = false)   // a poll only
+        now += 100; s.validate(b)                  // a real request
+        now += 100; val c = s.issue()
+        assertFalse(s.validate(a)); assertTrue(s.validate(b)); assertTrue(s.validate(c))
+    }
+
     @Test fun sessionsSurviveARestartButStoredFormHasNoRawToken() {
         val saved = mutableListOf<String>()
         val first = store(saved = saved)

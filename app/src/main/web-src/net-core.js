@@ -90,7 +90,7 @@
   const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
   // Mobile data off / on (Phase 2). Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
   //   isTest=false&notCallback=true&goformId=DISCONNECT_NETWORK      isTest=false&notCallback=true&goformId=CONNECT_NETWORK
-  // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt).
+  // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt: every set call not in OPEN_SET does).
   const DATA_CALLS = {
     off: { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' },
     on: { goformId: 'CONNECT_NETWORK', notCallback: 'true' },

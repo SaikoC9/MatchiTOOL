@@ -30,7 +30,8 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
             throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
         val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
         commandBlocked(s, command)?.let { return@run it }
-        auditShell(s.remoteIpAddress ?: "?", command)
+        // The SMS tool's background inbox check (a fixed read-only listing, see RootGate.isSmsListRead) is logged at most once a minute.
+        if (RootGate.isSmsListRead(command)) auditBusy(s.remoteIpAddress ?: "?", "sms-list") else auditShell(s.remoteIpAddress ?: "?", command)
         traceCommand(s, command)
         val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))

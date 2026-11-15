@@ -32,6 +32,22 @@ class RootGateTest {
             assertFalse(c, RootGate.isReadOnlyAt(c))
     }
 
+    @Test fun onlyTheFixedSmsListingGetsTheRateLimitedAuditLine() {
+        val ok = "content query --uri content://sms --projection _id:address:date:body:type --sort \"date DESC\" 2>&1 | head -c 400000"
+        assertTrue(RootGate.isSmsListRead(ok))
+        assertTrue(RootGate.isSmsListRead("  $ok  "))
+        for (c in listOf(
+            "$ok; rm -rf /data/local/tmp",
+            "$ok && reboot",
+            "content delete --uri content://sms",
+            "content query --uri content://sms/inbox --projection _id --sort \"date DESC\" 2>&1 | head -c 400000",
+            "content query --uri content://sms --projection _id:address;reboot --sort \"date DESC\" 2>&1 | head -c 400000",
+            "content query --uri content://sms --projection _id --sort \"date DESC\" 2>&1 | sh",
+            "content query --uri content://sms --projection _id --sort \"date DESC\" 2>&1 | head -c 400000\nreboot",
+            "su -c reboot", ""))
+            assertFalse(c, RootGate.isSmsListRead(c))
+    }
+
     @Test fun rootOverPlainHttpIsRefusedUnlessTheOwnerAllowedIt() {
         assertTrue(RootGate.insecureRefused(false, false, false))    // http from another device, switch off (default)
         assertFalse(RootGate.insecureRefused(false, false, true))    // http, owner switched it on (the page still asks to confirm)

@@ -1,0 +1,47 @@
+MatchiTOOL 1.4.2 review - fixing C7 to C12
+==========================================
+Source: MatchiTOOL-review.txt (second pass). Kotlin is NOT compiled here and nothing runs on a device.
+Update this file after every step.
+
+STATUS
+  C7  repeated text after a delete not counted as new   (index.html noteMsgs)        [x] DONE in index.html (not run on a device)
+  C8  modem check changes modem settings                (index.html atFetch)         [x] DONE in index.html (not run on a device)
+  C9  SMS check floods the audit log                    (WebRoutesRoot.kt /api/shell)[x] DONE (Kotlin not compiled)
+  C10 network gate is a deny-list                       (NetGoform.kt)               [x] DONE (Kotlin not compiled)
+  C11 update download routes not root-gated             (WebRoutesUpdate.kt)         [x] DONE (Kotlin not compiled)
+  C12 session limit drops an active session             (SessionStore.kt)            [x] DONE (Kotlin not compiled)
+
+LOG
+C7: noteMsgs() - new lowRuns map; a text's "seen" count goes down after 2 checks in a row with fewer of it (4 in a row when the whole answer is empty). Next: C8.
+C8: (1) atFetch() reads AT+CSCS? first and puts the old character set back at the end (finally). (2) fetchAll(): a background check in modem mode now reads Android's SMS store (read-only) and asks the modem only when that read FAILS (not for an empty store, not for a sign-in refusal). (3) poll(): when the root call is refused (sign-in older than 4 h, plain HTTP) the SMS button gets the tooltip "New-message check paused: sign in again to resume"; it clears at the next good check. NOT changed: the window's own listing still sets CMGF=1 / UCS2 and AT+CMGL (it is the person's action; the unread state change of CMGL cannot be avoided). Next: C9.
+C9: RootGate.isSmsListRead() (exact match of the fixed read-only SMS listing, nothing can be appended) + WebRoutesRoot.kt /api/shell: that listing is logged with auditBusy("sms-list") (one line per client per minute); every other shell command still gets its own audit line. New test in RootGateTest.kt. Not compiled here. Next: C10.
+C10: NetGoform.kt is now a POSITIVE list. OPEN_SET = LTE_BAND_LOCK, NR_BAND_LOCK, CELL_LOCK, UNLOCK_ALL_CELL, SET_BEARER_PREFERENCE, PERFORMANCE_MODE_SETTING, SEND_SMS, DELETE_SMS, SET_MSG_READ (every set call the built-in tools send without the gate). Every other router set call through /api/zte and POST /api/goform/ needs rootGate; a set call with no goformId, or the name twice in different spellings, is gated too. GATED stays as the documented list of Network-tool names (test: the two lists never overlap). NetGoformTest.kt rewritten. Comments in WebRoutesRouter.kt, test_route_gates.py notes, docs/NETWORK_FORMATS.md and net-core.js updated. BEHAVIOUR CHANGE: a UFI-TOOLS plugin that sends a router set call outside OPEN_SET now needs a sign-in younger than 4 h (normal "sign in again" answer). Next: C11.
+C11: WebRoutesUpdate.kt: /api/update/stage, /check and /fetch now start with rootGate(s) (same as install); fetch is audited (update-fetch), check with auditBusy. scripts/test_route_gates.py rows changed OPEN -> GATE. index.html: the APK upload (raw fetch, not api()) now asks the plain-HTTP confirmation itself and sends x-insecure-ok. Check / fetch go through api(), which already handles the confirm and the sign-in-again message. Next: C12.
+C12: SessionStore.issue(): at the limit (16) the session with the oldest lastSeen is dropped (ties: the older login), not the first one created. Two new tests in SessionStoreTest.kt (an active session stays; polls do not count as use). Next: run scripts/validate.sh, CHANGELOG entry, zip.
+
+RESULT (all six done)
+  scripts/validate.sh passes (exit 0): page in sync with web-src, route gate table (77 routes), every Node test, new scripts/test_sms_seen.js (9 checks for C6 + C7).
+  NOT done: the Kotlin was not compiled and nothing ran on a device. GitHub Actions (unit tests: NetGoformTest, RootGateTest, SessionStoreTest) must run first.
+  CHANGELOG.md has an entry for each of C7 to C12.
+
+FILES CHANGED
+  CHANGELOG.md
+  MatchiTOOL_Review_C7-C12_todo.txt (this file, new)
+  app/src/main/assets/web/index.html            C7, C8, C11 (upload confirm)
+  app/src/main/web-src/net-core.js              comment only (C10)
+  app/src/main/java/com/matchi/tool/NetGoform.kt        C10
+  app/src/main/java/com/matchi/tool/RootGate.kt         C9
+  app/src/main/java/com/matchi/tool/SessionStore.kt     C12
+  app/src/main/java/com/matchi/tool/WebRoutesRoot.kt    C9
+  app/src/main/java/com/matchi/tool/WebRoutesRouter.kt  C10 (comments only)
+  app/src/main/java/com/matchi/tool/WebRoutesUpdate.kt  C11
+  app/src/test/java/com/matchi/tool/NetGoformTest.kt, RootGateTest.kt, SessionStoreTest.kt
+  docs/NETWORK_FORMATS.md, scripts/test_route_gates.py, scripts/validate.sh, scripts/test_sms_seen.js (new)
+
+DEVICE TEST STEPS (F50, after GitHub Actions is green) - see the reply for the copy-paste commands
+  C7  delete one repeated SMS, wait 2 checks, receive the same text again -> badge appears
+  C8  modem mode: AT+CSCS? stays "GSM" after a check; router page still shows the message as unread
+  C9  count "sms-list" lines in shell_audit.log after 10 minutes: at most about 1 per minute
+  C10 a band lock, cell lock, SMS send still work; an unlisted set call after 4 h needs a new sign-in
+  C11 Update window: check / online download / file upload still work with a young sign-in; after 4 h they ask to sign in again
+  C12 (unit test only)

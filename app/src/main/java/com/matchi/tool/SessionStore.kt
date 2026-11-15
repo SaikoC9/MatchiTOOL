@@ -22,7 +22,7 @@ class SessionStore(
     private class Entry(val created: Long, var lastSeen: Long)
 
     private val rng = SecureRandom()
-    private val map = LinkedHashMap<String, Entry>()   // insertion order = oldest first
+    private val map = LinkedHashMap<String, Entry>()   // insertion order = oldest login first
     private var lastPersistAt = 0L
 
     /** Restore sessions saved by [persist]. Garbage lines and expired sessions are dropped. */
@@ -50,7 +50,13 @@ class SessionStore(
         val now = clock()
         synchronized(map) {
             map.values.removeAll { expired(it.created, it.lastSeen, now) }
-            while (map.size >= maxSessions) map.remove(map.keys.first())
+            // At the limit the session that was used LEAST recently goes (C12). It used to be the first one in creation order, which could be a
+            // session in constant use. [lastSeen] only moves on a real request (a background poll does not touch it), and a tie (never used since
+            // login) goes to the older login because the map keeps creation order.
+            while (map.size >= maxSessions) {
+                val victim = map.entries.minByOrNull { it.value.lastSeen }?.key ?: break
+                map.remove(victim)
+            }
             map[hash(token)] = Entry(now, now)
             lastPersistAt = now
             persistLocked()
