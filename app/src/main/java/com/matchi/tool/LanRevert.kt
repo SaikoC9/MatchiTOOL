@@ -33,7 +33,6 @@ object LanRevert {
     fun applied(ctx: Context, ip: String): Boolean {
         if (!LanPending.appliedOk(readNote(ctx).second, ip)) return false
         pointAt(ctx, ip)
-        HostControl.reopenFirewallSoon(ctx, "router IP change to $ip")
         start(ctx, 20_000L)
         return true
     }
@@ -78,7 +77,6 @@ object LanRevert {
                             ZteClient.call(ctx, "set", LanPending.revertParams(note))
                             pointAt(ctx, note.old.ip)
                             LogCatcher.log("WARNING", TAG, "Old values sent; the router restarts and comes back on ${note.old.ip}")
-                            HostControl.reopenFirewallSoon(ctx, "old router IP put back")
                             deleteNote(ctx)
                         } catch (e: Exception) { LogCatcher.log("ERROR", TAG, "Could not put the old values back: ${e.message}. The note stays until it is stale.") }
                     }

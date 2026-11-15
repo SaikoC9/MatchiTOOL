@@ -72,7 +72,7 @@ class HostService : Service() {
             }
             // A hotspot or USB tether switched on AFTER the checks above never got its rule. Every 45 s the interface list is read
             // (no root needed) and the firewall is opened again when a new interface name shows up. As a safety net (Android may
-            // hide an interface from the app) the script also runs about every 90 seconds anyway; it checks with "iptables -C"
+            // hide an interface from the app) the script also runs about every 5 minutes anyway; it checks with "iptables -C"
             // first, so a repeat is harmless. workers.shutdownNow() in onDestroy() stops this timer.
             workers.scheduleWithFixedDelay({
                 try {
@@ -80,7 +80,7 @@ class HostService : Service() {
                     val names = HostControl.lanInterfaceNames().split(',').filter { it.isNotEmpty() }
                     val fresh = names.filter { it !in seenLanIfs }
                     seenLanIfs.retainAll(names.toSet())   // a vanished interface is forgotten, so it is opened again when it returns
-                    val periodic = lanTicks % 2 == 0
+                    val periodic = lanTicks % 7 == 0
                     if (fresh.isNotEmpty() || periodic) {
                         seenLanIfs.addAll(names)
                         LogCatcher.log("INFO", "HostService", "LAN firewall opened (new interfaces: ${fresh.joinToString(",").ifEmpty { "none" }}, periodic=$periodic)")
