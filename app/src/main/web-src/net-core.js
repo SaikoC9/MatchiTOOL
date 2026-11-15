@@ -578,7 +578,9 @@
   function wifiEntryPlain(e) {
     const P = clean(e.Password) !== null ? String(e.Password) : null, S = clean(e.PasswordShow) !== null ? String(e.PasswordShow) : null;
     if (P !== null && S !== null && P !== S) { if (b64Dec(P) === S) return S; if (b64Dec(S) === P) return P; }
-    return S !== null ? S : P;
+    // This firmware (PASSWORD_ENCODE on) reports the SAME Base64 text in both fields, so a value that decodes to a printable 8 to 63 character password is Base64: use the decoded text.
+    const v = S !== null ? S : P; if (v === null) return null;
+    const d = b64Dec(v); return d !== null && pwOk(d) ? d : v;
   }
   // The password the router reports now, as plain text, or null (for the form to pre-fill, like the stock page). The caller keeps it in memory only.
   function wifiPlainPw(raw) { const c = wifiCurrentPw(raw); return c.error ? null : c.pw; }

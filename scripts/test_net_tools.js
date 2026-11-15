@@ -418,7 +418,7 @@ assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b
   const plain = '@716241PLDThome@', b = N.b64Ascii(plain);
   const mk = (o) => ({ WiFiModuleSwitch: '1', ResponseList: [Object.assign({ ChipIndex: 1, AccessPointIndex: '0', AccessPointSwitchStatus: '1', SSID: 'CE 2', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '' }, o)] });
   const keep = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 2 };
-  for (const o of [{ Password: b, PasswordShow: plain }, { Password: plain, PasswordShow: b }, { Password: plain, PasswordShow: plain }]) {
+  for (const o of [{ Password: b, PasswordShow: b }, { Password: b, PasswordShow: plain }, { Password: plain, PasswordShow: b }, { Password: plain, PasswordShow: plain }]) {
     assert.strictEqual(N.wifiPlainPw(mk(o)), plain);
     assert.strictEqual(N.wifiSaveCall(mk(o), keep).Password, b, 'sent as Base64 of the plain password, once');
   }
