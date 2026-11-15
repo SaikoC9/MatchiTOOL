@@ -2092,11 +2092,9 @@ rm -f $P.g $P.4 $P.6 $P.d
   async function dataSwitch(action) {
     const R = window.MatchiRadio, N = window.MatchiNetCore;
     if (dataBusy || !R || !N || (action !== 'off' && action !== 'on')) return;
-    const ok = await askConfirm(action === 'off'
-      ? 'Turn mobile data off?\n\nInternet through the SIM stops for every device. The router stays reachable on Wi-Fi and cable. To go back, press "Turn on".'
-      : 'Turn mobile data on?\n\nThe router connects to the mobile network again. This can take up to 30 seconds.', action === 'off' ? 'Turn off' : 'Turn on', action === 'off');
-    if (!ok) return;
+    // No confirm popup here (the Network > Data tab still asks): the live row goes straight ahead and tells you with toasts, like the stock page.
     dataBusy = action; paint();
+    createToast(action === 'off' ? 'Disconnecting…' : 'Connecting…', 'blue');
     try {
       try { await R.setRouter(N.dataCall(action), true); }
       catch (e) { createToast('Not sent: ' + N.maskSecrets(e.message), 'red', 6000); return; }
@@ -2108,7 +2106,7 @@ rm -f $P.g $P.4 $P.6 $P.d
           if (r.data && typeof r.data === 'object' && has(r.data.ppp_status)) { ppp = String(r.data.ppp_status).trim(); zteData = { ...zteData, ppp_status: ppp }; last = build(); paint(); if (N.dataReached(action, N.connState(ppp))) { reached = true; break; } }
         } catch (_) { /* keep waiting */ }
       }
-      if (reached) createToast(action === 'off' ? 'Mobile data is off.' : 'Mobile data is on.', 'green');
+      if (reached) createToast(action === 'off' ? 'Success. Mobile data is off.' : 'Success. Mobile data is on.', 'green');
       else createToast('The router did not reach the wanted state within 30 seconds. It reports: ' + (ppp || 'no answer') + '.', 'red', 6000);
     } finally { dataBusy = null; paint(); }
   }
