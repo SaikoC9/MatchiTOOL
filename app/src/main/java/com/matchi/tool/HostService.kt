@@ -284,6 +284,7 @@ class HostService : Service() {
         try { workers.shutdownNow() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         try { server?.stop() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         server = null
+        try { stopLiveHub() } catch (e: Exception) { Quiet.note("HostService.liveHub", e) }   // no root reader left behind when the service stops
         // Close the hotspot-side port again. Run off the main thread and wait at most 3 s, so stopping the service can never hang.
         // (If the process is killed without onDestroy the rule stays; the next start finds it with "iptables -C" and reuses it.)
         try {

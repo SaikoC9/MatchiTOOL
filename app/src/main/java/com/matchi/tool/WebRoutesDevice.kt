@@ -4,6 +4,7 @@ import android.util.Xml
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
+import fi.iki.elonen.NanoHTTPD.newChunkedResponse
 import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
 import java.io.ByteArrayInputStream
 import java.io.StringReader
@@ -250,6 +251,56 @@ internal fun WebServer.screenInput(req: JSONObject): Response {
     return json(Response.Status.OK, JSONObject().put("success", r.success).put("output", r.content))
 }
 
+/**
+ * The one root reader of the Live panel, shared by every browser (see LiveStream.kt). Nothing starts it until the first stream is opened,
+ * and the last stream to close stops it. It asks RootShell's shared "su was refused" cool-down, so it never retries on its own.
+ */
+internal val liveHub: LiveHub by lazy { liveHubMade = true; LiveHub(LiveSampler.forRoot({ RootShell.isDenied() }, { RootShell.noteDenied() })) }
+@Volatile private var liveHubMade = false
+
+/** Ends every live stream and the root reader. HostService calls it when the service goes away; it does not create the hub just to stop it. */
+internal fun stopLiveHub() { if (liveHubMade) liveHub.shutdown() }
+
+/**
+ * GET /api/live/stream: server-sent events (same shape as /api/logs/stream: chunked text/event-stream, read with fetch + the x-token header).
+ * The caller has passed rootGate. Refused while su is in its refusal cool-down (403 "root-denied"), and at most LiveHub.MAX_VIEWERS at once (429).
+ * The session is looked at again while the stream runs: sign-out, a password change or a sign-in older than 4 h end it with `event: end`.
+ */
+internal fun WebServer.liveStream(s: IHTTPSession): Response {
+    if (RootShell.isDenied())
+        return json(Response.Status.FORBIDDEN, JSONObject().put("code", "root-denied")
+            .put("error", "Root was denied or su is not available. Allow MatchiTOOL in your root manager, then try again"))
+    val token = sessionToken(s)
+    val live = liveHub.open({ Sessions.validate(ctx, token, touch = false) && RootGate.freshEnough(Sessions.ageMs(ctx, token)) }, token ?: "")
+        ?: return json(tooMany, JSONObject().put("error", "too many live streams are open"))
+    auditBusy(s.remoteIpAddress ?: "?", "live-stream")   // one audit line per client per minute, so reconnects cannot flood the log
+    return try {
+        harden(newChunkedResponse(Response.Status.OK, "text/event-stream; charset=utf-8", live)).also {
+            it.addHeader("X-Accel-Buffering", "no")
+            it.addHeader("X-Live-Id", live.id)   // the page names this stream in POST /api/live/view
+            it.setGzipEncoding(false)   // gzip would hold the small event frames back until its buffer fills
+        }
+    } catch (e: Exception) {
+        live.close()   // the answer was never handed to the server, so nobody else would free the slot (and stop the root reader)
+        throw e
+    }
+}
+
+/**
+ * POST /api/live/view {"id":"<X-Live-Id>","visible":true|false}: the page says its tab is hidden or visible again (Phase 3). With no visible
+ * stream left the root reader stops after the grace time. The caller has passed rootGate; only the session that opened the stream may
+ * change it (404 for an unknown stream and for somebody else's, so ids cannot be probed).
+ */
+internal fun WebServer.liveView(s: IHTTPSession): Response {
+    val req = body(s)
+    val id = req.optString("id", "")
+    if (id.length !in 8..64 || !req.has("visible") || req.opt("visible") !is Boolean)
+        return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "id and visible (true or false) are required"))
+    val ok = liveHub.setVisible(id, sessionToken(s) ?: "", req.getBoolean("visible"))
+    return if (ok) json(Response.Status.OK, JSONObject().put("ok", true).put("watching", liveHub.watching()))
+    else json(Response.Status.NOT_FOUND, JSONObject().put("error", "no such live stream"))
+}
+
 internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = when {
     uri == "/api/ping" -> {
         @Suppress("DEPRECATION")
@@ -261,6 +312,9 @@ internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = wh
     // allowed it, and only with a sign-in younger than 4 h. The page's Screen tool answers the "insecure" / "reauth" replies (see fetchFrame in index.html).
     uri == "/api/screen/frame" && s.method == Method.GET -> rootGate(s) ?: screenFrame(s)
     uri == "/api/screen/input" && s.method == Method.POST -> rootGate(s) ?: run { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
+    // Live panel push stream (Phase 2): one persistent root reader shared by all viewers. It starts root, so it has the same gate as /api/shell.
+    uri == "/api/live/stream" && s.method == Method.GET -> rootGate(s) ?: liveStream(s)
+    uri == "/api/live/view" && s.method == Method.POST -> rootGate(s) ?: liveView(s)
     uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
     uri == "/api/usb/control" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
