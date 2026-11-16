@@ -1,3 +1,12 @@
+# MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 5: heat guard on real thermal zones
+
+- **Where.** `heatLevel()` and its guard (`GUARD_UP` 60 / 70, `GUARD_DOWN` 57 / 67, `guardTemp`) sit in the DELAY block of the Live device status script in `index.html`; the repaint throttle (`MODE_PUSH`, `GUARD_PUSH`, `pushEvery`) sits in the LIVE-STREAM block.
+- **Signal.** `max(sysMax, modemTemp - 10)`, both from kernel zones. Battery temperature is shown and drives the banner, but never the guard. Unknown readings keep the last level (a phone that was hot is not declared cool because a read failed).
+- **Why the stream stays open when hot.** A new `su` per read costs more than one persistent reader, and the plan says never to stop the temperature read when hot. Closing the stream for heat (Phase 4) would have replaced it with the heavier polling at the moment the phone is warmest.
+- **Repaint rate.** `max(mode, heat)`: Live 0 s, Balanced 3 s; warm 2 s, hot 5 s (250 ms slack so a frame that arrives a little early is not skipped). The router read and the slow root read keep the old DELAY table (6 s / 15 s router and 30 s / 90 s root when warm / hot).
+- **Chips.** Live = `fast`, Balanced = `normal`, Eco = `eco`; keys in localStorage are unchanged.
+- **Not done.** The host sampler's 1 s cadence is not changed by heat (Kotlin, not compiled here). The levels are not tuned: Phase 0 numbers from the F50 are still needed.
+
 # MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 4: the page uses the push stream
 
 - **Where.** The block between `/* LIVE-STREAM-BEGIN */` and `/* LIVE-STREAM-END */` in the Live device status script of `index.html` (that script is not in `web-src/`). Plus four small edits: `tickCpu` returns `'skip'` while `liveFresh()`; `collectSlow` lays `liveSys()` over its result when the stream is fresh (just before `last = build()`; the battery lines are not touched); `when()` appends `· device N s ago`; the 1 s timer, the `visibilitychange` event and the start call `syncLive()`.

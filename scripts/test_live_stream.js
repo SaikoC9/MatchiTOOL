@@ -95,22 +95,32 @@ const tick = () => new Promise((r) => setImmediate(r));
     e.set({ auto: true, batteryLow: true }); ok(!e.streamWanted(), 'battery pause');
     e.set({ batteryLow: false, radio: true }); ok(!e.streamWanted(), 'radio restart');
     e.set({ radio: false, insecure: true }); ok(!e.streamWanted(), 'plain HTTP');
-    e.set({ insecure: false, heat: 1 }); ok(!e.streamWanted(), 'warm phone');
-    e.set({ heat: 0 }); ok(e.streamWanted(), 'cool again');
+    e.set({ insecure: false, heat: 1 }); ok(e.streamWanted(), 'warm phone: the stream stays (it carries the temperatures)');
+    e.set({ heat: 2 }); ok(e.streamWanted(), 'hot phone: the stream stays');
   }
-  // 5. Heat: closing for heat holds the stream off for a minute after the phone is cool again.
+  // 5. Heat guard (Phase 5): the stream is never closed for heat; the repaint rate follows mode and heat (slowest wins), frames are always applied.
   {
     const e = make();
     e.queue.push({ chunks: [FULL], hang: true });
     e.syncLive(); await tick(); await tick();
     ok(e.LS.on, 'syncLive opens the stream');
     e.set({ heat: 2 }); e.syncLive();
-    ok(!e.LS.ctl && !e.LS.on, 'hot: stream closed');
-    e.set({ heat: 0 }); e.queue.push({ chunks: [FULL], hang: true }); e.syncLive();
-    ok(!e.LS.ctl, 'cool again but held off for a minute');
-    e.T.now += 61000; e.syncLive(); await tick();
-    ok(e.LS.ctl, 'opened again after the hold');
-    e.closeLive(false);
+    ok(e.LS.ctl && e.LS.on, 'hot: stream stays open');
+    e.closeLive();
+  }
+  {
+    const run = async (mode, heat, secs) => {
+      const e = make(); e.set({ mode, heat });
+      const f = (n) => frame({ seq: n, cpu: 10 + n }).trim();
+      e.handleLiveFrame(FULL.trim());
+      for (let i = 1; i <= secs; i++) { e.T.now += 1000; e.handleLiveFrame(f(i)); }
+      return { paints: e.calls.paints, cpu: e.LS.st.cpu };
+    };
+    let r = await run('fast', 0, 10); ok(r.paints === 11, 'Live, cool: every frame is painted (' + r.paints + ')');
+    r = await run('normal', 0, 9); ok(r.paints === 4, 'Balanced, cool: first frame, then every 3 s (' + r.paints + ')');
+    r = await run('fast', 1, 10); ok(r.paints === 6, 'Live, warm: every 2 s (' + r.paints + ')');
+    r = await run('fast', 2, 10); ok(r.paints === 3, 'Live, hot: every 5 s (' + r.paints + ')');
+    r = await run('normal', 2, 10); ok(r.paints === 3 && r.cpu === 20, 'Balanced, hot: every 5 s, and the newest frame is still applied (' + r.paints + ', cpu ' + r.cpu + ')');
   }
   // 6. Hidden tab: not opened while hidden; an open stream is told hidden / visible once each, and a 404 reopens.
   {

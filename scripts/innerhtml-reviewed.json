@@ -2,7 +2,7 @@
  "347bb371e8": "Plugin list Approve button: pmIcon() with a fixed check-mark path; no input.",
  "109bff5b40": "Network_Diagnostics: rows() passes every router value through esc(); the rest is fixed text and a clock time.",
  "158ff0e04b": "Live_Status: render() escapes every router string (op, net, reg, band, pci, chan, tile sub text); the other values are numbers or fixed text.",
- "8f93aa7b00": "Live_Status: the keys are the fixed MODES table, not input.",
+ "ca1841f61f": "Live_Status: the keys are the fixed MODES table and the labels / tips are the fixed CHIP_LABEL / CHIP_TIP tables, not input.",
  "a2fac7b2cc": "Live_Status: the values are the fixed BATPAUSE numbers.",
  "afb87c2678": "Memory_Cleaner progress panel: a fixed template with two constant element ids.",
  "fb038a1d54": "Cell lock: every router value goes through val()/cellText()/esc(); the rest are indexes and fixed text.",

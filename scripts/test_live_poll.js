@@ -20,7 +20,8 @@ function make(store) {
 const at = (o, store = {}) => { const e = make(store); e.set({ mode: 'normal', ...o }); return [e.fastDelay(), e.slowDelay()]; };
 const atRaw = (o, store = {}) => { const e = make(store); e.set(o); return [e.fastDelay(), e.slowDelay()]; };
 const eq = (got, want, n) => ok(got[0] === want[0] && got[1] === want[1], n + ' (got ' + got + ', want ' + want + ')');
-const heat = (l) => ({ last: { thermalLevel: l } });
+// Phase 5: the level comes from the kernel thermal zones (sysMax / modem zone), not from thermalLevel or the battery sensor.
+const heat = (l) => ({ last: { sysMax: [50, 65, 75, 85][l], thermalLevel: 0 } });
 
 // Modes while the phone is cool: the speeds from the plan
 eq(at({}), [3000, 15000], 'normal, cool');
@@ -70,6 +71,26 @@ eq(at({}, { liv_thermal_test: '2' }), [15000, 90000], 'liv_thermal_test=2 forces
 eq(at({}, { liv_thermal_test: '9' }), [3000, 15000], 'liv_thermal_test junk ignored (Normal)');
 { const e = make({ liv_batpause: '20' }); e.set({ last: { bat: 5, charging: false } }); ok(e.batLow(), 'saved battery pause 20 read'); }
 { const e = make({ liv_batpause: '17' }); e.set({ last: { bat: 5, charging: false } }); ok(!e.batLow(), 'saved battery pause 17 (not a choice) ignored'); }
+
+// Phase 5 heat guard: levels from the zones, hysteresis, modem offset, battery ignored, last level kept without readings
+{
+  const lv = (e) => e.fastDelay();   // Normal: 3000 cool, 6000 warm, 15000 hot
+  const e = make({}); e.set({ mode: 'normal', last: { sysMax: 59.9 } }); ok(lv(e) === 3000, 'below 60 C: cool');
+  e.set({ last: { sysMax: 60 } }); ok(lv(e) === 6000, '60 C: warm');
+  e.set({ last: { sysMax: 58 } }); ok(lv(e) === 6000, '58 C: still warm (hysteresis, back down under 57)');
+  e.set({ last: { sysMax: 56.9 } }); ok(lv(e) === 3000, 'under 57 C: cool again');
+  e.set({ last: { sysMax: 70 } }); ok(lv(e) === 15000, '70 C: hot');
+  e.set({ last: { sysMax: 68 } }); ok(lv(e) === 15000, '68 C: still hot');
+  e.set({ last: { sysMax: 66.9 } }); ok(lv(e) === 6000, 'under 67 C: warm, not cool');
+  e.set({ last: { sysMax: 90 } }); ok(lv(e) === 15000, '90 C: hot (the table stops at 2)');
+  e.set({ last: { sysMax: 50 } }); ok(lv(e) === 3000, 'cool in one step when far below');
+  e.set({ last: { modemTemp: 70 } }); ok(lv(e) === 6000, 'modem zone 70 C counts as 60 C');
+  e.set({ last: { modemTemp: 80 } }); ok(lv(e) === 15000, 'modem zone 80 C counts as 70 C');
+  e.set({ last: { sysMax: 40, batTemp: 60, thermalLevel: 3 } }); ok(lv(e) === 3000, 'battery temperature and thermalLevel are not the guard');
+  e.set({ last: { sysMax: 75 } }); ok(lv(e) === 15000, 'hot again');
+  e.set({ last: { bat: 50 } }); ok(lv(e) === 15000, 'no zone reading: the last level is kept');
+  e.set({ last: null }); ok(lv(e) === 15000, 'no reading at all: the last level is kept');
+}
 
 // The constants themselves, so the plan table cannot drift unnoticed
 ok(/DELAY = \{ fast: \[3000, 6000, 15000\], slow: \[15000, 30000, 90000\] \}/.test(slice), 'DELAY table text');
