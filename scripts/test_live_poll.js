@@ -15,7 +15,10 @@ function make(store) {
   const ls = { getItem: (k) => (k in store ? store[k] : null), setItem() {}, removeItem() {} };
   return vm.runInNewContext('(function(localStorage){' + code + '})', {})(ls);
 }
-const at = (o, store = {}) => { const e = make(store); e.set(o); return [e.fastDelay(), e.slowDelay()]; };
+// `at` pins Normal unless a case sets its own mode, so the tables below keep testing the Normal speeds.
+// `atRaw` leaves the mode alone, to test the default (Eco since 1.4.2) and saved choices.
+const at = (o, store = {}) => { const e = make(store); e.set({ mode: 'normal', ...o }); return [e.fastDelay(), e.slowDelay()]; };
+const atRaw = (o, store = {}) => { const e = make(store); e.set(o); return [e.fastDelay(), e.slowDelay()]; };
 const eq = (got, want, n) => ok(got[0] === want[0] && got[1] === want[1], n + ' (got ' + got + ', want ' + want + ')');
 const heat = (l) => ({ last: { thermalLevel: l } });
 
@@ -59,10 +62,12 @@ eq(bp({ charging: false }, 20), [3000, 15000], 'battery unknown: no pause');
   e.set({ last: { bat: 15, charging: true } }); ok(e.batLow() === false, 'batLow false while charging'); }
 
 // Saved choices (liv_mode, liv_batpause) are read; junk is ignored; liv_thermal_test forces a level
-eq(at({}, { liv_mode: 'eco' }), [9000, 45000], 'saved mode eco');
-eq(at({}, { liv_mode: 'turbo' }), [3000, 15000], 'unknown saved mode ignored');
+eq(atRaw({}), [9000, 45000], 'new install defaults to Eco');
+eq(atRaw({}, { liv_mode: 'eco' }), [9000, 45000], 'saved mode eco');
+eq(atRaw({}, { liv_mode: 'normal' }), [3000, 15000], 'saved mode normal');
+eq(atRaw({}, { liv_mode: 'turbo' }), [9000, 45000], 'unknown saved mode ignored (falls back to Eco)');
 eq(at({}, { liv_thermal_test: '2' }), [15000, 90000], 'liv_thermal_test=2 forces hot');
-eq(at({}, { liv_thermal_test: '9' }), [3000, 15000], 'liv_thermal_test junk ignored');
+eq(at({}, { liv_thermal_test: '9' }), [3000, 15000], 'liv_thermal_test junk ignored (Normal)');
 { const e = make({ liv_batpause: '20' }); e.set({ last: { bat: 5, charging: false } }); ok(e.batLow(), 'saved battery pause 20 read'); }
 { const e = make({ liv_batpause: '17' }); e.set({ last: { bat: 5, charging: false } }); ok(!e.batLow(), 'saved battery pause 17 (not a choice) ignored'); }
 
