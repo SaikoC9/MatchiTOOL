@@ -309,7 +309,7 @@ function mountNetTools() {
   const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu };
 
   // ---- window state ---------------------------------------------------------------------------------------------------------
-  const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = t || ''; };
+  const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = st.only ? '' : (t || ''); };   // the Devices-only window shows no status / updated line
   // The progress banner at the top of the APN and MTU / MSS tabs while a change is running: what is happening now, in words (the small status line is easy to miss).
   const progress = (t) => { st.prog = t || ''; const e = $('matchi_net_prog'); if (e) e.textContent = st.prog; setStatus(st.prog); };
   const progNote = () => (st.prog ? h('p', { class: 'net-p net-prog', id: 'matchi_net_prog', role: 'status', 'aria-live': 'polite' }, st.prog) : null);
@@ -946,19 +946,20 @@ function mountNetTools() {
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
-  function open(startTab) {
+  function open(startTab, only) {
+    st.only = only === true;   // true: the Devices tile's own window, no tabs, titled Devices
     const first = typeof startTab === 'string' && VIEWS[startTab] ? startTab : 'data';   // the click on the Network button passes an event, not a tab
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
     st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
     createModal({
-      name: MODAL, title: 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
-      content: '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div><button type="button" id="matchi_net_refresh">Refresh</button></div>' +
+      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
+      content: '<div class="net-top">' + (st.only ? '<span></span>' : '<div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
     showModal(MODAL);
     const tabs = $('matchi_net_tabs');
-    for (const [id, label] of N.TABS) {
+    if (tabs) for (const [id, label] of N.TABS) {
       const b = h('button', { type: 'button', role: 'tab', 'data-tab': id, id: 'matchi_net_tab_' + id }, label);
       b.onclick = () => select(id);
       b.onkeydown = (e) => {
@@ -972,7 +973,8 @@ function mountNetTools() {
     load(first); syncButtons();
     findMe();
   }
-  window.MatchiNetOpen = open;   // used by the Devices tile in Live device status
+  window.MatchiNetOpen = open;
+  window.MatchiDevicesOpen = () => open('devices', true);   // the Devices tile in Live device status: only the device list, no Network tabs
 
   const b = document.createElement('button');
   b.id = 'matchi_net_btn'; b.type = 'button'; b.textContent = 'Network'; b.onclick = open;

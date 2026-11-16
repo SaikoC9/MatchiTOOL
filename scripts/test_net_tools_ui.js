@@ -40,7 +40,7 @@ const ids = {};   // createModal stub: builds the static pieces by id, and check
 let modalOpts = null;
 const createModal = (o) => {
   modalOpts = o; const m = new Node('div'); m.attrs.id = o.name;
-  for (const id of ['matchi_net_tabs', 'matchi_net_refresh', 'matchi_net_body', 'matchi_net_status']) { assert(o.content.includes('id="' + id + '"'), 'content lacks #' + id); const n = new Node(id === 'matchi_net_refresh' ? 'button' : 'div'); n.attrs.id = id; m.append(n); }
+  for (const id of ['matchi_net_tabs', 'matchi_net_refresh', 'matchi_net_body', 'matchi_net_status']) { if (id === 'matchi_net_tabs' && o.title === 'Devices') continue;   /* the Devices-only window has no tabs */ assert(o.content.includes('id="' + id + '"'), 'content lacks #' + id); const n = new Node(id === 'matchi_net_refresh' ? 'button' : 'div'); n.attrs.id = id; m.append(n); }
   assert(!/<script|on\w+=|\$\{/.test(o.content), 'static content only');
   body.append(m); return { el: m };
 };
@@ -616,6 +616,17 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
 
   // opening again starts clean (no cached values, no second pause left over)
   await click(btn); assert.strictEqual(busyNow, 1); assert(/Connected/.test(bodyText()));
+  modalOpts.onClose(); assert.strictEqual(busyNow, 0);
+
+  // the Devices tile: its own window (title Devices, no tabs, no Updated line) with the same device table; a normal open afterwards is the Network window again
+  assert.strictEqual(typeof win.MatchiDevicesOpen, 'function', 'MatchiDevicesOpen exists');
+  win.MatchiDevicesOpen(); await flush();
+  assert.strictEqual(modalOpts.title, 'Devices'); assert(!modalOpts.content.includes('matchi_net_tabs'), 'no tabs');
+  assert(/2 devices: 1 on Wi-Fi, 1 on cable/.test(bodyText()) && /My-Phone/.test(bodyText()) && /GL-MT3000/.test(bodyText()) && /aa:bb:cc:dd:ee:02/.test(bodyText()), 'devices only: ' + bodyText());
+  assert.strictEqual(doc.getElementById('matchi_net_status').textContent, '', 'no Updated line');
+  await click(doc.getElementById('matchi_net_refresh')); assert(/My-Phone/.test(bodyText()) && doc.getElementById('matchi_net_status').textContent === '', 'refresh keeps it');
+  modalOpts.onClose(); assert.strictEqual(busyNow, 0);
+  await click(btn); assert.strictEqual(modalOpts.title, 'Network'); assert(modalOpts.content.includes('matchi_net_tabs'), 'tabs are back'); assert(/Updated/.test(doc.getElementById('matchi_net_status').textContent));
   modalOpts.onClose(); assert.strictEqual(busyNow, 0);
   console.log('net tools ui ok: 6 tabs read once each (get only), password never on the page, Wi-Fi band and settings changes, root read only from its button, close releases the pause');
 })().catch((e) => { console.error(e); process.exit(1); });
