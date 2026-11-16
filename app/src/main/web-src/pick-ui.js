@@ -1,6 +1,7 @@
 /* Popup pickers. The phone's own dropdown list and date/time wheel take over the whole screen; this shows the same choices in a popup in the page's own style.
    The real <select> / <input type="datetime-local"> stay in the page (hidden), so every handler that reads .value or listens for input/change keeps working.
-   Covers selects and date-time fields inside pop-up dialogs (not the Plugins window) and the header. Controls added later are picked up too. */
+   Covers EVERY select and date-time field on the page (dashboard cards, tool windows such as Network / AT & Radio / Performance mode, plugin windows, the header). Controls added later are picked up too.
+   Selects use the small popup right under the control (checkmark on the chosen row); the phone's own full-screen radio list is never shown. */
 (()=>{
 'use strict';
 if(window.MT_pick)return;
@@ -13,7 +14,9 @@ const css=`
 .mt-pick-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 .mt-pick-c{opacity:.7;font-size:10px}
 .mt-pick.mt-wide{flex:1 1 12em}
-.mt-bg{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(2,6,14,.78);-webkit-tap-highlight-color:transparent}
+.net-frow>.mt-pick,.mt-pick.mt-fill{width:100%;height:30px;font-size:12.5px;padding:0 10px;border-radius:8px}
+.modal .mt-pick,.modal-bg .mt-pick{max-width:100%}
+.mt-bg{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(2,6,14,.78);-webkit-tap-highlight-color:transparent}
 .mt-sheet{width:min(420px,100%);max-height:min(80vh,580px);display:flex;flex-direction:column;overflow:hidden;color:var(--fg,#e8f0ff);background:linear-gradient(150deg,#0f1b2e,#0a1321);border:1px solid rgba(255,255,255,.12);border-radius:16px;box-shadow:0 20px 60px #000c}
 .mt-title{padding:12px 16px 8px;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acc2,#7fb2ff)}
 .mt-body{min-height:0;overflow:auto;padding:0 8px 6px;-webkit-overflow-scrolling:touch}
@@ -106,6 +109,8 @@ function trigger(real,wide){
  t.tabIndex=0;t.setAttribute('role','button');t.setAttribute('aria-haspopup','dialog');t.setAttribute('aria-label',labelOf(real));
  t.append(tx,ca);
  if(real.closest('header')){if(real.className)t.className+=' '+real.className;t.style.cssText+=real.style.cssText}
+ else for(const p of ['flex','width','minWidth','maxWidth','margin','marginLeft','marginRight','marginTop','marginBottom','alignSelf','justifySelf','gridColumn']){const v=real.style[p];if(v)t.style[p]=v}
+ if(real.id)t.dataset.pickFor=real.id;
  real.parentNode.insertBefore(t,real.nextSibling);real.style.setProperty('display','none','important');
  return{t,tx};
 }
@@ -191,7 +196,7 @@ function enhanceDate(inp){
  });
 }
 
-const inScope=c=>!!c.closest&&(!!c.closest('.card, header')||c.id==='st_src')&&!c.closest('#pluginmgr')&&!c.closest('.mt-bg');
+const inScope=c=>!!c.closest&&!c.closest('.mt-bg')&&c.dataset.pick!=='native';
 function scan(root){
  if(!root||root.nodeType!==1)return;
  const list=[];if(root.matches('select,input[type="datetime-local"]'))list.push(root);
@@ -208,7 +213,7 @@ function init(){
  const flush=()=>{timer=0;const l=q;q=[];for(const n of l)if(n.isConnected)scan(n)};
  new MutationObserver(ms=>{
   for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&(n.tagName==='SELECT'||n.tagName==='INPUT'||n.firstElementChild))q.push(n);
-  if(q.length&&!timer)timer=setTimeout(flush,60);
+  if(q.length&&!timer)timer=setTimeout(flush,16);
  }).observe(doc.body,{childList:true,subtree:true});
 }
 window.MT_pick=Object.freeze({scan,close});

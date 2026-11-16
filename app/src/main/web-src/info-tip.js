@@ -1,5 +1,5 @@
 /* Info tips: a long explanation is shown as a small icon button; a click opens or closes the text under it.
-   Small soft-tinted round icon (line drawing) that follows the kind of message: info circle blue, warning triangle amber, alert circle red (high risk),
+   One blue pill for every note: the "i" icon and the word Info (the kind argument is ignored), that follows the kind of message: info circle blue, warning triangle amber, alert circle red (high risk),
    circular arrow purple (the router restarts). The opened text is a plain thin box.
    window.MatchiTip.make(text, kind)  -> a node: the icon button plus the hidden text. kind is optional: without it kindOf(text) picks one.
    window.MatchiTip.enhance(root)     -> turns every element with a data-tip="kind" attribute under root into the same thing: the element stays
@@ -13,10 +13,10 @@
   // Line icons on a 24 x 24 grid: [tag, attributes]. Drawn with createElementNS; where that is missing a plain character stands in.
   const DOT = ['circle', { cx: 12, cy: 16.4, r: 0.7, fill: 'currentColor' }];
   const KINDS = {
-    info:    { glyph: 'i',      label: 'More information', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 11v5.5' }], ['circle', { cx: 12, cy: 7.8, r: 0.7, fill: 'currentColor' }]] },
-    warning: { glyph: '\u26A0\uFE0E', label: 'Warning', shapes: [['path', { d: 'M12 4 21 19H3Z' }], ['path', { d: 'M12 10v4' }], DOT] },
-    danger:  { glyph: '!',      label: 'High risk', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7.5v5' }], DOT] },
-    restart: { glyph: '\u21BB', label: 'The router restarts', shapes: [['path', { d: 'M20 12a8 8 0 1 1-2.6-5.9' }], ['path', { d: 'M20 4v4.5h-4.5' }]] }
+    info:    { glyph: 'i',      label: 'More information', short: 'Info', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 11v5.5' }], ['circle', { cx: 12, cy: 7.8, r: 0.7, fill: 'currentColor' }]] },
+    warning: { glyph: '\u26A0\uFE0E', label: 'Warning', short: 'Warning', shapes: [['path', { d: 'M12 4 21 19H3Z' }], ['path', { d: 'M12 10v4' }], DOT] },
+    danger:  { glyph: '!',      label: 'High risk', short: 'High risk', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7.5v5' }], DOT] },
+    restart: { glyph: '\u21BB', label: 'The router restarts', short: 'Restarts', shapes: [['path', { d: 'M20 12a8 8 0 1 1-2.6-5.9' }], ['path', { d: 'M20 4v4.5h-4.5' }]] }
   };
   const NS = 'http://www.w3.org/2000/svg';
   function icon(k) {
@@ -38,8 +38,10 @@
     if (styled || !document.head) return;
     styled = true;
     const s = document.createElement('style');
-    s.textContent = `.mt-tip-btn{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:19px;height:19px;min-width:19px;min-height:0;padding:0;margin:2px 0;border:0;border-radius:50%;cursor:pointer;background:var(--tb);color:var(--tc);line-height:0}
-.mt-tip-btn svg{display:block;flex:none;width:12px;height:12px}\nbutton.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn{width:20px!important;height:20px!important;min-width:20px!important;min-height:20px!important;padding:0!important;margin:2px 0!important;border:0!important;border-radius:50%!important;box-shadow:none!important;font-size:0!important;line-height:0!important}
+    s.textContent = `.mt-tip{display:block;margin:2px 0}
+.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;width:auto;height:22px;min-width:0;min-height:0;padding:0 10px 0 6px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 11px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.mt-tip-btn svg{display:block;flex:none;width:13px;height:13px}
+button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:22px!important;min-width:0!important;min-height:0!important;padding:0 10px 0 6px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:11px!important;font-weight:600!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
@@ -53,7 +55,7 @@
   // The button for a text element; the element is the panel.
   function attach(panel, kind) {
     addStyle();
-    const k = KINDS[kind] || KINDS.info, kk = KINDS[kind] ? kind : 'info';
+    const k = KINDS.info, kk = 'info';   // simple: every note uses the same plain blue info icon
     const id = 'mt_tip_' + (++seq);
     panel.id = panel.id || id;
     panel.className = (panel.className ? panel.className + ' ' : '') + 'mt-tip-body mt-tip-' + kk;
@@ -62,6 +64,7 @@
     btn.type = 'button';
     btn.className = 'mt-tip-btn mt-tip-' + kk;
     btn.appendChild(icon(k));
+    btn.appendChild(document.createTextNode('Info'));   // the only word on it
     btn.setAttribute('aria-label', k.label);
     btn.setAttribute('title', k.label);
     btn.setAttribute('aria-expanded', 'false');
@@ -91,7 +94,8 @@
       if (el.getAttribute('data-tip-done') === '1' || !el.parentNode) continue;
       el.setAttribute('data-tip-done', '1');
       const btn = attach(el, el.getAttribute('data-tip'));
-      el.parentNode.insertBefore(btn, el);
+      const wrap = document.createElement('div'); wrap.className = 'mt-tip';
+      el.parentNode.insertBefore(wrap, el); wrap.append(btn, el);   // button and text travel together when the card is moved
     }
   }
   window.MatchiTip = { make: make, enhance: enhance, kindOf: kindOf, LONG: LONG, KINDS: KINDS };
