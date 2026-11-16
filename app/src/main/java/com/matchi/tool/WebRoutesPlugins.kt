@@ -230,18 +230,7 @@ internal fun WebServer.deleteUpload(name: String): Response {
 internal fun WebServer.pluginPasswordCheck(s: IHTTPSession, req: JSONObject, what: String): Response? {
     val pw = req.optString("password").take(200)
     if (pw.isEmpty()) return json(Response.Status.FORBIDDEN, JSONObject().put("code", "plugin-password").put("error", "Enter your sign-in password to $what"))
-    val ip = s.remoteIpAddress ?: "?"
-    val loop = isLoopbackIp(ip)
-    val wait = guard.retryAfterMs(ip, loop)
-    if (wait > 0) {
-        val secs = (wait + 999) / 1000
-        return json(tooMany, JSONObject().put("error", "too many bad attempts, wait $secs s")).also { it.addHeader("Retry-After", secs.toString()) }
-    }
-    if (!Prefs.checkAdminPassword(ctx, pw)) {
-        guard.failed(ip, loop)
-        throw IllegalArgumentException("Password is wrong")
-    }
-    return null
+    return passwordGate(s, pw, "Password is wrong")
 }
 
 internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = when {
@@ -478,7 +467,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         }
         json(Response.Status.OK, out)
     }
-    uri == "/api/plugins/toggle" && s.method == Method.POST -> {
+    uri == "/api/plugins/toggle" && s.method == Method.POST -> rootGate(s) ?: run {   // fresh sign-in: a plugin holding a session cannot switch other plugins on or off after 4 h
         val req = body(s); val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         Prefs.setEnabled(ctx, name, req.optBoolean("enabled", true))

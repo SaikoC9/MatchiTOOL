@@ -57,7 +57,7 @@ TABLE = {
   ('GET',  '/api/logs/session/'): ('OPEN', ''),
   ('POST', '/api/upload'): ('OPEN', 'writes only into the app upload folder'),
   ('POST', '/api/upload_img'): ('OPEN', 'same handler as /api/upload'),
-  ('POST', '/api/uploads/delete'): ('OPEN', ''),
+  ('POST', '/api/uploads/delete'): ('OPEN', 'removes one file from the app upload folder only (the file name is checked); plugins call it for their own temporary files, so it stays open'),
   ('GET',  '/api/uploads/'): ('OPEN', ''),
   ('GET',  '/api/plugins'): ('OPEN', ''),
   ('POST', '/api/plugins'): ('GATE', ''),
@@ -67,7 +67,7 @@ TABLE = {
   ('POST', '/api/plugins/mode'): ('GATE', 'also needs the sign-in password; both directions (sandbox and trusted)'),
   ('POST', '/api/plugins/data'): ('PARTIAL', 'the route itself stays open (a refusal would hide the stop plan: the page treats an error as "nothing to show"); its two root calls, the existence probe of paths that passed checkPluginDataPath and the process scan, run only when rootGate lets the request through; the plan, undo list, uploads and effects come from files and the ledger, not from root'),
   ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data or running its stop commands needs the gate; every delete needs the sign-in password, except keep:true; with keep:true (Disable and stop) it stops and switches the plugin off, nothing is deleted or erased'),
-  ('POST', '/api/plugins/toggle'): ('OPEN', ''),
+  ('POST', '/api/plugins/toggle'): ('GATE', 'a plugin holding a session cannot switch other plugins on or off after 4 h'),
   ('POST', '/api/plugins/scan'): ('OPEN', ''),
   ('GET',  '/api/root/status'): ('OPEN', 'asks only whether root is granted'),
   ('POST', '/api/shell'): ('GATE', ''),
@@ -101,7 +101,6 @@ TABLE = {
 ROOT_WITHOUT_GATE = {
   '/api/root/status': 'RootShell.status only',
   '/api/one_click_shell': 'RootShell.status only',
-  '/api/plugins/toggle': 'stores which plugins are switched off',
 }
 DANGEROUS = ('RootShell.run', 'RootShell.exec', 'UserShell.run', 'ApkUpdater.install', 'ZteClient.setSessionCookie', 'ZteClient.proxy')
 

@@ -177,6 +177,33 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         return x == "::1" || x == "0:0:0:0:0:0:0:1" || x == "localhost" || x.startsWith("127.")
     }
 
+    /**
+     * One place for "type the password again" checks (console password, network rules, Root over HTTP, router address / password, plugin changes).
+     * Same protection as /api/login: at most [LoginGuard.MAX_PARALLEL_ATTEMPTS] checks at the same moment (a burst of parallel guesses could all pass
+     * the lock check before one was counted), the per-address and global lockout, and a bad password is counted. Returns null when the password is right,
+     * a 429 answer when the caller must wait, and throws IllegalArgumentException([wrong]) for a wrong password.
+     */
+    internal fun passwordGate(s: IHTTPSession, pw: String, wrong: String): Response? {
+        val ip = s.remoteIpAddress ?: "?"
+        val loop = isLoopbackIp(ip)
+        if (!loop && !guard.tryBeginAttempt())
+            return json(tooMany, JSONObject().put("error", "too many attempts at once, wait a moment")).also { it.addHeader("Retry-After", "2") }
+        try {
+            val wait = guard.retryAfterMs(ip, loop)   // asked after the slot was taken
+            if (wait > 0) {
+                val secs = (wait + 999) / 1000
+                return json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
+                    .also { it.addHeader("Retry-After", secs.toString()) }
+            }
+            if (!Prefs.checkAdminPassword(ctx, pw)) {
+                guard.failed(ip, loop)
+                throw IllegalArgumentException(wrong)
+            }
+            guard.succeeded(ip, loop)
+            return null
+        } finally { if (!loop) guard.endAttempt() }
+    }
+
     internal val snapshotBusy = java.util.concurrent.Semaphore(1)
     internal val tooMany = object : Response.IStatus {
         override fun getRequestStatus() = 429
@@ -319,6 +346,10 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
             // Only a few password checks at the same moment (see LoginGuard.tryBeginAttempt): parallel guesses cannot all pass the lock check before one is counted.
             val slot = loop || guard.tryBeginAttempt()
             if (!slot) return json(tooMany, JSONObject().put("error", "too many attempts at once, wait a moment")).also { it.addHeader("Retry-After", "2") }
+            // The slot is handed back as soon as the local password check is over (login() calls release before it asks the router, which can wait
+            // seconds for the router lock): the owner's own login is no longer turned away because two router checks are waiting.
+            var held = !loop
+            val release = { if (held) { held = false; guard.endAttempt() } }
             try {
                 val wait = guard.retryAfterMs(ip, loop)   // asked after the slot was taken
                 if (wait > 0) {
@@ -326,8 +357,8 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
                     return json(tooMany, JSONObject().put("error", "too many bad attempts, wait ${if (secs >= 120) "${(secs + 59) / 60} minutes" else "$secs s"}"))
                         .also { it.addHeader("Retry-After", secs.toString()) }
                 }
-                return login(ip, s)
-            } finally { if (!loop) guard.endAttempt() }
+                return login(ip, s, release)
+            } finally { release() }
         }
         if (!authed(s)) return json(Response.Status.UNAUTHORIZED, JSONObject().put("error", "Session expired or invalid - log in again"))
 
@@ -388,7 +419,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
     }
 
     /** Password login: starts a session and sets its cookie. Bad attempts count toward the per-IP lockout. */
-    internal fun login(ip: String, s: IHTTPSession): Response {
+    internal fun login(ip: String, s: IHTTPSession, releaseSlot: () -> Unit = {}): Response {
         val pw = try { body(s, MAX_LOGIN_BODY).optString("password").take(200) } catch (e: Exception) {
             return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "bad request"))
         }
@@ -398,10 +429,13 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         // or the router password was changed), ask the router. When it accepts, remember it for the SMS / signal tools.
         // Skipped after 3 bad tries from this address so the router's own login lockout is not triggered.
         // The router is asked at most 3 times per address AND 3 times per 10 minutes in total (see LoginGuard.mayAskRouter).
-        if (!good && pw.isNotEmpty() && !Prefs.hasConsolePassword(ctx) && guard.failCount(ip) < 3 && guard.mayAskRouter(ip) && ZteClient.verify(ctx, pw) == true) {
-            if (Prefs.setZtePass(ctx, pw)) Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
-            else LogCatcher.log("WARNING", "WebServer", "Signed in with the router password, but it could not be saved (Keystore); older sessions were kept")
-            good = true
+        if (!good && pw.isNotEmpty() && !Prefs.hasConsolePassword(ctx) && guard.failCount(ip) < 3 && guard.mayAskRouter(ip)) {
+            releaseSlot()   // the router check below can wait for the router lock; the router budget (mayAskRouter) limits it, not the slot
+            if (ZteClient.verify(ctx, pw) == true) {
+                if (Prefs.setZtePass(ctx, pw)) Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
+                else LogCatcher.log("WARNING", "WebServer", "Signed in with the router password, but it could not be saved (Keystore); older sessions were kept")
+                good = true
+            }
         }
         if (!good) {
             val loop = isLoopbackIp(ip)

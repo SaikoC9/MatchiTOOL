@@ -57,6 +57,11 @@ object LanRevert {
             LogCatcher.log("INFO", TAG, "Pending router IP change ${note.old.ip} -> ${note.new.ip}: checking")
             val deadline = System.currentTimeMillis() + WAIT_MS
             while (true) {
+                // A stale note (older than LanPending.MAX_AGE_MS) is dropped BEFORE anything is probed: probing at the new address used to point the saved
+                // router address at it first, so "nothing changed" in the log was wrong when it did answer.
+                if (LanPending.decide(note, System.currentTimeMillis(), false, null, false, false) == LanPending.Verdict.EXPIRED) {
+                    LogCatcher.log("INFO", TAG, "The pending note is stale: deleted, nothing changed"); deleteNote(ctx); return
+                }
                 val newAns = ZteClient.answers(note.new.ip)
                 var seen: LanPending.Seen? = null
                 if (newAns) {

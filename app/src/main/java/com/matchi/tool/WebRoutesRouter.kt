@@ -106,17 +106,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val wouldChange = (newHost != null && newHost != Prefs.zteHost(ctx)) || (newPass != null && newPass != Prefs.ztePass(ctx))
         if (wouldChange && Prefs.hasAdminPassword(ctx)) {
             val ip = s.remoteIpAddress ?: "?"
-            val loop = isLoopbackIp(ip)
-            val wait = guard.retryAfterMs(ip, loop)
-            if (wait > 0) {
-                val secs = (wait + 999) / 1000
-                return@run json(tooMany, JSONObject().put("error", "too many bad attempts, wait $secs s")).also { it.addHeader("Retry-After", secs.toString()) }
-            }
-            if (!Prefs.checkAdminPassword(ctx, req.optString("current").take(200))) {
-                guard.failed(ip, loop)
-                throw IllegalArgumentException("Current password is wrong (send it as \"current\")")
-            }
-            guard.succeeded(ip, loop)
+            passwordGate(s, req.optString("current").take(200), "Current password is wrong (send it as \"current\")")?.let { return@run it }
             auditShell(ip, "zte-config host=" + (newHost != null) + " password=" + (newPass != null), "zte-config")
         }
         if (req.has("host")) {
