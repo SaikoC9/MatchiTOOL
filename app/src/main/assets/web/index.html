@@ -1679,15 +1679,44 @@ rm -f $P.g $P.4 $P.6 $P.d
 .liv-dd .liv-dbtn{align-self:stretch}
 .liv-tn .liv-ts{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 @media(max-width:640px){.liv-hero{grid-template-columns:1fr;gap:10px}.liv-tile{flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px}.liv-ms{gap:8px}}
-.lcpu-h{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:4px 0 6px}.lcpu-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.lcpu-core{display:flex;flex-direction:column;gap:3px;align-items:flex-start;padding:7px 8px;border-radius:10px;background:#0a1626;border:1px solid var(--bd);color:inherit;font:inherit;cursor:pointer;text-align:left}.lcpu-core b{font-size:12px}.lcpu-core span{font-size:11px;color:var(--mut)}.lcpu-core.on{border-color:#1f4a7a}.lcpu-core.off{opacity:.55}
+#liv_cpu_modal .modal{padding:16px!important;border-radius:20px!important;background:#0e182b!important;border:1px solid #243650!important;max-height:92vh!important;max-height:92dvh!important}
+#liv_cpu_modal .modal .title{display:flex!important;align-items:center;justify-content:space-between;font-size:17px!important;font-weight:800;margin:0 0 12px!important;color:#f2f7ff}
+#liv_cpu_modal .modal .mfoot{display:none!important}
+#liv_cpu_modal .modal .lcpu-x{width:30px!important;height:30px!important;min-height:30px!important;padding:0!important;border-radius:50%!important;border:0!important;background:#17243b!important;color:#c9d6ea!important;font-size:18px!important;line-height:1!important;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.lcpu-cl{background:#0c1627;border:1px solid #1e3050;border-radius:15px;padding:11px 11px 12px;margin-bottom:9px}
+.lcpu-hd{display:flex;align-items:baseline;justify-content:space-between;margin:0 1px 8px}
+.lcpu-h{font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#86adea}
+.lcpu-hf{font-size:12px;color:#9db0cc;font-variant-numeric:tabular-nums}
+.lcpu-cores{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+#liv_cpu_modal .modal .lcpu-core{display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:8px 9px 9px!important;min-height:0!important;border-radius:11px!important;background:#08111f!important;border:0!important;color:#eaf2ff!important;font:inherit;cursor:pointer;text-align:left}
+.lcpu-t{display:flex;align-items:center;gap:6px}.lcpu-core em{font-style:normal;font-size:15px;font-weight:800;line-height:1.2;color:#7cc0ff;font-variant-numeric:tabular-nums;min-height:18px}
+.lcpu-dot{width:7px;height:7px;border-radius:50%;background:#2fd36b;flex:none}
+.lcpu-core.off .lcpu-dot{background:#5b6b84}
+.lcpu-core b{font-size:14px;font-weight:800;line-height:1.2}
+.lcpu-core span{font-size:11px;color:#8fa2bf;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lcpu-core.off{opacity:.55}
+.lcpu-bar{width:100%;height:4px;border-radius:99px;background:#16283f;overflow:hidden;margin-top:4px}.lcpu-bar i{display:block;height:100%;background:#3d9bff;border-radius:99px;transition:width .5s linear}
+.lcpu-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:14px;color:#c3cfe2}
+.lcpu-dd{position:relative;width:min(58%,215px)}
+.lcpu-dd select{display:none}
+#liv_cpu_modal .modal .lcpu-dd-b{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px!important;min-height:38px!important;border-radius:11px!important;background:#08111f!important;border:1px solid #2d4469!important;color:#f2f7ff!important;font-size:14px!important;font-weight:500;cursor:pointer;text-align:left}
+#liv_cpu_modal .modal .lcpu-dd-b:disabled{opacity:.55}
+.lcpu-dd-b i{font-style:normal;font-size:11px;color:#c9d6ea}
+#liv_cpu_modal .lcpu-pop{position:fixed;z-index:5;box-sizing:border-box;padding:5px;border-radius:14px;background:#0d1627;border:1px solid #2d4469;box-shadow:0 14px 34px rgba(0,0,0,.55);max-height:60vh;overflow:auto}
+#liv_cpu_modal .lcpu-pop .lcpu-opt{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;min-height:38px;padding:0 12px;margin:0;border:0;border-radius:10px;background:transparent;color:#e6eefb;font:inherit;font-size:14px;text-align:left;cursor:pointer;box-shadow:none}
+#liv_cpu_modal .lcpu-pop .lcpu-opt:hover{background:#14233c}
+#liv_cpu_modal .lcpu-pop .lcpu-opt[aria-selected=true]{background:#1a2a48;color:#fff;font-weight:700}
+#liv_cpu_modal .lcpu-pop .lcpu-opt svg{width:15px;height:15px;flex:none;color:#4aa3ff}
+.lcpu-note{font-size:12px;color:#8fa2bf;margin:2px 2px 0;line-height:1.4}
+.lcpu-boot{font-size:12px;color:#ff9aa8;margin:6px 2px 0;line-height:1.4}.lcpu-boot:empty{display:none}
+.lcpu-actions{display:flex;gap:8px;margin-top:12px}
+#liv_cpu_modal .modal .lcpu-actions button{flex:1;min-height:42px!important;padding:0 10px!important;border-radius:12px!important;font-size:13.5px!important;font-weight:800;color:#fff!important;cursor:pointer}
+#liv_cpu_modal .modal #lcpu_save{background:linear-gradient(180deg,#2d8cff,#1966d8)!important;border:1px solid #6db3ff!important}
+#liv_cpu_modal .modal #lcpu_remove{background:#162135!important;border:1px solid #2a3a55!important}
 .liv-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--mut);font-weight:650}.liv-chips{display:inline-flex;gap:4px}.liv-chip{font:inherit;font-weight:750;padding:2px 9px;border-radius:999px;border:1px solid var(--bd);background:#0a1626;color:var(--mut);cursor:pointer}.liv-chip[aria-pressed=true]{background:#168cff22;border-color:#168cff66;color:#55b6ff}.liv-bp{font:inherit;padding:1px 4px;border-radius:6px;border:1px solid var(--bd);background:#0a1626;color:inherit}.liv-spark{margin-top:6px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 2px}.liv-spark svg{display:block}
 .liv-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.liv-cc{min-width:0;overflow:hidden;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 6px}.liv-cct{font-size:10.5px;font-weight:750;text-align:center;color:var(--fg);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .liv-cbars{display:flex;gap:3px;align-items:flex-end;height:26px}.liv-cb{flex:1 1 0;min-width:0}.liv-cbt{height:26px;display:flex;align-items:flex-end;border-radius:3px;background:#16283f;overflow:hidden}.liv-cbt i{display:block;width:100%;border-radius:2px;background:#55b6ff;transition:height .5s}.liv-cb.off{opacity:.4}
 .liv-cf{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}.liv-cfi{min-width:0;text-align:center;font-size:10.5px;font-weight:750;font-variant-numeric:tabular-nums;line-height:1.5;border-radius:6px;background:#16283f;color:#9fc8ff;overflow:hidden}.liv-cfi.off{background:#0d1b2e;color:var(--mut)}
-.lcpu-bar{width:100%;height:4px;border-radius:99px;background:#16283f;overflow:hidden}.lcpu-bar i{display:block;height:100%;background:#55b6ff;border-radius:99px;transition:width .5s}
-.lcpu-ctl{display:flex;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.lcpu-ctl label{flex:1;min-width:130px;font-size:11px;font-weight:700;color:var(--mut);display:flex;flex-direction:column;gap:4px}.lcpu-ctl select{width:100%}
-.lcpu-note,.lcpu-boot{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.4}.lcpu-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.lcpu-actions button{flex:1}
 @media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;
   document.head.appendChild(css);
 
@@ -1850,7 +1879,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const nums = (s) => String(s || '').split(/\s+/).filter((x) => /^\d+$/.test(x)).map(Number);
 
     // One root call reads everything the window shows.
-    // The window polls this every 3 s, so it uses the shell's built-in `read` (no `cat` process per file): about 50 fewer processes per read.
+    // The window polls this every 1.5 s, so it uses the shell's built-in `read` (no `cat` process per file): about 50 fewer processes per read.
     const READ = [
       `S=${SYS}`,
       'rd() { v=; [ -r "$1" ] && read -r v < "$1"; return 0; }',
@@ -1955,8 +1984,52 @@ rm -f $P.g $P.4 $P.6 $P.d
       try { const r = await runShellWithRoot(cmd, ms || 20000); return { ok: !!(r && r.success), text: String((r && r.content) || '') }; }
       catch (e) { return { ok: false, text: String((e && e.message) || e) }; }
     };
-    const clusterHtml = (cl) => `<div class="lcpu-h">${CL_NAME[cl]} cores</div><div class="lcpu-cores" id="lcpu_cores_${cl}"></div>
-<div class="lcpu-ctl"><label>Mode<select id="lcpu_gov_${cl}"></select></label><label id="lcpu_fw_${cl}" style="display:none">Locked speed<select id="lcpu_freq_${cl}"></select></label></div>`;
+    const ddHtml = (id, label, rowId, hidden) => `<div class="lcpu-row"${rowId ? ` id="${rowId}"` : ''}${hidden ? ' style="display:none"' : ''}><span>${label}</span><div class="lcpu-dd"><select id="${id}" tabindex="-1" aria-hidden="true"></select><button type="button" class="lcpu-dd-b" aria-haspopup="listbox" aria-expanded="false"><span></span><i>\u25be</i></button></div></div>`;
+    const clusterHtml = (cl) => `<section class="lcpu-cl" id="lcpu_cl_${cl}"><div class="lcpu-hd"><div class="lcpu-h">${CL_NAME[cl]} cores</div><div class="lcpu-hf" id="lcpu_hf_${cl}"></div></div><div class="lcpu-cores" id="lcpu_cores_${cl}"></div>${ddHtml('lcpu_gov_' + cl, 'Mode')}${ddHtml('lcpu_freq_' + cl, 'Locked speed', 'lcpu_fw_' + cl, true)}</section>`;
+    // Drop-down list. The real <select> stays in the page (hidden) and still carries the value and the change event, so the logic below is
+    // unchanged; this only draws the button and the list. The list is added to the window backdrop so the card's scrolling cannot clip it.
+    const DD = (() => {
+      let pop = null, trig = null;
+      const CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const close = () => { if (pop) { pop.remove(); pop = null; } if (trig) { trig.setAttribute('aria-expanded', 'false'); trig = null; } };
+      const sync = (sel) => {
+        const b = sel && sel.parentNode && sel.parentNode.querySelector('.lcpu-dd-b'); if (!b) return;
+        const o = sel.options[sel.selectedIndex];
+        b.firstChild.textContent = o ? o.textContent : '';
+        b.disabled = !!sel.disabled;
+      };
+      const open = (sel, b, host) => {
+        close();
+        if (!sel || sel.disabled || !host) return;
+        pop = document.createElement('div'); pop.className = 'lcpu-pop'; pop.setAttribute('role', 'listbox');
+        for (const o of Array.from(sel.options)) {
+          const on = o.value === sel.value, it = document.createElement('button');
+          it.type = 'button'; it.className = 'lcpu-opt'; it.setAttribute('role', 'option'); it.setAttribute('aria-selected', on ? 'true' : 'false'); it.dataset.v = o.value;
+          const t = document.createElement('span'); t.textContent = o.textContent; it.appendChild(t);
+          if (on) it.insertAdjacentHTML('beforeend', CHECK);
+          pop.appendChild(it);
+        }
+        host.appendChild(pop);
+        trig = b; b.setAttribute('aria-expanded', 'true');
+        const r = b.getBoundingClientRect(), w = Math.max(r.width, 170), h = pop.offsetHeight, vh = window.innerHeight;
+        pop.style.width = w + 'px';
+        pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+        let top = r.bottom + 6; if (top + h > vh - 8) top = Math.max(8, r.top - h - 6);
+        pop.style.top = top + 'px';
+        const cur = pop.querySelector('[aria-selected=true]') || pop.firstChild; if (cur) cur.focus({ preventScroll: true });
+        pop.addEventListener('click', (e) => {
+          const it = e.target.closest('.lcpu-opt'); if (!it) return;
+          const v = it.dataset.v; close(); b.focus();
+          if (v !== sel.value) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); sync(sel); }
+        });
+        pop.addEventListener('keydown', (e) => {
+          const k = e.key, items = Array.from(pop.querySelectorAll('.lcpu-opt')), i = items.indexOf(document.activeElement);
+          if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); b.focus(); }
+          else if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); const n = items[(i + (k === 'ArrowDown' ? 1 : -1) + items.length) % items.length]; if (n) n.focus(); }
+        });
+      };
+      return { open, close, sync, isOpen: () => !!pop };
+    })();
     const fillSelect = (sel, items, cur) => {
       if (!sel || document.activeElement === sel) return;
       const key = cur + '|' + items.map((x) => x[0]).join(',');
@@ -1964,6 +2037,8 @@ rm -f $P.g $P.4 $P.6 $P.d
       sel.dataset.k = key;
       sel.innerHTML = items.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(cur) ? ' selected' : ''}>${esc(l)}</option>`).join('');
     };
+    // Usage text of a tile: the real busy % from /proc/stat (whole number); a dash until the second reading gives a change to measure.
+    const usTxt = (c) => (!c.on ? '' : c.use === undefined ? '\u2013' : Math.round(c.use) + '%');
     const paint = () => {
       if (!st || !shown()) return;
       for (const cl of ['little', 'big']) {
@@ -1977,7 +2052,7 @@ rm -f $P.g $P.4 $P.6 $P.d
             const c = st.cores[i], b = box.querySelector('[data-core="' + i + '"]'); if (!b) continue;
             const sp = b.querySelector('span'), bar = b.querySelector('.lcpu-bar i');
             if (sp) sp.textContent = c.on ? Math.round(c.cur / 1000) + ' MHz' : 'off';
-            const us = b.querySelector('small'); if (us) us.textContent = c.on && c.use !== undefined ? c.use.toFixed(1) + ' %' : '';
+            const em = b.querySelector('em'); if (em) em.textContent = usTxt(c);
             if (bar) bar.style.width = (c.on && c.use !== undefined ? Math.min(100, Math.round(c.use)) : 0) + '%';
           }
         } else {
@@ -1985,14 +2060,17 @@ rm -f $P.g $P.4 $P.6 $P.d
         box.innerHTML = ids.map((i) => {
           const c = st.cores[i], mhz = c.on ? Math.round(c.cur / 1000) : 0, pct = c.on && c.use !== undefined ? Math.min(100, Math.round(c.use)) : 0;
           const lab = (cl === 'little' ? 'L' : 'B') + (i - CL[cl][0] + 1);
-          return `<button type="button" class="lcpu-core ${c.on ? 'on' : 'off'}" data-core="${i}" aria-pressed="${c.on}" title="${c.on ? 'Tap to turn this core off' : 'Tap to turn this core on'}"><b>${lab}</b><span>${c.on ? mhz + ' MHz' : 'off'}</span><small style="font-size:10px;color:var(--mut)">${c.on && c.use !== undefined ? c.use.toFixed(1) + ' %' : ''}</small><div class="lcpu-bar"><i style="width:${pct}%"></i></div></button>`;
+          return `<button type="button" class="lcpu-core ${c.on ? 'on' : 'off'}" data-core="${i}" aria-pressed="${c.on}" title="${c.on ? 'Tap to turn this core off' : 'Tap to turn this core on'}"><div class="lcpu-t"><i class="lcpu-dot"></i><b>${lab}</b></div><em>${usTxt(c)}</em><span>${c.on ? mhz + ' MHz' : 'off'}</span><div class="lcpu-bar"><i style="width:${pct}%"></i></div></button>`;
         }).join('');
         }
+        const hf = $('lcpu_hf_' + cl);
+        if (hf) { const on = ids.filter((i) => st.cores[i].on); hf.textContent = on.length ? Math.round(Math.max(...on.map((i) => st.cores[i].cur)) / 1000) + ' MHz' : 'off'; }
         const gov = clusterGov(st, cl), set = clusterSet(st, cl);
         const govs = st.gov[cl].length ? st.gov[cl].slice() : GOV_DEFAULT.slice();
         if (gov && !govs.includes(gov)) govs.push(gov);
         fillSelect($('lcpu_gov_' + cl), govs.map((g) => [g, GOV_NAME[g] || g]), gov);
         const gsel = $('lcpu_gov_' + cl); if (gsel) gsel.disabled = !gov || opBusy;
+        DD.sync(gsel);
         const fw = $('lcpu_fw_' + cl);
         if (fw) fw.style.display = gov === 'userspace' ? '' : 'none';
         const freqs = st.freq[cl].length ? st.freq[cl].slice() : FREQ_DEFAULT[cl].slice();
@@ -2001,10 +2079,11 @@ rm -f $P.g $P.4 $P.6 $P.d
         // no speed locked yet (just switched to Manual): show a placeholder instead of a speed that is not applied
         fillSelect($('lcpu_freq_' + cl), (set ? [] : [['', 'Choose a speed']]).concat(freqs.map((f) => [f, Math.round(f / 1000) + ' MHz'])), set || '');
         const fsel = $('lcpu_freq_' + cl); if (fsel) fsel.disabled = opBusy;
-        const hd = box.previousElementSibling; if (hd) hd.style.display = ids.length ? '' : 'none';
+        DD.sync(fsel);
+        const sec = $('lcpu_cl_' + cl); if (sec) sec.style.display = ids.length ? '' : 'none';
       }
       const b = $('lcpu_boot');
-      if (b) b.textContent = st.boot ? 'Boot: saved. These settings are applied at every start.' : 'Boot: not saved. Changes last until the next restart.';
+      if (b) b.textContent = '';
     };
     const refresh = async (force) => {
       if (!shown()) { stopTimer(); return; }
@@ -2056,15 +2135,23 @@ rm -f $P.g $P.4 $P.6 $P.d
     const ensure = () => {
       if (modal && modal.isConnected) return;
       const r = createModal({
-        name: 'liv_cpu_modal', title: 'CPU Governor', maxWidth: '460px',
-        onClose: () => { stopTimer(); return true; },
+        name: 'liv_cpu_modal', title: 'CPU Governor', maxWidth: '460px', showConfirm: false,
+        onClose: () => { stopTimer(); DD.close(); return true; },
         content: `<div class="lcpu">${clusterHtml('little')}${clusterHtml('big')}
-<div class="lcpu-note">Tap a core to turn it on or off. Mode and speed changes apply right away and are lost at the next restart unless you press Save for boot.</div>
-<div class="lcpu-boot" id="lcpu_boot">Reading\u2026</div>
+<div class="lcpu-note">Tap a core to turn it on/off. Changes are lost at restart unless you Save for boot.</div>
+<div class="lcpu-boot" id="lcpu_boot"></div>
 <div class="lcpu-actions"><button type="button" id="lcpu_save">Save for boot</button><button type="button" id="lcpu_remove">Remove from boot</button></div></div>`,
       });
       modal = r.el;
-      modal.addEventListener('click', (e) => { const b = e.target.closest('[data-core]'); if (b) toggleCore(Number(b.dataset.core)); });
+      const bg = modal.closest('.modal-bg'), ttl = modal.querySelector('.title');
+      const ft = modal.querySelector('.mfoot'); if (ft) ft.style.setProperty('display', 'none', 'important');   // the card has its own X and buttons; the stock Close row stays in the page (the X clicks it) but is not drawn
+      if (ttl) { const x = document.createElement('button'); x.type = 'button'; x.className = 'lcpu-x'; x.setAttribute('aria-label', 'Close'); x.textContent = '\u00d7'; x.onclick = () => { const c = $('liv_cpu_modal_close'); if (c) c.click(); }; ttl.appendChild(x); }
+      // An open list is closed by the first tap outside it (and that tap does not also close the window).
+      if (bg) bg.addEventListener('mousedown', (e) => { if (DD.isOpen() && !e.target.closest('.lcpu-pop, .lcpu-dd-b')) { DD.close(); e.stopImmediatePropagation(); } }, true);
+      modal.addEventListener('click', (e) => {
+        const d = e.target.closest('.lcpu-dd-b'); if (d) { DD.open(d.parentNode.querySelector('select'), d, bg); return; }
+        const b = e.target.closest('[data-core]'); if (b) toggleCore(Number(b.dataset.core));
+      });
       modal.addEventListener('change', (e) => {
         const id = e.target && e.target.id, v = e.target && e.target.value;
         for (const cl of ['little', 'big']) {
@@ -2080,8 +2167,10 @@ rm -f $P.g $P.4 $P.6 $P.d
       showModal('liv_cpu_modal');
       st = null;
       await refresh(true);
+      await sleep(1000);   // a second reading right away, so the bars have a real value (usage is the change between two reads)
+      if (shown()) await refresh(true);
       stopTimer();
-      timer = setInterval(() => { refresh(false); }, 3000);
+      timer = setInterval(() => { refresh(false); }, 1500);
     };
     return { open, READ, parse, clusterGov, clusterSet, govScript, freqScript, coreScript, bootScript, saveScript, removeScript, okGov, okFreq };
   })();
@@ -4407,7 +4496,7 @@ window.MatchiRadio = (() => {
 /* @end-include web-src/radio-core.js */
 /* @include web-src/info-tip.js */
 /* Info tips: a long explanation is shown as a small icon button; a click opens or closes the text under it.
-   Small soft-tinted round icon (line drawing) that follows the kind of message: info circle blue, warning triangle amber, alert circle red (high risk),
+   One blue pill for every note: the "i" icon and the word Info (the kind argument is ignored), that follows the kind of message: info circle blue, warning triangle amber, alert circle red (high risk),
    circular arrow purple (the router restarts). The opened text is a plain thin box.
    window.MatchiTip.make(text, kind)  -> a node: the icon button plus the hidden text. kind is optional: without it kindOf(text) picks one.
    window.MatchiTip.enhance(root)     -> turns every element with a data-tip="kind" attribute under root into the same thing: the element stays
@@ -4421,10 +4510,10 @@ window.MatchiRadio = (() => {
   // Line icons on a 24 x 24 grid: [tag, attributes]. Drawn with createElementNS; where that is missing a plain character stands in.
   const DOT = ['circle', { cx: 12, cy: 16.4, r: 0.7, fill: 'currentColor' }];
   const KINDS = {
-    info:    { glyph: 'i',      label: 'More information', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 11v5.5' }], ['circle', { cx: 12, cy: 7.8, r: 0.7, fill: 'currentColor' }]] },
-    warning: { glyph: '\u26A0\uFE0E', label: 'Warning', shapes: [['path', { d: 'M12 4 21 19H3Z' }], ['path', { d: 'M12 10v4' }], DOT] },
-    danger:  { glyph: '!',      label: 'High risk', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7.5v5' }], DOT] },
-    restart: { glyph: '\u21BB', label: 'The router restarts', shapes: [['path', { d: 'M20 12a8 8 0 1 1-2.6-5.9' }], ['path', { d: 'M20 4v4.5h-4.5' }]] }
+    info:    { glyph: 'i',      label: 'More information', short: 'Info', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 11v5.5' }], ['circle', { cx: 12, cy: 7.8, r: 0.7, fill: 'currentColor' }]] },
+    warning: { glyph: '\u26A0\uFE0E', label: 'Warning', short: 'Warning', shapes: [['path', { d: 'M12 4 21 19H3Z' }], ['path', { d: 'M12 10v4' }], DOT] },
+    danger:  { glyph: '!',      label: 'High risk', short: 'High risk', shapes: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7.5v5' }], DOT] },
+    restart: { glyph: '\u21BB', label: 'The router restarts', short: 'Restarts', shapes: [['path', { d: 'M20 12a8 8 0 1 1-2.6-5.9' }], ['path', { d: 'M20 4v4.5h-4.5' }]] }
   };
   const NS = 'http://www.w3.org/2000/svg';
   function icon(k) {
@@ -4446,8 +4535,10 @@ window.MatchiRadio = (() => {
     if (styled || !document.head) return;
     styled = true;
     const s = document.createElement('style');
-    s.textContent = `.mt-tip-btn{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:19px;height:19px;min-width:19px;min-height:0;padding:0;margin:2px 0;border:0;border-radius:50%;cursor:pointer;background:var(--tb);color:var(--tc);line-height:0}
-.mt-tip-btn svg{display:block;flex:none;width:12px;height:12px}\nbutton.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn{width:20px!important;height:20px!important;min-width:20px!important;min-height:20px!important;padding:0!important;margin:2px 0!important;border:0!important;border-radius:50%!important;box-shadow:none!important;font-size:0!important;line-height:0!important}
+    s.textContent = `.mt-tip{display:block;margin:2px 0}
+.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;width:auto;height:22px;min-width:0;min-height:0;padding:0 10px 0 6px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 11px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.mt-tip-btn svg{display:block;flex:none;width:13px;height:13px}
+button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:22px!important;min-width:0!important;min-height:0!important;padding:0 10px 0 6px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:11px!important;font-weight:600!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
@@ -4461,7 +4552,7 @@ window.MatchiRadio = (() => {
   // The button for a text element; the element is the panel.
   function attach(panel, kind) {
     addStyle();
-    const k = KINDS[kind] || KINDS.info, kk = KINDS[kind] ? kind : 'info';
+    const k = KINDS.info, kk = 'info';   // simple: every note uses the same plain blue info icon
     const id = 'mt_tip_' + (++seq);
     panel.id = panel.id || id;
     panel.className = (panel.className ? panel.className + ' ' : '') + 'mt-tip-body mt-tip-' + kk;
@@ -4470,6 +4561,7 @@ window.MatchiRadio = (() => {
     btn.type = 'button';
     btn.className = 'mt-tip-btn mt-tip-' + kk;
     btn.appendChild(icon(k));
+    btn.appendChild(document.createTextNode('Info'));   // the only word on it
     btn.setAttribute('aria-label', k.label);
     btn.setAttribute('title', k.label);
     btn.setAttribute('aria-expanded', 'false');
@@ -4499,7 +4591,8 @@ window.MatchiRadio = (() => {
       if (el.getAttribute('data-tip-done') === '1' || !el.parentNode) continue;
       el.setAttribute('data-tip-done', '1');
       const btn = attach(el, el.getAttribute('data-tip'));
-      el.parentNode.insertBefore(btn, el);
+      const wrap = document.createElement('div'); wrap.className = 'mt-tip';
+      el.parentNode.insertBefore(wrap, el); wrap.append(btn, el);   // button and text travel together when the card is moved
     }
   }
   window.MatchiTip = { make: make, enhance: enhance, kindOf: kindOf, LONG: LONG, KINDS: KINDS };
@@ -9724,7 +9817,8 @@ window.lbOpen=load;
 /* @include web-src/pick-ui.js */
 /* Popup pickers. The phone's own dropdown list and date/time wheel take over the whole screen; this shows the same choices in a popup in the page's own style.
    The real <select> / <input type="datetime-local"> stay in the page (hidden), so every handler that reads .value or listens for input/change keeps working.
-   Covers selects and date-time fields inside pop-up dialogs (not the Plugins window) and the header. Controls added later are picked up too. */
+   Covers EVERY select and date-time field on the page (dashboard cards, tool windows such as Network / AT & Radio / Performance mode, plugin windows, the header). Controls added later are picked up too.
+   Selects use the small popup right under the control (checkmark on the chosen row); the phone's own full-screen radio list is never shown. */
 (()=>{
 'use strict';
 if(window.MT_pick)return;
@@ -9737,7 +9831,9 @@ const css=`
 .mt-pick-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
 .mt-pick-c{opacity:.7;font-size:10px}
 .mt-pick.mt-wide{flex:1 1 12em}
-.mt-bg{position:fixed;inset:0;z-index:3000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(2,6,14,.78);-webkit-tap-highlight-color:transparent}
+.net-frow>.mt-pick,.mt-pick.mt-fill{width:100%;height:30px;font-size:12.5px;padding:0 10px;border-radius:8px}
+.modal .mt-pick,.modal-bg .mt-pick{max-width:100%}
+.mt-bg{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(2,6,14,.78);-webkit-tap-highlight-color:transparent}
 .mt-sheet{width:min(420px,100%);max-height:min(80vh,580px);display:flex;flex-direction:column;overflow:hidden;color:var(--fg,#e8f0ff);background:linear-gradient(150deg,#0f1b2e,#0a1321);border:1px solid rgba(255,255,255,.12);border-radius:16px;box-shadow:0 20px 60px #000c}
 .mt-title{padding:12px 16px 8px;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acc2,#7fb2ff)}
 .mt-body{min-height:0;overflow:auto;padding:0 8px 6px;-webkit-overflow-scrolling:touch}
@@ -9830,6 +9926,8 @@ function trigger(real,wide){
  t.tabIndex=0;t.setAttribute('role','button');t.setAttribute('aria-haspopup','dialog');t.setAttribute('aria-label',labelOf(real));
  t.append(tx,ca);
  if(real.closest('header')){if(real.className)t.className+=' '+real.className;t.style.cssText+=real.style.cssText}
+ else for(const p of ['flex','width','minWidth','maxWidth','margin','marginLeft','marginRight','marginTop','marginBottom','alignSelf','justifySelf','gridColumn']){const v=real.style[p];if(v)t.style[p]=v}
+ if(real.id)t.dataset.pickFor=real.id;
  real.parentNode.insertBefore(t,real.nextSibling);real.style.setProperty('display','none','important');
  return{t,tx};
 }
@@ -9915,7 +10013,7 @@ function enhanceDate(inp){
  });
 }
 
-const inScope=c=>!!c.closest&&(!!c.closest('.card, header')||c.id==='st_src')&&!c.closest('#pluginmgr')&&!c.closest('.mt-bg');
+const inScope=c=>!!c.closest&&!c.closest('.mt-bg')&&c.dataset.pick!=='native';
 function scan(root){
  if(!root||root.nodeType!==1)return;
  const list=[];if(root.matches('select,input[type="datetime-local"]'))list.push(root);
@@ -9932,7 +10030,7 @@ function init(){
  const flush=()=>{timer=0;const l=q;q=[];for(const n of l)if(n.isConnected)scan(n)};
  new MutationObserver(ms=>{
   for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&(n.tagName==='SELECT'||n.tagName==='INPUT'||n.firstElementChild))q.push(n);
-  if(q.length&&!timer)timer=setTimeout(flush,60);
+  if(q.length&&!timer)timer=setTimeout(flush,16);
  }).observe(doc.body,{childList:true,subtree:true});
 }
 window.MT_pick=Object.freeze({scan,close});
