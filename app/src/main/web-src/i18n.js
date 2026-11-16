@@ -30,7 +30,7 @@
     'Plugin actions':'Mga aksyon ng plugin','Live device status':'Live na status ng device','Connecting…':'Kumokonekta…',
     'Live refresh: On':'Live refresh: Naka-on','Live refresh: Off':'Live refresh: Naka-off',
     'Battery':'Baterya','System max':'Pinakamataas ng system','Devices':'Mga device','on Wi-Fi':'sa Wi-Fi','This month':'Ngayong buwan',
-    'Core usage':'Gamit ng core','CPU frequency (MHz)':'Frequency ng CPU (MHz)',
+    'Core usage':'Gamit ng core','CPU frequency (MHz)':'Frequency ng CPU (MHz)','CPU frequency':'Frequency ng CPU',
     'Source: router API + modem · tap CPU for governor':'Pinagmulan: router API + modem · pindutin ang CPU para sa governor',
     'Refresh':'I-refresh','Fast':'Mabilis','Pause below':'I-pause kapag mas mababa sa',
     '▸ Cell lock':'▸ Cell lock','▾ Cell lock':'▾ Cell lock','Unlock all cells':'I-unlock lahat ng cell',
