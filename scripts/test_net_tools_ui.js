@@ -170,7 +170,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await click(tabBtn('lan'));
   t = bodyText(); assert(/192\.168\.0\.1/.test(t) && /255\.255\.255\.0/.test(t) && /192\.168\.0\.2 - 192\.168\.0\.253/.test(t) && /24 hours/.test(t) && /DHCP serverOn/.test(t), 'lan tab: ' + t);
   await click(tabBtn('mtu'));
-  t = bodyText(); assert(/1500/.test(t) && /1460/.test(t) && /Read real values \(root\)/.test(t) && shells.length === 0, 'mtu tab: ' + t);
+  t = bodyText(); assert(/1500/.test(t) && /1460/.test(t) && /Read real values/.test(t) && shells.length === 0, 'mtu tab: ' + t);
 
   const rootBtn = doc.getElementById('matchi_net_root');       // the root read starts only from this button
   await click(rootBtn);
@@ -359,7 +359,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(!doc.getElementById('matchi_mtu_apply').disabled && !doc.getElementById('matchi_net_prog'), 'the banner is gone when the change is done');
   assert(shells[0].includes('mtu_backup.json') && shells[0].includes('"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1459' }); assert.strictEqual(sets[0].allowEmpty, true);
-  t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /ping to 1\.1\.1\.1 through the mobile connection worked/.test(t) && /Restore saved values/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);
+  t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /ping to 1\.1\.1\.1 through the mobile connection worked/.test(t) && /Restore/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);
   assert.strictEqual(mb('matchi_mtu_mss').value, '1459', 'the form now shows the new values'); assert(!/MTU 1500 → ?1500.*stuck/.test(t));
   assert(mtuState.mss === 1459 && fileText.includes('"old":{"mtu":1500,"mss":1460}'));
   // restore: reads the saved copy, confirms, sends the old pair
@@ -368,7 +368,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/reports MTU 1500, MSS 1460/.test(mt()), 'after restore: ' + mt());
   // an MTU change the real interface does not follow is said plainly
   followWan = false; sets.length = 0; await trySubmit('1400', '1360'); followWan = true;
-  t = mt(); assert(/did NOT follow the router setting \(1400\)/.test(t) && /Restore saved values/.test(t), 'no follow: ' + t); mtuState.ifMtu = 1500;
+  t = mt(); assert(/did NOT follow the router setting \(1400\)/.test(t) && /Restore/.test(t), 'no follow: ' + t); mtuState.ifMtu = 1500;
   // an MTU change the interface follows
   await trySubmit('1500', '1460'); sets.length = 0; await trySubmit('1450', '1410');
   assert(/mobile interface MTU is 1450: it follows the new MTU/.test(mt()), 'follow: ' + mt());
@@ -380,7 +380,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   t = mt(); assert(/is back but reports MTU 1500 and MSS 1460, not the wanted 1500 \/ 1459/.test(t) && !/The router restarted and reports/.test(t), 'stuck: ' + t);
   // the console asks for a new sign-in after the restart: the wait stops and says so
   mtuReadErr = 'HTTP 401 sign in required'; await trySubmit('1500', '1459'); mtuReadErr = null;
-  assert(/asking for a new sign-in/.test(mt()) && /Restore saved values/.test(mt()), 'auth: ' + mt());
+  assert(/asking for a new sign-in/.test(mt()) && /Restore/.test(mt()), 'auth: ' + mt());
   // refused write (old sign-in): nothing claimed
   mtuDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await trySubmit('1500', '1458');
   assert(/Not sent: Session too old/.test(mt()) && /Nothing was changed/.test(mt()), 'refused: ' + mt());
@@ -416,7 +416,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(!lb('matchi_net_prog') && !lb('matchi_lan_apply').disabled, 'the banner is gone when done');
   assert(shells[0].includes('lan_backup.json') && shells[0].includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2","end":"192.168.0.253","lease":24}') && shells[0].includes('"new":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.10","end":"192.168.0.200","lease":12}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '0' }); assert.strictEqual(sets[0].allowEmpty, true);
-  t = lt(); assert(/The router restarted and reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && /Mobile data is connected/.test(t) && /Devices renew their address/.test(t) && /Restore saved values/.test(t), 'result: ' + t);
+  t = lt(); assert(/The router restarted and reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && /Mobile data is connected/.test(t) && /Devices renew their address/.test(t) && /Restore/.test(t), 'result: ' + t);
   assert(!/is back but reports/.test(t) && lb('matchi_lan_start').value === '192.168.0.10' && lb('matchi_lan_lease').value === '12', 'the form now shows the new values');
   assert(lanState.start === '192.168.0.10' && lanFile.includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2"'));
   // a lease-only change keeps the pool exactly
@@ -431,10 +431,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(sets.length, 0); assert(/not the saved one any more/.test(lt()), 'restore with another IP: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
   // the router comes back with other values: said plainly
   stuckLan = true; sets.length = 0; await lanTry('192.168.0.20', '192.168.0.100', '6'); stuckLan = false;
-  t = lt(); assert(/is back but reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && !/The router restarted and reports/.test(t) && /Restore saved values/.test(t), 'stuck: ' + t);
+  t = lt(); assert(/is back but reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && !/The router restarted and reports/.test(t) && /Restore/.test(t), 'stuck: ' + t);
   // the console asks for a new sign-in after the restart: the wait stops and says so
   lanReadErr = 'HTTP 401 sign in required'; await lanTry('192.168.0.30', '192.168.0.100', '6'); lanReadErr = null;
-  assert(/asking for a new sign-in/.test(lt()) && /Restore saved values/.test(lt()), 'auth: ' + lt());
+  assert(/asking for a new sign-in/.test(lt()) && /Restore/.test(lt()), 'auth: ' + lt());
   // refused write (old sign-in): nothing claimed
   lanDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await lanTry('192.168.0.40', '192.168.0.100', '6');
   assert(/Not sent: Session too old/.test(lt()) && /Nothing was changed/.test(lt()), 'refused: ' + lt());
@@ -532,7 +532,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/wifi_backup\.json/.test(shells[0]) && !/Password/.test(shells[0]), 'backup first, without a password when it is not lost: ' + shells[0].replace(/'/g, '').slice(0, 200));
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'HomeNet', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', ApMaxStationNumber: '7', EncrypType: 'CCMP', Password: b64('TopSecret-pass-1') }); assert.strictEqual(sets[0].allowEmpty, true);
   assert.deepStrictEqual(Object.keys(sets[0].params), ['goformId', 'ChipIndex', 'AccessPointIndex', 'SSID', 'ApIsolate', 'AuthMode', 'ApBroadcastDisabled', 'ApMaxStationNumber', 'EncrypType', 'Password']);
-  t = wt(); assert(/The router reports the new settings: "HomeNet", WPA2-PSK \/ WPA3-PSK, visible, max 7 devices\./.test(t) && /Restore saved values/.test(t) && !/does not report/.test(t), 'result: ' + t);
+  t = wt(); assert(/The router reports the new settings: "HomeNet", WPA2-PSK \/ WPA3-PSK, visible, max 7 devices\./.test(t) && /Restore/.test(t) && !/does not report/.test(t), 'result: ' + t);
   assert(wb('matchi_wifi_max').value === '7' && wifiState.max === 7, 'the form now shows the new values');
   assert(!fs.readFileSync(wifiFile, 'utf8').includes('Password') && fs.readFileSync(wifiFile, 'utf8').includes('"max":10'), 'the saved copy holds the old max and no password');
   // a name with a space, a hidden SSID and a NEW password: the confirm never names the password; the old one is saved (it would be lost)
@@ -564,10 +564,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await wifiTry({ auth: 'WPA2PSKWPA3PSK', pass: 'TopSecret-pass-1' }); assert.strictEqual(wifiState.auth, 'WPA2PSKWPA3PSK');
   // the router says OK but keeps the old values: the real values are shown, not success
   stuckWifi = true; sets.length = 0; await wifiTry({ max: '3' }); stuckWifi = false;
-  t = wt(); assert(/answers but does not report all the wanted settings\. It reports "HomeNet", WPA2-PSK \/ WPA3-PSK, visible, max 7 devices/.test(t) && !/reports the new settings/.test(t) && /Restore saved values/.test(t), 'stuck: ' + t);
+  t = wt(); assert(/answers but does not report all the wanted settings\. It reports "HomeNet", WPA2-PSK \/ WPA3-PSK, visible, max 7 devices/.test(t) && !/reports the new settings/.test(t) && /Restore/.test(t), 'stuck: ' + t);
   // the console asks for a new sign-in after the restart: the wait stops and says so
   wifiDown = 0; wifiReadErr = 'HTTP 401 sign in required'; await wifiTry({ max: '3' }); wifiReadErr = null; wifiDown = 0;
-  assert(/asking for a new sign-in/.test(wt()) && /Restore saved values/.test(wt()), 'auth: ' + wt());
+  assert(/asking for a new sign-in/.test(wt()) && /Restore/.test(wt()), 'auth: ' + wt());
   // the console never answers again (the page was on Wi-Fi): the message says what to do
   wifiState.max = 7; wifiDown = 0; await click(wb('matchi_net_refresh')); wifiReadErr = 'Failed to fetch'; sets.length = 0;
   { const real = R.setRouter; R.setRouter = async (p, a) => { await real(p, a); wifiDown = 999; }; await wifiTry({ max: '4' }); R.setRouter = real; wifiDown = 0; wifiReadErr = null; }

@@ -34,6 +34,8 @@ function mountDashCell() {
 #dash_cell .dc-s{font-size:11.5px;min-height:15px;margin-top:4px}
 #dash_cell .dc-log{display:none;margin:6px 0 0;padding:6px 8px;max-height:96px;overflow:auto;white-space:pre-wrap;font-size:10.5px;line-height:1.4;background:var(--bg);border:1px solid var(--bd);border-radius:8px}
 #dash_cell .dc-c1,#dash_cell .dc-c2{min-width:0}
+#dash_cell button.mt-tip-btn.mt-tip-btn{height:17px!important;padding:0 7px 0 4px!important;gap:3px!important;font-size:10px!important}
+#dash_cell button.mt-tip-btn.mt-tip-btn svg{width:10px!important;height:10px!important}
 /* Wide screens: the card sits under Live device status (right column) in two columns. Narrow screens keep it under Radio settings, one column. */
 @media(min-width:1000px){
 .liv>#dash_cell{margin-top:12px}

@@ -75,7 +75,7 @@ function mountNetTools() {
     sel.value = st.wifiBandSel.value; if (busy) sel.disabled = true; sel.onchange = () => { st.wifiBandSel.value = sel.value; };
     const bandSec = h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Wi-Fi switch'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_band' }, 'Band'), sel),
-      h('div', { class: 'net-actions' }, mk('Apply band (Wi-Fi restarts)', 'matchi_wifi_band_apply', () => wifiBandSubmit(sel.value), true)),
+      h('div', { class: 'net-actions' }, mk('Apply', 'matchi_wifi_band_apply', () => wifiBandSubmit(sel.value), true)),
       note('Only one band is on at a time. Switching band, or turning Wi-Fi Off, disconnects every Wi-Fi device, including the one you are using if it is on Wi-Fi. If Wi-Fi is Off, this console is reachable only from a cable (USB / Ethernet) connection: choose a band here to turn it on again.', 'net-mut'));
     const act = N.wifiActive(w), snap = N.wifiSnapOf(act);
     const blocks = w.entries.map((e) => h('section', { class: 'net-sec' },
@@ -110,9 +110,9 @@ function mountNetTools() {
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change Wi-Fi settings (' + act.band + ')'),
       row('Network name (SSID)', ssid), row('Broadcast SSID (visible)', vis), row('Security mode', auth),
       row('Wi-Fi password', pass), row('Display password', show), row('Max devices', max), err,
-      h('div', { class: 'net-actions' }, mk('Apply settings (Wi-Fi restarts)', 'matchi_wifi_apply', () => wifiSubmit(ssid.value, auth.value, vis.checked, max.value, pass, err), true)),
-      note('The password box shows the current password as dots (tick Display password to read it). Edit it to change it, or empty it to keep the current one (8 to 63 characters). Open means no password. The old values are saved first, so "Restore saved values" can put them back. If you are on Wi-Fi you are disconnected: reconnect to the new name and password, then press Refresh.', 'net-mut'),
-      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_wifi_restore', wifiRestore, false), mk('Forget backup (root)', 'matchi_wifi_forget', wifiForget, false)));
+      h('div', { class: 'net-actions' }, mk('Apply', 'matchi_wifi_apply', () => wifiSubmit(ssid.value, auth.value, vis.checked, max.value, pass, err), true)),
+      note('The password box shows the current password as dots (tick Display password to read it). Edit it to change it, or empty it to keep the current one (8 to 63 characters). Open means no password. The old values are saved first, so "Restore" can put them back. If you are on Wi-Fi you are disconnected: reconnect to the new name and password, then press Refresh.', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore', 'matchi_wifi_restore', wifiRestore, false), mk('Forget backup', 'matchi_wifi_forget', wifiForget, false)));
   }
   function viewDevices(d) {
     const p = N.parseDevices(d);
@@ -223,15 +223,15 @@ function mountNetTools() {
     const busy = lanBusy();
     const e = h('input', { type: 'text', id: 'matchi_lan_ip', maxlength: '15', autocomplete: 'off', placeholder: 'for example 192.168.1.1' }); e.value = st.lanIp || ''; e.oninput = () => { st.lanIp = e.value; }; if (busy) e.disabled = true;
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lan_ip_err' }, '');
-    const x = h('button', { type: 'button', id: 'matchi_lan_ip_apply', class: 'net-danger' }, 'Change router IP (router restarts)'); if (busy) x.disabled = true; x.onclick = () => lanIpSubmit(e.value, err);
+    const x = h('button', { type: 'button', id: 'matchi_lan_ip_apply', class: 'net-danger' }, 'Change router IP'); if (busy) x.disabled = true; x.onclick = () => lanIpSubmit(e.value, err);
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change router IP address'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_lan_ip' }, 'New router IP'), e), err, h('div', { class: 'net-actions' }, x),
-      note('Highest risk in this window. The pool moves into the new subnet in the same step (same host numbers), the mask stays ' + p.mask + '. The router restarts, then the OLD address ' + p.ip + ' answers nothing and this console is at the new address: your PC or phone must get an address in the new subnet (reconnect; a fixed address must be changed). The old values are saved first, and after the restart MatchiTOOL checks the router and puts them back if it came up with something else. Do this from a cable device you can reach again. \"Restore saved values\" also works from the new address.', 'net-mut'));
+      note('Highest risk in this window. The pool moves into the new subnet in the same step (same host numbers), the mask stays ' + p.mask + '. The router restarts, then the OLD address ' + p.ip + ' answers nothing and this console is at the new address: your PC or phone must get an address in the new subnet (reconnect; a fixed address must be changed). The old values are saved first, and after the restart MatchiTOOL checks the router and puts them back if it came up with something else. Do this from a cable device you can reach again. \"Restore\" also works from the new address.', 'net-mut'));
   }
   // DHCP is Off (switched off on the stock page): the one change offered is putting it back On with the pool the router still reports (or the stock pool for a /24).
   function lanDhcpOff(p) {
     const busy = lanBusy();
-    const x = h('button', { type: 'button', id: 'matchi_lan_dhcpon', class: 'net-danger' }, 'Restore DHCP (router restarts)'); if (busy) x.disabled = true; x.onclick = lanDhcpOn;
+    const x = h('button', { type: 'button', id: 'matchi_lan_dhcpon', class: 'net-danger' }, 'Restore DHCP'); if (busy) x.disabled = true; x.onclick = lanDhcpOn;
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'DHCP server is Off'),
       note('Devices get no address while the DHCP server is Off. Restore DHCP sends the stock call with the pool the router reports (or .2 - .253 on a /24) and the lease; the router IP and the mask stay the same. The router restarts.', 'net-warn'),
       h('div', { class: 'net-actions' }, x));
@@ -248,9 +248,9 @@ function mountNetTools() {
     const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change DHCP pool / lease'),
       row('Pool start', a), row('Pool end', b), row('Lease (hours)', c), err,
-      h('div', { class: 'net-actions' }, mk('Apply (router restarts)', 'matchi_lan_apply', () => lanSubmit(a.value, b.value, c.value, err), true)),
-      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. Devices keep their address until they renew it; one that holds an address outside the new pool gets a new one. The old values are saved first, so \"Restore saved values\" can put them back. Lease: ' + N.LEASE_MIN + ' to ' + N.LEASE_MAX + ' hours (this tool\'s own limit).', 'net-mut'),
-      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_lan_restore', lanRestore, false), mk('Forget backup (root)', 'matchi_lan_forget', lanForget, false)));
+      h('div', { class: 'net-actions' }, mk('Apply', 'matchi_lan_apply', () => lanSubmit(a.value, b.value, c.value, err), true)),
+      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. Devices keep their address until they renew it; one that holds an address outside the new pool gets a new one. The old values are saved first, so \"Restore\" can put them back. Lease: ' + N.LEASE_MIN + ' to ' + N.LEASE_MAX + ' hours (this tool\'s own limit).', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore', 'matchi_lan_restore', lanRestore, false), mk('Forget backup', 'matchi_lan_forget', lanForget, false)));
   }
   function viewMtu(d) {
     const p = N.parseMtu(d);
@@ -279,14 +279,14 @@ function mountNetTools() {
       if (mtu < N.MTU_MIN || mtu > N.MTU_MAX) { err.textContent = 'Fix the MTU first: it must be between ' + N.MTU_MIN + ' and ' + N.MTU_MAX + '. Then press this button.'; return; }
       mssIn.value = String(N.mtuDefaultMss(mtu)); st.mtuForm.mss = mssIn.value; err.textContent = '';
     });
-    const apply = mk('Apply (router restarts)', 'matchi_mtu_apply', () => mtuSubmit(mtuIn.value, mssIn.value, err), true);
+    const apply = mk('Apply', 'matchi_mtu_apply', () => mtuSubmit(mtuIn.value, mssIn.value, err), true);
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change MTU / MSS'),
       row('MTU', mtuIn), row('MSS', mssIn), err, h('div', { class: 'net-actions' }, apply, useDefault),
-      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. A bad value can break some sites. The old values are saved first, so "Restore saved values" can put them back.', 'net-mut'),
-      h('div', { class: 'net-actions' }, mk('Restore saved values (root)', 'matchi_mtu_restore', mtuRestore, false), mk('Forget backup (root)', 'matchi_mtu_forget', mtuForget, false)));
+      note('Every apply restarts the router: internet, Wi-Fi and this console are away for about 1 to 2 minutes. A bad value can break some sites. The old values are saved first, so "Restore" can put them back.', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Restore', 'matchi_mtu_restore', mtuRestore, false), mk('Forget backup', 'matchi_mtu_forget', mtuForget, false)));
   }
   function rootBlock() {
-    const btn = h('button', { type: 'button', id: 'matchi_net_root' }, st.rootBusy ? 'Reading…' : st.root || st.rootErr ? 'Read again (root)' : 'Read real values (root)');
+    const btn = h('button', { type: 'button', id: 'matchi_net_root' }, st.rootBusy ? 'Reading…' : st.root || st.rootErr ? 'Read again' : 'Read real values');
     if (st.rootBusy) btn.disabled = true;
     btn.onclick = rootRead;
     const out = [h('h4', {}, 'Real values on the phone'), h('div', { class: 'net-actions' }, btn)];
@@ -538,7 +538,7 @@ function mountNetTools() {
   // Steps: fresh read -> confirm naming old -> new -> backup copy written by root and read back (no backup, no change) -> SET_DEVICE_MTU -> the router restarts ->
   // wait for the console (up to about 3 minutes, a failed read just means "not back yet") -> re-read -> data state -> root read of the real interface -> one ping.
   // The wait stops by itself if the console asks for a new sign-in. Nothing is claimed that the re-read did not show. There is no automatic revert after the restart
-  // (that needs app code that runs at boot); the way back is "Restore saved values", which sends the saved old pair and restarts the router again.
+  // (that needs app code that runs at boot); the way back is "Restore", which sends the saved old pair and restarts the router again.
   const mtuReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.mtu });
   const mtuRead = async () => N.parseMtu(await mtuReadRaw());
   const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
@@ -580,8 +580,8 @@ function mountNetTools() {
         progress('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s of up to 3 minutes. Keep this window open.');
         await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
       }
-      if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values. The old values are saved: "Restore saved values" puts them back.']); return; }
-      if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh. The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') are saved: "Restore saved values" puts them back.']); return; }
+      if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values. The old values are saved: "Restore" puts them back.']); return; }
+      if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh. The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') are saved: "Restore" puts them back.']); return; }
       progress('The router is back. Reading the values…');
       try { st.cache.mtu = { d: await mtuReadRaw(), at: Date.now() }; } catch (_) { /* the view keeps the last values */ }
       const lines = [], same = back.mtu === want.mtu && back.mss === want.mss;
@@ -611,7 +611,7 @@ function mountNetTools() {
           else { bad = true; lines.push(pg === false ? 'A ping to 1.1.1.1 through the mobile connection FAILED.' : 'The ping check gave no answer.'); }
         } catch (e) { lines.push('The ping check could not run (' + N.maskSecrets(e.message) + ').'); }
       }
-      lines.push(bad ? 'If something is wrong, "Restore saved values" puts the old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') back; the router restarts again.' : 'The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') stay saved for "Restore saved values".');
+      lines.push(bad ? 'If something is wrong, "Restore" puts the old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') back; the router restarts again.' : 'The old values (MTU ' + cur.mtu + ', MSS ' + cur.mss + ') stay saved for "Restore".');
       done(bad, lines);
       st.mtuForm = null;
     } finally {
@@ -631,7 +631,7 @@ function mountNetTools() {
   }
   async function mtuForget() {
     if (st.mtuAct) return;
-    if (!(await askConfirm('Delete the saved copy of the old MTU / MSS values?\n\nAfter this "Restore saved values" has nothing to restore.', 'Delete', true))) return;
+    if (!(await askConfirm('Delete the saved copy of the old MTU / MSS values?\n\nAfter this "Restore" has nothing to restore.', 'Delete', true))) return;
     try { const o = await R.sh(N.MTU_BACKUP_DELETE_SH, 15000); st.mtuMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
     catch (e) { st.mtuMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('mtu');
@@ -639,7 +639,7 @@ function mountNetTools() {
   // ---- LAN / DHCP pool and lease (Phase 6a) ---------------------------------------------------------------------------------------
   // Same steps as the MTU / MSS change: fresh read -> confirm naming old -> new -> backup copy by root, read back (no backup, no change) -> DHCP_SETTING with the whole
   // set (IP and mask unchanged) -> the router restarts -> wait for the console -> re-read -> data state. The router IP does not change, so the console stays on the
-  // same address. No automatic revert (the way back is "Restore saved values"); the router IP and DHCP on / off are not part of this step.
+  // same address. No automatic revert (the way back is "Restore"); the router IP and DHCP on / off are not part of this step.
   const lanReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.lan });
   const lanRead = async () => N.parseLan(await lanReadRaw());
   const consoleUrl = (ip) => { const l = (window && window.location) || {}; return (l.protocol || 'http:') + '//' + ip + (l.port ? ':' + l.port : ''); };
@@ -726,7 +726,7 @@ function mountNetTools() {
         progress('The router is restarting… ' + Math.round((MTU_WAIT_FIRST_MS + (i + 1) * MTU_WAIT_STEP_MS) / 1000) + ' s of up to 3 minutes. Keep this window open.' + (ipKind ? ' The console is then at ' + url + '.' : ''));
         await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
       }
-      const way = oldSnap ? ('The old values (' + (ipKind ? 'router IP ' + cur.ip + ', ' : '') + 'pool ' + cur.start + ' - ' + cur.end + ', lease ' + N.leaseText(cur.leaseHours) + ') are saved: \"Restore saved values\" puts them back.') : '';
+      const way = oldSnap ? ('The old values (' + (ipKind ? 'router IP ' + cur.ip + ', ' : '') + 'pool ' + cur.start + ' - ' + cur.end + ', lease ' + N.leaseText(cur.leaseHours) + ') are saved: \"Restore\" puts them back.') : '';
       const where = ipKind ? ' If this page does not come back, open ' + url + ' (the old address ' + cur.ip + ' answers nothing now).' : '';
       if (authStop) { done(true, ['The console is asking for a new sign-in after the restart. Sign in again and press Refresh to see the values.' + where + ' ' + way]); return; }
       if (!back) { done(true, ['The console did not answer again within about 3 minutes. Wait a little, then press Refresh.' + where + ' ' + way]); return; }
@@ -747,7 +747,7 @@ function mountNetTools() {
         progress('The router is back. Waiting for mobile data… ' + (i + 1) * 5 + ' s of up to 60 s.'); await R.sleep(MTU_WAIT_STEP_MS); if (my !== actId) return;
       }
       if (ppp && ppp.state === 'connected') lines.push('Mobile data is connected (' + ppp.ppp + ').'); else { bad = true; lines.push('Mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + ').'); }
-      lines.push('Devices renew their address on their own: reconnect one that does not get internet. ' + (onKind ? '' : bad ? '\"Restore saved values\" puts the old values back; the router restarts again.' : 'The old values stay saved for \"Restore saved values\".'));
+      lines.push('Devices renew their address on their own: reconnect one that does not get internet. ' + (onKind ? '' : bad ? '\"Restore\" puts the old values back; the router restarts again.' : 'The old values stay saved for \"Restore\".'));
       done(bad, lines);
       st.lanForm = null; st.lanIp = '';
     } finally {
@@ -775,7 +775,7 @@ function mountNetTools() {
   }
   async function lanForget() {
     if (st.lanAct) return;
-    if (!(await askConfirm('Delete the saved copy of the old LAN / DHCP values?\n\nAfter this \"Restore saved values\" has nothing to restore.', 'Delete', true))) return;
+    if (!(await askConfirm('Delete the saved copy of the old LAN / DHCP values?\n\nAfter this \"Restore\" has nothing to restore.', 'Delete', true))) return;
     try { const o = await R.sh(N.LAN_BACKUP_DELETE_SH, 15000); st.lanMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
     catch (e) { st.lanMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('lan');
@@ -849,7 +849,7 @@ function mountNetTools() {
       const lines = N.wifiChangeLines(cur, want, pwChanges), rejoin = cur.ssid !== want.ssid || cur.auth !== want.auth || pwChanges;
       const ok = await askConfirm((why || 'Change the Wi-Fi settings?') + '\n\n' + act.band + '\n' + lines.join('\n')
         + '\n\nWi-Fi restarts. Every device on Wi-Fi is disconnected, including the one you are using if it is on Wi-Fi.' + (rejoin ? ' Reconnect to the new name and password, then press Refresh.' : ' They reconnect on their own.')
-        + '\n\nThe old values are saved first; "Restore saved values" puts them back.', 'Apply and restart Wi-Fi', true);
+        + '\n\nThe old values are saved first; "Restore" puts them back.', 'Apply and restart Wi-Fi', true);
       if (!ok) { st.wifiAct = false; return; }
       if (my !== actId) return;
       progress('Saving a backup copy of the old values…');
@@ -863,7 +863,7 @@ function mountNetTools() {
       call = null;
       progress('Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.');
       const r = await wifiWait(my, (x, rawNow) => N.wifiReached(N.wifiActive(x), want) && (!pwChanges || N.wifiHasPassword(rawNow, N.wifiWantPw(want))), 'Wi-Fi is restarting…'); if (!r) return;
-      const way = 'The old values are saved: "Restore saved values" puts them back (if you are on Wi-Fi, reconnect first).';
+      const way = 'The old values are saved: "Restore" puts them back (if you are on Wi-Fi, reconnect first).';
       if (r.authStop) { done(true, ['The console is asking for a new sign-in. Sign in again and press Refresh to see the values. ' + way]); return; }
       if (!r.got) { done(true, ['The console did not answer within about ' + Math.round((WIFI_WAIT_FIRST_MS + WIFI_WAIT_TRIES * WIFI_WAIT_STEP_MS) / 1000) + ' s. If you were on Wi-Fi, reconnect to ' + (rejoin ? '"' + want.ssid + '" with the new settings' : 'your Wi-Fi') + ' and press Refresh. ' + way]); return; }
       if (r.raw) st.cache.wifi = { d: r.raw, at: Date.now() };
@@ -873,7 +873,7 @@ function mountNetTools() {
         out.push('The router answers but does not report all the wanted settings.' + (e2 ? ' It reports "' + e2.ssid + '", ' + (e2.auth || 'no security mode') + ', ' + (e2.broadcast === null ? 'broadcast not reported' : e2.broadcast ? 'visible' : 'hidden') + ', max ' + (e2.maxStations === null ? 'not reported' : e2.maxStations) + ' devices.' : ' No band is reported as on.'));
         if (e2 && N.wifiReached(e2, want) && pwChanges) out.push('The name, security, SSID broadcast and max devices match, but the router does not report the new password.');
       }
-      out.push(r.ok ? 'The old values stay saved for "Restore saved values". If a device cannot join, check the password it uses.' : way + ' Press Refresh to read the settings again.');
+      out.push(r.ok ? 'The old values stay saved for "Restore". If a device cannot join, check the password it uses.' : way + ' Press Refresh to read the settings again.');
       done(!r.ok, out); st.wifiForm = null;
     } finally { wifiEnd(my); }
   }
@@ -896,7 +896,7 @@ function mountNetTools() {
   }
   async function wifiForget() {
     if (st.wifiAct) return;
-    if (!(await askConfirm('Delete the saved copy of the old Wi-Fi settings?\n\nAfter this "Restore saved values" has nothing to restore. The copy may hold the old Wi-Fi password.', 'Delete', true))) return;
+    if (!(await askConfirm('Delete the saved copy of the old Wi-Fi settings?\n\nAfter this "Restore" has nothing to restore. The copy may hold the old Wi-Fi password.', 'Delete', true))) return;
     try { const o = await R.sh(N.WIFI_BACKUP_DELETE_SH, 15000); st.wifiMsg = String(o).includes('MATCHI_BACKUP_GONE') ? { bad: false, lines: ['The saved copy was deleted.'] } : { bad: true, lines: ['The saved copy could not be deleted.'] }; }
     catch (e) { st.wifiMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('wifi');
