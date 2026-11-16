@@ -18,7 +18,8 @@ internal fun WebServer.gatewayParams(s: IHTTPSession): Map<String, String> {
     val out = LinkedHashMap<String, String>()
     for ((k, v) in s.parameters) v.firstOrNull()?.let { out[k] = it }
     if (s.method == Method.POST) {
-        val len = s.headers["content-length"]?.trim()?.toIntOrNull() ?: 0
+        val rawLen = s.headers["content-length"]?.trim()
+        val len = if (rawLen == null) 0 else rawLen.toIntOrNull() ?: throw IllegalArgumentException("bad Content-Length")
         if (len < 0 || len > 65536) throw IllegalArgumentException("request body too large")
         if (len > 0) {
             val buf = ByteArray(len)

@@ -7,6 +7,7 @@ private val DATA_PATH_CHARS = Regex("^/[A-Za-z0-9._/-]+$")
 private val LOCAL_PROTECTED = setOf("tmp", "matchitool", "ufi_ttl", "ufi_dpi", "ufi_boot", "ufi_lock")
 private val SDCARD_PROTECTED = setOf("download", "dcim", "pictures", "movies", "music", "documents", "android",
     "alarms", "notifications", "podcasts", "ringtones", "audiobooks", "recordings")
+private val SDCARD_MEDIA = setOf("dcim", "pictures", "movies", "music", "podcasts", "audiobooks", "recordings")
 private val TMP_OWN = Regex("^\\.?(matchi|mt_|sqlite)")
 
 /** The folder every plugin may use for its own data; it is erased automatically when the plugin is deleted. */
@@ -118,6 +119,7 @@ internal fun checkPluginDataPath(path: String, pluginName: String): String? {
                 rest.isEmpty() -> "name a folder inside it"
                 rest[0].lowercase() == "android" -> "the Android folder is protected"
                 rest.size == 1 && rest[0].lowercase() in SDCARD_PROTECTED -> "a standard folder is protected"
+                rest.size > 1 && rest[0].lowercase() in SDCARD_MEDIA -> "the person's photos, videos and music are protected"
                 else -> null
             }
         }

@@ -197,6 +197,14 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
             }
             if (!Prefs.checkAdminPassword(ctx, pw)) {
                 guard.failed(ip, loop)
+                if (loop) {
+                    // Same rule as /api/login: apps on the phone are never locked, but a wrong guess is answered late (bounded number of waiting threads),
+                    // otherwise a plugin in a browser on the phone could guess the password at full speed through every route that uses this gate.
+                    if (!guard.enterLoopbackDelay())
+                        return json(tooMany, JSONObject().put("error", "too many bad attempts, wait a few seconds")).also { it.addHeader("Retry-After", "5") }
+                    try { Thread.sleep(guard.loopbackDelayMs()) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+                    finally { guard.leaveLoopbackDelay() }
+                }
                 throw IllegalArgumentException(wrong)
             }
             guard.succeeded(ip, loop)
@@ -262,6 +270,9 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      * skip an unread body, so the leftover bytes (the page's `{}` on /api/logout) were parsed as the start of the next request
      * on that connection and the reload after signing out answered "BAD REQUEST: ... HTTP verb {}GET unhandled".
      */
+    /** True when the request is a multipart/form-data upload. NanoHTTPD 2.3.1 reads any other body type fully into memory in parseBody, so uploads refuse them first. */
+    internal fun isMultipart(s: IHTTPSession): Boolean = (s.headers["content-type"] ?: "").trim().lowercase().startsWith("multipart/form-data")
+
     internal fun drainBody(s: IHTTPSession) { try { body(s, MAX_LOGIN_BODY) } catch (e: Exception) { LogCatcher.log("WARNING", "WebServer", "request body not drained: " + e.message) } }
 
     internal fun body(s: IHTTPSession, max: Int = MAX_JSON_BODY): JSONObject {

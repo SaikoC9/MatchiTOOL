@@ -87,7 +87,8 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     val others = pluginOtherPaths(name)
     fun shareNote(d: String): String? = pluginsUsingPath(d, others).takeIf { it.isNotEmpty() }?.let { "also used by " + it.joinToString(", ") + ", so it is kept" }
     // Folders named after the plugin are erased too, without a header line. They pass the same strict check and are listed in the dialog (only when they exist).
-    for (d in implicitPluginPaths(name)) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
+    // Implicit guesses never touch the shared storage (/sdcard): a plugin named Backup.js must not erase the person's /sdcard/Backup. It declares what it owns with @matchi-data.
+    for (d in implicitPluginPaths(name)) if (!d.startsWith("/sdcard/") && checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
     for (d in pluginDataDeclarations(code)) {
         val why = checkPluginDataPath(d, name) ?: shareNote(d)
         if (why == null) { if (d !in ok) ok.add(d) } else bad.add(d to why)
@@ -98,7 +99,7 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
         if (shared == null) ok.add(d) else if (bad.none { it.first == d }) bad.add(d to shared)
     }
     // Loose files named after the plugin (NAME.txt, NAME.js, NAME.html, NAME.log ...), added last so the cap below never drops a traced path for them.
-    for (d in implicitPluginFiles(name)) if (checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
+    for (d in implicitPluginFiles(name)) if (!d.startsWith("/sdcard/") && checkPluginDataPath(d, name) == null && d !in ok) ok.add(d)
     val pruned = ok.filter { p -> ok.none { q -> q != p && p.startsWith("$q/") } }.take(100)
     return pruned to bad
 }
@@ -174,6 +175,7 @@ internal fun WebServer.uploadFile(s: IHTTPSession, viaUfiRoute: Boolean = false)
     val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
     if (len < 0 || len > MAX_UPLOAD_BYTES + 1_000_000L)
         throw IllegalArgumentException("Upload must be at most ${MAX_UPLOAD_BYTES / 1024 / 1024} MB")
+    if (!isMultipart(s)) throw IllegalArgumentException("Upload must be multipart/form-data (field \"file\")")
     auditShell(s.remoteIpAddress ?: "?", "len=$len", "upload")
     return withUploadSlot(len) { uploadFileLocked(s, viaUfiRoute) }
 }

@@ -15,6 +15,7 @@ internal fun WebServer.updateStage(s: IHTTPSession): Response {
     val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
     if (len < 0 || len > ApkUpdater.MAX_BYTES + 1_000_000L)
         throw IllegalArgumentException("Upload must be at most ${ApkUpdater.MAX_BYTES / 1024 / 1024} MB")
+    if (!isMultipart(s)) throw IllegalArgumentException("Upload must be multipart/form-data (field \"apk\")")
     auditShell(s.remoteIpAddress ?: "?", "len=$len", "update-stage")
     return withUploadSlot(len) { updateStageLocked(s) }
 }
