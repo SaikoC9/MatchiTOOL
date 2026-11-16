@@ -259,6 +259,9 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
 
     internal val MAX_LOGIN_BODY = 4 * 1024
 
+    /** True when the request is a multipart/form-data upload. NanoHTTPD 2.3.1 reads any other body type fully into memory in parseBody, so uploads refuse them first. */
+    internal fun isMultipart(s: IHTTPSession): Boolean = (s.headers["content-type"] ?: "").trim().lowercase().startsWith("multipart/form-data")
+
     /**
      * Reads a JSON request body of at most [max] bytes. A missing Content-Length means an empty body, and a larger or
      * invalid length is refused BEFORE anything is read: the old fallback handed such requests to NanoHTTPD's parseBody,
@@ -270,9 +273,6 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      * skip an unread body, so the leftover bytes (the page's `{}` on /api/logout) were parsed as the start of the next request
      * on that connection and the reload after signing out answered "BAD REQUEST: ... HTTP verb {}GET unhandled".
      */
-    /** True when the request is a multipart/form-data upload. NanoHTTPD 2.3.1 reads any other body type fully into memory in parseBody, so uploads refuse them first. */
-    internal fun isMultipart(s: IHTTPSession): Boolean = (s.headers["content-type"] ?: "").trim().lowercase().startsWith("multipart/form-data")
-
     internal fun drainBody(s: IHTTPSession) { try { body(s, MAX_LOGIN_BODY) } catch (e: Exception) { LogCatcher.log("WARNING", "WebServer", "request body not drained: " + e.message) } }
 
     internal fun body(s: IHTTPSession, max: Int = MAX_JSON_BODY): JSONObject {
