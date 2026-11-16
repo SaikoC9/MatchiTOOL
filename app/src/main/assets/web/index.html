@@ -1768,10 +1768,10 @@ rm -f $P.g $P.4 $P.6 $P.d
   function paint() {
     const html = render(last);
     if (inl) {
-      inl.querySelector('.liv-body').innerHTML = html;
+      const bd = inl.querySelector('.liv-body'); if (bd._h !== html) { bd.innerHTML = html; bd._h = html; }
       inl.querySelector('.liv-foot').textContent = last ? 'Source: ' + last.source + (last.errs.length ? ' · ' + last.errs.join(' · ') : '') + ' · tap CPU for governor' : '';
     }
-    const mb = document.getElementById('mls_body'); if (mb) mb.innerHTML = html;
+    const mb = document.getElementById('mls_body'); if (mb && mb._h !== html) { mb.innerHTML = html; mb._h = html; }
     const raw = document.getElementById('mls_raw'); if (raw && last) raw.textContent = last.rawText;
     when();
     try { document.dispatchEvent(new CustomEvent('matchi:live')); } catch (_) { /* not fatal */ }
@@ -1809,7 +1809,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const CPU_LIVE_CMD = 'cs() { while read l; do case \"$l\" in cpu*) echo \"$1$l\";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.5; cs B; S=/sys/devices/system/cpu; p=7; [ -r $S/possible ] && read p < $S/possible; mx=${p##*[-,]}; case $mx in \"\"|*[!0-9]*) mx=7;; esac; [ $mx -gt 15 ] && mx=15; n=0; while [ $n -le $mx ]; do d=$S/cpu$n; o=1; f=0; m=0; if [ ! -d $d ]; then o=0; else [ -r $d/online ] && read o < $d/online; [ -r $d/cpufreq/cpuinfo_max_freq ] && read m < $d/cpufreq/cpuinfo_max_freq; if [ \"$o\" = 1 ] && [ -r $d/cpufreq/scaling_cur_freq ]; then read f < $d/cpufreq/scaling_cur_freq; fi; fi; echo \"F:$n $o $f $m\"; n=$((n+1)); done; read c < /proc/stat; echo \"cpu: $c\"; true';
   let busyC = false, timerC = null, genC = 0, failC = 0;
   const cpuDelay = () => {
-    const h = Math.min(heatLevel(), 2), base = h === 0 ? (mode === 'eco' ? 9000 : 0) : Math.max(DELAY.fast[h], mode === 'eco' ? 9000 : 0);
+    const h = Math.min(heatLevel(), 2), base = h === 0 ? (mode === 'eco' ? 9000 : mode === 'normal' ? 3000 : 0) : Math.max(DELAY.fast[h], mode === 'eco' ? 9000 : 0);
     return Math.max(base, failC > 0 ? Math.min(30000, 2000 * Math.pow(2, Math.min(failC - 1, 4))) : 0);
   };
   async function tickCpu() {
@@ -1829,8 +1829,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   async function tickFast() {
     if (busyF || !visible() || batLow() || radioBusy()) return;
     busyF = true;
-    const t0 = performance.now(); /* PHASE0-TIMING (temporary, remove in Phase 6) */
-    try { const ok = await collectFast(); console.log('[live-phase0] fast ' + Math.round(performance.now() - t0) + ' ms ok=' + ok + ' failF=' + failF + ' delay=' + fastDelay() + ' ms'); /* PHASE0-TIMING */ if (ok) { lastOk = Date.now(); lastErr = ''; } else lastErr = 'Router unreachable'; paint(); }
+    try { const ok = await collectFast(); if (ok) { lastOk = Date.now(); lastErr = ''; } else lastErr = 'Router unreachable'; paint(); }
     catch (e) { failF++; lastErr = 'Could not read router: ' + e.message; when(); }
     finally { busyF = false; }
   }
@@ -1838,8 +1837,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (busyS || !visible() || radioBusy()) return;
     if (!fastTried) return 'wait';   // let the first router read finish, so the telephony / AT fallback is only used when the router really gives nothing
     busyS = true;
-    const t0 = performance.now(); /* PHASE0-TIMING (temporary, remove in Phase 6) */
-    try { const ok = await collectSlow(); console.log('[live-phase0] slow ' + Math.round(performance.now() - t0) + ' ms ok=' + ok + ' failS=' + failS + ' delay=' + slowDelay() + ' ms thermal=' + (last && last.thermalLevel) + ' bat=' + (last && last.batTemp) + ' sys=' + (last && last.sysMax) + ' modem=' + (last && last.modemTemp)); /* PHASE0-TIMING */ if (ok) { failS = 0; if (!zteOk()) lastOk = Date.now(); lastErr = ''; } else failS++; paint(); }
+    try { const ok = await collectSlow(); if (ok) { failS = 0; if (!zteOk()) lastOk = Date.now(); lastErr = ''; } else failS++; paint(); }
     catch (e) { failS++; lastErr = 'Could not read device: ' + e.message; when(); }
     finally { busyS = false; }
   }
@@ -1855,7 +1853,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
   const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
   const BATPAUSE = [0, 10, 15, 20, 30];   // "pause when battery below X %" choices, 0 = off
-  let mode = 'normal', batPause = 0;
+  let mode = 'eco', batPause = 0;
   try { const m = localStorage.getItem('liv_mode'); if (MODES[m]) mode = m; const b = Number(localStorage.getItem('liv_batpause')); if (BATPAUSE.includes(b)) batPause = b; } catch (_) {  }
   const modeDelay = (k) => { const h = Math.min(heatLevel(), 2), d = DELAY[k][h]; return h === 0 ? MODES[mode][k] : Math.max(d, mode === 'eco' ? MODES.eco[k] : 0); };
   // Battery pause: below the chosen level and not charging, the router loop stops and the root loop only checks once a minute (it is the one that sees the charger being plugged in).
@@ -1879,7 +1877,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   armF(fastDelay()); armS(slowDelay()); armC(1500);
   // If the card was hidden (signed out, other window) and shows again, read at once instead of waiting out a full interval.
   let wasVis = false;
-  tickTimer = setInterval(() => { const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
+  tickTimer = setInterval(() => { if (document.hidden) { wasVis = false; return; } const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
   document.addEventListener('visibilitychange', () => { if (auto && !document.hidden) { if (!lastOk || Date.now() - lastOk > 8000) tickFast(); tickSlow(); } });
   if (inl) {
     syncAuto();
@@ -9516,7 +9514,7 @@ function checkNewPage(d){
 }
 function hostPing(){if(pingBusy||!TOKEN)return;if(window.MatchiRadio&&window.MatchiRadio.isBusy()){setHostStatus(true,'Radio restarting');return}pingBusy=true;api('/api/ping').then((d)=>{setHostStatus(true,'Host connected');checkNewPage(d)}).catch(()=>setHostStatus(false,'Host disconnected')).finally(()=>{pingBusy=false})}
 document.addEventListener('visibilitychange',hostPing);
-setInterval(hostPing,15000);
+setInterval(function(){if(!document.hidden)hostPing()},30000);
 </script>
 <script>
 /* @include web-src/version-footer.js */

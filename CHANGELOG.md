@@ -1,3 +1,10 @@
+# MatchiTOOL (unreleased) - Power and efficiency
+
+- **Changed, Live Status polling:** a new install starts in Eco (a saved choice is kept). In Normal the live CPU loop reads every 3 s instead of back to back; Fast still reads continuously. The root command text is unchanged.
+- **Changed, fewer repaints:** the Live Status card and window rewrite their markup only when it actually changed.
+- **Changed, idle timers:** the 1 s Live Status tick does nothing while the page is hidden; the host ping runs every 30 s and never while hidden (it still runs when the page comes back).
+- **Removed:** the temporary `[live-phase0]` timing logs, and the unused `WAKE_LOCK` permission (no code takes a wake lock).
+
 # MatchiTOOL 1.4.2 - Plugin stop follow-ups, Bypass cleanup removed
 
 This release closes the three gaps listed for 1.4.2 in the 1.4.1 plugin stop work (Turn off wording, `/api/plugins/data` and the root gate, stop commands in the store dialog). Kotlin changes are compiled and unit-tested in CI. What was run on the F50 is in the "Device status" bullet at the end of this entry.
