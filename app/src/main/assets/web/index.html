@@ -1444,6 +1444,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     await Promise.all([shellP, atP]);
     sysPart = windowed(parseSys(sh, errs));
     if (sysPart && sh) sysPart.cpuAt = Date.now();   // when the per-core numbers were really read (the cards dim when this gets old)
+    if (liveFresh()) sysPart = liveSys(sysPart);   // the push stream is newer than this read for everything except battery and telephony
     last = build();
     return sh !== '';
   }
@@ -1795,7 +1796,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
-      if (w) w.textContent = rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
+      if (w) w.textContent = (rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t) + (liveFresh() && !rb && !paused && LS.rxAt ? ' · device ' + (Math.max(0, Date.now() - LS.rxAt) / 1000).toFixed(1) + ' s ago' : '');   // Phase 4: how old the pushed CPU / temperature numbers are
       if (p) p.classList.toggle('off', stale || cs >= 0 || !!rb);
       const old = !!(last && last.cpuAt && Date.now() - last.cpuAt > 45000);   // no real per-core read for 45 s (the slowest normal loop is 45 s in Eco, and the CPU loop is faster): the numbers are old, so dim them
       for (const cc of root.querySelectorAll('.liv-cards')) cc.classList.toggle('stale', old);
@@ -1813,7 +1814,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     return Math.max(base, failC > 0 ? Math.min(30000, 2000 * Math.pow(2, Math.min(failC - 1, 4))) : 0);
   };
   async function tickCpu() {
-    if (busyC || busyS || !sysPart || !visible() || batLow() || radioBusy()) return 'skip';   // the slow loop's own read already carries the CPU numbers
+    if (busyC || busyS || !sysPart || !visible() || batLow() || radioBusy() || liveFresh()) return 'skip';   // the slow loop's own read already carries the CPU numbers; the push stream carries them every second (Phase 4)
     busyC = true;
     try {
       const r = await api('/api/shell', { method: 'POST', quiet: true, body: JSON.stringify({ timeout: 6000, cmd: CPU_LIVE_CMD }) });
@@ -1825,6 +1826,112 @@ rm -f $P.g $P.4 $P.6 $P.d
     } catch (e) { failC++; }
     finally { busyC = false; }
   }
+  /* LIVE-STREAM-BEGIN */
+  // LIVE STREAM (real-time plan, Phase 4): CPU %, per-core speed, temperatures, memory, load and uptime are PUSHED by the host once a second
+  // (GET /api/live/stream, one root reader on the phone shared by every browser) instead of being polled with a root shell per read.
+  // The router read (signal, speed) and the slow root read (battery, telephony fallback) are unchanged and keep their own loops.
+  // The stream is used only in Normal and Fast, while the phone is cool and the battery is not paused. Eco, warm / hot, a paused battery, a radio restart,
+  // plain HTTP and "Live refresh: Off" use the old polling, which also takes over by itself when the stream drops or goes quiet (liveFresh() false),
+  // so the card never goes blank. A hidden tab tells the host (POST /api/live/view) so the root reader can stop.
+  const LS = { ctl: null, stop: false, id: '', on: false, stale: false, rxAt: 0, waitUntil: 0, retryAt: 0, fails: 0, sentVis: null, heatAt: 0, err: '', st: { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null } };
+  const LS_QUIET_MS = 6000, LS_HEAT_HOLD_MS = 60000;
+  // Frames arrive every second, so one that is older than LS_QUIET_MS means the stream is stuck. Right after a (re)connect or "visible again" the host
+  // needs a moment, so a connected stream is trusted for 4 s without a frame (waitUntil).
+  const liveFresh = () => LS.on && !LS.stale && (Date.now() - LS.rxAt < LS_QUIET_MS || Date.now() < LS.waitUntil);
+  const heatOk = () => heatLevel() === 0 && Date.now() - LS.heatAt > LS_HEAT_HOLD_MS;
+  const streamWanted = () => auto && mode !== 'eco' && !batLow() && !radioBusy() && !insecurePage() && heatOk() && typeof TOKEN === 'string' && !!TOKEN;
+  const fin = (n) => typeof n === 'number' && Number.isFinite(n);
+  function applyFrame(f) {
+    if (!f || f.v !== 1 || typeof f !== 'object') return false;
+    const st = LS.st;
+    if (f.full) { st.cpu = undefined; st.pc = {}; st.fq = {}; st.tz = {}; st.sys = null; }
+    if (fin(f.cpu)) st.cpu = Math.max(0, Math.min(100, f.cpu)); else if (f.full || f.cpu === null) st.cpu = undefined;
+    if (f.pc && typeof f.pc === 'object') for (const k of Object.keys(f.pc)) if (/^\d{1,3}$/.test(k) && fin(f.pc[k])) st.pc[k] = Math.max(0, Math.min(100, f.pc[k]));
+    if (f.fq && typeof f.fq === 'object') for (const k of Object.keys(f.fq)) { const a = f.fq[k]; if (/^\d{1,3}$/.test(k) && Array.isArray(a) && a.length === 3 && a.every(fin)) st.fq[k] = a; }
+    if (f.tz && typeof f.tz === 'object') for (const k of Object.keys(f.tz)) if (fin(f.tz[k]) && f.tz[k] > 0 && f.tz[k] < 150) st.tz[String(k).slice(0, 40)] = f.tz[k];
+    const y = f.sys;
+    if (y && Array.isArray(y.l) && y.l.length === 3 && y.l.every(fin) && fin(y.up) && fin(y.mt) && y.mt > 0 && fin(y.ma)) st.sys = y;
+    return true;
+  }
+  // The pushed values laid over a slow-read object (battery, charging, telephony stay from the slow read). Fields the stream does not have yet stay as they were.
+  function liveSys(base) {
+    const st = LS.st, o = Object.assign({ zones: [], errs: [] }, base || {});
+    if (st.cpu !== undefined) o.cpu = st.cpu;
+    const pk = Object.keys(st.pc);
+    if (pk.length) o.cores = pk.map(Number).sort((a, b) => a - b).map((id) => ({ id, pct: st.pc[id] }));
+    const fk = Object.keys(st.fq);
+    if (fk.length) o.freqs = fk.map(Number).sort((a, b) => a - b).map((id) => ({ id, on: st.fq[id][0] === 1, cur: st.fq[id][1], max: st.fq[id][2] }));
+    const zk = Object.keys(st.tz);
+    if (zk.length) o.zones = zk.map((t) => ({ t, v: st.tz[t] }));
+    if (st.sys) {
+      const mt = st.sys.mt, ma = st.sys.ma;
+      o.mem = { pct: Math.round(100 * (mt - ma) / mt), used: Math.round((mt - ma) / 1024), total: Math.round(mt / 1024) };
+      o.load = st.sys.l.map((x) => x.toFixed(2)).join(' ');
+      o.upSec = st.sys.up;
+    }
+    o.cpuAt = Date.now();
+    return o;
+  }
+  function handleLiveFrame(frame) {
+    if (!frame || frame[0] === ':') return;
+    let ev = 'message', data = '';
+    for (const l of frame.split('\n')) { if (l.startsWith('event:')) ev = l.slice(6).trim(); else if (l.startsWith('data:')) data += l.slice(5).trim(); }
+    let j = null; try { j = data ? JSON.parse(data) : null; } catch (_) { j = null; }
+    if (ev === 'stale') { LS.stale = true; return; }
+    if (ev === 'end') { LS.retryAt = Date.now() + (j && j.reason === 'session' ? 30000 : 500); return; }
+    if (ev !== 'message' || !applyFrame(j)) return;
+    LS.rxAt = Date.now(); LS.stale = false;
+    sysPart = liveSys(sysPart); last = build(); paint();
+  }
+  function closeLive(forHeat) {
+    if (forHeat) LS.heatAt = Date.now();   // a hot phone must stay cool for a minute before the stream is used again (no flapping)
+    const c = LS.ctl;
+    LS.ctl = null; LS.on = false; LS.id = ''; LS.sentVis = null; LS.stop = true;
+    LS.st = { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null };
+    if (c) { try { c.abort(); } catch (_) {  } }
+  }
+  async function openLive() {
+    const c = new AbortController();
+    LS.ctl = c; LS.stop = false; LS.id = ''; LS.on = false; LS.stale = false; LS.err = '';
+    let got = false;
+    try {
+      const r = await fetch('/api/live/stream', { headers: { 'x-token': TOKEN }, signal: c.signal });
+      if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+      if (LS.ctl !== c) return;
+      LS.id = r.headers.get('X-Live-Id') || ''; LS.on = true; LS.sentVis = true; LS.rxAt = Date.now(); LS.waitUntil = Date.now() + 4000;
+      const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { done, value } = await rd.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        if (buf.length > 65536) throw new Error('frame too long');
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) { const frame = buf.slice(0, i); buf = buf.slice(i + 2); if (LS.ctl === c) { if (frame.indexOf('data:') >= 0) got = true; handleLiveFrame(frame); } }
+      }
+    } catch (e) { LS.err = String((e && e.message) || e).slice(0, 80); }
+    finally {
+      if (LS.ctl === c) {   // not closed on purpose: the stream ended or failed. The old polling covers until the next try.
+        LS.ctl = null; LS.on = false; LS.id = ''; LS.sentVis = null;
+        if (got) { LS.fails = 0; LS.retryAt = Math.max(LS.retryAt, Date.now() + 500); }
+        else { LS.fails++; LS.retryAt = Date.now() + Math.max(5000, Math.min(30000, 2000 * Math.pow(2, Math.min(LS.fails - 1, 4)))); }
+      }
+    }
+  }
+  async function sendView(v) {
+    const id = LS.id; if (!id) return;
+    LS.sentVis = v; if (v) LS.waitUntil = Date.now() + 4000;
+    try {
+      const r = await fetch('/api/live/view', { method: 'POST', headers: { 'x-token': TOKEN, 'content-type': 'application/json; charset=utf-8' }, body: JSON.stringify({ id, visible: v }) });
+      if (r.status === 404 && LS.id === id) { closeLive(false); LS.retryAt = 0; }   // the host no longer has this stream: open a new one on the next tick
+      else if (!r.ok && LS.id === id) LS.sentVis = null;   // try again on the next tick
+    } catch (_) { if (LS.id === id) LS.sentVis = null; }
+  }
+  // Called every second, when the tab is shown or hidden, and at start: opens, closes and reports visibility.
+  function syncLive() {
+    if (!streamWanted()) { if (LS.ctl) closeLive(heatLevel() > 0); return; }
+    const vis = !document.hidden && !!visible();
+    if (!LS.ctl) { if (vis && Date.now() >= LS.retryAt) openLive(); return; }
+    if (LS.on && LS.id && LS.sentVis !== vis) sendView(vis);
+  }
+  /* LIVE-STREAM-END */
   // Each loop has its own busy flag, so a slow root call never blocks the fast router read.
   async function tickFast() {
     if (busyF || !visible() || batLow() || radioBusy()) return;
@@ -1877,7 +1984,8 @@ rm -f $P.g $P.4 $P.6 $P.d
   armF(fastDelay()); armS(slowDelay()); armC(1500);
   // If the card was hidden (signed out, other window) and shows again, read at once instead of waiting out a full interval.
   let wasVis = false;
-  tickTimer = setInterval(() => { if (document.hidden) { wasVis = false; return; } const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
+  tickTimer = setInterval(() => { syncLive(); if (document.hidden) { wasVis = false; return; } const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
+  document.addEventListener('visibilitychange', syncLive);   // tell the host at once when the tab is hidden or shown (the root reader stops after a grace time)
   document.addEventListener('visibilitychange', () => { if (auto && !document.hidden) { if (!lastOk || Date.now() - lastOk > 8000) tickFast(); tickSlow(); } });
   if (inl) {
     syncAuto();
@@ -1907,6 +2015,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (auto && !batLow()) { tickFast(); } paint();
     };
   }
+  syncLive();   // Phase 4: open the push stream at once (its first frame is the host's last reading)
   if (loadCache()) paint();   // cached reading on screen straight away (labelled "Last reading"), then the first live read replaces it
   wasVis = !!visible();
   tickFast().then(() => tickSlow());
@@ -7637,7 +7746,7 @@ function plugStopDecls(code){
   return {commands,check,boot};
 }
 /* Routes the host really serves (kept in step with WebServer.kt by scripts/test_ufi_store.js). A plugin that calls any other /api path gets a 404. */
-const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/net/whoami","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/approve","/api/plugins/call","/api/plugins/data","/api/plugins/delete","/api/plugins/mode","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
+const MATCHI_ROUTES=new Set(["/api/AT","/api/at","/api/at/batch","/api/console/password","/api/diagnostics","/api/firmware/inspect","/api/get_cookie","/api/imei/apply","/api/live/stream","/api/live/view","/api/login","/api/logout","/api/logs/basket","/api/logs/basket/delete","/api/logs/basket/read","/api/logs/boot/counters","/api/logs/boot/files","/api/logs/boot/install","/api/logs/boot/read","/api/logs/boot/status","/api/logs/boot/uninstall","/api/logs/clienterror","/api/logs/delete","/api/logs/device","/api/logs/entries","/api/logs/export","/api/logs/search","/api/logs/sessions","/api/logs/snapshot","/api/logs/start","/api/logs/status","/api/logs/stop","/api/logs/stream","/api/net/whoami","/api/one_click_shell","/api/ping","/api/plugins","/api/plugins/approve","/api/plugins/call","/api/plugins/data","/api/plugins/delete","/api/plugins/mode","/api/plugins/order","/api/plugins/scan","/api/security/http","/api/security/net","/api/plugins/toggle","/api/root/status","/api/root_shell","/api/screen/frame","/api/screen/input","/api/set_cookie","/api/shell","/api/update/check","/api/update/fetch","/api/update/install","/api/update/stage","/api/update/status","/api/upload","/api/upload_img","/api/uploads/delete","/api/usb/control","/api/usb/status","/api/user_shell","/api/zte","/api/zte/config","/api/zte/page"]);
 const MATCHI_ROUTE_PREFIXES=["/api/goform/","/api/logs/session/","/api/proxy/","/api/uploads/"];
 /* Files MatchiTOOL ships under UFI's files folder; any other UFI file a plugin names is missing. Tools UFI ships that MatchiTOOL does not: */
 const MATCHI_BUNDLED_FILES=new Set(['curl','jq','sendat','sha256','zreq']);
