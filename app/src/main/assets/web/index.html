@@ -1796,7 +1796,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
-      if (w) w.textContent = (rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t) + (liveFresh() && !rb && !paused && LS.rxAt ? ' · device ' + (Math.max(0, Date.now() - LS.rxAt) / 1000).toFixed(1) + ' s ago' : '');   // Phase 4: how old the pushed CPU / temperature numbers are
+      if (w) w.textContent = (rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t) + (heatLevel() >= 2 && !rb ? ' · cooling' : '') + (liveFresh() && !rb && !paused && LS.rxAt ? ' · device ' + (Math.max(0, Date.now() - LS.rxAt) / 1000).toFixed(1) + ' s ago' : '');   // Phase 4: how old the pushed CPU / temperature numbers are
       if (p) p.classList.toggle('off', stale || cs >= 0 || !!rb);
       const old = !!(last && last.cpuAt && Date.now() - last.cpuAt > 45000);   // no real per-core read for 45 s (the slowest normal loop is 45 s in Eco, and the CPU loop is faster): the numbers are old, so dim them
       for (const cc of root.querySelectorAll('.liv-cards')) cc.classList.toggle('stale', old);
@@ -1830,16 +1830,20 @@ rm -f $P.g $P.4 $P.6 $P.d
   // LIVE STREAM (real-time plan, Phase 4): CPU %, per-core speed, temperatures, memory, load and uptime are PUSHED by the host once a second
   // (GET /api/live/stream, one root reader on the phone shared by every browser) instead of being polled with a root shell per read.
   // The router read (signal, speed) and the slow root read (battery, telephony fallback) are unchanged and keep their own loops.
-  // The stream is used only in Normal and Fast, while the phone is cool and the battery is not paused. Eco, warm / hot, a paused battery, a radio restart,
+  // The stream is used only in Normal and Fast and the battery is not paused (it stays on when the phone is warm or hot: Phase 5 only slows the repaint). Eco, a paused battery, a radio restart,
   // plain HTTP and "Live refresh: Off" use the old polling, which also takes over by itself when the stream drops or goes quiet (liveFresh() false),
   // so the card never goes blank. A hidden tab tells the host (POST /api/live/view) so the root reader can stop.
-  const LS = { ctl: null, stop: false, id: '', on: false, stale: false, rxAt: 0, waitUntil: 0, retryAt: 0, fails: 0, sentVis: null, heatAt: 0, err: '', st: { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null } };
-  const LS_QUIET_MS = 6000, LS_HEAT_HOLD_MS = 60000;
+  const LS = { ctl: null, stop: false, id: '', on: false, stale: false, rxAt: 0, waitUntil: 0, retryAt: 0, fails: 0, sentVis: null, paintAt: 0, err: '', st: { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null } };
+  const LS_QUIET_MS = 6000;
+  // Phase 5 (heat guard): the root reader and the stream keep running at every heat level, because the temperatures come through them and the card must see the
+  // phone cool down. What the guard changes is how often the page repaints from the pushed frames: Live (Fast chip) every frame (1 s), Balanced (Normal chip) every 3 s,
+  // warm (60 C and up) at least every 2 s, hot (70 C and up) at least every 5 s. The slowest of mode and heat wins. Frames are always applied, so nothing is lost between paints.
+  const MODE_PUSH = { fast: 0, normal: 3000, eco: 0 }, GUARD_PUSH = [0, 2000, 5000], PAINT_SLACK_MS = 250;
+  const pushEvery = () => Math.max(MODE_PUSH[mode] || 0, GUARD_PUSH[Math.min(Math.max(heatLevel(), 0), 2)]);
   // Frames arrive every second, so one that is older than LS_QUIET_MS means the stream is stuck. Right after a (re)connect or "visible again" the host
   // needs a moment, so a connected stream is trusted for 4 s without a frame (waitUntil).
   const liveFresh = () => LS.on && !LS.stale && (Date.now() - LS.rxAt < LS_QUIET_MS || Date.now() < LS.waitUntil);
-  const heatOk = () => heatLevel() === 0 && Date.now() - LS.heatAt > LS_HEAT_HOLD_MS;
-  const streamWanted = () => auto && mode !== 'eco' && !batLow() && !radioBusy() && !insecurePage() && heatOk() && typeof TOKEN === 'string' && !!TOKEN;
+  const streamWanted = () => auto && mode !== 'eco' && !batLow() && !radioBusy() && !insecurePage() && typeof TOKEN === 'string' && !!TOKEN;
   const fin = (n) => typeof n === 'number' && Number.isFinite(n);
   function applyFrame(f) {
     if (!f || f.v !== 1 || typeof f !== 'object') return false;
@@ -1881,12 +1885,12 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (ev === 'end') { LS.retryAt = Date.now() + (j && j.reason === 'session' ? 30000 : 500); return; }
     if (ev !== 'message' || !applyFrame(j)) return;
     LS.rxAt = Date.now(); LS.stale = false;
-    sysPart = liveSys(sysPart); last = build(); paint();
+    sysPart = liveSys(sysPart);
+    if (Date.now() - LS.paintAt >= pushEvery() - PAINT_SLACK_MS) { LS.paintAt = Date.now(); last = build(); paint(); }
   }
-  function closeLive(forHeat) {
-    if (forHeat) LS.heatAt = Date.now();   // a hot phone must stay cool for a minute before the stream is used again (no flapping)
+  function closeLive() {
     const c = LS.ctl;
-    LS.ctl = null; LS.on = false; LS.id = ''; LS.sentVis = null; LS.stop = true;
+    LS.ctl = null; LS.on = false; LS.id = ''; LS.sentVis = null; LS.stop = true; LS.paintAt = 0;
     LS.st = { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null };
     if (c) { try { c.abort(); } catch (_) {  } }
   }
@@ -1920,13 +1924,13 @@ rm -f $P.g $P.4 $P.6 $P.d
     LS.sentVis = v; if (v) LS.waitUntil = Date.now() + 4000;
     try {
       const r = await fetch('/api/live/view', { method: 'POST', headers: { 'x-token': TOKEN, 'content-type': 'application/json; charset=utf-8' }, body: JSON.stringify({ id, visible: v }) });
-      if (r.status === 404 && LS.id === id) { closeLive(false); LS.retryAt = 0; }   // the host no longer has this stream: open a new one on the next tick
+      if (r.status === 404 && LS.id === id) { closeLive(); LS.retryAt = 0; }   // the host no longer has this stream: open a new one on the next tick
       else if (!r.ok && LS.id === id) LS.sentVis = null;   // try again on the next tick
     } catch (_) { if (LS.id === id) LS.sentVis = null; }
   }
   // Called every second, when the tab is shown or hidden, and at start: opens, closes and reports visibility.
   function syncLive() {
-    if (!streamWanted()) { if (LS.ctl) closeLive(heatLevel() > 0); return; }
+    if (!streamWanted()) { if (LS.ctl) closeLive(); return; }
     const vis = !document.hidden && !!visible();
     if (!LS.ctl) { if (vis && Date.now() >= LS.retryAt) openLive(); return; }
     if (LS.on && LS.id && LS.sentVis !== vis) sendView(vis);
@@ -1950,12 +1954,24 @@ rm -f $P.g $P.4 $P.6 $P.d
   }
   // Thermal-aware polling: reduce modem/root activity as the F50 warms. This is app-side load shedding,
   // not a substitute for the firmware's thermal protection.
-  // One table, indexed by heat: 0 cool, 1 warm, 2 hot or critical. The thresholds that set thermalLevel are unchanged (see build()).
+  // One table, indexed by heat: 0 cool, 1 warm, 2 hot or critical. The level is the guard below (kernel thermal zones); thermalLevel in build() only drives the banner.
   // The slow loop is slowed down when hot, never stopped: the temperatures come from its root read, so without it the card could not see the phone cool down.
   const DELAY = { fast: [3000, 6000, 15000], slow: [15000, 30000, 90000] };
   // The level used for the delays. localStorage 'liv_thermal_test' = 0..3 forces a level so the slow-down can be tried on a cool phone
   // (it only changes the polling speed, not the temperatures shown); remove the key to go back to the measured level.
-  const heatLevel = () => { try { const f = localStorage.getItem('liv_thermal_test'); if (/^[0-3]$/.test(f)) return Number(f); } catch (_) {  } return last && last.thermalLevel > 0 ? Math.min(last.thermalLevel, 3) : 0; };
+  // Phase 5 heat guard: the level comes from the kernel thermal zones (SoC and the modem zone), NOT from the battery sensor (some F50 builds report a fixed 25.0 C
+  // there; the battery temperature is still shown and the banner above still uses it). Level 1 from 60 C, level 2 from 70 C; the modem zone is read 10 C higher
+  // (same offset as the banner's 70 / 80). Back down only 3 C under the limit (57 / 67), so a phone sitting on the limit does not flap between levels.
+  // With no zone reading the last level is kept. Level 3 exists only through liv_thermal_test.
+  const GUARD_UP = [60, 70], GUARD_DOWN = [57, 67];
+  let guardLv = 0;
+  const guardTemp = (L) => { const v = []; if (L && Number.isFinite(L.sysMax)) v.push(L.sysMax); if (L && Number.isFinite(L.modemTemp)) v.push(L.modemTemp - 10); return v.length ? Math.max(...v) : undefined; };
+  const heatLevel = () => {
+    try { const f = localStorage.getItem('liv_thermal_test'); if (/^[0-3]$/.test(f)) return Number(f); } catch (_) {  }
+    const t = guardTemp(last);
+    if (t !== undefined) { while (guardLv < 2 && t >= GUARD_UP[guardLv]) guardLv++; while (guardLv > 0 && t < GUARD_DOWN[guardLv - 1]) guardLv--; }
+    return guardLv;
+  };
   // Phase 5 options (saved in this browser). Refresh speed: Fast 0 s / 1 s (the next read starts as soon as the last one ends), Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
   // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
   const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
@@ -1999,7 +2015,8 @@ rm -f $P.g $P.4 $P.6 $P.d
     };
     // Phase 5 options: refresh speed chips and the battery pause choice
     const chips = inl.querySelector('.liv-chips'), bp = inl.querySelector('.liv-bp');
-    chips.innerHTML = Object.keys(MODES).map((k) => `<button type="button" class="liv-chip" data-mode="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join('');
+    const CHIP_LABEL = { fast: 'Live', normal: 'Balanced', eco: 'Eco' }, CHIP_TIP = { fast: 'Live: 1 s while the phone is cool', normal: 'Balanced: 3 s (the default for people who leave the panel open)', eco: 'Eco: 9 s, no live stream' };
+    chips.innerHTML = Object.keys(MODES).map((k) => `<button type="button" class="liv-chip" data-mode="${k}" title="${CHIP_TIP[k]}">${CHIP_LABEL[k]}</button>`).join('');
     bp.innerHTML = BATPAUSE.map((v) => `<option value="${v}">${v ? v + ' %' : 'Off'}</option>`).join('');
     const syncOpts = () => { chips.querySelectorAll('.liv-chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode))); bp.value = String(batPause); };
     syncOpts();
