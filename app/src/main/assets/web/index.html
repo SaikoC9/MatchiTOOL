@@ -3437,7 +3437,7 @@ rm -rf "${DEVICE_TMP_DIR}"
     }
   }
   function renderThread(box, c) {
-    const bar = mk('div', 'display:flex;gap:8px;align-items:center;margin-bottom:8px;position:sticky;top:0;background:var(--card,var(--bg));padding:2px 0;z-index:1');
+    const bar = mk('div', 'display:flex;gap:8px;align-items:center;margin:0 0 8px;position:sticky;top:0;background:var(--panel);padding:2px 0 8px;border-bottom:1px solid var(--bd);box-shadow:0 8px 8px -8px #000a;z-index:1');   // var(--card) does not exist: the bar was drawn in the page colour (black strip) instead of the window colour
     const back = mk('button', 'padding:3px 10px', '← Back');
     back.onclick = () => { openKey = null; paint(); };
     const delc = mk('button', 'padding:3px 8px', 'Delete conversation');
