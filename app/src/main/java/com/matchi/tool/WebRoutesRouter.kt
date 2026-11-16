@@ -65,9 +65,12 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
     // 1.4.0 security pass: a POST can change router settings through any path on the router, with the router session this
     // app holds, so it needs the same fresh sign-in as the other root-capable routes. A GET stays open (read-only plugins).
     uri.startsWith("/api/proxy/") && (s.method == Method.GET || s.method == Method.POST) -> run {
-        if (s.method == Method.POST) rootGate(s)?.let { return@run it }
         val path = GatewayProxy.proxyPath(uri.removePrefix("/api/proxy/")) ?: throw IllegalArgumentException("bad proxy path")
         val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
+        // A POST always needs the gate. A GET stays open for read-only plugins EXCEPT on the router's set endpoint: ZTE firmware can take a set call as a
+        // GET, which skipped the goformId list of /api/zte and /api/goform. The same rule applies there (NetGoform.needsGate; no goformId = gated).
+        val setPath = path.endsWith("/goform_set_cmd_process")
+        if (s.method == Method.POST || (setPath && NetGoform.needsGate(p))) rootGate(s)?.let { return@run it }
         val r = ZteClient.proxy(ctx, s.method.name, path, p)
         harden(newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", r.body)).also { it.addHeader("X-Router-Status", r.code.toString()) }
     }

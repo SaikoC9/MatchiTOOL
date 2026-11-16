@@ -3083,13 +3083,18 @@ rm -rf "${DEVICE_TMP_DIR}"
   }
   const dropProvCache = () => { prov = { at: 0, list: null, p: null }; };
 
-  // Finds the stored copy of a router message in another store. 1) same number + same text, 2) same text close in time
-  // (sent messages can be stored without a usable number), 3) the only outgoing message with that text.
+  // Finds the stored copy of a router message in another store. 1) same number + the SAME text (closest in time), 2) same number + text
+  // that only starts the same (a long text can be cut in one store) AND close in time, 3) same text close in time (sent messages can be
+  // stored without a usable number), 4) the only outgoing message with that text. The loose start-of-text match is never taken on its
+  // own: recurring texts ("Your balance is ...") share their first 30 characters, and the first hit used to be the newest one.
   function findIn(list, m) {
     const text = decodeBody(m.content), when = tsOf(fmtDate(m.date));
-    let hit = list.find((x) => samePhone(x.number, m.number) && sameText(x.text, text));
-    if (!hit && when) hit = list.find((x) => sameText(x.text, text) && Math.abs(tsOf(x.date) - when) < 180000);
-    if (!hit && isOut(m.tag)) { const c = list.filter((x) => x.out && sameText(x.text, text)); if (c.length === 1) hit = c[0]; }
+    const gap = (x) => (when ? Math.abs(tsOf(x.date) - when) : 0);
+    const closest = (c) => c.slice().sort((a, b) => gap(a) - gap(b))[0] || null;
+    let hit = closest(list.filter((x) => samePhone(x.number, m.number) && norm(x.text) === norm(text)));
+    if (!hit && when) hit = closest(list.filter((x) => samePhone(x.number, m.number) && sameText(x.text, text) && gap(x) < 180000));
+    if (!hit && when) hit = closest(list.filter((x) => sameText(x.text, text) && gap(x) < 180000));
+    if (!hit && isOut(m.tag)) { const c = list.filter((x) => x.out && norm(x.text) === norm(text)); if (c.length === 1) hit = c[0]; }
     return hit || null;
   }
   const NOTDELETED = 'NOTDELETED';
@@ -3244,7 +3249,8 @@ rm -rf "${DEVICE_TMP_DIR}"
       'sentcount() { content query --uri content://sms/sent --projection _id 2>&1 | grep -c "^Row:"; }',
       'if content query --uri content://sms/sent --projection _id 2>&1 | grep -qE "^Row:|No result found"; then CAN=1; else CAN=0; fi',
       'before=$(sentcount)',
-      'confirm() { i=0; while [ $i -lt 4 ]; do sleep 1; after=$(sentcount); [ "$after" -gt "$before" ] 2>/dev/null && return 0; i=$((i+1)); done; return 1; }',
+      'ACC=0',
+      'confirm() { i=0; while [ $i -lt 10 ]; do sleep 1; after=$(sentcount); [ "$after" -gt "$before" ] 2>/dev/null && return 0; i=$((i+1)); done; return 1; }',
       'try() { # uid pkg code withtag',
       '  U=$1; P=$2; C=$3; G=$4',
       '  if [ "$G" = 1 ]; then TAG=\'s16 "null"\'; else TAG=; fi',
@@ -3262,6 +3268,9 @@ rm -rf "${DEVICE_TMP_DIR}"
       '    if try $1 $2 $C $G; then',
       '      if [ "$CAN" = 1 ]; then',
       '        if confirm; then echo "SENT_OK code=$C uid=$1 sent_box $before -> $after"; logcat -d -t 400 2>/dev/null | grep -iE "SmsController|SMSDispatcher|SmsDispatchersController|sendText" | tail -n 3 | cut -c1-140; exit 0; fi',
+      '        ACC=$((ACC+1))',
+      '        # Android accepted this form, so it may really have been sent (the sent box can be slow or not written). A third try could send it again.',
+      '        if [ "$ACC" -ge 2 ]; then echo "SENT_UNCONFIRMED code=$C uid=$1 (accepted twice, sent box did not grow; not trying more forms)"; exit 0; fi',
       '        echo "accepted but not in the sent box (code=$C uid=$1), trying the next form"',
       '      else',
       '        echo "SENT_UNCONFIRMED code=$C uid=$1 (sent box not readable)"; exit 0',
