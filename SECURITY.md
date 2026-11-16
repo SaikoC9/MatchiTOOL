@@ -13,6 +13,7 @@ MatchiTOOL is a root **client**, not a rooting exploit. It calls the device's in
 The console (port **2334**) is meant for a trusted ZTE hotspot / USB-tether network and for apps on the phone itself.
 
 - Anyone who is signed in can run root commands (`/api/shell`) and install plugins. Treat the console password, the session token and every installed plugin as privileged.
+- The Live panel's push stream (`/api/live/stream`) keeps one fixed, read-only root script running while at least one browser is watching (CPU counters, CPU speed, thermal zones, memory, load, uptime). It has the same gate as `/api/shell`, the script text is constant (no input from the page), its output is one bounded line a second, it ends when the app goes away, after 3600 rounds, or when the last viewer leaves, and a sign-out or an expired sign-in stops it within 5 s.
 - Anyone on the hotspot can reach the **login page**. Only a signed-in session reaches the rest.
 - Never port-forward 2334 to the internet. For remote access use a trusted VPN or encrypted tunnel.
 - If the console may have been exposed to an untrusted network, change the console password. That ends every session.

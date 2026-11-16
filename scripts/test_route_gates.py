@@ -29,6 +29,8 @@ TABLE = {
   ('GET',  '/api/diagnostics'): ('OPEN', ''),
   ('GET',  '/api/screen/frame'): ('GATE', 'a screenshot can show codes and passwords: same gate as /api/screen/input'),
   ('POST', '/api/screen/input'): ('GATE', ''),
+  ('GET',  '/api/live/stream'): ('GATE', 'Live panel push stream: starts the persistent root reader (LiveSampler), so it has the same gate as /api/shell; the session is checked again while it streams'),
+  ('POST', '/api/live/view'): ('GATE', 'Live panel: the page says its tab is hidden / visible; it can start the root reader again, so same gate as the stream; only the session that opened the stream may change it'),
   ('GET',  '/api/usb/status'): ('OPEN', ''),
   ('POST', '/api/usb/control'): ('GATE', ''),
   ('POST', '/api/firmware/inspect'): ('OPEN', 'inspects text sent by the page; touches no device state'),
