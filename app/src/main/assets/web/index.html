@@ -1448,7 +1448,6 @@ rm -f $P.g $P.4 $P.6 $P.d
     return sh !== '';
   }
 
-  // Parse the root shell output (battery / thermal / CPU / memory / load / uptime). The CPU % needs the previous sample, so this runs once per slow read.
   // LONGER USAGE WINDOW. One read measures only 0.5 s: Linux counts CPU time in 10 ms ticks, so a core moves in steps of about 2 % and a short spike decides the number.
   // Every read also hands over the raw /proc/stat counters (p.raw). We keep the last few and measure usage between the newest read and the newest one that is at least
   // 2 s older (about 200 ticks per core, steps of about 0.5 %). Still only real counters, no averaging of rounded numbers and no guessing: the overall % and every core
@@ -1467,6 +1466,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (all === undefined) return p;   // counters went backwards (restart): keep the 0.5 s reading
     return Object.assign({}, p, { cpu: all, cores: (p.cores || []).map((c) => { const w = busyPct(p.raw['cpu' + c.id], base.rows['cpu' + c.id]); return { id: c.id, pct: w !== undefined ? w : c.pct }; }) });
   }
+  // Parse the root shell output (battery / thermal / CPU / memory / load / uptime). The CPU % needs the previous sample, so this runs once per slow read.
   function parseSys(sh, errs) {
 
     const bat = grab(/level:\s*(\d+)/i, sh), st = grab(/status:\s*(\d+)/i, sh), temp = grab(/temperature:\s*(\d+)/i, sh);
