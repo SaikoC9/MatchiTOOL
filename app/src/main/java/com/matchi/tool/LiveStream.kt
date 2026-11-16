@@ -301,12 +301,15 @@ class LiveHub(
 
     private fun newId(): String { val b = ByteArray(12); rnd.nextBytes(b); return b.joinToString("") { "%02x".format(it) } }
 
+    /** A stream with no owner token: it can never be hidden / shown through [setVisible]. Also what the trailing-lambda form `open { true }` means (a lambda after a defaulted `owner` would bind to `owner`). */
+    fun open(allowed: () -> Boolean): LiveStream? = open(allowed, "")
+
     /**
      * A new stream, or null when [maxViewers] are already open. [owner] is the session token (only that session may hide / show the stream).
      * The caller must close the stream (the web server does when the answer ends). The stream starts visible and, when the sampler has a
      * recent reading, its first frame is that reading.
      */
-    fun open(allowed: () -> Boolean, owner: String = ""): LiveStream? {
+    fun open(allowed: () -> Boolean, owner: String): LiveStream? {
         synchronized(lock) {
             if (streams.size >= maxViewers) return null
             var id = newId()
