@@ -33,6 +33,12 @@ class PluginDataTest {
             assertNotNull(p, checkPluginDataPath(p, "foo.js"))
     }
 
+    @Test fun mediaFoldersAreProtectedAtAnyDepth() {
+        for (p in listOf("/sdcard/DCIM/Camera", "/sdcard/Pictures/x", "/storage/emulated/0/Music/a/b"))
+            assertNotNull(p, checkPluginDataPath(p, "foo.js"))
+        assertNull(checkPluginDataPath("/sdcard/Download/foo", "foo.js"))
+    }
+
     @Test fun aPluginCannotEraseAnotherPluginsData() {
         assertNotNull(checkPluginDataPath("/data/local/matchitool/plugin_data/bar", "foo.js"))
         assertNotNull(checkPluginDataPath("/data/local/matchitool/plugin_data/foobar", "foo.js"))
