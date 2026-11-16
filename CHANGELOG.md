@@ -1,4 +1,4 @@
-# MatchiTOOL (unreleased) - Power and efficiency
+# MatchiTOOL 1.4.2 (unreleased) - Power and efficiency
 
 - **Changed, Live Status polling:** a new install starts in Eco (a saved choice is kept). In Normal the live CPU loop reads every 3 s instead of back to back; Fast still reads continuously. The root command text is unchanged.
 - **Changed, fewer repaints:** the Live Status card and window rewrite their markup only when it actually changed.
