@@ -51,6 +51,7 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_log_basket.js" || exit 1
   node "$(dirname "$0")/test_live_poll.js" || exit 1
   node "$(dirname "$0")/test_live_cpu.js" || exit 1
+  node "$(dirname "$0")/test_live_window.js" || exit 1
   node "$(dirname "$0")/test_live_guard.js" || exit 1
   node "$(dirname "$0")/test_at_radio.js" || exit 1
   node "$(dirname "$0")/test_net_tools.js" || exit 1      # Network window, Phase 1: parsers, password never copied, window is read only
