@@ -1667,11 +1667,14 @@ rm -f $P.g $P.4 $P.6 $P.d
       const num = (v) => typeof v === 'number' && Number.isFinite(v);
       const live = cs.filter((c) => isOn(c.id) && num(c.pct));
       const avg = num(M.cpu) ? M.cpu : live.length ? live.reduce((t, c) => t + c.pct, 0) / live.length : undefined;
+      // Auto-zoom: a full pill = the busiest core, but never less than 25 %, so 2 % and 10 % are easy to tell apart on a quiet phone. The real values are unchanged (hover shows them); colours use the real %.
+      const zoom = Math.min(100, Math.max(25, ...live.map((c) => c.pct)));
+      const zoomTxt = zoom < 100 ? ' Zoomed: a full pill is ' + Math.round(zoom) + ' %.' : '';
       const coreTxt = (c) => 'Core ' + c.id + ': ' + (!isOn(c.id) ? 'offline' : num(c.pct) ? c.pct.toFixed(1) + ' %' : 'no reading');
-      const usage = cs.length ? `<div class="liv-cc liv-cu"><div class="liv-cch"><span class="liv-cct">Core usage</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cbars" role="img" aria-label="CPU usage per core. ${cs.map(coreTxt).join('. ')}">${cs.map((c) => {
+      const usage = cs.length ? `<div class="liv-cc liv-cu"><div class="liv-cch"><span class="liv-cct">Core usage</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cbars" role="img" title="${zoom < 100 ? 'Zoomed: a full pill is ' + Math.round(zoom) + ' % CPU' : ''}" aria-label="CPU usage per core.${zoomTxt} ${cs.map(coreTxt).join('. ')}">${cs.map((c) => {
         // Exact value, no minimum height: the fill is the real % of the pill (hover for the number; the CPU tile lists them too). Colours use the CPU tile's own limits (60 / 85 %).
         const on = isOn(c.id), has = on && num(c.pct), p = has ? Math.max(0, Math.min(100, c.pct)) : 0;
-        return `<div class="liv-cw${on ? '' : ' off'}" title="${coreTxt(c)}"><div class="liv-cb">${has && p > 0 ? `<i class="${p >= 85 ? 'h' : p >= 60 ? 'w' : ''}" style="height:${p}%;min-height:2px"></i>` : ''}</div></div>`;
+        return `<div class="liv-cw${on ? '' : ' off'}" title="${coreTxt(c)}"><div class="liv-cb">${has && p > 0 ? `<i class="${p >= 85 ? 'h' : p >= 60 ? 'w' : ''}" style="height:${Math.min(100, 100 * p / zoom)}%;min-height:2px"></i>` : ''}</div></div>`;
       }).join('')}</div></div>` : '';
       const freq = fr.length ? `<div class="liv-cc liv-cq" data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"><div class="liv-cch"><span class="liv-cct">CPU frequency</span><b class="liv-cca">MHz</b></div><div class="liv-cf">${fr.map((f) => {
         // An online core whose speed file could not be read gives 0: show a dash (no reading), never a fake 0 MHz.
