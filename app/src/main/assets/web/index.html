@@ -1443,6 +1443,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const atP = (async () => { if (!needFallback) return; let a = atCache; if (!a.length || Date.now() - atAt >= 60000) { a = await atBatch(['AT+COPS?', 'AT+CSQ', 'AT+CESQ', 'AT+CEREG?']); atCache = a || []; atAt = Date.now(); } atRaw = { cops: a[0] || '', csq: a[1] || '', cesq: a[2] || '', cereg: a[3] || '' }; })();
     await Promise.all([shellP, atP]);
     sysPart = parseSys(sh, errs);
+    if (sysPart && sh) sysPart.cpuAt = Date.now();   // when the per-core numbers were really read (the cards dim when this gets old)
     last = build();
     return sh !== '';
   }
@@ -1487,7 +1488,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   function build() {
     const zte = zteData, S = sysPart || { zones: [], errs: [] }, tele = teleCache, zOk = zteOk();
     const raw = zOk ? { cops: '', csq: '', cesq: '', cereg: '' } : atRaw;
-    const { bat, st, temp, zones, cpu, cores, freqs, mem, load, upSec } = S, errs = S.errs;
+    const { bat, st, temp, zones, cpu, cores, freqs, mem, load, upSec, cpuAt } = S, errs = S.errs;
     const mz = zones.filter((z) => /nr|mdm|modem/i.test(z.t));
 
     const cm = raw.cops.match(/\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)/);
@@ -1557,7 +1558,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     return {
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       at: Date.now(), lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
-      batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, freqs, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
+      batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, freqs, cpuAt, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
       // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
       rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
       ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
@@ -1645,15 +1646,20 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (!cs.length && !fr.length) return '';
       const isOn = (id) => { const f = fr.find((x) => x.id === id); return !f || f.on; };
       // Header number = the CPU tile's own overall busy % (same two /proc/stat reads); only if that is missing, the mean of the cores that have a real reading. Never a guess.
-      const live = cs.filter((c) => isOn(c.id) && c.pct !== undefined);
-      const avg = M.cpu !== undefined ? M.cpu : live.length ? live.reduce((t, c) => t + c.pct, 0) / live.length : undefined;
-      const usage = cs.length ? `<div class="liv-cc liv-cu"><div class="liv-cch"><span class="liv-cct">Core usage</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cbars" role="img" aria-label="CPU usage per core">${cs.map((c) => {
-        const on = isOn(c.id), has = on && c.pct !== undefined, p = has ? Math.max(0, Math.min(100, c.pct)) : 0;
-        return `<div class="liv-cb${on ? '' : ' off'}" title="Core ${c.id}: ${on ? (c.pct === undefined ? 'no reading' : Math.round(c.pct) + ' %') : 'offline'}">${has ? `<i class="${p > 80 ? 'h' : p > 50 ? 'w' : ''}" style="height:${Math.max(p, 6)}%"></i>` : ''}</div>`;
+      const num = (v) => typeof v === 'number' && Number.isFinite(v);
+      const live = cs.filter((c) => isOn(c.id) && num(c.pct));
+      const avg = num(M.cpu) ? M.cpu : live.length ? live.reduce((t, c) => t + c.pct, 0) / live.length : undefined;
+      const coreTxt = (c) => 'Core ' + c.id + ': ' + (!isOn(c.id) ? 'offline' : num(c.pct) ? c.pct.toFixed(1) + ' %' : 'no reading');
+      const usage = cs.length ? `<div class="liv-cc liv-cu"><div class="liv-cch"><span class="liv-cct">Core usage</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cbars" role="img" aria-label="CPU usage per core. ${cs.map(coreTxt).join('. ')}">${cs.map((c) => {
+        // Exact value, no minimum height: the fill is the real % of the pill (hover for the number; the CPU tile lists them too). Colours use the CPU tile's own limits (60 / 85 %).
+        const on = isOn(c.id), has = on && num(c.pct), p = has ? Math.max(0, Math.min(100, c.pct)) : 0;
+        return `<div class="liv-cw${on ? '' : ' off'}" title="${coreTxt(c)}"><div class="liv-cb">${has && p > 0 ? `<i class="${p >= 85 ? 'h' : p >= 60 ? 'w' : ''}" style="height:${p}%;min-height:2px"></i>` : ''}</div></div>`;
       }).join('')}</div></div>` : '';
       const freq = fr.length ? `<div class="liv-cc liv-cq" data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"><div class="liv-cch"><span class="liv-cct">CPU frequency</span><b class="liv-cca">MHz</b></div><div class="liv-cf">${fr.map((f) => {
-        const mhz = f.on ? Math.round(f.cur / 1000) : 0, mx = Math.round(f.max / 1000), w = f.on && mx > 0 ? Math.max(0, Math.min(100, 100 * mhz / mx)) : 0;
-        return `<div class="liv-cfi${f.on ? '' : ' off'}" title="Core ${f.id}: ${f.on ? mhz + ' of ' + mx + ' MHz' : 'offline'}">${f.on ? mhz : 'off'}<span class="liv-cfm"><i style="width:${w}%"></i></span></div>`;
+        // An online core whose speed file could not be read gives 0: show a dash (no reading), never a fake 0 MHz.
+        const mhz = f.on && num(f.cur) ? Math.round(f.cur / 1000) : 0, mx = num(f.max) ? Math.round(f.max / 1000) : 0, ok = f.on && mhz > 0;
+        const w = ok && mx > 0 ? Math.max(0, Math.min(100, 100 * mhz / mx)) : 0;
+        return `<div class="liv-cfi${f.on ? '' : ' off'}" title="Core ${f.id}: ${!f.on ? 'offline' : ok ? mhz + (mx > 0 ? ' of ' + mx : '') + ' MHz' : 'no reading'}">${!f.on ? 'off' : ok ? mhz : '–'}<span class="liv-cfm"><i style="width:${w}%"></i></span></div>`;
       }).join('')}</div></div>` : '';
       return `<div class="liv-tiles liv-cards">${usage}${freq}</div>`;
     })();
@@ -1718,8 +1724,8 @@ rm -f $P.g $P.4 $P.6 $P.d
 #liv_cpu_modal .modal #lcpu_remove{background:#162135!important;border:1px solid #2a3a55!important}
 .liv-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--mut);font-weight:650}.liv-chips{display:inline-flex;gap:4px}.liv-chip{font:inherit;font-weight:750;padding:2px 9px;border-radius:999px;border:1px solid var(--bd);background:#0a1626;color:var(--mut);cursor:pointer}.liv-chip[aria-pressed=true]{background:#168cff22;border-color:#168cff66;color:#55b6ff}.liv-bp{font:inherit;padding:1px 4px;border-radius:6px;border:1px solid var(--bd);background:#0a1626;color:inherit}.liv-spark{margin-top:6px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 2px}.liv-spark svg{display:block}
 .liv-cards{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}#home .liv-cards{display:flex!important;flex-wrap:wrap;gap:8px!important}.liv-cc{display:flex;flex-direction:column;min-width:0;overflow:hidden;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:7px 10px 8px}.liv-cu{flex:none}.liv-cq{flex:1 1 168px;max-width:226px}.liv-cch{display:flex;justify-content:space-between;align-items:baseline;gap:14px;margin-bottom:6px;font-size:10.5px;white-space:nowrap}.liv-cct{color:var(--mut);font-weight:750;overflow:hidden;text-overflow:ellipsis}.liv-cca{color:var(--acc2);font-weight:750;font-variant-numeric:tabular-nums}
-.liv-cbars{display:flex;justify-content:center;align-items:center;gap:7px;flex:1;min-height:28px}.liv-cb{width:10px;height:28px;display:flex;align-items:flex-end;border-radius:999px;background:#16283f;overflow:hidden}.liv-cb i{display:block;width:100%;border-radius:999px;background:#55b6ff;transition:height .5s}.liv-cb i.w{background:#ffb84d}.liv-cb i.h{background:#ff647c}.liv-cb.off{background:repeating-linear-gradient(135deg,#102036 0 3px,#0b1727 3px 6px);opacity:.7}
-.liv-cf{display:grid;grid-template-columns:repeat(4,minmax(30px,44px));gap:4px 6px;justify-content:center}.liv-cfi{min-width:0;text-align:center;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;line-height:1.3;color:#9fc8ff}.liv-cfi.off{color:var(--mut);opacity:.6}.liv-cfm{display:block;height:2px;border-radius:2px;background:#16283f;margin-top:2px;overflow:hidden}.liv-cfm i{display:block;height:100%;background:#55b6ff;transition:width .5s}
+.liv-cbars{display:flex;justify-content:center;align-items:center;gap:7px;flex:1;min-height:28px}.liv-cw{display:flex;width:10px}.liv-cb{width:10px;height:28px;display:flex;align-items:flex-end;border-radius:999px;background:#16283f;overflow:hidden}.liv-cb i{display:block;width:100%;border-radius:999px;background:#55b6ff;transition:height .5s}.liv-cb i.w{background:#ffb84d}.liv-cb i.h{background:#ff647c}.liv-cw.off .liv-cb{background:repeating-linear-gradient(135deg,#102036 0 3px,#0b1727 3px 6px);opacity:.7}
+.liv-cf{display:grid;grid-template-columns:repeat(4,minmax(30px,44px));gap:4px 6px;justify-content:center}.liv-cfi{min-width:0;text-align:center;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;line-height:1.3;color:#9fc8ff}.liv-cfi.off{color:var(--mut);opacity:.6}.liv-cfm{display:block;height:2px;border-radius:2px;background:#16283f;margin-top:2px;overflow:hidden}.liv-cfm i{display:block;height:100%;background:#55b6ff;transition:width .5s}.liv-cards.stale .liv-cc{opacity:.45}.liv-cc{transition:opacity .3s}
 @media(prefers-reduced-motion:reduce){.liv-pulse{animation:none}}`;
   document.head.appendChild(css);
 
@@ -1769,6 +1775,8 @@ rm -f $P.g $P.4 $P.6 $P.d
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
       if (w) w.textContent = rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t;
       if (p) p.classList.toggle('off', stale || cs >= 0 || !!rb);
+      const old = !!(last && last.cpuAt && Date.now() - last.cpuAt > 45000);   // no real per-core read for 45 s (the slowest normal loop is 45 s in Eco, and the CPU loop is faster): the numbers are old, so dim them
+      for (const cc of root.querySelectorAll('.liv-cards')) cc.classList.toggle('stale', old);
     }
   }
   // LIVE CPU loop (third loop): ONLY the per-core usage and the per-core speed, read straight from /proc/stat (two reads 0.5 s apart in one root call,
@@ -1789,7 +1797,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       const r = await api('/api/shell', { method: 'POST', quiet: true, body: JSON.stringify({ timeout: 6000, cmd: CPU_LIVE_CMD }) });
       const p = parseSys(String((r && r.content) || ''), []);
       if (p && sysPart && (p.cpu !== undefined || (p.freqs && p.freqs.length))) {
-        sysPart = Object.assign({}, sysPart, { cpu: p.cpu !== undefined ? p.cpu : sysPart.cpu, cores: p.cores && p.cores.length ? p.cores : sysPart.cores, freqs: p.freqs && p.freqs.length ? p.freqs : sysPart.freqs });
+        sysPart = Object.assign({}, sysPart, { cpu: p.cpu !== undefined ? p.cpu : sysPart.cpu, cores: p.cores && p.cores.length ? p.cores : sysPart.cores, freqs: p.freqs && p.freqs.length ? p.freqs : sysPart.freqs, cpuAt: Date.now() });
         failC = 0; last = build(); paint();
       } else failC++;
     } catch (e) { failC++; }
