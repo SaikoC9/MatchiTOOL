@@ -22,7 +22,7 @@
   function icon(k) {
     if (!document.createElementNS) return document.createTextNode(k.glyph);
     const svg = document.createElementNS(NS, 'svg');
-    for (const [n, v] of [['width', 12], ['height', 12], ['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', 2], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(n, String(v));
+    for (const [n, v] of [['width', 10], ['height', 10], ['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', 2], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(n, String(v));
     for (const [tag, at] of k.shapes) { const e = document.createElementNS(NS, tag); for (const n of Object.keys(at)) e.setAttribute(n, String(at[n])); svg.appendChild(e); }
     return svg;
   }
@@ -39,9 +39,9 @@
     styled = true;
     const s = document.createElement('style');
     s.textContent = `.mt-tip{display:block;margin:2px 0}
-.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;width:auto;height:22px;min-width:0;min-height:0;padding:0 10px 0 6px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 11px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
-.mt-tip-btn svg{display:block;flex:none;width:13px;height:13px}
-button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:22px!important;min-width:0!important;min-height:0!important;padding:0 10px 0 6px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:11px!important;font-weight:600!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
+.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;box-sizing:border-box;width:auto;height:17px;min-width:0;min-height:0;padding:0 7px 0 4px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 10px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.mt-tip-btn svg{display:block;flex:none;width:10px!important;height:10px!important}
+button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:17px!important;min-width:0!important;min-height:0!important;padding:0 7px 0 4px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:10px!important;font-weight:600!important;gap:3px!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
