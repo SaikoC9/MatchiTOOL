@@ -23,6 +23,14 @@ class GatewayProxyTest {
             assertNull("must refuse: $bad", GatewayProxy.proxyPath(bad))
     }
 
+    @Test fun setEndpointIsRecognisedWhateverTheSpelling() {
+        // A trailing slash passes safePath, so the proxy's "is this a set call" check must not depend on how the path ends.
+        for (p in listOf("/goform/goform_set_cmd_process", "/goform/goform_set_cmd_process/", "/goform/./goform_set_cmd_process", "/GOFORM/GOFORM_SET_CMD_PROCESS", "/goform/goform_set_cmd_process.x"))
+            assertTrue("must count as the set endpoint: $p", GatewayProxy.safePath(p) != null && GatewayProxy.isSetPath(p))
+        assertFalse(GatewayProxy.isSetPath("/goform/goform_get_cmd_process"))
+        assertFalse(GatewayProxy.isSetPath("/index.html"))
+    }
+
     @Test fun rawPathsNeedOneLeadingSlash() {
         assertEquals("/a/b", GatewayProxy.safePath("/a/b"))
         for (bad in listOf("a/b", "//evil.com/x", "/", "http://x", "/..", "/a//b", "/a\u0000b"))

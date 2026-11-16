@@ -26,6 +26,12 @@ object GatewayProxy {
     /** The router path for an /api/goform/NAME request, or null when NAME is not one of [GOFORM]. */
     fun goformPath(name: String): String? = if (name in GOFORM) "/goform/$name" else null
 
+    /**
+     * True when [path] can reach the router's set endpoint. A substring match, not endsWith: safePath allows a trailing slash and other
+     * suffixes ("/goform/goform_set_cmd_process/"), and a router web server may route those to the same handler.
+     */
+    fun isSetPath(path: String): Boolean = path.contains("goform_set_cmd_process", ignoreCase = true)
+
     /** The router path for an /api/proxy/REST request ("REST" is everything after /api/proxy/), or null when it is unsafe. */
     fun proxyPath(rest: String): String? = safePath("/$rest")
 

@@ -87,8 +87,11 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         if (!cmd.startsWith("AT", ignoreCase = true) || cmd.length > 300 || cmd.any { it == '\n' || it == '\r' || it == '\u0000' })
             throw IllegalArgumentException("AT command must start with AT")
         // Read-only queries (polled by Live Status / AT Radio) skip the gate; every other AT command can change the modem.
-        if (!RootGate.isReadOnlyAt(cmd)) rootGate(s)?.let { return@run it }
-        auditBusy(s.remoteIpAddress ?: "?", "at")
+        val readOnly = RootGate.isReadOnlyAt(cmd)
+        if (!readOnly) rootGate(s)?.let { return@run it }
+        // Reads are polled constantly (one line per minute is enough). A WRITE (AT+CFUN, IMEI, NV) gets its own line: with auditBusy it would
+        // almost always share the minute that a poll had already used and leave no trace. The line holds only a short hash and the length.
+        if (readOnly) auditBusy(s.remoteIpAddress ?: "?", "at") else auditShell(s.remoteIpAddress ?: "?", cmd, "at-write")
         val q = "'" + cmd.replace("'", "'\\''") + "'"
         val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
@@ -125,9 +128,11 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
             cmds.add(cmd)
         }
         // Same rule as /api/at: only a batch of pure read commands may skip the fresh-sign-in / HTTP-confirm gate.
-        if (!cmds.all { RootGate.isReadOnlyAt(it) }) rootGate(s)?.let { return@run it }
+        val allReads = cmds.all { RootGate.isReadOnlyAt(it) }
+        if (!allReads) rootGate(s)?.let { return@run it }
+        // Same rule as /api/at: an all-read batch is logged once a minute, a batch with any write gets its own line.
+        if (allReads) auditBusy(s.remoteIpAddress ?: "?", "at-batch") else auditShell(s.remoteIpAddress ?: "?", cmds.joinToString(";"), "at-batch-write")
         // A random marker per request: a modem reply containing "##" or a look-alike marker cannot cut or forge results.
-        auditBusy(s.remoteIpAddress ?: "?", "at-batch")
         val marker = AtBatch.newMarker()
         val r = RootShell.run(ctx, AtBatch.script(sendat, slot, cmds, marker), 20000)
         val results = JSONArray(AtBatch.parse(r.content, marker, cmds.size))

@@ -27,7 +27,7 @@ TABLE = {
   ('POST', '/api/security/http'): ('OWN', 'must stay reachable when HTTPS failed; needs a young sign-in and the password again'),
   ('GET',  '/api/ping'): ('OPEN', ''),
   ('GET',  '/api/diagnostics'): ('OPEN', ''),
-  ('GET',  '/api/screen/frame'): ('OPEN', ''),
+  ('GET',  '/api/screen/frame'): ('GATE', 'a screenshot can show codes and passwords: same gate as /api/screen/input'),
   ('POST', '/api/screen/input'): ('GATE', ''),
   ('GET',  '/api/usb/status'): ('OPEN', ''),
   ('POST', '/api/usb/control'): ('GATE', ''),
@@ -83,8 +83,8 @@ TABLE = {
   ('POST', '/api/net/lan-applied'): ('GATE', 'points the router client at the new address named in the pending IP-change note; checks the router afterwards'),
   ('GET',  '/api/goform/'): ('PARTIAL', 'same branch as the POST: a router "get" stays open'),
   ('POST', '/api/goform/'): ('PARTIAL', 'router "set" through the saved gateway; path checked by GatewayProxy; a goformId that is not in NetGoform.OPEN_SET needs the gate'),
-  ('GET',  '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on goform_set_cmd_process, where NetGoform.needsGate applies'),
-  ('POST', '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on goform_set_cmd_process, where NetGoform.needsGate applies'),
+  ('GET',  '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on a path containing goform_set_cmd_process (GatewayProxy.isSetPath), where NetGoform.needsGate applies'),
+  ('POST', '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on a path containing goform_set_cmd_process (GatewayProxy.isSetPath), where NetGoform.needsGate applies'),
   ('GET',  '/api/get_cookie'): ('GATE', ''),
   ('POST', '/api/set_cookie'): ('GATE', ''),
   ('POST', '/api/zte/page'): ('OPEN', ''),
@@ -156,6 +156,21 @@ for fname, head, paths, methods, body in branches():
             if ('RootShell.run(' in code or 'pluginSweep(' in code) and 'gated' not in code:
                 errors.append(f'{fname}: /api/plugins/data runs root outside the gated decision: {l.strip()}')
         if 'refusedSweep()' not in body: errors.append(f'{fname}: /api/plugins/data must answer a refused request with refusedSweep(), not an error')
+
+# AT writes must be audited one by one: auditBusy keeps one line a minute per kind, and the Live / AT Radio polls use that minute up, so a write
+# logged with auditBusy alone (the old /api/at and /api/at/batch) left no trace.
+root_src = (D / 'WebRoutesRoot.kt').read_text()
+for route, kind in (('/api/at"', 'at-write'), ('/api/at/batch"', 'at-batch-write')):
+    i = root_src.find('uri == "' + route)
+    j = root_src.find('\n    uri == "', i + 10)
+    seg = root_src[i:j if j > 0 else len(root_src)]
+    if 'auditShell(' not in seg or '"' + kind + '"' not in seg:
+        errors.append(f'WebRoutesRoot.kt: {route[:-1]} must write its own audit line (kind "{kind}") for a non-read AT command, not only auditBusy')
+
+# The router proxy must decide "set call" with GatewayProxy.isSetPath, not an endsWith that a trailing slash gets around.
+router_src = (D / 'WebRoutesRouter.kt').read_text()
+if 'GatewayProxy.isSetPath(path)' not in router_src or 'endsWith("/goform_set_cmd_process")' in router_src:
+    errors.append('WebRoutesRouter.kt: /api/proxy/ must use GatewayProxy.isSetPath(path) to find the router set endpoint')
 
 # Plain-HTTP and sign-in age rules live in one function.
 ws = (D / 'WebServer.kt').read_text()

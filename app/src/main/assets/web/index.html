@@ -3754,7 +3754,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   const COARSE = !!(window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
   const auto = { level: COARSE ? 1 : 3, ema: 45, n: 0, up: 0 };
   const KEYS = { back: 4, home: 3, recents: 187, power: 26, volup: 24, voldown: 25 };
-  const st = { run: false, loopId: 0, W: 0, H: 0, quality: 'auto', frames: 0, t0: 0, fps: 0, fails: 0, paused: false, chain: Promise.resolve(), lastWheel: 0, seq: 0, mode: '', lastMsg: 0, ctx: null, ctxFor: null };
+  const st = { run: false, loopId: 0, W: 0, H: 0, quality: 'auto', frames: 0, t0: 0, fps: 0, fails: 0, paused: false, chain: Promise.resolve(), lastWheel: 0, seq: 0, mode: '', lastMsg: 0, ctx: null, ctxFor: null, insecureOk: false };
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const setMsg = (t, bad) => { const m = $('matchi_scr_msg'); if (m) { m.textContent = t; m.style.color = bad ? '#ff647c' : ''; } };
@@ -3781,7 +3781,18 @@ rm -rf "${DEVICE_TMP_DIR}"
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 12000);
     try {
-      const r = await fetch('/api/screen/frame?scale=' + p.scale + '&q=' + p.q + '&since=' + st.seq + '&t=' + Date.now(), { headers: { 'x-token': TOKEN }, cache: 'no-store', signal: ctl.signal });
+      // The host gates this route like the input route (plain HTTP needs the page's confirmation, the sign-in must be younger than 4 h).
+      const url = '/api/screen/frame?scale=' + p.scale + '&q=' + p.q + '&since=' + st.seq + '&t=' + Date.now();
+      const go = () => fetch(url, { headers: st.insecureOk ? { 'x-token': TOKEN, 'x-insecure-ok': '1' } : { 'x-token': TOKEN }, cache: 'no-store', signal: ctl.signal });
+      let r = await go();
+      if (r.status === 403 && !st.insecureOk) {
+        let d = {}; try { d = await r.clone().json(); } catch (_) { /* not JSON */ }
+        if (d.code === 'insecure') {
+          if (!(await insecureOk())) throw new Error('Screen view cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
+          st.insecureOk = true;
+          r = await go();
+        }
+      }
       if (r.status === 204) return { same: true };
       if (!r.ok) {
         let m = 'HTTP ' + r.status;

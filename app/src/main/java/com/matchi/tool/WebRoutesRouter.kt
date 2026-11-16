@@ -69,7 +69,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val p = GatewayProxy.params(gatewayParams(s)) ?: throw IllegalArgumentException("too many or too long parameters")
         // A POST always needs the gate. A GET stays open for read-only plugins EXCEPT on the router's set endpoint: ZTE firmware can take a set call as a
         // GET, which skipped the goformId list of /api/zte and /api/goform. The same rule applies there (NetGoform.needsGate; no goformId = gated).
-        val setPath = path.endsWith("/goform_set_cmd_process")
+        val setPath = GatewayProxy.isSetPath(path)
         if (s.method == Method.POST || (setPath && NetGoform.needsGate(p))) rootGate(s)?.let { return@run it }
         val r = ZteClient.proxy(ctx, s.method.name, path, p)
         harden(newFixedLengthResponse(Response.Status.OK, "text/plain; charset=utf-8", r.body)).also { it.addHeader("X-Router-Status", r.code.toString()) }

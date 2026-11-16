@@ -257,7 +257,9 @@ internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = wh
         json(Response.Status.OK, JSONObject().put("ok", true).put("version", v.versionName ?: "").put("page", pageTag.trim('"')))
     }
     uri == "/api/diagnostics" && s.method == Method.GET -> diagnostics()
-    uri == "/api/screen/frame" && s.method == Method.GET -> screenFrame(s)
+    // A screenshot can show one-time codes, passwords and messages, so it needs the same gate as the input route: no frames over plain HTTP unless the owner
+    // allowed it, and only with a sign-in younger than 4 h. The page's Screen tool answers the "insecure" / "reauth" replies (see fetchFrame in index.html).
+    uri == "/api/screen/frame" && s.method == Method.GET -> rootGate(s) ?: screenFrame(s)
     uri == "/api/screen/input" && s.method == Method.POST -> rootGate(s) ?: run { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
     uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
     uri == "/api/usb/control" && s.method == Method.POST -> rootGate(s) ?: run {
