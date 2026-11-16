@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   - the last viewer leaving does not stop the root reader at once but after [LiveTiming.graceMs] (a page reload or a quick tab switch
  *     does not restart `su`);
  *   - a viewer can say its tab is hidden ([LiveHub.setVisible]); with no visible viewer left the reader stops after the same grace time;
- *   - a new (or visible again) viewer gets the last reading at once ([LiveStream.replay]), as long as it is younger than [LiveTiming.cacheMaxMs].
+ *   - a new (or visible again) viewer gets the last reading at once ([LiveStream.replay]), as long as it is younger than [LiveTiming.cacheMaxMs] (5 s).
  */
 
 /** Quotes [s] as one JSON string on one line (a raw line break would end a server-sent event early). */
@@ -123,7 +123,7 @@ data class LiveTiming(
     val maxLifeMs: Long = 20L * 60L * 1000L,        // every stream ends by itself; the page opens a new one (same gate check again)
     val allowedEveryMs: Long = 5_000,               // how often the session is looked at again while streaming
     val graceMs: Long = 10_000,                     // the root reader keeps running this long after the last visible viewer left (0 = stop at once)
-    val cacheMaxMs: Long = 60_000                   // the last reading is sent to a new / visible-again viewer only when it is younger than this
+    val cacheMaxMs: Long = 5_000                    // the last reading is sent to a new / visible-again viewer only when it is younger than this (the page shows it as live, and the reader stops 10 s after the last viewer, so an older one is only ever stale)
 )
 
 /**
