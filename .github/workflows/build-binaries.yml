@@ -1,0 +1,123 @@
+name: Build jq and curl (arm64 Android)
+
+# Builds jq and curl from pinned upstream release tags with the Android NDK, so the
+# executables in app/src/main/assets/bin have a source and a recipe (docs/BUILD_BINARIES.md).
+# Manual only: run it, download the artifact, review it, copy the files into assets/bin,
+# then write the printed SHA-256 values into NOTICE.md and docs/BINARIES.md.
+on:
+  workflow_dispatch:
+    inputs:
+      jq_tag:
+        description: jqlang/jq tag
+        default: jq-1.7.1
+      curl_tag:
+        description: curl/curl tag
+        default: curl-8_11_0
+      openssl_tag:
+        description: openssl/openssl tag (statically linked into curl)
+        default: openssl-3.0.15
+
+permissions:
+  contents: read
+
+env:
+  API: "26"            # same minSdk as the app (Android 8.0)
+  TRIPLE: aarch64-linux-android
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool make perl file
+
+      - name: NDK toolchain
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          [ -d "$NDK" ] || { echo "no NDK on this runner"; exit 1; }
+          TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "TC=$TC" >> "$GITHUB_ENV"
+          echo "$TC/bin" >> "$GITHUB_PATH"
+          echo "CC=$TC/bin/${TRIPLE}${API}-clang" >> "$GITHUB_ENV"
+          echo "AR=$TC/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=$TC/bin/llvm-ranlib" >> "$GITHUB_ENV"
+          echo "STRIP=$TC/bin/llvm-strip" >> "$GITHUB_ENV"
+          echo "NDK=$NDK" >> "$GITHUB_ENV"
+
+      # ---------- jq (static) ----------
+      - name: Get jq source
+        uses: actions/checkout@v6
+        with:
+          repository: jqlang/jq
+          ref: ${{ inputs.jq_tag }}
+          submodules: recursive
+          path: jq-src
+      - name: Build jq
+        run: |
+          cd jq-src
+          autoreconf -fi
+          ./configure --host=$TRIPLE --disable-docs --disable-maintainer-mode \
+            --with-oniguruma=builtin --enable-static --enable-all-static --disable-shared \
+            LDFLAGS="-static"
+          make -j"$(nproc)" LDFLAGS="-all-static"
+          $STRIP -o ../jq jq
+          cd ..; file jq
+
+      # ---------- OpenSSL (static, only used to link curl) ----------
+      - name: Get OpenSSL source
+        uses: actions/checkout@v6
+        with:
+          repository: openssl/openssl
+          ref: ${{ inputs.openssl_tag }}
+          path: openssl-src
+      - name: Build OpenSSL
+        run: |
+          cd openssl-src
+          ./Configure android-arm64 -D__ANDROID_API__=$API no-shared no-tests no-docs no-apps \
+            --prefix="$PWD/../ossl" --openssldir=/system/etc/security
+          make -j"$(nproc)" build_libs
+          make install_dev
+
+      # ---------- curl ----------
+      - name: Get curl source
+        uses: actions/checkout@v6
+        with:
+          repository: curl/curl
+          ref: ${{ inputs.curl_tag }}
+          path: curl-src
+      - name: Build curl
+        run: |
+          cd curl-src
+          autoreconf -fi
+          ./configure --host=$TRIPLE --disable-shared --enable-static \
+            --with-openssl="$PWD/../ossl" --with-ca-path=/system/etc/security/cacerts \
+            --without-libpsl --without-brotli --without-zstd --without-nghttp2 --without-libidn2 \
+            --disable-ldap --disable-ldaps --disable-manual --disable-docs
+          make -j"$(nproc)" curl_LDFLAGS="-all-static" || make -j"$(nproc)"
+          $STRIP -o ../curl src/curl
+          cd ..; file curl
+
+      - name: Check and record
+        run: |
+          mkdir out; cp jq curl out/
+          for f in jq curl; do
+            file "out/$f" | grep -q "ARM aarch64" || { echo "$f is not arm64"; exit 1; }
+          done
+          echo "== dynamic libraries needed (curl may only need bionic: libc, libm, libdl) =="
+          "$TC/bin/llvm-readelf" -d out/curl | grep NEEDED || true
+          "$TC/bin/llvm-readelf" -d out/jq   | grep NEEDED || echo "jq: static"
+          {
+            echo "## Built binaries"
+            echo "| file | source | SHA-256 |"
+            echo "|---|---|---|"
+            echo "| jq | jqlang/jq @ ${{ inputs.jq_tag }} | \`$(sha256sum out/jq | cut -d' ' -f1)\` |"
+            echo "| curl | curl/curl @ ${{ inputs.curl_tag }} + OpenSSL @ ${{ inputs.openssl_tag }} | \`$(sha256sum out/curl | cut -d' ' -f1)\` |"
+            echo
+            echo "NDK: $(basename "$NDK"), API $API"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum out/* > out/SHA256SUMS
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: matchitool-binaries-arm64
+          path: out/*

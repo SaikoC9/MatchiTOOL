@@ -1,0 +1,39 @@
+name: Build sendat (arm64 Android)
+
+# Builds tools/sendat (stdlib-only Go) into a static arm64 executable. Manual only, like build-binaries.yml:
+# run it, download the artifact, test on the device, copy it to app/src/main/assets/bin/sendat, then write the
+# printed SHA-256 into NOTICE.md and docs/BINARIES.md (scripts/validate.sh checks it).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.8"
+      - name: Test
+        working-directory: tools/sendat
+        run: go vet ./... && go test ./...
+      - name: Build
+        working-directory: tools/sendat
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          go build -trimpath -ldflags "-s -w" -o ../../sendat .
+          cd ../..; file sendat | grep -q "ARM aarch64" || { echo "not arm64"; exit 1; }
+          sha256sum sendat | tee SHA256SUMS
+          { echo "## sendat"; echo "\`$(sha256sum sendat | cut -d' ' -f1)\`"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: matchitool-sendat-arm64
+          path: |
+            sendat
+            SHA256SUMS
