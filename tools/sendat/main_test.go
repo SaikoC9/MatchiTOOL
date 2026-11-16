@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"syscall"
+	"testing"
+)
 
 func TestComplete(t *testing.T) {
 	cases := []struct {
@@ -26,5 +31,20 @@ func TestClean(t *testing.T) {
 	got := clean("AT+CESQ\r\r\n+CESQ: 99,99\r\n\r\nOK\r\n", "AT+CESQ")
 	if got != "+CESQ: 99,99\nOK" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestWouldBlockAndStage(t *testing.T) {
+	for _, e := range []error{syscall.EAGAIN, syscall.EINTR, syscall.ENODATA} {
+		if !wouldBlock(e) {
+			t.Errorf("%v must count as \"nothing to read yet\"", e)
+		}
+	}
+	if wouldBlock(syscall.EIO) || wouldBlock(syscall.EACCES) {
+		t.Error("real errors must not be swallowed")
+	}
+	se := &stageErr{"read", syscall.EIO}
+	if !strings.HasPrefix(se.Error(), "read failed:") || !errors.Is(se, syscall.EIO) {
+		t.Errorf("stage error text/unwrap wrong: %v", se)
 	}
 }

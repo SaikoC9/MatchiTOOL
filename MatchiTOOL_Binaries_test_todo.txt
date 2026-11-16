@@ -32,12 +32,28 @@ ZREQ SWAP (2026-11-17)
 [OPEN] Source of this build is not in the repo: add tools/zreq/{go.mod,main.go} + a workflow, then rebuild and compare the hash.
 [RISK] Plugins that called zreq with no -pwd relied on the old default password; they now get no sign-in.
 
-NEXT (waiting on the user's output)
- 0. Test ZQ-1 (zreq on the F50, after installing the zip).
- 1. Test CA-1 (system certs as one bundle) -> decides the curl fix.
- 2. Test AT-1 (who holds the stty_nr ports, permissions, rild/phoneserver, props).
- 3. After the results: curl fix (bundle in app + CURL_CA_BUNDLE, or rebuild curl with --with-ca-bundle),
-    sendat probe reports the failing stage and pins a port in /data/local/matchitool/sendat.conf.
+RESULTS 2026-11-17 (ZQ-1, CA-1, AT-1 run on the F50)
+[PASS] ZQ-1 zreq: hash 5fd16c5b... matches; "-version" = zreq 1.0 (MatchiTOOL).
+[OPEN] ZQ-1 no-password call got "connection refused" on 192.168.0.1:80, so it never reached a sign-in. It does NOT prove
+       "no password = no sign-in". Needs the router web port and the password test (PW was empty, signed-in test skipped).
+[PASS] CA-1 the 125 system certs joined into one PEM: curl https://example.com = 200 with no -k. The device store is complete;
+       the failure was only OpenSSL 3 not reading Android's hashed cacerts folder.
+[PASS] CA-1 cacert.pem downloaded earlier is byte-identical to curl.se (SHA-256 427c0642...8497285). Now trusted, but not needed.
+[CAUSE FOUND] sendat: stty_nr* are Unisoc sipc ports held by urild (RIL), engpc and cplog_svc. A non-blocking read with nothing
+       to read most likely returns ENODATA there (not EAGAIN); sendat treated it as fatal, so every port "failed". Not yet proven.
+[NOTE] No old sendat backup exists: /data/local/matchitool/bin holds only the 587-byte curl wrapper.
+
+DONE IN CODE (2026-11-17)
+ - Plugin curl wrapper: sets CURL_CA_BUNDLE to a PEM built from /apex/com.android.conscrypt/cacerts (else /system/etc/security/cacerts),
+   cached at /data/local/matchitool/bin/cacert.pem. A caller's own CURL_CA_BUNDLE/SSL_CERT_FILE wins. (web-src/plugin-host-api.js)
+ - sendat: ENODATA counts as "nothing to read yet"; errors name the stage (open/write/read); stty_nr0/1 added to the guess list.
+   Test added. Needs the build-sendat workflow, then copy the binary to assets/bin/sendat and update the hashes.
+
+NEXT
+ 1. Rebuild sendat (workflow), install, run: sendat -probe ; sendat -n 0 -c AT ; sendat -n 1 -c AT
+ 2. Test curl through the wrapper: /data/local/matchitool/bin/curl -sS -o /dev/null -w "%{http_code}\n" https://example.com
+ 3. zreq: find the router web port (ss/netstat or how RouterHost reaches it), then retest ZQ-1 with and without PW.
+ 4. Pin the answering ports in /data/local/matchitool/sendat.conf.
 
 DONE-WHEN
  - curl https://example.com = 200 with no -k, called the way plugins call it.

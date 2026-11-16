@@ -35,8 +35,8 @@ const (
 
 // Guess list, per SIM slot. Verify with -probe on the real device, then pin the answer in sendat.conf.
 var defaultDevices = map[int][]string{
-	0: {"/dev/stty_lte0", "/dev/smd11", "/dev/smd7", "/dev/ttyUSB2"},
-	1: {"/dev/stty_lte1", "/dev/smd8", "/dev/ttyUSB3"},
+	0: {"/dev/stty_lte0", "/dev/smd11", "/dev/smd7", "/dev/ttyUSB2", "/dev/stty_nr0"},
+	1: {"/dev/stty_lte1", "/dev/smd8", "/dev/ttyUSB3", "/dev/stty_nr1"},
 }
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -159,7 +159,7 @@ func runProbe(out *os.File) int {
 		raw, status, err := sendOn(p, "AT", 2*time.Second)
 		switch {
 		case err != nil:
-			fmt.Fprintf(out, "%-18s open failed: %v\n", p, err)
+			fmt.Fprintf(out, "%-18s %v\n", p, err)
 		case status == statusOK:
 			found++
 			fmt.Fprintf(out, "%-18s ANSWERS (OK)\n", p)
@@ -176,6 +176,21 @@ func runProbe(out *os.File) int {
 }
 
 // ---------- AT exchange ----------
+
+// stageErr says which step of the exchange failed, so "open", "write" and "read" are no longer one message.
+type stageErr struct {
+	stage string
+	err   error
+}
+
+func (e *stageErr) Error() string { return e.stage + " failed: " + e.err.Error() }
+func (e *stageErr) Unwrap() error { return e.err }
+
+// wouldBlock: a non-blocking read with nothing to read. Unisoc sipc ports (/dev/stty_nr*) report this as ENODATA
+// instead of EAGAIN; treating it as a fatal error made every port look dead on the F50 (probe, 16 Nov 2026).
+func wouldBlock(err error) bool {
+	return err == syscall.EAGAIN || err == syscall.EINTR || err == syscall.ENODATA
+}
 
 type status int
 
@@ -254,7 +269,7 @@ func setRaw(fd int) {
 func sendOn(path, cmd string, timeout time.Duration) (string, status, error) {
 	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return "", statusTimeout, err
+		return "", statusTimeout, &stageErr{"open", err}
 	}
 	defer syscall.Close(fd)
 	setRaw(fd)
@@ -286,15 +301,15 @@ func sendOn(path, cmd string, timeout time.Duration) (string, status, error) {
 	line := []byte(cmd + "\r")
 	for off := 0; off < len(line); {
 		n, err := syscall.Write(fd, line[off:])
-		if err == syscall.EAGAIN {
+		if err == syscall.EAGAIN || err == syscall.EINTR {
 			if time.Now().After(deadline) {
-				return "", statusTimeout, fmt.Errorf("write to %s timed out", path)
+				return "", statusTimeout, &stageErr{"write", fmt.Errorf("%s timed out", path)}
 			}
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		if err != nil {
-			return "", statusTimeout, err
+			return "", statusTimeout, &stageErr{"write", err}
 		}
 		off += n
 	}
@@ -309,8 +324,8 @@ func sendOn(path, cmd string, timeout time.Duration) (string, status, error) {
 			}
 			continue
 		}
-		if err != nil && err != syscall.EAGAIN && err != syscall.EINTR {
-			return resp.String(), statusTimeout, err
+		if err != nil && !wouldBlock(err) {
+			return resp.String(), statusTimeout, &stageErr{"read", err}
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
