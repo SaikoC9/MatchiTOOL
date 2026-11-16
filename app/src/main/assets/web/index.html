@@ -1739,8 +1739,9 @@ rm -f $P.g $P.4 $P.6 $P.d
 #liv_cpu_modal .lcpu-pop .lcpu-opt svg{width:15px;height:15px;flex:none;color:#4aa3ff}
 .lcpu-note{font-size:11px;color:#8fa2bf;margin:0 2px;line-height:1.3}
 .lcpu-boot{font-size:11px;color:#ff9aa8;margin:4px 2px 0;line-height:1.3}.lcpu-boot:empty{display:none}
-.lcpu-actions{display:flex;gap:6px;margin-top:8px}
-#liv_cpu_modal .modal .lcpu-actions button{flex:1;min-height:36px!important;padding:0 8px!important;border-radius:10px!important;font-size:12.5px!important;font-weight:800;color:#fff!important;cursor:pointer}
+#liv_cpu_modal .modal .lcpu-foot{justify-content:flex-start!important;gap:6px!important}
+#liv_cpu_modal .modal .lcpu-foot .mclose{margin-left:auto!important}
+#liv_cpu_modal .modal .lcpu-foot #lcpu_save,#liv_cpu_modal .modal .lcpu-foot #lcpu_remove{min-height:28px!important;height:28px!important;padding:0 12px!important;border-radius:8px!important;font-size:11.5px!important;font-weight:800;color:#fff!important;cursor:pointer}
 #liv_cpu_modal .modal #lcpu_save{background:linear-gradient(180deg,#2d8cff,#1966d8)!important;border:1px solid #6db3ff!important}
 #liv_cpu_modal .modal #lcpu_remove{background:#162135!important;border:1px solid #2a3a55!important}
 .liv-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:10.5px;color:var(--mut);font-weight:650}.liv-chips{display:inline-flex;gap:4px}.liv-chip{font:inherit;font-weight:750;padding:2px 9px;border-radius:999px;border:1px solid var(--bd);background:#0a1626;color:var(--mut);cursor:pointer}.liv-chip[aria-pressed=true]{background:#168cff22;border-color:#168cff66;color:#55b6ff}.liv-bp{font:inherit;padding:1px 4px;border-radius:6px;border:1px solid var(--bd);background:#0a1626;color:inherit}.liv-spark{margin-top:6px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:4px 8px 2px}.liv-spark svg{display:block}
@@ -2197,10 +2198,16 @@ rm -f $P.g $P.4 $P.6 $P.d
         onClose: () => { stopTimer(); DD.close(); return true; },
         content: `<div class="lcpu">${clusterHtml('little')}${clusterHtml('big')}
 <div class="lcpu-note">Tap a core to turn it on/off. Changes are lost at restart unless you Save.</div>
-<div class="lcpu-boot" id="lcpu_boot"></div>
-<div class="lcpu-actions"><button type="button" id="lcpu_save">Save</button><button type="button" id="lcpu_remove">Remove</button></div></div>`,
+<div class="lcpu-boot" id="lcpu_boot"></div></div>`,
       });
       modal = r.el;
+      const ft = modal.querySelector('.mfoot'), cb = modal.querySelector('.mclose');
+      if (ft && cb) {
+        ft.classList.add('lcpu-foot');
+        for (const [id, label] of [['lcpu_save', 'Save'], ['lcpu_remove', 'Remove']]) {
+          const b = document.createElement('button'); b.type = 'button'; b.id = id; b.textContent = label; ft.insertBefore(b, cb);
+        }
+      }
       const bg = modal.closest('.modal-bg');
             // An open list is closed by the first tap outside it (and that tap does not also close the window).
       if (bg) bg.addEventListener('mousedown', (e) => { if (DD.isOpen() && !e.target.closest('.lcpu-pop, .lcpu-dd-b')) { DD.close(); e.stopImmediatePropagation(); } }, true);
@@ -2832,7 +2839,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   // Only a clean dotted-number answer counts (an HTML error page or a proxy message must not stop the fallbacks).
   const publicCmd = (quick) => [
     'v() { case "$1" in ""|*[!0-9.]*) return 1;; *.*.*.*) return 0;; esac; return 1; }',
-    'C=/data/local/matchitool/bin/curl; [ -x "$C" ] || C=$(command -v curl)',
+    'C=/data/local/matchitool/bin/curl; [ -x "$C" ] || C=$(command -v curl); [ -n "$C" ] || { for c in /data/data/com.matchi.tool/files/curl /data/user/0/com.matchi.tool/files/curl; do [ -x "$c" ] && C=$c && break; done; }',
     `for t in ${quick ? '1' : '1 2'}; do`,
     ...(quick ? [] : [`  if [ -n "$C" ]; then r=$($C -s --connect-timeout 6 --max-time 8 --doh-url https://dns.google/dns-query ${U} 2>/dev/null); v "$r" && echo "$r" && exit 0; fi`]),
     `  if [ -n "$C" ]; then r=$($C -s --connect-timeout ${quick ? 4 : 6} --max-time ${quick ? 5 : 8} ${U} 2>/dev/null); v "$r" && echo "$r" && exit 0; fi`,
@@ -8907,7 +8914,7 @@ async function runSelfTest(onStep){
 
   add(S7,'Change IP',()=>toolCheck(ST_TOOLS[4],async()=>{
     if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
-    const r=await stSh('for x in svc ip curl; do p=$(command -v $x 2>/dev/null); echo "$x=${p:-MISSING}"; done');
+    const r=await stSh('for x in svc ip curl; do p=$(command -v $x 2>/dev/null); if [ -z \"$p\" ] && [ $x = curl ]; then for c in /data/local/matchitool/bin/curl /data/data/com.matchi.tool/files/curl /data/user/0/com.matchi.tool/files/curl; do [ -x \"$c\" ] && p=$c && break; done; fi; echo \"$x=${p:-MISSING}\"; done');
     const k=stKV(r.text),miss=['svc','ip','curl'].filter(x=>k[x]==='MISSING'||!k[x]);
     if(miss.length)return R.fail('commands it needs are missing: '+miss.join(', '),'Change IP toggles mobile data with svc and reads the address with curl/ip; without them it cannot work.');
     return R.ok('svc, ip and curl present; not run (it drops and restores mobile data)');
