@@ -48,6 +48,16 @@ object RootGate {
      */
     fun isSmsListRead(cmd: String): Boolean = cmd.length <= 200 && smsListRx.matches(cmd.trim())
 
+    /**
+     * The fixed read-only command of the Live panel's CPU loop (per-core usage from /proc/stat and per-core speed from cpufreq, about once a second).
+     * The page sends exactly this text (written there with a real dollar sign; here a section sign stands for it so Kotlin does not read the text as
+     * templates). /api/shell writes one audit line per call, so these calls use the once-per-minute audit line like the SMS listing. Exact match only.
+     * scripts/check_sources.py checks that the page and this constant stay identical.
+     */
+    val CPU_LIVE_CMD: String = """cs() { while read l; do case "§l" in cpu*) echo "§1§l";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.5; cs B; S=/sys/devices/system/cpu; p=7; [ -r §S/possible ] && read p < §S/possible; mx=§{p##*[-,]}; case §mx in ""|*[!0-9]*) mx=7;; esac; [ §mx -gt 15 ] && mx=15; n=0; while [ §n -le §mx ]; do d=§S/cpu§n; o=1; f=0; m=0; if [ ! -d §d ]; then o=0; else [ -r §d/online ] && read o < §d/online; [ -r §d/cpufreq/cpuinfo_max_freq ] && read m < §d/cpufreq/cpuinfo_max_freq; if [ "§o" = 1 ] && [ -r §d/cpufreq/scaling_cur_freq ]; then read f < §d/cpufreq/scaling_cur_freq; fi; fi; echo "F:§n §o §f §m"; n=§((n+1)); done; read c < /proc/stat; echo "cpu: §c"; true""".replace('§', '$')
+
+    fun isCpuLiveRead(cmd: String): Boolean = cmd.length <= 1200 && cmd.trim() == CPU_LIVE_CMD
+
     private val queryRx = Regex("^AT(\\+[A-Z0-9_]+)?(\\?|=\\?)$", RegexOption.IGNORE_CASE)
     private val bareReads = setOf("AT", "ATI", "AT+CSQ", "AT+CESQ", "AT+CGSN", "AT+CIMI", "AT+CCID", "AT+CNUM", "AT+CGMR", "AT+CGMM", "AT+CGMI")
 

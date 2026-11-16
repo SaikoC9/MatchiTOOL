@@ -31,7 +31,10 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         val t = req.optLong("timeout", 20000).coerceIn(1000, 120000)
         commandBlocked(s, command)?.let { return@run it }
         // The SMS tool's background inbox check (a fixed read-only listing, see RootGate.isSmsListRead) is logged at most once a minute.
-        if (RootGate.isSmsListRead(command)) auditBusy(s.remoteIpAddress ?: "?", "sms-list") else auditShell(s.remoteIpAddress ?: "?", command)
+        // The Live panel's CPU loop (a fixed read-only command, see RootGate.CPU_LIVE_CMD) is logged at most once a minute too.
+        if (RootGate.isSmsListRead(command)) auditBusy(s.remoteIpAddress ?: "?", "sms-list")
+        else if (RootGate.isCpuLiveRead(command)) auditBusy(s.remoteIpAddress ?: "?", "cpu-live")
+        else auditShell(s.remoteIpAddress ?: "?", command)
         traceCommand(s, command)
         val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))

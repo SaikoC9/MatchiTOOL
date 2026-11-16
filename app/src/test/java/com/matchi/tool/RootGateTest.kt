@@ -48,6 +48,17 @@ class RootGateTest {
             assertFalse(c, RootGate.isSmsListRead(c))
     }
 
+    @Test fun onlyTheFixedCpuLoopCommandGetsTheRateLimitedAuditLine() {
+        val ok = RootGate.CPU_LIVE_CMD
+        assertTrue(ok.contains("/proc/stat") && ok.contains("scaling_cur_freq") && ok.contains("\$S/cpu"))   // the section sign was turned into a real dollar sign
+        assertFalse(ok.contains('§'))
+        assertTrue(RootGate.isCpuLiveRead(ok))
+        assertTrue(RootGate.isCpuLiveRead("  $ok\n"))
+        for (c in listOf("$ok; reboot", "$ok && rm -rf /data/local/tmp", "$ok\nreboot", "echo hi; $ok", ok.replace("sleep 0.5", "sleep 0.5; reboot"), "cat /proc/stat", "su -c reboot", ""))
+            assertFalse(c, RootGate.isCpuLiveRead(c))
+        assertFalse(RootGate.isSmsListRead(ok))
+    }
+
     @Test fun rootOverPlainHttpIsRefusedUnlessTheOwnerAllowedIt() {
         assertTrue(RootGate.insecureRefused(false, false, false))    // http from another device, switch off (default)
         assertFalse(RootGate.insecureRefused(false, false, true))    // http, owner switched it on (the page still asks to confirm)

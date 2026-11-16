@@ -199,3 +199,12 @@ assert 'lr.token' not in html, 'the page must not expect a token in the login re
 # Every plugin install asks for the password, new names included (a running plugin must not install another plugin silently).
 assert '"install a plugin"' in server and 'val unchanged = oldBytes != null' in server and 'if (!unchanged)' in server, 'installing a plugin must need the password unless nothing changes'
 print(f'source guards passed ({len(SERVER_FILES)} host files, tripwires only - see the header of this file)')
+
+# Live panel CPU loop: the command the page sends and RootGate.CPU_LIVE_CMD must be the same text (the host recognises it exactly)
+import re as _re
+_js = _re.search(r"const CPU_LIVE_CMD = '(.*)';", html)
+_kt = _re.search(r'val CPU_LIVE_CMD: String = """(.*?)"""', (root / 'app/src/main/java/com/matchi/tool/RootGate.kt').read_text(), _re.S)
+assert _js and _kt, 'CPU_LIVE_CMD missing in the page or in RootGate.kt'
+assert _js.group(1).replace('\\"', '"') == _kt.group(1).replace('\u00a7', '$'), 'CPU_LIVE_CMD differs between index.html and RootGate.kt'
+assert 'RootGate.isCpuLiveRead' in (root / 'app/src/main/java/com/matchi/tool/WebRoutesRoot.kt').read_text(), 'cpu-live audit line missing in /api/shell'
+

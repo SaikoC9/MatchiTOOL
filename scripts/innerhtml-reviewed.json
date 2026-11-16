@@ -15,5 +15,5 @@
  "f49165b761": "Radio settings: h is built with esc() for the mode names and band text; band numbers and data-* come from the supported-band lists. The warning line in front is fixed text.",
  "72657fb99e": "Plugin list Sandbox/Trust button: pmIcon() wraps one fixed literal SVG path; the label is added afterwards with textContent.",
  "a8da4bfcd1": "CPU Governor drop-down: CHECK is a fixed svg string; the option text beside it is set with textContent.",
- "ba71bff4d3": "Live_Status CPU cores: only numbers (core index, MHz, percent), booleans and fixed text."
+ "edc4b623c4": "CPU Governor core tiles: only numbers (core index, MHz, percent), booleans and fixed text (L1..B4 labels are built from the index)."
 }

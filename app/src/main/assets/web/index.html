@@ -1768,6 +1768,30 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (p) p.classList.toggle('off', stale || cs >= 0 || !!rb);
     }
   }
+  // LIVE CPU loop (third loop): ONLY the per-core usage and the per-core speed, read straight from /proc/stat (two reads 0.5 s apart in one root call,
+  // busy = 1 - idle / total, same method as UFI-TOOLS) and scaling_cur_freq, then the next read starts as soon as this one ends (about 1 update a second).
+  // It never touches battery, temperatures, memory or the radio. The command text is fixed: the host recognises it exactly (RootGate.CPU_LIVE_CMD)
+  // and writes one audit line a minute for it instead of one per read. Guards: hidden tab, battery pause, radio restart, slow loop running -> no read;
+  // warm / hot phone -> the normal heat table (6 s / 15 s); Eco chip -> 9 s; failures back off 2 / 4 / 8 / 16 / 30 s.
+  const CPU_LIVE_CMD = 'cs() { while read l; do case \"$l\" in cpu*) echo \"$1$l\";; *) break;; esac; done < /proc/stat; }; cs A; sleep 0.5; cs B; S=/sys/devices/system/cpu; p=7; [ -r $S/possible ] && read p < $S/possible; mx=${p##*[-,]}; case $mx in \"\"|*[!0-9]*) mx=7;; esac; [ $mx -gt 15 ] && mx=15; n=0; while [ $n -le $mx ]; do d=$S/cpu$n; o=1; f=0; m=0; if [ ! -d $d ]; then o=0; else [ -r $d/online ] && read o < $d/online; [ -r $d/cpufreq/cpuinfo_max_freq ] && read m < $d/cpufreq/cpuinfo_max_freq; if [ \"$o\" = 1 ] && [ -r $d/cpufreq/scaling_cur_freq ]; then read f < $d/cpufreq/scaling_cur_freq; fi; fi; echo \"F:$n $o $f $m\"; n=$((n+1)); done; read c < /proc/stat; echo \"cpu: $c\"; true';
+  let busyC = false, timerC = null, genC = 0, failC = 0;
+  const cpuDelay = () => {
+    const h = Math.min(heatLevel(), 2), base = h === 0 ? (mode === 'eco' ? 9000 : 0) : Math.max(DELAY.fast[h], mode === 'eco' ? 9000 : 0);
+    return Math.max(base, failC > 0 ? Math.min(30000, 2000 * Math.pow(2, Math.min(failC - 1, 4))) : 0);
+  };
+  async function tickCpu() {
+    if (busyC || busyS || !sysPart || !visible() || batLow() || radioBusy()) return 'skip';   // the slow loop's own read already carries the CPU numbers
+    busyC = true;
+    try {
+      const r = await api('/api/shell', { method: 'POST', quiet: true, body: JSON.stringify({ timeout: 6000, cmd: CPU_LIVE_CMD }) });
+      const p = parseSys(String((r && r.content) || ''), []);
+      if (p && sysPart && (p.cpu !== undefined || (p.freqs && p.freqs.length))) {
+        sysPart = Object.assign({}, sysPart, { cpu: p.cpu !== undefined ? p.cpu : sysPart.cpu, cores: p.cores && p.cores.length ? p.cores : sysPart.cores, freqs: p.freqs && p.freqs.length ? p.freqs : sysPart.freqs });
+        failC = 0; last = build(); paint();
+      } else failC++;
+    } catch (e) { failC++; }
+    finally { busyC = false; }
+  }
   // Each loop has its own busy flag, so a slow root call never blocks the fast router read.
   async function tickFast() {
     if (busyF || !visible() || batLow() || radioBusy()) return;
@@ -1817,7 +1841,9 @@ rm -f $P.g $P.4 $P.6 $P.d
   const armS = (ms) => { clearTimeout(timerS); const g = ++genS; timerS = setTimeout(() => loopS(g), ms); };
   const loopF = async (g) => { if (auto) await tickFast(); if (g !== genF) return; timerF = setTimeout(() => loopF(g), auto ? fastDelay() : 60000); };
   const loopS = async (g) => { let w; if (auto) w = await tickSlow(); if (g !== genS) return; timerS = setTimeout(() => loopS(g), w === 'wait' ? 500 : auto ? slowDelay() : 60000); };
-  armF(fastDelay()); armS(slowDelay()); 
+  const armC = (ms) => { clearTimeout(timerC); const g = ++genC; timerC = setTimeout(() => loopC(g), ms); };
+  const loopC = async (g) => { let w; if (auto) w = await tickCpu(); if (g !== genC) return; timerC = setTimeout(() => loopC(g), !auto ? 60000 : w === 'skip' ? 500 : cpuDelay()); };
+  armF(fastDelay()); armS(slowDelay()); armC(1500);
   // If the card was hidden (signed out, other window) and shows again, read at once instead of waiting out a full interval.
   let wasVis = false;
   tickTimer = setInterval(() => { const v = !!visible(); if (v && !wasVis && auto) { tickFast(); tickSlow(); } wasVis = v; when(); }, 1000);   // the first reads of both loops run at the bottom of this block; the next ones wait a full interval
@@ -1828,7 +1854,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       auto = !auto;
       try { localStorage.setItem('liv_auto', auto ? '1' : '0'); } catch (_) {  }
       syncAuto();
-      armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);  // off: both loops only re-arm, they do not poll
+      armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000); armC(auto ? cpuDelay() : 60000);  // off: both loops only re-arm, they do not poll
       if (auto) { tickFast(); tickSlow(); }
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
@@ -1841,12 +1867,12 @@ rm -f $P.g $P.4 $P.6 $P.d
     chips.onclick = (e) => {
       const b = e.target.closest('.liv-chip'); if (!b || !MODES[b.dataset.mode]) return;
       mode = b.dataset.mode; try { localStorage.setItem('liv_mode', mode); } catch (_) {  }
-      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);
+      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000); armC(auto ? cpuDelay() : 60000);
       createToast('Refresh: ' + mode, 'blue');
     };
     bp.onchange = () => {
       batPause = Number(bp.value) || 0; try { localStorage.setItem('liv_batpause', String(batPause)); } catch (_) {  }
-      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000);
+      syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000); armC(auto ? cpuDelay() : 60000);
       if (auto && !batLow()) { tickFast(); } paint();
     };
   }
