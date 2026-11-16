@@ -796,7 +796,7 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   <div class="card pop" id="selftest">
     <div class="mut" style="margin-bottom:8px">Full diagnose</div>
     <p class="mut">Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.</p>
-    <div class="btnrow"><button id="stbtn">Run full diagnose</button><button id="stcopy" disabled>Copy report</button><button id="stdl" disabled>Download .txt</button></div>
+    <div class="btnrow"><button id="stbtn">Run full diagnose</button><button id="ststop" disabled>Stop</button><button id="stcopy" disabled>Copy report</button><button id="stdl" disabled>Download .txt</button></div>
     <p id="stsum" class="mut" style="margin:10px 0 0"></p>
     <pre id="stout" style="display:none;max-height:520px"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
@@ -4596,7 +4596,7 @@ window.MatchiRadio = (() => {
   function icon(k) {
     if (!document.createElementNS) return document.createTextNode(k.glyph);
     const svg = document.createElementNS(NS, 'svg');
-    for (const [n, v] of [['width', 12], ['height', 12], ['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', 2], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(n, String(v));
+    for (const [n, v] of [['width', 10], ['height', 10], ['viewBox', '0 0 24 24'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', 2], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']]) svg.setAttribute(n, String(v));
     for (const [tag, at] of k.shapes) { const e = document.createElementNS(NS, tag); for (const n of Object.keys(at)) e.setAttribute(n, String(at[n])); svg.appendChild(e); }
     return svg;
   }
@@ -4613,9 +4613,9 @@ window.MatchiRadio = (() => {
     styled = true;
     const s = document.createElement('style');
     s.textContent = `.mt-tip{display:block;margin:2px 0}
-.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;box-sizing:border-box;width:auto;height:22px;min-width:0;min-height:0;padding:0 10px 0 6px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 11px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
-.mt-tip-btn svg{display:block;flex:none;width:13px;height:13px}
-button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:22px!important;min-width:0!important;min-height:0!important;padding:0 10px 0 6px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:11px!important;font-weight:600!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
+.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;box-sizing:border-box;width:auto;height:17px;min-width:0;min-height:0;padding:0 7px 0 4px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 10px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.mt-tip-btn svg{display:block;flex:none;width:10px!important;height:10px!important}
+button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:17px!important;min-width:0!important;min-height:0!important;padding:0 7px 0 4px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:10px!important;font-weight:600!important;gap:3px!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
@@ -4927,8 +4927,6 @@ function mountDashCell() {
 #dash_cell .dc-s{font-size:11.5px;min-height:15px;margin-top:4px}
 #dash_cell .dc-log{display:none;margin:6px 0 0;padding:6px 8px;max-height:96px;overflow:auto;white-space:pre-wrap;font-size:10.5px;line-height:1.4;background:var(--bg);border:1px solid var(--bd);border-radius:8px}
 #dash_cell .dc-c1,#dash_cell .dc-c2{min-width:0}
-#dash_cell button.mt-tip-btn.mt-tip-btn{height:17px!important;padding:0 7px 0 4px!important;gap:3px!important;font-size:10px!important}
-#dash_cell button.mt-tip-btn.mt-tip-btn svg{width:10px!important;height:10px!important}
 /* Wide screens: the card sits under Live device status (right column) in two columns. Narrow screens keep it under Radio settings, one column. */
 @media(min-width:1000px){
 .liv>#dash_cell{margin-top:12px}
@@ -8670,7 +8668,7 @@ const ST_TOOLS=[
   {file:'Change_IP.js',btn:'matchi_changeip_btn'},
   {file:'Screen_Control.js',btn:'matchi_screen_btn'}
 ];
-const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','adbon','adboff','rndison','ecmon','tetheroff','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
+const ST_UI_IDS=['home','diagnostics','usbtools','firmware','terminal','pluginmgr','selftest','diagbtn','ststop','adbon','adboff','rndison','ecmon','tetheroff','fwfile','fwinspect','appupdate','updfile','updcheck','updinstall','updurl','updfetch','cmd','plugfile','pluglist','stbtn','stcopy','stdl'];
 const R={ok:(d,f)=>({s:'PASS',d:d||''}),warn:(d,f)=>({s:'WARN',d:d||'',f}),fail:(d,f)=>({s:'FAIL',d:d||'',f}),skip:d=>({s:'SKIP',d:d||''})};
 const ST_ERRS=[];
 /* Page errors also go to the device log (max 20 per page load, never throws). */
@@ -8752,6 +8750,7 @@ async function runSelfTest(onStep){
     const n=needRoot();if(n)return n;
     const r=await stSh(['echo "model=$(getprop ro.product.manufacturer) $(getprop ro.product.model)"','echo "android=$(getprop ro.build.version.release) (sdk $(getprop ro.build.version.sdk))"','echo "abi=$(getprop ro.product.cpu.abi)"','echo "kernel=$(uname -r)"','echo "uptime_s=$(cut -d" " -f1 /proc/uptime)"'].join('\n'));
     const k=stKV(r.text);
+    if(r.ok)X.dev=(k.model||'?')+', Android '+(k.android||'?')+', '+(k.abi||'?')+', kernel '+(k.kernel||'?');
     return r.ok?R.ok((k.model||'?')+'; Android '+(k.android||'?')+'; '+(k.abi||'?')+'; kernel '+(k.kernel||'?')+'; up '+Math.round(parseFloat(k.uptime_s||0)/60)+' min'):R.warn(r.text);
   });
   add(S2,'Storage (/data)',async()=>{
@@ -8906,6 +8905,13 @@ async function runSelfTest(onStep){
     return R.ok('available '+Math.round(k.mema/1024)+' MB, '+(k.pm||0)+' user apps, drop_caches '+(k.dc==='1'?'writable':'not writable (that step is skipped)')+'; not run (it stops apps)');
   }),30000);
 
+  add(S7,'Change IP',()=>toolCheck(ST_TOOLS[4],async()=>{
+    if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
+    const r=await stSh('for x in svc ip curl; do p=$(command -v $x 2>/dev/null); echo "$x=${p:-MISSING}"; done');
+    const k=stKV(r.text),miss=['svc','ip','curl'].filter(x=>k[x]==='MISSING'||!k[x]);
+    if(miss.length)return R.fail('commands it needs are missing: '+miss.join(', '),'Change IP toggles mobile data with svc and reads the address with curl/ip; without them it cannot work.');
+    return R.ok('svc, ip and curl present; not run (it drops and restores mobile data)');
+  }),30000);
 
   add(S7,'Screen Control',()=>toolCheck(ST_TOOLS[5],async()=>{
     if(!X.rootOk)return R.fail('this tool needs the root shell, which is not working');
@@ -9140,26 +9146,62 @@ async function runSelfTest(onStep){
     return ST_ERRS.length?R.warn(ST_ERRS.length+' error(s): '+ST_ERRS.slice(-3).join(' | '),'A tool threw an error at runtime; reload, and report the message if it repeats.'):R.ok('no uncaught errors or rejected promises');
   });
 
+  /* 14. Dashboard cards, buttons and Info pills */
+  const S14='14. Dashboard & Info pills';
+  add(S14,'Dashboard cards and top buttons',async()=>{
+    const need=[['dash_radio','Radio settings card'],['dash_cell','Cell lock card'],['matchi_perf_btn','Performance mode button'],['matchi_net_btn','Network button']];
+    const miss=[],dup=[],hid=[];
+    for(const [id,n] of need){const l=document.querySelectorAll('[id="'+id+'"]');if(!l.length)miss.push(n);else if(l.length>1)dup.push(n);else if(l[0].offsetParent===null&&getComputedStyle(l[0]).position!=='fixed')hid.push(n)}
+    if(miss.length)return R.fail('not on the page: '+miss.join(', '),'It failed to mount at start (a red toast showed why). Reload the page; if it stays missing, send this report.');
+    if(dup.length)return R.fail('shown more than once: '+dup.join(', '),'Reload the page.');
+    if(hid.length)return R.warn('present but hidden: '+hid.join(', '));
+    return R.ok(need.length+' items present once and visible');
+  });
+  add(S14,'Info pill size (same everywhere)',async()=>{
+    if(!window.MatchiTip||!MatchiTip.make)return R.fail('the Info pill code (info-tip.js) is not loaded');
+    // Builds one pill inside each place that has its own styles and measures it, so a card that resizes its pill is caught.
+    const places=[['page',''],['dialog','modal'],['pop-up card','card pop open'],['Cell lock card','','dash_cell'],['Radio settings card','','dash_radio']];
+    const made=[],seen={};
+    try{
+      for(const [name,cls,id] of places){
+        const box=document.createElement('div');if(cls)box.className=cls;if(id)box.id=id;
+        box.style.cssText='position:absolute;left:-9999px;top:0;width:360px;visibility:hidden;display:block';
+        const tip=MatchiTip.make('Probe text for the size check. '.repeat(4));box.appendChild(tip);document.body.appendChild(box);made.push(box);
+        const b=tip.querySelector('button.mt-tip-btn'),sv=b&&b.querySelector('svg');
+        if(!b){seen[name]='no button';continue}
+        const cs=getComputedStyle(b),r=b.getBoundingClientRect(),sr=sv?sv.getBoundingClientRect():{width:0};
+        seen[name]=(r.height?Math.round(r.height*10)/10:'?')+'px tall, '+cs.fontSize+' text, '+(Math.round(sr.width*10)/10)+'px icon';
+      }
+    }finally{made.forEach(b=>b.remove())}
+    const vals=Object.values(seen),uniq=[...new Set(vals)];
+    if(vals.some(v=>/^(\?|no button)/.test(v)))return R.warn('could not measure: '+JSON.stringify(seen));
+    const n=document.querySelectorAll('.mt-tip-btn').length;
+    if(uniq.length>1)return R.fail('sizes differ: '+Object.keys(seen).map(k=>k+' = '+seen[k]).join('; '),'Some card overrides the shared Info pill style (info-tip.js). Remove that override so every pill matches.');
+    return R.ok('identical in '+places.length+' places: '+uniq[0]+' ('+n+' pill(s) on the page now)');
+  });
+
   /* run */
   const run={results:[],raw:X.raw,ver:'',ms:0,total:defs.length,causes:X.cause};
   const started=Date.now();
   for(const d of defs){
+    if(STCANCEL){run.stopped=true;break}
     let res;const t0=performance.now();
     try{res=await stTimeout(d.fn(),d.t,d.name);if(typeof res==='string')res=R.ok(res);if(!res||!res.s)res=R.ok('')}
     catch(e){res=R.fail(e&&e.message?e.message:String(e))}
     if(res.f&&(res.s==='WARN'||res.s==='FAIL'))res.d=(res.d||'')+'\nFix: '+res.f;res.sec=d.sec;res.name=d.name;res.ms=Math.round(performance.now()-t0);
-    run.results.push(res);run.ver=X.ver;run.ms=Date.now()-started;
+    run.results.push(res);run.ver=X.ver;run.dev=X.dev;run.ms=Date.now()-started;
     try{if(onStep)onStep(run)}catch(_){}
   }
-  run.ms=Date.now()-started;run.ver=X.ver;
+  run.ms=Date.now()-started;run.ver=X.ver;run.dev=X.dev;
   return run;
 }
 
 function buildSelfTestReport(run,final){
   const c={PASS:0,WARN:0,FAIL:0,SKIP:0};run.results.forEach(r=>c[r.s]++);
   const fmt=r=>{const d=String(r.d||'').split('\n');return '['+r.s+'] '+r.name+(d[0]?' - '+d[0]:'')+(d.length>1?'\n      '+d.slice(1).join('\n      '):'')};
-  const L=['MatchiTOOL full diagnose','Generated: '+new Date().toISOString(),'Host version: '+(run.ver||'unknown')+'   Page version: '+PAGE_VERSION,'Page address: '+location.origin,'Browser: '+navigator.userAgent,
+  const L=['MatchiTOOL full diagnose','Generated: '+new Date().toISOString(),'Host version: '+(run.ver||'unknown')+'   Page version: '+PAGE_VERSION,...(run.dev?['Device: '+run.dev]:[]),'Page address: '+location.origin,'Browser: '+navigator.userAgent,
     'Result: '+c.PASS+' PASS, '+c.WARN+' WARN, '+c.FAIL+' FAIL, '+c.SKIP+' SKIP'+(final?'   ('+(run.ms/1000).toFixed(1)+' s)':'   (running '+run.results.length+'/'+run.total+')')];
+  if(final&&run.stopped)L.push('','Stopped early by you: '+run.results.length+' of '+run.total+' checks ran.');
   const bad=run.results.filter(r=>r.s==='FAIL'||r.s==='WARN');
   if(bad.length){L.push('','Needs attention:');bad.forEach(r=>L.push('  ['+r.s+'] '+r.name+' - '+String(r.d||'').split('\n')[0]+(r.f?'\n        Fix: '+r.f:'')))}
   if(final&&run.causes&&run.causes.length)L.push('','Probable root causes: '+[...new Set(run.causes)].join('; '));
@@ -9192,7 +9234,7 @@ async function copyTextRaw(text){
     const ok=document.execCommand('copy');ta.remove();return ok;
   }catch(_){return false}
 }
-let STREPORT='',STRUNNING=false;
+let STREPORT='',STRUNNING=false,STCANCEL=false;
 function stUpdateSummary(run,final){
   const c={PASS:0,WARN:0,FAIL:0,SKIP:0};run.results.forEach(r=>c[r.s]++);
   const box=document.getElementById('stsum');box.textContent='';
@@ -9201,7 +9243,7 @@ function stUpdateSummary(run,final){
   const sp=document.createElement('span');sp.textContent=final?'finished in '+(run.ms/1000).toFixed(1)+' s':'running '+run.results.length+'/'+run.total+'...';box.appendChild(sp);
 }
 async function startSelfTest(){
-  if(STRUNNING)return;STRUNNING=true;
+  if(STRUNNING)return;STRUNNING=true;STCANCEL=false;const stp=document.getElementById('ststop');stp.disabled=false;
   const btn=document.getElementById('stbtn'),cp=document.getElementById('stcopy'),dl=document.getElementById('stdl'),out=document.getElementById('stout');
   btn.disabled=true;cp.disabled=true;dl.disabled=true;out.style.display='block';out.textContent='Starting...';
   try{
@@ -9213,9 +9255,10 @@ async function startSelfTest(){
   }catch(e){
     STREPORT='Diagnose could not finish: '+e.message;out.textContent=STREPORT;cp.disabled=false;
     createToast('Diagnose error: '+e.message,'red',6000);
-  }finally{btn.disabled=false;STRUNNING=false}
+  }finally{btn.disabled=false;STRUNNING=false;document.getElementById('ststop').disabled=true}
 }
 document.getElementById('stbtn').onclick=startSelfTest;
+document.getElementById('ststop').onclick=()=>{STCANCEL=true;document.getElementById('ststop').disabled=true;createToast('Stopping after the current check...','blue',3000)};
 document.getElementById('stcopy').onclick=async()=>{
   if(!STREPORT)return;
   if(await copyText(STREPORT)){createToast('Report copied to clipboard');return}
