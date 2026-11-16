@@ -1,0 +1,44 @@
+MatchiTOOL - bundled binaries device test (curl, jq, sendat, zreq)
+Repo: MatchiTOOL-main (uploaded 2026-11-17). Device: F50, root. Test date: 2026-11-16 23:56-23:59 PST.
+
+RESULTS SO FAR
+[PASS] Hashes on device match docs/BINARIES.md for curl, jq, sendat, zreq (sha256 column).
+[PASS] jq: jq-1.7.1-dirty, `.a|add==6` prints true.
+[PASS] curl runs: 8.11.0-DEV, aarch64, OpenSSL 3.0.15. Plain http://example.com = 200.
+[PASS] zreq runs (-h prints usage). Its built-in default password is UFI-TOOLS' own; MatchiTOOL never passes it.
+[FAIL] curl https://example.com without -k: "(60) SSL peer certificate ... not OK" (curl sent alert "unknown CA").
+       - date is right (Nov 2026), network is fine (curl -k = 200).
+       - curl uses CApath /system/etc/security/cacerts (125 files); CAfile: none.
+       - curl with a fresh Mozilla bundle (--cacert) = 200. So the code and network are fine; only the CA lookup fails.
+       - Suspected cause (NOT yet proven): Android names the files in cacerts with the old OpenSSL hash,
+         OpenSSL 3 looks them up by the new hash, so none match. Other possible cause: the device's store is
+         missing a root. The test below tells these two apart.
+       - Note: the cacert.pem in /data/local/matchitool/tmp was downloaded with -k (not verified). Do not
+         ship or trust it until its SHA-256 is compared with the one curl.se publishes.
+[FAIL] sendat -n 0 -c AT: "no modem AT device found for slot 0" (no stty_lte0 / smd / ttyUSB on this device).
+[FAIL] sendat -probe: all 32 /dev/stty_nr0..31 report "no data available" (ENODATA), no port answered.
+       - /dev has ttyGS0-7 only besides stty_nr* (ttyGS = USB gadget, not the modem).
+       - The probe label "open failed" is misleading: sendOn returns the same error for open, write and read.
+         Next code change: say which stage failed.
+       - UFI-TOOLS' own sendat worked on this device before; its port is unknown (binary is UPX-packed).
+
+ZREQ SWAP (2026-11-17)
+[DONE] Uploaded matchitool-zreq-arm64.zip (own Go build, "zreq 1.0 (MatchiTOOL)") put in app/src/main/assets/bin/zreq.
+       sha256 5fd16c5ba096cea6dfe71e7c6d4821f04584fd4302e147f10ade8844aaa13e8e (matches its SHA256SUMS).
+       NOTICE.md, docs/BINARIES.md, CHANGELOG.md updated; scripts/check_repo.py passes.
+[CHECKED HERE] ELF arm64 static; flags read from the file: -ip (private/loopback IPv4) -method -params -body -path -json -t
+       -cookie -pwd -pwd-file -pwd-mode b64|raw -verbose -version. The old default password string is NOT in the file.
+[OPEN] Not run on the F50 (no arm64 here). Test ZQ-1 below.
+[OPEN] Source of this build is not in the repo: add tools/zreq/{go.mod,main.go} + a workflow, then rebuild and compare the hash.
+[RISK] Plugins that called zreq with no -pwd relied on the old default password; they now get no sign-in.
+
+NEXT (waiting on the user's output)
+ 0. Test ZQ-1 (zreq on the F50, after installing the zip).
+ 1. Test CA-1 (system certs as one bundle) -> decides the curl fix.
+ 2. Test AT-1 (who holds the stty_nr ports, permissions, rild/phoneserver, props).
+ 3. After the results: curl fix (bundle in app + CURL_CA_BUNDLE, or rebuild curl with --with-ca-bundle),
+    sendat probe reports the failing stage and pins a port in /data/local/matchitool/sendat.conf.
+
+DONE-WHEN
+ - curl https://example.com = 200 with no -k, called the way plugins call it.
+ - sendat -n 0 -c AT prints OK on the F50, the port is pinned, Live signal and AT & Radio work.

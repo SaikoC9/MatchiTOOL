@@ -1,5 +1,6 @@
 # MatchiTOOL 1.4.2 (unreleased) - Power and efficiency
 
+- **Changed, bundled `zreq`:** the UFI-TOOLS binary is replaced by MatchiTOOL's own Go build (`zreq 1.0 (MatchiTOOL)`, static arm64, sha256 `5fd16c5b...a13e8e`, pinned in `NOTICE.md` and `docs/BINARIES.md`). **Behaviour change:** it has no built-in router password (the old one signed in with UFI-TOOLS' default when none was given); sign-in only with `-pwd`, `-pwd-file` or `ZREQ_PWD`; `-ip` must be a private or loopback IPv4. Source was not in the uploaded repo, so it is not in `tools/zreq/` yet. Checked here: ELF is arm64 static, flags and strings read from the file, `scripts/check_repo.py` passes. Not run on a device.
 - **Changed, Live Status polling:** a new install starts in Eco (a saved choice is kept). In Normal the live CPU loop reads every 3 s instead of back to back; Fast still reads continuously. The root command text is unchanged.
 - **Changed, fewer repaints:** the Live Status card and window rewrite their markup only when it actually changed.
 - **Changed, idle timers:** the 1 s Live Status tick does nothing while the page is hidden; the host ping runs every 30 s and never while hidden (it still runs when the page comes back).
