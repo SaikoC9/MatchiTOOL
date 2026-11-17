@@ -57,10 +57,6 @@ TABLE = {
   ('GET',  '/api/logs/basket/read'): ('OPEN', 'app-owned files only; boot files keep their own gated route'),
   ('POST', '/api/logs/basket/delete'): ('PARTIAL', 'audit log and boot files need the gate'),
   ('GET',  '/api/logs/session/'): ('OPEN', ''),
-  ('POST', '/api/upload'): ('OPEN', 'writes only into the app upload folder'),
-  ('POST', '/api/upload_img'): ('OPEN', 'same handler as /api/upload'),
-  ('POST', '/api/uploads/delete'): ('OPEN', 'removes one file from the app upload folder only (the file name is checked); plugins call it for their own temporary files, so it stays open'),
-  ('GET',  '/api/uploads/'): ('OPEN', ''),
   ('GET',  '/api/plugins'): ('OPEN', ''),
   ('POST', '/api/plugins'): ('GATE', ''),
   ('POST', '/api/plugins/order'): ('GATE', ''),
@@ -83,12 +79,6 @@ TABLE = {
   ('POST', '/api/zte'): ('PARTIAL', 'goes to the saved router address only; a set call needs the gate unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS); reads stay open'),
   ('GET',  '/api/net/whoami'): ('OPEN', 'read only: returns the caller\'s own address'),
   ('POST', '/api/net/lan-applied'): ('GATE', 'points the router client at the new address named in the pending IP-change note; checks the router afterwards'),
-  ('GET',  '/api/goform/'): ('PARTIAL', 'same branch as the POST: a router "get" stays open'),
-  ('POST', '/api/goform/'): ('PARTIAL', 'router "set" through the saved gateway; path checked by GatewayProxy; a goformId that is not in NetGoform.OPEN_SET needs the gate'),
-  ('GET',  '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on a path containing goform_set_cmd_process (GatewayProxy.isSetPath), where NetGoform.needsGate applies'),
-  ('POST', '/api/proxy/'): ('PARTIAL', 'a POST needs the gate; a GET stays open except on a path containing goform_set_cmd_process (GatewayProxy.isSetPath), where NetGoform.needsGate applies'),
-  ('GET',  '/api/get_cookie'): ('GATE', ''),
-  ('POST', '/api/set_cookie'): ('GATE', ''),
   ('POST', '/api/zte/page'): ('OPEN', ''),
   ('GET',  '/api/zte/config'): ('OPEN', ''),
   ('POST', '/api/zte/config'): ('GATE', 'a changed address or password also needs the current password again (counts toward the login lockout); changing the password ends the other sessions'),
@@ -104,7 +94,7 @@ ROOT_WITHOUT_GATE = {
   '/api/root/status': 'RootShell.status only',
   '/api/one_click_shell': 'RootShell.status only',
 }
-DANGEROUS = ('RootShell.run', 'RootShell.exec', 'UserShell.run', 'ApkUpdater.install', 'ZteClient.setSessionCookie', 'ZteClient.proxy')
+DANGEROUS = ('RootShell.run', 'RootShell.exec', 'UserShell.run', 'ApkUpdater.install')
 
 def branches():
     out = []
@@ -169,10 +159,10 @@ for route, kind in (('/api/at"', 'at-write'), ('/api/at/batch"', 'at-batch-write
     if 'auditShell(' not in seg or '"' + kind + '"' not in seg:
         errors.append(f'WebRoutesRoot.kt: {route[:-1]} must write its own audit line (kind "{kind}") for a non-read AT command, not only auditBusy')
 
-# The router proxy must decide "set call" with GatewayProxy.isSetPath, not an endsWith that a trailing slash gets around.
-router_src = (D / 'WebRoutesRouter.kt').read_text()
-if 'GatewayProxy.isSetPath(path)' not in router_src or 'endsWith("/goform_set_cmd_process")' in router_src:
-    errors.append('WebRoutesRouter.kt: /api/proxy/ must use GatewayProxy.isSetPath(path) to find the router set endpoint')
+# UFI removal, stage 3: these routes must stay gone (nothing on the page calls them, and /api/proxy/ and the cookie routes handed out router access).
+all_src = '\n'.join(f.read_text() for f in D.glob('*.kt'))
+for gone in ('/api/goform/', '/api/proxy/', '/api/get_cookie', '/api/set_cookie', '/api/upload', '/api/upload_img', '/api/uploads/'):
+    if '"' + gone in all_src: errors.append(f'removed route {gone} is back in the Kotlin sources')
 
 # Plain-HTTP and sign-in age rules live in one function.
 ws = (D / 'WebServer.kt').read_text()

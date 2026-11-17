@@ -61,8 +61,8 @@ internal fun checkUninstallCommands(decls: UninstallDecls, sandboxed: Boolean, g
 }
 
 /**
- * Step 3: what deleting one plugin with "Stop" would do. [commands] and [check] are the text that really runs (already mapped with UfiPathMap, F10),
- * [refused] is every declared command that may not run with its reason, [bootFiles] are the boot files it declared (mapped the same way),
+ * Step 3: what deleting one plugin with "Stop" would do. [commands] and [check] are the text that really runs (after [stopPlan]'s mapPath hook, F10),
+ * [refused] is every declared command that may not run with its reason, [bootFiles] are the boot files it declared (passed through the same hook),
  * [blocked] is the reason the whole stop is blocked (integrity) or null, and [shared] lists the OTHER installed plugins that declare one of the same
  * commands or boot files. [planHash] is "" when nothing would run; otherwise it covers exactly what runs, so Step 4 can refuse a changed plan.
  */
@@ -94,7 +94,7 @@ internal fun stopPlanHash(commands: List<String>, check: String?, bootFiles: Lis
  *  - [integrity] is integrityState(...) of the file; "changed" (or unknown) blocks the stop: nothing runs, every declared command is listed as refused.
  *  - [sandboxed] and [grant] are the sandbox mode and sandboxGrant(...) for it (Step 2 rules).
  *  - [shellProblem] is shellDanger(cmd, true); it is asked about the MAPPED text, because that is what runs.
- *  - [mapPath] is UfiPathMap.map(cmd, packageName). The sandbox grant is matched against the DECLARED text, as the person approved it.
+ *  - [mapPath] rewrites a declared path or command into the text that really runs (the host passes the identity function since UFI path mapping was removed). The sandbox grant is matched against the DECLARED text, as the person approved it.
  *  - [others] are (file name, file text) of every installed plugin; [name] itself is skipped (a plugin is never "shared with itself").
  * Same-folder guard: when another plugin declares the same command (after mapping) or the same boot file, its name is in [StopPlan.shared]
  * and the page skips the stop by default. This protects "install a new copy under a new name, then delete the old one".

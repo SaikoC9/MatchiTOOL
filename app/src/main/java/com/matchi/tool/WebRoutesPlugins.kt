@@ -50,13 +50,11 @@ internal fun UndoPlan.toJson(): JSONObject {
 
 /**
  * Phase 2 / Step 4: the processes the sweep would end for plugin [name] (read-only; nothing is killed here). One root probe of up to
- * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are mapped with UfiPathMap because the command lines of the processes
- * hold the mapped text (the ledger records what the plugin sent). Without root the answer is "cannot be checked", never a guessed list.
+ * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are what the plugin sent, and the process command lines hold the same text. Without root the answer is "cannot be checked", never a guessed list.
  */
 internal fun WebServer.pluginSweepInputs(name: String): Pair<List<String>, Map<String, List<String>>> {
-    val pkg = ctx.packageName
-    val ledger = traceStore.read(name).paths.map { UfiPathMap.map(it, pkg) }.distinct()
-    val others = pluginOtherPaths(name).mapValues { (_, v) -> v.map { UfiPathMap.map(it, pkg) } }
+    val ledger = traceStore.read(name).paths.distinct()
+    val others = pluginOtherPaths(name)
     return ledger to others
 }
 
@@ -107,7 +105,7 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
 /**
  * Step 3: the stop plan for plugin [name], read from the file as it is NOW (the delete route reads it before the file is removed, Step 4).
  * Collects what the pure stopPlan() needs: the integrity state, the sandbox mode and grant, the other installed plugins (for the same-folder guard),
- * the command filter and the UfiPathMap mapping. Runs nothing. A missing file gives an empty plan.
+ * and the command filter. Runs nothing. A missing file gives an empty plan.
  */
 internal fun WebServer.pluginStopPlan(name: String): StopPlan {
     val f = File(pluginDir, name)
@@ -119,7 +117,7 @@ internal fun WebServer.pluginStopPlan(name: String): StopPlan {
     val grant = sandboxGrant(records[name]?.caps, integrity)
     val others = pluginDir.listFiles { x -> x.isFile && x.name != name && (x.name.endsWith(".js") || x.name.endsWith(".html")) }
         ?.mapNotNull { x -> try { x.name to x.readText() } catch (_: Exception) { null } }.orEmpty()
-    return stopPlan(name, String(bytes, Charsets.UTF_8), integrity, sandboxed, grant, others, { shellDanger(it, true) }, { UfiPathMap.map(it, ctx.packageName) })
+    return stopPlan(name, String(bytes, Charsets.UTF_8), integrity, sandboxed, grant, others, { shellDanger(it, true) }, { it })
 }
 
 internal fun StopPlan.toJson(): JSONObject {
@@ -155,7 +153,7 @@ internal fun WebServer.eraseScript(paths: List<String>, pluginName: String) = pa
 } + "\ntrue"
 
 // NanoHTTPD copies the whole body to a temp file BEFORE any of our checks run, so the limits are enforced up front:
-// one upload at a time (both upload routes share the slot) and enough free space for the announced size plus a reserve.
+// one upload at a time (the app update upload uses the slot) and enough free space for the announced size plus a reserve.
 private val uploadSlot = java.util.concurrent.Semaphore(1)
 
 internal fun <T> WebServer.withUploadSlot(len: Long, block: () -> T): T {
@@ -165,62 +163,6 @@ internal fun <T> WebServer.withUploadSlot(len: Long, block: () -> T): T {
         if (!uploadSpaceOk(free, len)) throw IllegalArgumentException("Not enough free space on the device for this upload")
         return block()
     } finally { uploadSlot.release() }
-}
-
-/**
- * Multipart upload (field "file") for plugins: {"ok":true,"name":"x.tar.gz","url":"/uploads/x.tar.gz","path":"..."}.
- * The name is sanitised to [A-Za-z0-9._-]; an existing file of the same name is replaced.
- */
-internal fun WebServer.uploadFile(s: IHTTPSession, viaUfiRoute: Boolean = false): Response {
-    val len = s.headers["content-length"]?.toLongOrNull() ?: -1L
-    if (len < 0 || len > MAX_UPLOAD_BYTES + 1_000_000L)
-        throw IllegalArgumentException("Upload must be at most ${MAX_UPLOAD_BYTES / 1024 / 1024} MB")
-    if (!isMultipart(s)) throw IllegalArgumentException("Upload must be multipart/form-data (field \"file\")")
-    auditShell(s.remoteIpAddress ?: "?", "len=$len", "upload")
-    return withUploadSlot(len) { uploadFileLocked(s, viaUfiRoute) }
-}
-
-internal fun WebServer.uploadFileLocked(s: IHTTPSession, viaUfiRoute: Boolean): Response {
-    val files = HashMap<String, String>()
-    s.parseBody(files)
-    val tmp = files["file"]?.let { File(it) } ?: throw IllegalArgumentException("No file received (multipart field \"file\")")
-    try {
-        val original = s.parameters["file"]?.firstOrNull().orEmpty()
-        var name = original.substringAfterLast('/').substringAfterLast('\\').replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
-        if (name.isBlank() || name.all { it == '.' || it == '_' }) name = "upload_" + System.currentTimeMillis()
-        if (name.startsWith(".")) name = "_$name"
-        if (!uploadNameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid file name")
-        val dest = File(uploadDir, name)
-        val used = uploadDir.listFiles()?.filter { it.isFile && it.name != name }?.sumOf { it.length() } ?: 0L
-        if (used + tmp.length() > MAX_UPLOAD_TOTAL_BYTES)
-            throw IllegalArgumentException("Upload folder is full; delete old uploads first")
-        if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true) }
-        dest.setReadable(true, false)
-        tracePluginName(s.headers["x-matchi-plugin"])?.let { traceStore.record(it, emptyList(), emptyList(), listOf(name)) }
-        // UFI's /upload_img replies "/uploads/NAME" and its plugins cut that prefix off to get the file name; /api/upload keeps "/api/uploads/NAME".
-        val url = (if (viaUfiRoute) "/uploads/" else "/api/uploads/") + name
-        return json(Response.Status.OK, JSONObject().put("ok", true).put("name", name)
-            .put("url", url).put("path", dest.absolutePath).put("size", dest.length()))
-    } finally {
-        try { if (tmp.exists()) tmp.delete() } catch (e: Exception) { Quiet.note("WebServer.uploadFileLocked", e) }
-    }
-}
-
-/** Streams a previously uploaded (or root-copied) file from the uploads folder. */
-internal fun WebServer.serveUpload(name: String): Response {
-    if (!uploadNameRx.matches(name) || name.contains(".."))
-        throw IllegalArgumentException("invalid file name")
-    val f = File(uploadDir, name)
-    if (!f.isFile) return json(Response.Status.NOT_FOUND, JSONObject().put("error", "file not found"))
-    val r = newFixedLengthResponse(Response.Status.OK, "application/octet-stream", java.io.FileInputStream(f), f.length())
-    r.addHeader("Content-Disposition", "attachment; filename=\"$name\"")
-    return harden(r)
-}
-
-internal fun WebServer.deleteUpload(name: String): Response {
-    if (!uploadNameRx.matches(name) || name.contains(".."))
-        throw IllegalArgumentException("invalid file name")
-    return json(Response.Status.OK, JSONObject().put("ok", File(uploadDir, name).delete()))
 }
 
 /**
@@ -236,9 +178,6 @@ internal fun WebServer.pluginPasswordCheck(s: IHTTPSession, req: JSONObject, wha
 }
 
 internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = when {
-    (uri == "/api/upload" || uri == "/api/upload_img") && s.method == Method.POST -> uploadFile(s, uri == "/api/upload_img")
-    uri == "/api/uploads/delete" && s.method == Method.POST -> deleteUpload(body(s).optString("name"))
-    uri.startsWith("/api/uploads/") && s.method == Method.GET -> serveUpload(uri.removePrefix("/api/uploads/"))
     uri == "/api/plugins" && s.method == Method.GET -> {
         val off = Prefs.disabled(ctx)
         val arr = JSONArray()
@@ -561,7 +500,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                 try {
                     traceStore.recordCommand(name, command)
                 } catch (e: Exception) { Quiet.note("WebRoutesPlugins.pluginCall", e) }
-                val r = RootShell.run(ctx, tagCommand(name, UfiPathMap.map(command, ctx.packageName)), 20_000)
+                val r = RootShell.run(ctx, tagCommand(name, command), 20_000)
                 json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
             }
         }

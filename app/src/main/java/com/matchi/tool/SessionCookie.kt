@@ -15,8 +15,7 @@ package com.matchi.tool
  *   3. The page's marker header x-token must be present as well ([requestToken]). A cross-origin page cannot add a custom header without a CORS
  *      preflight, which this host never answers, so a plain link, image or form cannot use the cookie. This closes the gap in 1 and 2: a page
  *      served by another service on the same IP address but another port is "same site", and a GET link has no Origin header.
- * The value of the marker header is not checked and carries no secret (the page sends the word "cookie"). It keeps the old name x-token so
- * that UFI-TOOLS plugins, which put `x-token` on their own requests, keep working.
+ * The value of the marker header is not checked and carries no secret (the page sends the word "cookie"). The name x-token is kept from earlier versions.
  *
  * Cookies are not scoped by port: any other web server on this device's IP address receives the cookie when the browser requests a path
  * under [SESSION_COOKIE_PATH] from it. Path=/api keeps it away from pages and from the router's own web interface, which use other paths.

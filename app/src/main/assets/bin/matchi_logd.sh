@@ -72,14 +72,9 @@ note "capture started (script v${VER:-?}, pid $$, ${FILES} x ${FILE_KB} KB per s
   ip -o addr 2>/dev/null | head -n 20
   echo "--- thermal zones (type=raw) ---"
   thermal_zones
-  # Names only (never file contents): what could start apps or scripts at boot, and whether an old UFI-TOOLS launcher is around.
+  # Names only (never file contents): what could start apps or scripts at boot.
   echo "--- boot scripts (names only) ---"
   ls -1 /data/adb/service.d /data/adb/post-fs-data.d 2>/dev/null | head -n 40
-  [ -e /sdcard/ufi_tools_boot.sh ] && echo "present: /sdcard/ufi_tools_boot.sh"
-  echo "--- files naming minikano / ufi_tools ---"
-  grep -rIlsiE 'minikano|ufi_tools' /data/adb/service.d /data/adb/post-fs-data.d /data/adb/modules /data/local/tmp 2>/dev/null | head -n 20
-  echo "--- running: minikano / ufi_tools ---"
-  ps -A -o PID,ARGS 2>/dev/null | grep -iE '[m]inikano|[u]fi_tools' | cut -c1-160 | head -n 10
 } > "$L/context.txt" 2>/dev/null
 
 kids=""

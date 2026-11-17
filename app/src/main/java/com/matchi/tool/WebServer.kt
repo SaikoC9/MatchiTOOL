@@ -15,7 +15,7 @@ import java.security.MessageDigest
 class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127.0.0.1") : NanoHTTPD(bindAddress, port) {
     internal val pluginDir = File(ctx.filesDir, "plugins").apply { mkdirs() }
     internal val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.(js|html)$")
-    // Files handed to plugins (UFI-TOOLS plugins expect an upload endpoint). Root plugins read them from this folder.
+    // Folder for files a plugin wrote earlier; the plugin Delete and sweep steps still list and remove what the trace ledger names here.
     internal val uploadDir = File(ctx.filesDir, "uploads").apply { mkdirs() }
     // Ledger of what each plugin wrote (paths, uploads, side effects), filled from root commands the page attributes to a plugin.
     internal val traceStore = PluginTraceStore(File(ctx.filesDir, "plugin_trace"))
@@ -39,8 +39,6 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
     /** Phase 2 Step 1: the command with the plugin tag in front, from the x-matchi-plugin header (best effort, see PluginSweep.kt). Use AFTER shellDanger/traceCommand. */
     internal fun tagged(s: IHTTPSession, command: String): String = tagCommand(s.headers["x-matchi-plugin"], command)
     internal val uploadNameRx = Regex("^[A-Za-z0-9._-]{1,120}$")
-    internal val MAX_UPLOAD_BYTES = 512L * 1024L * 1024L
-    internal val MAX_UPLOAD_TOTAL_BYTES = 1024L * 1024L * 1024L
 
     // Brute-force protection for /api/login (per-IP + global back-off, router-forward budget): see LoginGuard.
     internal val guard = LoginGuard()
@@ -83,8 +81,8 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         val curl = File(ctx.filesDir, "curl")
         if (refresh || !intact("bin/curl", curl)) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
-        // jq, sha256 and zreq (arm64, MatchiTOOL's own builds) are for plugins that call them by the UFI path
-        // /data/data/com.minikano.f50_sms/files/NAME, which UfiPathMap rewrites to this folder. Same copy-then-rename as curl.
+        // jq, sha256 and zreq (arm64, MatchiTOOL's own builds) are for plugins that run them from this app's files folder
+        // (/data/data/<this app>/files/NAME). Same copy-then-rename as curl.
         for (tool in BUNDLED_TOOLS) {
             val dest = File(ctx.filesDir, tool)
             if (refresh || !intact("bin/$tool", dest)) installBundledBinary("bin/$tool", dest)

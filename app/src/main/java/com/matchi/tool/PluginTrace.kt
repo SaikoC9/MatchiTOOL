@@ -161,7 +161,7 @@ internal fun pluginSideEffects(command: String): Set<String> {
     if (Regex("\\b(setprop|resetprop)\\b").containsMatchIn(c)) out.add("system properties")
     if (Regex("\\bsettings\\s+put\\b").containsMatchIn(c)) out.add("Android settings")
     if (Regex("\\b(nohup|setsid)\\b|&\\s*\$").containsMatchIn(c)) out.add("background processes")
-    if (c.contains("/data/local/matchitool/boot") || c.contains("ufi_tools_boot")) out.add("boot script lines")
+    if (c.contains("/data/local/matchitool/boot")) out.add("boot script lines")
     if (Regex("\\b(crontab|crond)\\b").containsMatchIn(c)) out.add("scheduled jobs")
     if (Regex("\\b(mount|umount)\\b").containsMatchIn(c)) out.add("mounts")
     if (Regex("\\bpm\\s+(disable|uninstall|install|grant|revoke)|\\bam\\s+force-stop").containsMatchIn(c)) out.add("app or package changes")

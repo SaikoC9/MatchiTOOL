@@ -1,8 +1,7 @@
 package com.matchi.tool
 
 /**
- * Which router "set" calls need the fresh sign-in (RootGate) before the host forwards them. /api/zte (op "set") and /api/goform/
- * (POST) are otherwise open to any console session, and a set call can cut the person off, break the data connection, reset the router
+ * Which router "set" calls need the fresh sign-in (RootGate) before the host forwards them. /api/zte (op "set") is otherwise open to any console session, and a set call can cut the person off, break the data connection, reset the router
  * or change its admin password.
  *
  * Since 1.4.3 (review item C10) this is a POSITIVE list: only the goformIds in [OPEN_SET] skip the gate, every other set call needs it.
@@ -10,7 +9,7 @@ package com.matchi.tool
  * the exact names differ between ZTE firmwares) went through unchecked. Reads (op "get" / GET) never come here.
  *
  * [OPEN_SET] holds exactly the set calls the built-in tools send without a fresh sign-in: band lock, cell lock, network mode,
- * performance mode and SMS. A UFI-TOOLS plugin that sends another set call now needs a sign-in younger than 4 h (it gets the usual
+ * performance mode and SMS. A plugin that sends another set call needs a sign-in younger than 4 h (it gets the usual
  * "sign in again" answer, nothing is lost). To open another call, add it here AND to NetGoformTest.
  *
  * Names are matched without regard to case or surrounding spaces, so a changed spelling cannot get around the gate. Pure Kotlin, no

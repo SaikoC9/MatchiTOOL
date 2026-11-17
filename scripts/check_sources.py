@@ -142,7 +142,10 @@ assert 'liv-heat critical' in live and 'not a substitute for the firmware' in li
 assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and 'boot.d' in service, 'CPU Governor window or boot.d runner missing'
 assert "modal.closest('.modal-bg')" in live, 'CPU Governor shown() must check the .modal-bg wrapper (showModal puts the show class there, not on the inner card)'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
-assert '"/api/upload"' in server and '"/api/uploads/"' in server and 'uploadNameRx' in server, 'plugin upload/download routes missing'
+# UFI removal, stage 3: the plugin upload routes are gone; the app-update upload still uses the shared upload slot.
+for needle in ('"/api/upload"', '"/api/upload_img"', '"/api/uploads/', 'fun WebServer.uploadFile', 'fun WebServer.serveUpload', 'viaUfiRoute'):
+    assert needle not in server, 'removed upload route code is back: ' + needle
+assert 'withUploadSlot(len)' in server and 'uploadSpaceOk(' in server, 'the app-update upload must keep the one-at-a-time slot and free-space check'
 for fn in ('createFixedToast', 'requestInterval', 'createModal', 'runShellWithRoot', 'runShellWithUser', 'checkRoot', 'plugScan', 'plugStopDecls', 'plugSummary'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
@@ -187,12 +190,15 @@ assert 'id="lcbootnav"' in html and 'viewBoot(' in html and 'loadCounters' in ht
 assert "x.pid>0" in html, 'viewer must show PID/thread when a line has them'
 assert 'function maybeRedact(' in html and 'maybeRedact(rows.filter' in html and "id=\"lcdevkeepall\"" in html, 'web page: redaction of exports/copies or the keep-every-line switch missing'
 assert 'keepEverything' in (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text(), 'NoiseGate keep-everything switch missing'
-assert (root / 'app/src/main/java/com/matchi/tool/UfiPathMap.kt').exists() and 'UfiPathMap.map(command, ctx.packageName)' in server, 'UFI path mapping must run before root commands'
+# UFI removal, stage 3: no UFI path rewriting, no UFI router routes, no UFI-only helper files.
+for gone in ('UfiPathMap.kt', 'GatewayProxy.kt'):
+    assert not (root / 'app/src/main/java/com/matchi/tool' / gone).exists(), 'removed file is back: ' + gone
+for needle in ('UfiPathMap', 'GatewayProxy', '"/api/goform/', '"/api/proxy/', '"/api/get_cookie"', '"/api/set_cookie"', 'minikano'):
+    assert needle not in server, 'removed UFI code is back in the host: ' + needle
 assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text() and '"su"' not in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text(), 'user shell must not use su'
 zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()
-assert 'GatewayProxy.goformPath(name)' in server and 'GatewayProxy.proxyPath(' in server, 'router routes must check the path with GatewayProxy'
-assert 'RouterHost.isValid(Prefs.zteHost(ctx))' in zc and 'GatewayProxy.safePath(path)' in zc, 'proxy must send only to the saved local gateway'
-assert 'fun proxy(ctx: Context, method: String, path: String' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
+assert 'fun proxy(' not in zc and 'fun sessionCookie(' not in zc and 'fun setSessionCookie(' not in zc and 'GatewayProxy' not in zc, 'ZteClient must not expose a free-path proxy or the router session cookie'
+assert 'resolveHost(ctx)' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
 # Phase 3: the session is an HttpOnly cookie. No route reads the token header itself, and the login reply carries no token.
 assert 'headers["x-token"]' not in server.replace('requestToken(s.headers["cookie"], s.headers["x-token"])', ''), 'read the session through sessionToken(s), not the x-token header'
 assert '.put("token"' not in server, 'the login reply must not hand the session token to the page'

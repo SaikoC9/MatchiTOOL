@@ -469,7 +469,7 @@ internal fun refusedSweep(): SweepView = uncheckedSweep("cannot be checked: this
 
 /**
  * Step 4: turns the probe's run into [SweepView]. Pure: the caller runs the probe ([run], null when it did not run) and passes [rootGranted],
- * the plugin's ledger paths (already mapped with UfiPathMap, because the process command lines hold the mapped text) and [others] (the shared guard).
+ * the plugin's ledger paths (the text the plugin sent, which is what the process command lines hold) and [others] (the shared guard).
  */
 internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResult?, ledgerPaths: List<String>, others: Map<String, List<String>>): SweepView {
     if (!rootGranted || run == null) return uncheckedSweep("cannot be checked: root is not available")

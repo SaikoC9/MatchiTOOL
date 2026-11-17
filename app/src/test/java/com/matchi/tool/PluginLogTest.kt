@@ -11,16 +11,14 @@ class PluginLogTest {
         assertEquals("plugin/shell", PluginLog.kindOf("POST", "/api/root_shell"))
         assertEquals("plugin/shell", PluginLog.kindOf("POST", "/api/user_shell"))
         assertEquals("plugin/at", PluginLog.kindOf("GET", "/api/AT"))
-        assertEquals("plugin/goform", PluginLog.kindOf("GET", "/api/goform/goform_get_cmd_process"))
-        assertEquals("plugin/proxy", PluginLog.kindOf("POST", "/api/proxy/x"))
-        assertEquals("plugin/head", PluginLog.kindOf("GET", "/api/get_custom_head"))
-        assertEquals("plugin/upload", PluginLog.kindOf("POST", "/api/upload_img"))
     }
 
     @Test fun otherRoutesAreNotPluginRoutes() {
         assertNull(PluginLog.kindOf("POST", "/api/shell"))
         assertNull(PluginLog.kindOf("GET", "/api/logs/entries"))
-        assertNull(PluginLog.kindOf("GET", "/api/upload"))
+        // routes removed in UFI removal stage 3
+        for (gone in listOf("/api/goform/goform_get_cmd_process", "/api/proxy/x", "/api/get_cookie", "/api/set_cookie", "/api/upload", "/api/upload_img", "/api/get_custom_head"))
+            assertNull(gone, PluginLog.kindOf("POST", gone))
     }
 
     @Test fun levelFollowsOutcome() {

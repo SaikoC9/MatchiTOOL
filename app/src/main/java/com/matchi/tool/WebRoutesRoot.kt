@@ -36,12 +36,11 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         else if (RootGate.isCpuLiveRead(command)) auditBusy(s.remoteIpAddress ?: "?", "cpu-live")
         else auditShell(s.remoteIpAddress ?: "?", command)
         traceCommand(s, command)
-        val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
+        val r = RootShell.run(ctx, tagged(s, command), t)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
     }
     // UFI-TOOLS aliases (shapes read from UFI's own server source, advancedToolsModule.kt). root_shell: request {"command","timeout"},
-    // reply {"result":"<text>"} or HTTP 500 {"error":"..."}; UFI's timeout cap is 100 s (kept). The default is 30 s, not UFI's 100 s: above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper. Same gate, limits and
-    // path mapping as /api/shell. UFI's kano-t / kano-sign / authorization headers are never read, so they are ignored.
+    // reply {"result":"<text>"} or HTTP 500 {"error":"..."}; UFI's timeout cap is 100 s (kept). The default is 30 s, not UFI's 100 s: above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper. Same gate and limits as /api/shell. UFI's kano-t / kano-sign / authorization headers are never read, so they are ignored.
     uri == "/api/root_shell" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
         val command = req.optString("command")
@@ -51,7 +50,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         commandBlocked(s, command)?.let { return@run it }
         auditShell(s.remoteIpAddress ?: "?", command, "root_shell")
         traceCommand(s, command)
-        val r = RootShell.run(ctx, tagged(s, UfiPathMap.map(command, ctx.packageName)), t)
+        val r = RootShell.run(ctx, tagged(s, command), t)
         ufiShellReply(if (r.success) r.content else null, if (r.success) null else r.content.ifBlank { "command failed" })
     }
     // UFI's one_click_shell is a GET with no body: it drives the phone screen over adb to switch on UFI's own root shell. It is

@@ -33,17 +33,26 @@ STAGE 2 - DONE 2026-11-17 (web side only; validate.sh passes; not tested in a br
      README / docs wording, 'kano_at_daemon' and 'com.minikano.f50_sms' in the Memory Cleaner protected-process list (index.html ~line 2425).
   Check: node scripts/build-web.js ; bash scripts/validate.sh  -> passes
 
-STAGE 3 - Kotlin side (CI must compile it; no Kotlin compiler in the sandbox)
-  Delete:
-   - UfiPathMap.kt and UfiPathMapTest.kt; remove the 5 calls to UfiPathMap.map in
-     WebRoutesPlugins.kt (lines ~58, 59, 564), WebRoutesRoot.kt (lines ~39, 54) and the PluginUninstall.kt comment
-   - routes in WebRoutesRouter.kt: /api/goform/*, /api/proxy/*, /api/get_cookie, /api/set_cookie
-     (keep ZteClient.kt: the SMS tool and LAN settings use it)
-   - routes in WebRoutesPlugins.kt: /api/upload, /api/upload_img, /api/uploads/*
-   - GatewayProxy.kt, SessionCookie.kt, NetGoform.kt, and their tests, if nothing else uses them (check first)
-   - UFI names/paths in PluginPaths.kt, PluginTrace.kt, AtBatch.kt, matchi_logd.sh
-   - bundled-tool path trick: tools no longer need the com.minikano.f50_sms/files path
-  Update scripts/test_route_gates.py for the removed routes.
+STAGE 3 - DONE 2026-11-17 in source (Kotlin NOT compiled here: no Kotlin compiler in the sandbox; validate.sh passes; CI build + unit tests + F50 test still to do)
+  Removed: UfiPathMap.kt, UfiPathMapTest.kt, GatewayProxy.kt, GatewayProxyTest.kt; every UfiPathMap.map call (WebRoutesPlugins.kt x4, WebRoutesRoot.kt x2) and the comments about it.
+    Routes: /api/goform/*, /api/proxy/*, /api/get_cookie, /api/set_cookie (WebRoutesRouter.kt, with gatewayParams); /api/upload, /api/upload_img, /api/uploads/*
+    and their handlers (WebRoutesPlugins.kt, MAX_UPLOAD_BYTES, MAX_UPLOAD_TOTAL_BYTES). ZteClient.proxy / Raw / sessionCookie / setSessionCookie.
+    PluginLog tags for the removed routes and for get_custom_head / set_custom_head (no handler existed). The "ufi_tools_boot" test in PluginTrace.pluginSideEffects.
+    The UFI-TOOLS / minikano lines in matchi_logd.sh (and the matching check in test_logd.sh).
+  Kept on purpose (checked first):
+    NetGoform.kt + test      /api/zte uses it for the set-call gate.
+    SessionCookie.kt + test  it is MatchiTOOL's own sign-in cookie (matchi_sid), used by WebServer and WebRoutesAuth.
+    ZteClient.kt             SMS tool, LAN settings and /api/zte use it.
+    withUploadSlot, uploadSpaceOk, isMultipart, uploadDir, uploadNameRx   the app-update upload and the plugin Delete / sweep steps still use them.
+    jq / sha256 / zreq copy to files/   only the UFI path trick is gone; the binaries stay (plugin-meta.js and README name them; remove the bundling only if you want them out of the APK).
+    stopPlan's mapPath parameter   now always the identity function; tests still use it as a hook. Remove it later if you want (touches PluginUninstallTest.kt in 7 places).
+  Updated: scripts/test_route_gates.py (removed routes, new "must stay gone" check), scripts/check_sources.py, README.md and SECURITY.md (statements about the removed routes), CHANGELOG.md.
+  LEFT FOR STAGE 4 (they are still used by the stage-2 web code, so removing them is a web + Kotlin change together):
+    UFI shell alias routes in WebRoutesRoot.kt: /api/root_shell, /api/one_click_shell, /api/user_shell, GET /api/AT, plus WebServer.ufiShellReply and AtBatch.ufiText
+      (matchi.user calls /api/user_shell; plugin-host-api.js and plugin-trace.js name root_shell, /api/AT, upload, upload_img).
+    "ufi_ttl/ufi_dpi/ufi_boot/ufi_lock" in PluginPaths.kt LOCAL_PROTECTED and the "-1a2b3c" .html block name handling (a safety guard / test fixtures; removing makes the guard weaker).
+    plugin-trace.js still lists /api/upload and /api/upload_img in its path filter (harmless; the routes are gone). The trace ledger "uploads" list can no longer be filled.
+    ZteClient.kt comments naming UFI-TOOLS (AD sign-in rewrite is stage 4), scripts/test_phase0.js and scripts/phase0/*.
   Check: push, CI build + unit tests, then install and test on the F50.
 
 STAGE 4 - rewrite ported code, then remove notices

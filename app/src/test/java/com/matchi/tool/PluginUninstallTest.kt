@@ -69,7 +69,7 @@ class PluginUninstallTest {
         assertTrue(pluginUninstallDeclarations(filler + "var b;\n// @matchi-uninstall tooLate\n").isEmpty)
     }
 
-    // 1.4.2: the page parser in web-src/plugin-store-pure.js (plugStopDecls) must agree with this one; scripts/test_ufi_store.js runs the same cases there.
+    // 1.4.2: the page parser plugStopDecls in web-src/plugin-meta.js must agree with this one; scripts/test_plugin_meta.js runs the same cases there.
     @Test fun whiteSpaceAndLineEndCharactersFollowJavaRules() {
         assertEquals(listOf("a\u00a0b"), pluginUninstallDeclarations("// @matchi-uninstall a\u00a0b\n").commands)
         assertEquals(listOf("\u00a0"), pluginUninstallDeclarations("// @matchi-uninstall \u00a0\n").commands)
@@ -201,9 +201,9 @@ class PluginStopPlanTest {
     }
 
     @Test fun theHashCoversTheMappedTextThatReallyRuns() {
-        val code = "// @matchi-uninstall rm -f /sdcard/ufi_tools_boot.sh\n"
-        val mapped = plan(code, map = { UfiPathMap.map(it, "com.matchi.tool") })
-        assertEquals(listOf("rm -f /data/local/matchitool/boot.sh"), mapped.commands)
+        val code = "// @matchi-uninstall rm -f /data/local/old/boot.sh\n"
+        val mapped = plan(code, map = { it.replace("/data/local/old/", "/data/local/new/") })
+        assertEquals(listOf("rm -f /data/local/new/boot.sh"), mapped.commands)
         assertTrue(mapped.planHash != plan(code).planHash)
     }
 
@@ -256,9 +256,9 @@ class PluginStopPlanTest {
     }
 
     @Test fun theGuardComparesTheMappedText() {
-        val map: (String) -> String = { UfiPathMap.map(it, "com.matchi.tool") }
-        val a = "// @matchi-uninstall rm -f /sdcard/ufi_tools_boot.sh\n"
-        val b = "// @matchi-uninstall rm -f /data/local/matchitool/boot.sh\n"
+        val map: (String) -> String = { it.replace("/data/local/old/", "/data/local/new/") }
+        val a = "// @matchi-uninstall rm -f /data/local/old/boot.sh\n"
+        val b = "// @matchi-uninstall rm -f /data/local/new/boot.sh\n"
         assertEquals(listOf("B.js"), plan(a, others = listOf("B.js" to b), map = map).shared)
     }
 }
