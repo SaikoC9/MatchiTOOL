@@ -238,10 +238,10 @@ const other = http.createServer((req, res) => { otherLog.push(req.url); res.writ
   ok(toastText.length >= 1 && toastText.some((t) => t.startsWith('[Bare] ')), 'a bridge toast is shown with the plugin\'s name in front: ' + JSON.stringify(toastText));
 
   // ---- the window: launcher button, modal, hide
-  const launcher = await page.evaluate(() => [...document.querySelectorAll('.collapse_box button[data-sbx]')].map((x) => x.dataset.sbx));
+  const launcher = await page.evaluate(() => [...document.querySelectorAll('.matchi-menu-box button[data-sbx]')].map((x) => x.dataset.sbx));
   ok(launcher.includes('Sbx_Probe.js'), 'the plugin menu has a button for each sandboxed plugin: ' + launcher.join(', '));
-  await page.evaluate(() => { document.getElementById('collapseBtn_menu').style.display = ''; document.getElementById('collapseBtn_menu').click(); });
-  await page.click('.collapse_box button[data-sbx="Sbx_Probe.js"]');
+  await page.evaluate(() => { document.getElementById('matchi_menu_btn').style.display = ''; document.getElementById('matchi_menu_btn').click(); });
+  await page.click('.matchi-menu-box button[data-sbx="Sbx_Probe.js"]');
   await page.waitForTimeout(300);
   ok(await page.evaluate(() => document.getElementById('sbx_Sbx_Probe_js').classList.contains('show')), 'the button opens the plugin window');
   ok(await page.evaluate(() => /It may:/.test(document.getElementById('sbx_Sbx_Probe_js').textContent) && /AT commands/.test(document.getElementById('sbx_Sbx_Probe_js').textContent)), 'and the window lists what the plugin may do');

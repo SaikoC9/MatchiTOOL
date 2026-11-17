@@ -143,14 +143,19 @@ assert 'CPU-BEGIN' in live and 'data-liv-cpu' in live and 'boot.d' in live and '
 assert "modal.closest('.modal-bg')" in live, 'CPU Governor shown() must check the .modal-bg wrapper (showModal puts the show class there, not on the inner card)'
 assert 'ulimit -f 4194304' in root_shell and 'ulimit -f 2048' not in root_shell and 'head -c 1100000' in root_shell, 'root shell must not cap plugin file writes at 1 MiB'
 assert '"/api/upload"' in server and '"/api/uploads/"' in server and 'uploadNameRx' in server, 'plugin upload/download routes missing'
-for fn in ('uploadFileKano', 'downloadUrl', 'createFixedToast', 'requestInterval', 'ufiDataStart'):
+for fn in ('createFixedToast', 'requestInterval', 'createModal', 'runShellWithRoot', 'runShellWithUser', 'checkRoot', 'plugScan', 'plugStopDecls', 'plugSummary'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
 assert 'installBundledBinary("bin/curl"' in server and 'files/curl' in html, 'bundled curl is not installed or not on the wrapper search path'
 assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")' in server and 'installBundledBinary("bin/$tool"' in server, 'jq/sha256/zreq are not installed at start-up'
-for needle in ('UFISTORE-BEGIN', 'storeUrlOk', 'storeInstall', 'plugin_store_open', 'storeSha256', 'redirect:\'follow\'', "credentials:'omit'"):
-    assert needle in html, 'plugin store piece missing: ' + needle
-assert (root / 'docs/PLUGIN_STORE.md').is_file(), 'plugin store format notes missing'
+# UFI removal, stage 2 (see UFI_REMOVAL_PATH.txt): the UFI plugin format, UFI_DATA poller, plugin store and UFI-only helpers must stay gone from the page.
+for needle in ('KANO_PLUGIN', 'ufiParse', 'ufiInject', 'ufiImport', 'ufiBuild', 'ufiCheck', 'ufiHash', 'ufiT(', 'ufiModalEl', 'UFI_DATA', 'UFIPOLL', 'ufiDataStart', 'plugin_store_open',
+               'plugin_ufi_', 'storeParseUfi', 'storeInstall', 'plugCompat', 'pluginLanFix', '__matchiCompat', 'uploadFileKano', 'downloadUrl', 'KANO_baseURL',
+               'collapseBtn_menu', 'collapse_box', 'functions-container', 'kano_btn_is_loading', 'UFIHOST', 'UFISTORE'):
+    assert needle not in html, 'UFI code is back in the page: ' + needle
+assert not any((root / 'app/src/main/web-src' / f).exists() for f in ('plugin-store-ui.js', 'plugin-store-pure.js')), 'plugin store source files are back'
+assert 'window.matchi=Object.freeze(' in html and 'async function runShellWithUser' in html and 'const matchiSh=' in html, 'matchi plugin API missing'
+assert 'id="matchi_menu_btn"' in html and 'matchi-menu-box' in html, 'plugin menu anchors missing'
 for f in ('scan_plugins.js', 'deob_requests_js.js'):
     assert (root / 'scripts/phase0' / f).is_file(), 'Phase 0 script missing: ' + f
 # Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
@@ -184,13 +189,10 @@ assert 'function maybeRedact(' in html and 'maybeRedact(rows.filter' in html and
 assert 'keepEverything' in (root / 'app/src/main/java/com/matchi/tool/LogTools.kt').read_text(), 'NoiseGate keep-everything switch missing'
 assert (root / 'app/src/main/java/com/matchi/tool/UfiPathMap.kt').exists() and 'UfiPathMap.map(command, ctx.packageName)' in server, 'UFI path mapping must run before root commands'
 assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text() and '"su"' not in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text(), 'user shell must not use su'
-assert 'UFIHOST-BEGIN' in html and 'async function runShellWithUser' in html and 'window.__matchiCompat=' in html, 'host UFI API missing'
 zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()
 assert 'GatewayProxy.goformPath(name)' in server and 'GatewayProxy.proxyPath(' in server, 'router routes must check the path with GatewayProxy'
 assert 'RouterHost.isValid(Prefs.zteHost(ctx))' in zc and 'GatewayProxy.safePath(path)' in zc, 'proxy must send only to the saved local gateway'
 assert 'fun proxy(ctx: Context, method: String, path: String' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
-assert 'UFIDATA-BEGIN' in html and 'function ufiDataStart(' in html and 'fillUfiData' not in html, 'UFI_DATA poller missing'
-assert 'if(UFIPOLL.busy||!UFIPOLL.fields||!TOKEN)return' in html and 'document.hidden' in html, 'UFI_DATA poller must not overlap and must pause when hidden'
 # Phase 3: the session is an HttpOnly cookie. No route reads the token header itself, and the login reply carries no token.
 assert 'headers["x-token"]' not in server.replace('requestToken(s.headers["cookie"], s.headers["x-token"])', ''), 'read the session through sessionToken(s), not the x-token header'
 assert '.put("token"' not in server, 'the login reply must not hand the session token to the page'

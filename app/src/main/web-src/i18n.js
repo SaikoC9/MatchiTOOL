@@ -57,9 +57,9 @@
     'Auto lets the router choose. The router saves your choice and it is applied right away, without a restart. The USB connection may drop for a few seconds. Needs a fresh sign-in and root access.':'Ang Auto ay hinahayaan ang router na pumili. Sine-save ng router ang pinili mo at inilalapat ito agad, nang walang restart. Maaaring maputol ang USB connection nang ilang segundo. Kailangan ng bagong sign-in at root access.',
     'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
     'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
-    'Add plugin (.js or UFI-TOOLS .txt)':'Magdagdag ng plugin (.js o UFI-TOOLS .txt)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
+    'Add plugin (.js file)':'Magdagdag ng plugin (.js file)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
     'Cancel':'Kanselahin','Confirm':'Kumpirmahin','Next':'Susunod','Notice':'Paunawa','Network rules':'Mga network rule','Root over HTTP':'Root sa HTTP','Allow':'Payagan','Block':'I-block','Continue':'Magpatuloy',
-    'Plugin store…':'Plugin store…','Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…','Export UFI .txt':'I-export ang UFI .txt','Import UFI .txt':'I-import ang UFI .txt',
+    'Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…',
     'Plugins can run any command as root through this console. Install only code you trust.':'Ang mga plugin ay maaaring magpatakbo ng anumang command bilang root sa console na ito. Mag-install lang ng code na pinagkakatiwalaan mo.'
   }};
   /* Pieces of texts that carry a changing value (a number, a band list): replaced inside the text, in this order. */

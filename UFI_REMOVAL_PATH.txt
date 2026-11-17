@@ -1,0 +1,65 @@
+MatchiTOOL - path to remove UFI-TOOLS code (decision: DROP all UFI compatibility)
+=============================================================================
+
+STAGE 1 - DONE (reviewed 2026-11-17: no error)
+  Fixed stale comments that said sendat/curl/jq/sha256/zreq are from UFI-TOOLS
+  (WebServer.kt, at-radio-ui.js, rebuilt index.html). validate.sh passes.
+
+STAGE 1 REVIEW (2026-11-17): no error. validate.sh passes on the repo zip of 2026-11-17; the three comment fixes are in place and accurate.
+  Left on purpose for later stages: WebServer.kt still says the bundled jq/sha256/zreq are "for plugins that call them by the UFI path ... UfiPathMap" (true until stage 3);
+  the "Ported from UFI-TOOLS" / "same as UFI-TOOLS" comments in at-radio-ui.js, radio-core.js and index.html (stage 4 rewrites).
+
+STAGE 2 - DONE 2026-11-17 (web side only; validate.sh passes; not tested in a browser or on the F50)
+  Removed: KANO_PLUGIN format (ufiParse/Build/Check/Hash/Import/Inject, Export/Import UFI .txt buttons, HTML-block loading), UFI_DATA poller,
+    plugin store (plugin-store-ui.js, plugin-store-pure.js, "Plugin store..." button), uploadFileKano, downloadUrl, KANO_baseURL, common_headers,
+    getData/postData/login, UFI_T/ufiT/ufiModalEl, window.t, __matchiCompat (now matchi.sh), pluginLanFix + window.open fix, plugCompat,
+    MATCHI_ROUTES lists, store-only helpers, UFI anchors (#collapseBtn_menu, .collapse_box, .functions-container, .kano_btn_is_loading).
+  Added: window.matchi (web-src/plugin-host-api.js): toast, modal.create/show/close, root, user, hasRoot, copy, menu, router.get/set (via /api/zte),
+    sh (q, run, runJob, upload, download, lanIp, paths), escapeHtml, formatBytes, wait, debounce, interval, base64, panel, switch, loading, form.
+    web-src/plugin-meta.js (plugScan, plugMeta, plugStopDecls, plugSummary, plugHash): the add-plugin confirm now shows the summary.
+    New anchors: #matchi_menu_btn, .matchi-menu-wrap, .matchi-menu-box.
+  Tests: removed test_ufi_bundle/data/host/store.js. Added test_plugin_api.js and test_plugin_meta.js, listed in validate.sh.
+    check_sources.py now fails if any removed UFI name comes back to index.html.
+  FILES TO DELETE from your copy (a zip cannot delete): scripts/test_ufi_bundle.js, scripts/test_ufi_data.js, scripts/test_ufi_host.js, scripts/test_ufi_store.js,
+    app/src/main/web-src/plugin-store-ui.js, app/src/main/web-src/plugin-store-pure.js
+  KNOWN CONSEQUENCES:
+   - A plugin that uses the UFI helper names as plugin code (getData, postData, UFI_DATA, __matchiCompat, collapse_box) stops working until ported to matchi.*.
+     The installed Bypass_v65_22 was not in the zip, so it is NOT checked; send it to be ported.
+   - An installed HTML-block plugin (.html kind) is listed with an "HTML" icon and a notice, and is not loaded. Export still works.
+   - The page's own helpers (createToast, createModal, runShellWithRoot ...) still exist as globals because the built-in tools call them (132 call sites).
+     Plugins should call matchi.*; the old names are not removed from global scope.
+   - Still waiting for stage 3 (Kotlin): /api/goform, /api/proxy, /api/upload* routes still exist on the host; nothing on the page calls them now.
+   - Left for stage 4: scripts/test_phase0.js and scripts/phase0/* (UFI bundle scan, browser tests), docs/PLUGIN_STORE.md (describes the removed store; check_sources.py no longer requires it),
+     README / docs wording, 'kano_at_daemon' and 'com.minikano.f50_sms' in the Memory Cleaner protected-process list (index.html ~line 2425).
+  Check: node scripts/build-web.js ; bash scripts/validate.sh  -> passes
+
+STAGE 3 - Kotlin side (CI must compile it; no Kotlin compiler in the sandbox)
+  Delete:
+   - UfiPathMap.kt and UfiPathMapTest.kt; remove the 5 calls to UfiPathMap.map in
+     WebRoutesPlugins.kt (lines ~58, 59, 564), WebRoutesRoot.kt (lines ~39, 54) and the PluginUninstall.kt comment
+   - routes in WebRoutesRouter.kt: /api/goform/*, /api/proxy/*, /api/get_cookie, /api/set_cookie
+     (keep ZteClient.kt: the SMS tool and LAN settings use it)
+   - routes in WebRoutesPlugins.kt: /api/upload, /api/upload_img, /api/uploads/*
+   - GatewayProxy.kt, SessionCookie.kt, NetGoform.kt, and their tests, if nothing else uses them (check first)
+   - UFI names/paths in PluginPaths.kt, PluginTrace.kt, AtBatch.kt, matchi_logd.sh
+   - bundled-tool path trick: tools no longer need the com.minikano.f50_sms/files path
+  Update scripts/test_route_gates.py for the removed routes.
+  Check: push, CI build + unit tests, then install and test on the F50.
+
+STAGE 4 - rewrite ported code, then remove notices
+  Rewrite in your own code and wording (not just rename):
+   - web-src/at-radio-ui.js   (AT terminal, VoLTE/VoNR switches, NR band list)
+   - web-src/radio-core.js    (radio restart sequence)
+   - SMS tool in index.html   (~line 3036)
+   - ZteClient.kt AD sign-in  (verify against what the router's own login page sends)
+   - plugin-host-api.js leftovers
+  Before calling it clean: compare against the UFI-TOOLS source and remove anything still identical.
+  Then delete, LAST:
+   - LICENSE-UFI-TOOLS
+   - UFI line in NOTICE.md, README.md (UFI plugin API sections), PROJECT_IDENTITY.md
+   - docs/AT_RADIO_UFI_PLAN.txt, UFI parts of docs/AT_RADIO_FORMATS.md, docs/PLUGIN_STORE.md, CHANGELOG_DETAIL.md
+   - UFI checks in scripts/check_sources.py, scripts/validate.sh, scripts/phase0/*
+  Check: validate.sh, check_repo.py, CI build, F50 test.
+
+ORDER RULE
+  Do not delete LICENSE-UFI-TOOLS until stage 4 rewrites are done and compared. It must stay for any copied code.

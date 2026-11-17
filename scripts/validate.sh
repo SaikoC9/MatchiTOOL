@@ -38,10 +38,8 @@ fi
 # The page's redaction rules must give the same results as Redactor.kt (same cases as RedactorTest).
 if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_page_redact.js" || exit 1
-  node "$(dirname "$0")/test_ufi_bundle.js" || exit 1
-  node "$(dirname "$0")/test_ufi_host.js" || exit 1
-  node "$(dirname "$0")/test_ufi_data.js" || exit 1
-  node "$(dirname "$0")/test_ufi_store.js" || exit 1
+  node "$(dirname "$0")/test_plugin_api.js" || exit 1      # window.matchi: the plugin API (toast, modal, root, user, router, shell helpers)
+  node "$(dirname "$0")/test_plugin_meta.js" || exit 1     # plugin header lines, add-plugin summary, stop declarations
   node "$(dirname "$0")/test_plugin_trace.js" || exit 1
   node "$(dirname "$0")/test_plugin_sandbox.js" || exit 1
   node "$(dirname "$0")/test_plugin_sweep_ui.js" || exit 1

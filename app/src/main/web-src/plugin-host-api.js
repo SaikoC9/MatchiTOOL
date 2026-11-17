@@ -1,10 +1,16 @@
-/* ===== UFI-TOOLS plugin host API (Phase 2) =====================================================
- * Helpers that UFI-TOOLS plugins call as globals. Signatures and return values follow UFI-TOOLS 4.1.5
- * (utils.js, MIT, Copyright (c) 2025 Minikano; see LICENSE-UFI-TOOLS). Where MatchiTOOL differs on purpose, the comment says so.
- * Host tools call the same createModal/showModal/closeModal, so every onClose they pass returns true. */
-function ufiT(key){return UFI_T[key]||key}
-const UFI_T={submit_btn:'Submit',close_btn:'Close',confirm_btn:'Confirm',cancel_btn:'Cancel',copy_success:'Copied successfully!',copy_failed:'Copy failed!',uploading:'Uploading...',toast_upload_success:'Uploaded',toast_upload_failed:'Upload failed',toast_oprate_failed:'Action failed',download_ing:'Downloading',rename_failed:'Rename failed!'};
-if(typeof window.t!=='function')window.t=ufiT;
+/* ===== MatchiTOOL plugin API ===================================================================
+ * A plugin is one .js file. It reaches the console through window.matchi (defined at the end of this block):
+ *   matchi.toast(text, color, ms, fn)      a popup at the top (color: red, orange, green, blue, or any CSS colour for the text)
+ *   matchi.modal.create / show / close     dialogs: footer buttons are #NAME_confirm and #NAME_close
+ *   matchi.root(cmd, timeoutMs)            root shell, resolves {success, content}
+ *   matchi.user(cmd)                       shell as the app's own user, resolves {success, content}
+ *   matchi.hasRoot()                       true when the root shell answers as root
+ *   matchi.copy(text)                      copy to the clipboard, resolves true or false
+ *   matchi.menu()                          the "Plugin actions" box on the home page (put your buttons in it)
+ *   matchi.router.get(cmd) / .set(params)  read or write the router through the host's saved sign-in
+ *   matchi.sh                              shell helpers: q, run (long jobs), upload, download, lanIp, paths
+ *   matchi.escapeHtml, formatBytes, wait, debounce, interval, base64, panel, switch, loading, form
+ * The page's own helpers below (createToast, createModal ...) are used by the built-in tools; plugins should call matchi.*. */
 const wait=(ms)=>new Promise((r)=>setTimeout(r,ms));
 const debounce=(func,delay)=>{let timer;return function(...args){if(timer)clearTimeout(timer);timer=setTimeout(()=>{func.apply(this,args)},delay)}};
 function escapeHtml(input){if(input==null)return '';return String(input).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -20,7 +26,7 @@ function formatBytes(bytes,needTrim=false){
 async function runShellWithRoot(cmd,timeout=20000){
   return api('/api/shell',{method:'POST',body:JSON.stringify({cmd,timeout})});
 }
-/* No-root shell: runs as the app's own user (POST /api/user_shell). Like UFI-TOOLS the reply is {success, content: result}, where result
+/* No-root shell: runs as the app's own user (POST /api/user_shell). The reply is {success, content: result}, where result
    is an object holding the output text as "content". A failure is returned, not thrown. */
 async function runShellWithUser(cmd){
   try{
@@ -28,10 +34,10 @@ async function runShellWithUser(cmd){
     return d&&d.error?{success:false,content:d.error}:{success:true,content:d?d.result:''};
   }catch(e){return {success:false,content:String(e&&e.message||e)}}
 }
-/* Modals. UFI semantics: the footer buttons are #NAME_confirm and #NAME_close; onConfirm/onClose may be async and the dialog closes only when
-   they return a true value. A modal without onClose does not close from its button (as in UFI). Returns {el, id:'#NAME'}: el is the dialog box,
+/* Modals: the footer buttons are #NAME_confirm and #NAME_close; onConfirm/onClose may be async and the dialog closes only when
+   they return a true value. A modal without onClose does not close from its button. Returns {el, id:'#NAME'}: el is the dialog box,
    or the full-screen mask when isMask is set; a MatchiTOOL dialog always has the mask (id NAME) around the box. */
-function createModal({name,noBlur,isMask,title,titleI18nKey='',maxWidth,content,contentStyle,showConfirm=true,confirmBtnText=ufiT('submit_btn'),closeBtnText=ufiT('close_btn'),onClose,onConfirm}){
+function createModal({name,noBlur,isMask,title,titleI18nKey='',maxWidth,content,contentStyle,showConfirm=true,confirmBtnText='Submit',closeBtnText='Close',onClose,onConfirm}){
   document.getElementById(name)?.remove();
   const bg=document.createElement('div');bg.className='modal-bg';bg.id=name;
   const box=document.createElement('div');box.className='modal modal-flex';box.style.maxWidth=maxWidth||'600px';
@@ -51,27 +57,27 @@ function createModal({name,noBlur,isMask,title,titleI18nKey='',maxWidth,content,
 }
 /* showModal(selector | id, time, opacity) and closeModal(selector | id, time, callback). A selector starts with # or . ; a bare name is an id (the
    older MatchiTOOL form). closeModal(id, fn) with a function as the second argument still works. Works for MatchiTOOL dialogs and for any element. */
-function ufiModalEl(x){
+function modalEl(x){
   if(x&&x.nodeType===1)return x;
   const s=String(x||'');if(!s)return null;
   try{return document.querySelector(/^[#.\[]/.test(s)?s:'#'+CSS.escape(s))}catch(_){return null}
 }
 function showModal(id,time,opacity){
-  const el=ufiModalEl(id);if(!el)return;
+  const el=modalEl(id);if(!el)return;
   if(el.classList.contains('modal-bg')){el.classList.add('show');return}
   el.style.opacity=0;el.style.display='';setTimeout(()=>{el.style.opacity=(typeof opacity==='string'||typeof opacity==='number')?opacity:'1'},10);
 }
 let modalTimer=null;
 function closeModal(id,time,cb){
   if(typeof time==='function'){cb=time;time=300}
-  const el=ufiModalEl(id);if(!el)return;
+  const el=modalEl(id);if(!el)return;
   const fin=()=>{setTimeout(()=>{if(cb)cb()},30)};
   if(el.classList.contains('modal-bg')){el.classList.remove('show');fin();return}
   el.style.opacity=0;
   if(modalTimer)clearTimeout(modalTimer);
   modalTimer=setTimeout(()=>{el.style.display='none';fin()},typeof time==='number'?time:300);
 }
-/* More of the host API that UFI-TOOLS plugins expect. */
+/* More helpers for plugins (reached as matchi.interval, matchi.panel, matchi.switch, matchi.loading, matchi.form). */
 function requestInterval(fn,ms){const h=setInterval(fn,ms);return()=>clearInterval(h)}
 function createFixedToast(id,html,st={}){
   document.getElementById(id)?.remove();
@@ -96,8 +102,8 @@ function createSwitch({text,value,className='',onChange,fontSize=14}){
 }
 function setBtnLoading(ele,isLoading=false){
   if(!ele)return;
-  const old=ele.querySelector('.kano_btn_is_loading');if(old)ele.removeChild(old);
-  if(isLoading){const sp=document.createElement('span');sp.className='kano_btn_is_loading spin';ele.appendChild(sp);ele.disabled=true}
+  const old=ele.querySelector('.matchi-btn-loading');if(old)ele.removeChild(old);
+  if(isLoading){const sp=document.createElement('span');sp.className='matchi-btn-loading spin';ele.appendChild(sp);ele.disabled=true}
   else ele.disabled=false;
 }
 const createFormToast=({title,id,fields},cb=async()=>{})=>{
@@ -114,7 +120,7 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
     }
     return `<div>${lab(f)}<input style="width:100%;padding:5px;" type="text" id="${id}_input_${i}" placeholder="${f.placeholder||''}"/></div>`;
   }).join('');
-  const {el,close}=createFixedToast(id,`<div style="pointer-events:all;width:80vw;max-width:300px;"><div class="title" style="margin:0">${ufiT(title)}</div><div class="form-group" style="display:flex;flex-direction:column;gap:6px;margin:10px 0;">${fieldHtml}</div><div style="display:flex;gap:10px"><button id="close_${id}_toast_btn" style="width:100%;margin-top:5px">${ufiT('confirm_btn')}</button><button id="close_${id}_toast_btn1" style="width:100%;margin-top:5px">${ufiT('cancel_btn')}</button></div></div>`);
+  const {el,close}=createFixedToast(id,`<div style="pointer-events:all;width:80vw;max-width:300px;"><div class="title" style="margin:0">${title==null?'':escapeHtml(title)}</div><div class="form-group" style="display:flex;flex-direction:column;gap:6px;margin:10px 0;">${fieldHtml}</div><div style="display:flex;gap:10px"><button id="close_${id}_toast_btn" style="width:100%;margin-top:5px">Confirm</button><button id="close_${id}_toast_btn1" style="width:100%;margin-top:5px">Cancel</button></div></div>`);
   const btn=el.querySelector(`#close_${id}_toast_btn`),btn2=el.querySelector(`#close_${id}_toast_btn1`);
   const values=()=>{const out={};fields.forEach((f,i)=>{
     const inp=el.querySelector(`#${id}_input_${i}`),grp=el.querySelector(`#${id}_input_group_${i}`);
@@ -126,11 +132,11 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
   btn.onclick=async()=>{try{await cb(values(),close)}catch(e){console.error('Error occurred while submitting form:',e)}};
 };
 /* Every same-origin /api/ request from a plugin gets the session token it would not know about, and root-capable calls over plain HTTP ask the
-   page's usual "not encrypted" question first. UFI's own kano-t / kano-sign / authorization headers pass through unread. */
+   page's usual "not encrypted" question first. Headers a plugin sets itself pass through unread. */
 (function(){
   const nativeFetch=window.fetch.bind(window);
   const ROOTY=/^\/api\/(?:root_shell|user_shell|one_click_shell|shell)$/;
-  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on UFI's GET /api/AT. */
+  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on GET /api/AT. */
   const AT_READS=['AT','ATI','AT+CSQ','AT+CESQ','AT+CGSN','AT+CIMI','AT+CCID','AT+CNUM','AT+CGMR','AT+CGMM','AT+CGMI'];
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;
   const atIsRead=c=>{c=String(c||'').trim();return !!c&&c.length<=64&&(AT_READS.indexOf(c.toUpperCase())>=0||AT_QUERY.test(c))};
@@ -156,10 +162,9 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
     return nativeFetch(input,init);
   };
 })();
-/* One shared compatibility object for plugins that were converted before the host had these helpers (their own block says
-   window.__matchiCompat || ...). It adds what a plain root call does not: UFI-style failures, a curl wrapper at
+/* Shell helpers for plugins (matchi.sh). They add what a plain root call does not: failures returned instead of thrown, a curl wrapper at
    /data/local/matchitool/bin/curl, and background jobs for commands longer than the 120 s root limit. */
-window.__matchiCompat=window.__matchiCompat||(()=>{
+const matchiSh=(()=>{
   const P={base:'/data/local/matchitool'};
   P.boot=`${P.base}/boot.sh`;P.uploads=`${P.base}/uploads`;P.curl=`${P.base}/bin/curl`;
   P.jobs='/data/local/matchitool/tmp/jobs';   // root-only: these .sh files are run as root
@@ -175,7 +180,7 @@ chmod 700 /data/local/matchitool/tmp ${P.jobs} 2>/dev/null
 [ -f ${P.boot} ] || printf '#!/system/bin/sh\n' > ${P.boot}
 cat > ${P.curl} <<'MATCHI_CURL_EOF'
 #!/system/bin/sh
-for c in /data/local/matchitool/bin/curl.real /data/data/com.matchi.tool/files/curl /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl /data/data/com.minikano.f50_sms/files/curl; do
+for c in /data/local/matchitool/bin/curl.real /data/data/com.matchi.tool/files/curl /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl do
   if [ -x "$c" ]; then
     # The bundled curl (OpenSSL 3) cannot read Android's hashed cacerts folder, so https failed with (60). Give it the system
     # roots as one PEM file (same certs, checked on the F50: https 200 with no -k). A caller's own --cacert / -k / env wins.
@@ -296,29 +301,50 @@ echo started`,15000);
   };
   return {P,q,sleep,hr,prepare,run,runJob,showModal,closeModal,createModal,createFixedToast,requestInterval,upload,download,lanIp,validIp};
 })();
-/* ===== end UFI-TOOLS plugin host API ===== */
-
-/* ===== LAN-service links (AdGuard Home and similar) =====
- * The console itself is served over HTTPS, so a plugin written for UFI-TOOLS (plain HTTP) that builds a link as
- * location.protocol + '//' + location.hostname + ':3000' ends up at https://HOST:3000, where AdGuard Home's admin page only speaks
- * plain HTTP: the browser shows ERR_SSL_PROTOCOL_ERROR. The fix lives here, so plugins stay unchanged:
- *  - pluginLanFix(code) rewrites that link pattern (port 3000 only) to http:// when a plugin is loaded; the stored file is not touched;
- *  - window.open is wrapped so an explicit https://<this host>:3000 is opened as http:// as well. */
-function pluginLanFix(code){
-  if(typeof code!=='string'||code.indexOf(':3000')<0)return code;
-  return code
-    .replace(/\$\{\s*(?:window\.)?location\.protocol\s*\}\/\/(\$\{\s*(?:window\.)?location\.hostname\s*\}):3000(?!\d)/g,'http://$1:3000')
-    .replace(/(?:window\.)?location\.protocol\s*\+\s*(['"])\/\/\1\s*\+\s*((?:window\.)?location\.hostname)\s*\+\s*(['"]):3000\3/g,'"http://"+$2+":3000"');
+/* Is the root shell working? Never throws. */
+async function checkRoot(){
+  try{const r=await runShellWithRoot('whoami',8000);return !!(r&&r.success&&/\broot\b/.test(String(r.content||'')))}catch(_){return false}
 }
-(function(){
-  if(typeof window==='undefined'||typeof window.open!=='function'||window.__matchiOpenFix)return;
-  window.__matchiOpenFix=true;
-  const orig=window.open;
-  window.open=function(u){
-    try{
-      const s=String(u==null?'':u),m=/^https:\/\/([^\/:?#]+):3000(?=[\/?#]|$)/i.exec(s);
-      if(m&&m[1].toLowerCase()===String(location.hostname).toLowerCase())arguments[0]='http://'+s.slice(8);
-    }catch(_){}
-    return orig.apply(this,arguments);
-  };
+/* UTF-8 safe base64 of a string (btoa alone throws on non-Latin-1 text). */
+function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+/* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box. */
+(()=>{
+  const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
+  if(!btn||!box)return;
+  const sync=()=>{btn.style.display=box.children.length?'':'none';if(!box.children.length)wrap.hidden=true};
+  btn.onclick=()=>{wrap.hidden=!wrap.hidden;btn.setAttribute('aria-expanded',wrap.hidden?'false':'true')};
+  new MutationObserver(sync).observe(box,{childList:true});sync();
 })();
+/* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM
+   (ENABLE_PIN: a wrong PIN counts as an attempt) asks once per page load. The host decides which writes also need the fresh sign-in. */
+const matchiRouter={
+  async get(cmd){
+    const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'get',params:{cmd:String(cmd)}})});
+    return r&&r.data;
+  },
+  async set(params){
+    const o=params||{};
+    if(String(o.goformId||'').toUpperCase()==='ENABLE_PIN'&&!matchiRouter._pinOk){
+      if(!(await askConfirm('A plugin wants to send a SIM PIN command (ENABLE_PIN) to the router.\n\nA wrong value counts as a failed PIN attempt and can lock the SIM.\n\nSend it anyway?','Send it anyway',true)))throw new Error('Cancelled: SIM PIN command not sent');
+      matchiRouter._pinOk=true;
+    }
+    const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'set',params:o})});
+    return r&&r.data;
+  }
+};
+/* The one object a plugin needs. Every member calls the page's helper when it is used, so the order of the code does not matter. */
+window.matchi=Object.freeze({
+  toast:(msg,color,ms,fn)=>createToast(msg,color,ms,fn),
+  modal:Object.freeze({create:(o)=>createModal(o),show:(id,t,o)=>showModal(id,t,o),close:(id,t,cb)=>closeModal(id,t,cb)}),
+  root:(cmd,timeout)=>runShellWithRoot(cmd,timeout),
+  user:(cmd)=>runShellWithUser(cmd),
+  hasRoot:()=>checkRoot(),
+  copy:(text)=>copyText(text),
+  menu:()=>document.querySelector('.matchi-menu-box'),
+  router:matchiRouter,
+  sh:matchiSh,
+  escapeHtml,formatBytes,wait,debounce,
+  interval:requestInterval,base64:encodeBase64,
+  panel:createFixedToast,switch:createSwitch,loading:setBtnLoading,form:createFormToast
+});
+/* ===== end MatchiTOOL plugin API ===== */

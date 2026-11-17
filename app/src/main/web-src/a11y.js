@@ -91,7 +91,7 @@
         s.querySelectorAll('button').forEach(function(b){b.setAttribute('role','tab');b.setAttribute('aria-selected',b.classList.contains('on')?'true':'false')});
       });
       ['tokerr','conpwmsg','lcbootbtnhint'].forEach(function(id){var n=document.getElementById(id);if(n&&id!=='lcbootbtnhint'&&!n.getAttribute('aria-live')){n.setAttribute('role','status');n.setAttribute('aria-live','polite')}});
-      var b=document.getElementById('collapseBtn_menu'),w=b&&b.nextElementSibling;
+      var b=document.getElementById('matchi_menu_btn'),w=b&&b.nextElementSibling;
       if(b&&w){var open=!w.hasAttribute('hidden');b.setAttribute('aria-expanded',open?'true':'false')}
       onDialogChange();
     }catch(_){}

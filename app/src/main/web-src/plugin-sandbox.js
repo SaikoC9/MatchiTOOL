@@ -265,7 +265,7 @@ function sbxMount(p){
   note.textContent='Sandboxed plugin. '+(grant.length?'It may: '+grant.map(sbxDescribe).join('; ')+'.':'It has no device access.')+' If this window stays empty, the plugin draws its screen in the console page, which the sandbox hides. Press Trust on its row in Plugins to run it normally.';
   body.append(note,frame);
   sbxEntries.set(name,entry);
-  const box=document.querySelector('.collapse_box');
+  const box=document.querySelector('.matchi-menu-box');
   if(box){const b=document.createElement('button');b.type='button';b.textContent=title;b.dataset.sbx=name;b.onclick=()=>showModal('#'+modalId);box.appendChild(b)}
   return entry;
 }
@@ -277,7 +277,7 @@ function sbxSandboxMsg(p){
   let m='Run '+p.name+' in the sandbox?\n\nIt will run in an isolated frame: it cannot read this page, your session or the console API, and it reaches the console only through a small bridge.';
   m+=d.length?'\n\nIt asked for, and will get:\n'+d.map((c)=>'\u2022 '+sbxDescribe(c)).join('\n'):'\n\nIt asked for nothing beyond toasts, its own saved data and its own window.';
   if(bad.length)m+='\n\nThese header lines are ignored and grant nothing:\n'+bad.map((x)=>'\u2022 '+x).join('\n');
-  m+='\n\nA plugin written for UFI-TOOLS usually needs the page itself (createModal, runShellWithRoot, document ...) and will not work here. The file is approved as it is now. The sign-in password is asked next.';
+  m+='\n\nA plugin that needs the page itself (matchi.root, matchi.modal, document ...) will not work here; give it the trusted mode instead. The file is approved as it is now. The sign-in password is asked next.';
   return m;
 }
 function sbxTrustMsg(p){

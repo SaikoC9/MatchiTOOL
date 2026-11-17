@@ -201,7 +201,7 @@ RESULTS 2026-11-17 (zreq port fallback + radio restart slot 1 skip, run on the F
         (One pasted line showed "20" instead of 200 once; a rerun with labels gave code=200 twice. Cause unknown, likely a display/copy cut.)
 
 STILL OPEN
- 1. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started). The file is not in the repo zip of 2026-11-17.
+ 1. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done and reviewed; stage 2 done 2026-11-17, web side, validate.sh passes, not yet tried in a browser/F50; stages 3-4 not started).
 
 DONE-WHEN (updated)
  - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE)
