@@ -29,7 +29,7 @@ Run the workflow, download `matchitool-zreq-arm64`, then do the device test belo
 `app/src/main/assets/bin/zreq` and writing the new SHA-256 into `NOTICE.md` and `docs/BINARIES.md`
 (`scripts/validate.sh` fails until it is there).
 
-## Test on the F50
+## Test on the F50 (done 2026-11-17, zreq 1.1)
 Tested on the F50 (see MatchiTOOL_Binaries_test_todo.txt): hash matches, `-version` = zreq 1.1, `cmd=LD` with no port finds 8080,
 an explicit `:80` is refused, one sign-in with `-enc auto` worked and `cmd=modem_main_state` returned 200. The steps below stay as the
 recipe for a new build.

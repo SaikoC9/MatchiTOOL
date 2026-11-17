@@ -166,20 +166,42 @@ RESULTS 2026-11-17 (new CI binaries, all run on the F50)
 [CONFIRMED ON DEVICE] curl https via /data/local/matchitool/bin/curl and files/curl = 200 and 200; jq .a|add==6 = true.
 [CONFIRMED ON DEVICE] AT & Radio "Radio restart": slot 0 off OK, slot 0 on OK, slot 1 = "no modem AT device found" (both lines),
         "Mobile data: the internet works (ping answered)" = no toggle needed. Bug 1 DONE.
-[OPEN] zreq default -ip is 192.168.0.1:80, refused on the F50. A plugin calling zreq without -ip ...:8080 fails. Plan: when no port is
+[OPEN -> DONE, see results below] zreq default -ip is 192.168.0.1:80, refused on the F50. A plugin calling zreq without -ip ...:8080 fails. Plan: when no port is
         given, try 8080 (then 80). Needs one more zreq rebuild + hash update.
-[OPEN] Radio restart log: slot 1 prints as "Shell error: no modem AT device found for slot 1" (2 lines). Plan: skip slot 1 quietly when sendat
+[OPEN -> DONE, see results below] Radio restart log: slot 1 prints as "Shell error: no modem AT device found for slot 1" (2 lines). Plan: skip slot 1 quietly when sendat
         finds no device, and drop "as UFI-TOOLS does" from the first log line (web-only change).
 [CONFIRMED ON DEVICE] Bypass_v65_22.js public IP check passes.
-[OPEN] Sign-in password was typed into the console: clear the console command history.
+[OPEN -> DONE, see results below] Sign-in password was typed into the console: clear the console command history.
+
+RESULTS 2026-11-17 (zreq port fallback + radio restart slot 1 skip, run on the F50)
+[CONFIRMED ON DEVICE] zreq -version = "zreq 1.1 (MatchiTOOL)", sha256 starts 8dc2144a (matches docs/BINARIES.md).
+[CONFIRMED ON DEVICE] zreq -params cmd=LD with no -ip port = {"LD":"..."}: the 8080-then-80 fallback works. Plugins calling zreq without a port are fine.
+[CONFIRMED ON DEVICE] zreq -ip 192.168.0.1:80 -params cmd=LD = "connection refused": an explicit port is still respected.
+[CONFIRMED ON DEVICE] sipa_eth0 has an IPv4 (100.91.35.89), ping 1.1.1.1 = 0% loss.
+[CONFIRMED ON DEVICE] AT & Radio "Radio restart": slot 0 off OK, slot 0 on OK, "slot 1: not present on this device, skipped",
+        "Mobile data: the internet works (ping answered)". No "Shell error" lines, no data toggle needed. Wording fix DONE.
+[PASS] Console password cleanup (user confirmed done 2026-11-17): the root terminal keeps no history (no storage, no arrow-up recall; the command only shows in the
+        output box until the page is reloaded). files/shell_audit.log stores only time, IP, a short SHA-256 and the length, never the text.
+        Do: reload the console page. Optional: clear Brave autofill data; delete the Audit log in Logs (needs root sign-in).
+        NOT checked: whether Android logcat captured the command line, and the process list showed it briefly while zreq ran.
+        If the router password is used elsewhere, change it on the router.
+
+[PASS] Live signal and AT & Radio pages re-checked on the F50 (user confirmed 2026-11-17).
+
+[PASS] zreq plugin retest: Plugin manager shows 1 plugin installed (Bypass_v65_22, on). A grep for "zreq" in /data/local, the app files folder and /sdcard
+        found only the zreq binary itself, no plugin. Bypass_v65_22 public IP check already passed on the F50. Nothing else to retest.
+        (Not proven: where the plugin text is stored; if a plugin later uses zreq without -pwd, retest it then.)
+
+[DONE] curl reproducibility: workflow now fixes the build date (SOURCE_DATE_EPOCH) and strips paths/build id. Two runs gave the identical curl
+        4c063298cc2d2b710d729c8f54f2ad503b504bfb80ff1f9f1e8dea7d8017d2b3 and identical jq 738ee056... Earlier unfixed runs gave ab2e34cd, 178dc2b4, a0fc563e
+        (only the OpenSSL "built on" date differed in the text). Copied into assets/bin; NOTICE.md and docs/BINARIES.md updated.
 
 STILL OPEN
- 1. zreq 8dc2144a... (default port 8080 fallback) is installed and pinned: retest on the F50 "zreq -params cmd=LD" with no -ip port (expect {"LD":...}).
- 2. Radio restart: slot 1 skip + UFI wording removed DONE IN CODE (test_at_radio.js); install the new APK and run Radio restart: expect "slot 1: not present on this device, skipped".
- 3. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started).
+ 1. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started). The file is not in the repo zip of 2026-11-17.
+ 2. New reproducible curl 4c063298... is in assets/bin: run the F50 curl test (version, https example.com = 200 with no -k via the wrapper and files/curl, Bypass public IP check).
 
 DONE-WHEN (updated)
  - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE)
  - sendat -n 0 -c AT prints OK on the F50 with no sendat.conf, and the probe leaves the RIL's ports alone. (DONE)
- - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok). (DONE) Live signal and AT & Radio pages: not re-checked.
- - zreq signs in on the F50. (DONE) zreq works with no -ip port. (OPEN)
+ - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok). (DONE) Live signal and AT & Radio pages: re-checked, PASS.
+ - zreq signs in on the F50. (DONE) zreq works with no -ip port. (DONE)
