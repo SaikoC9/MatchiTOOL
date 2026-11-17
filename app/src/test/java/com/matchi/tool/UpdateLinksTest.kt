@@ -57,8 +57,8 @@ class UpdateLinksTest {
     }
 
     @Test fun releasePageLinkBecomesDownloadLink() {
-        assertEquals("https://github.com/SaikoC9/MatchiTOOL-releases/releases/download/build-115/MatchiTOOL.apk",
-            UpdateLinks.normalizeReleaseLink("https://github.com/SaikoC9/MatchiTOOL-releases/releases/tag/build-115"))
+        assertEquals("https://github.com/OWNER/MatchiTOOL-releases/releases/download/build-115/MatchiTOOL.apk",
+            UpdateLinks.normalizeReleaseLink("https://github.com/OWNER/MatchiTOOL-releases/releases/tag/build-115"))
         val dl = "https://github.com/a/b/releases/latest/download/MatchiTOOL.apk"
         assertEquals(dl, UpdateLinks.normalizeReleaseLink(dl))
     }

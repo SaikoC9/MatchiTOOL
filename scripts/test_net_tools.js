@@ -70,10 +70,10 @@ eq(N.authLabel('OPEN'), 'Open'); eq(N.authLabel('WPA2PSK'), 'WPA2-PSK'); eq(N.au
 // ---- Devices: Wi-Fi + cable merged, three fields only ----------------------------------------------------------------------
 const dev = N.parseDevices({
   station_list: [{ mac_addr: 'AA:BB:CC:DD:EE:01', hostname: 'Zeta-PC', ip_addr: '192.168.0.10' }, { mac_addr: 'AA:BB:CC:DD:EE:05', hostname: 'alpha-phone', ip_addr: '192.168.0.9' }],
-  lan_station_list: [{ mac_addr: 'aa-bb-cc-dd-ee-02', hostname: 'GL-MT3000', ip_addr: '192.168.0.2' }],
+  lan_station_list: [{ mac_addr: 'aa-bb-cc-dd-ee-02', hostname: 'Test-Router', ip_addr: '192.168.0.2' }],
   wifi_access_sta_num: '2',
 });
-eq(dev.rows.map((r) => r.type + ':' + r.name), ['Wi-Fi:alpha-phone', 'Wi-Fi:Zeta-PC', 'Cable:GL-MT3000']);   // Wi-Fi first, then by name
+eq(dev.rows.map((r) => r.type + ':' + r.name), ['Wi-Fi:alpha-phone', 'Wi-Fi:Zeta-PC', 'Cable:Test-Router']);   // Wi-Fi first, then by name
 eq(dev.rows[2].mac, 'aa:bb:cc:dd:ee:02'); eq(dev.wifi, 2); eq(dev.cable, 1); eq(dev.routerCount, 2); eq(dev.wifiReported, true); eq(dev.cableReported, true);
 eq(N.mergeDevices([{ mac_addr: 'AA:BB:CC:DD:EE:01', hostname: 'a', ip_addr: '1.1.1.1' }], [{ mac_addr: 'aa:bb:cc:dd:ee:01', hostname: 'a', ip_addr: '1.1.1.1' }]).map((r) => r.type), ['Wi-Fi']);   // same MAC once
 eq(N.mergeDevices([{ mac_addr: 'A', hostname: 'x', ip_addr: '192.168.0.100' }, { mac_addr: 'B', hostname: 'x', ip_addr: '192.168.0.20' }], []).map((r) => r.ip), ['192.168.0.20', '192.168.0.100']);   // numeric IP order
@@ -189,31 +189,31 @@ assert(N.READ_ACL === 'queryDeviceAccessControlList' && N.READ_NAMES === 'hostNa
 eq(N.parseAcl({ station_list: [] }), null); eq(N.parseAcl({}), null);   // block list not read -> null (Block / Unblock hidden, never guess)
 assert(N.aclRefusal(N.parseAcl({ station_list: [] })));
 // real replies seen on the F50 (2026-11-15): two blocked entries, and hostNameList names win over the station_list hostname
-eq(N.parseAcl({ AclMode: '2', WhiteMacList: '', BlackMacList: '1e:d4:3e:cb:c7:ba;e2:56:0b:64:b4:93;', WhiteNameList: '', BlackNameList: 'POCO-F6;POCO-F6;' }).black,
-  [{ mac: '1e:d4:3e:cb:c7:ba', name: 'POCO-F6' }, { mac: 'e2:56:0b:64:b4:93', name: 'POCO-F6' }]);
-const dv = N.parseDevices({ station_list: [{ mac_addr: '28:56:5a:3a:ef:6f', hostname: 'DESKTOP-H5SSC7L', ip_addr: '192.168.0.112' }], lan_station_list: [{ mac_addr: '5C:4D:BF:88:9C:78', hostname: 'GL-MT3000', ip_addr: '192.168.0.4' }],
-  hostNameList: [{ hostname: 'DESKTOP', mac: '28:56:5a:3a:ef:6f' }, { hostname: 'GL-MT3000', mac: '5c:4d:bf:88:9c:78' }] });
-eq(dv.rows.map((r) => r.name), ['DESKTOP', 'GL-MT3000']);
+eq(N.parseAcl({ AclMode: '2', WhiteMacList: '', BlackMacList: '02:00:00:00:00:a1;02:00:00:00:00:a2;', WhiteNameList: '', BlackNameList: 'Test-Phone;Test-Phone;' }).black,
+  [{ mac: '02:00:00:00:00:a1', name: 'Test-Phone' }, { mac: '02:00:00:00:00:a2', name: 'Test-Phone' }]);
+const dv = N.parseDevices({ station_list: [{ mac_addr: '02:00:00:00:00:a3', hostname: 'TEST-PC', ip_addr: '192.168.0.50' }], lan_station_list: [{ mac_addr: '02:00:00:00:00:a4', hostname: 'Test-Router', ip_addr: '192.168.0.4' }],
+  hostNameList: [{ hostname: 'TEST-PC', mac: '02:00:00:00:00:a3' }, { hostname: 'Test-Router', mac: '02:00:00:00:00:a4' }] });
+eq(dv.rows.map((r) => r.name), ['TEST-PC', 'Test-Router']);
 eq(N.parseDevices({ station_list: [{ mac_addr: 'aa:bb:cc:dd:ee:01', hostname: 'Phone', ip_addr: '1.1.1.1' }], hostNameList: 'junk' }).rows[0].name, 'Phone');   // no usable names: station name stays
 eq(N.parseAcl({ BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '', AclMode: '2' }), { mode: '2', black: [], whiteMacs: [], whiteNames: [] });
 const acl0 = N.parseAcl({ AclMode: '2', BlackMacList: '', BlackNameList: '', WhiteMacList: '', WhiteNameList: '' });
-eq(N.blockCall(acl0, '52:E3:AC:5A:EF:7D', 'POCO-F6'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '52:e3:ac:5a:ef:7d;', WhiteNameList: '', BlackNameList: 'POCO-F6;' });
-const acl1 = N.parseAcl({ AclMode: '2', BlackMacList: '52:e3:ac:5a:ef:7d;', BlackNameList: 'POCO-F6;', WhiteMacList: '', WhiteNameList: '' });
-eq(acl1.black, [{ mac: '52:e3:ac:5a:ef:7d', name: 'POCO-F6' }]);
-eq(N.unblockCall(acl1, '52:e3:ac:5a:ef:7d'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '', WhiteNameList: '', BlackNameList: '' });   // = the captured unblock
-eq(N.blockCall(acl1, 'aa:bb:cc:dd:ee:01', 'Tab').BlackMacList, '52:e3:ac:5a:ef:7d;aa:bb:cc:dd:ee:01;');   // others stay blocked
-eq(N.unblockCall(N.parseAcl({ BlackMacList: '52:e3:ac:5a:ef:7d;aa:bb:cc:dd:ee:01;', BlackNameList: 'A;B;' }), 'aa:bb:cc:dd:ee:01').BlackNameList, 'A;');
-eq(N.blockCall(acl0, '52:e3:ac:5a:ef:7d', 'bad;name&x=1').BlackNameList, 'badnamex1;');                  // separators never reach the form
-eq(N.blockCall(acl0, '52:e3:ac:5a:ef:7d', ';;;').BlackNameList, 'device;');
-assert.throws(() => N.blockCall(acl1, '52:E3:AC:5A:EF:7D', 'x'), /already blocked/); assert.throws(() => N.unblockCall(acl0, '52:e3:ac:5a:ef:7d'), /not in the block list/);
-assert.throws(() => N.blockCall(acl0, 'not-a-mac', 'x')); assert.throws(() => N.blockCall(null, '52:e3:ac:5a:ef:7d', 'x'));
+eq(N.blockCall(acl0, '02:00:00:00:00:a5', 'Test-Phone'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '02:00:00:00:00:a5;', WhiteNameList: '', BlackNameList: 'Test-Phone;' });
+const acl1 = N.parseAcl({ AclMode: '2', BlackMacList: '02:00:00:00:00:a5;', BlackNameList: 'Test-Phone;', WhiteMacList: '', WhiteNameList: '' });
+eq(acl1.black, [{ mac: '02:00:00:00:00:a5', name: 'Test-Phone' }]);
+eq(N.unblockCall(acl1, '02:00:00:00:00:a5'), { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '', WhiteNameList: '', BlackNameList: '' });   // = the captured unblock
+eq(N.blockCall(acl1, 'aa:bb:cc:dd:ee:01', 'Tab').BlackMacList, '02:00:00:00:00:a5;aa:bb:cc:dd:ee:01;');   // others stay blocked
+eq(N.unblockCall(N.parseAcl({ BlackMacList: '02:00:00:00:00:a5;aa:bb:cc:dd:ee:01;', BlackNameList: 'A;B;' }), 'aa:bb:cc:dd:ee:01').BlackNameList, 'A;');
+eq(N.blockCall(acl0, '02:00:00:00:00:a5', 'bad;name&x=1').BlackNameList, 'badnamex1;');                  // separators never reach the form
+eq(N.blockCall(acl0, '02:00:00:00:00:a5', ';;;').BlackNameList, 'device;');
+assert.throws(() => N.blockCall(acl1, '02:00:00:00:00:a5', 'x'), /already blocked/); assert.throws(() => N.unblockCall(acl0, '02:00:00:00:00:a5'), /not in the block list/);
+assert.throws(() => N.blockCall(acl0, 'not-a-mac', 'x')); assert.throws(() => N.blockCall(null, '02:00:00:00:00:a5', 'x'));
 const aclW = N.parseAcl({ AclMode: '1', WhiteMacList: 'aa:bb:cc:dd:ee:01;', WhiteNameList: 'W;', BlackMacList: '' });   // allow-list mode: never touched
 assert(N.aclRefusal(aclW) && N.aclRefusal(null) && N.aclRefusal(acl0) === null);
-assert.throws(() => N.blockCall(aclW, '52:e3:ac:5a:ef:7d', 'x'), /allow list/); assert.throws(() => N.unblockCall(aclW, '52:e3:ac:5a:ef:7d'), /allow list/);
-eq(N.renameCall('28:56:5A:3A:EF:6F', ' ako '), { goformId: 'EDIT_HOSTNAME', mac: '28:56:5a:3a:ef:6f', hostname: 'ako' });   // = the captured rename
+assert.throws(() => N.blockCall(aclW, '02:00:00:00:00:a5', 'x'), /allow list/); assert.throws(() => N.unblockCall(aclW, '02:00:00:00:00:a5'), /allow list/);
+eq(N.renameCall('02:00:00:00:00:A3', ' test-pc '), { goformId: 'EDIT_HOSTNAME', mac: '02:00:00:00:00:a3', hostname: 'test-pc' });   // = the captured rename
 for (const bad of ['', '   ', 'a;b', 'a&b', 'a=b', 'a%41', 'x'.repeat(32), 'na\nme']) assert(N.hostnameError(bad), 'bad name: ' + JSON.stringify(bad));
-for (const good of ['ako', 'My Phone 2', 'GL-MT3000', 'a.b_c-d', 'x'.repeat(31)]) assert.strictEqual(N.hostnameError(good), null, good);
-assert.throws(() => N.renameCall('nope', 'x')); assert.throws(() => N.renameCall('28:56:5a:3a:ef:6f', 'a;b'));
+for (const good of ['my-pc', 'My Phone 2', 'Test-Router', 'a.b_c-d', 'x'.repeat(31)]) assert.strictEqual(N.hostnameError(good), null, good);
+assert.throws(() => N.renameCall('nope', 'x')); assert.throws(() => N.renameCall('02:00:00:00:00:a3', 'a;b'));
 assert(N.isSelf('192.168.0.179', '::ffff:192.168.0.179') && !N.isSelf('192.168.0.2', '192.168.0.179') && !N.isSelf('192.168.0.2', '') && !N.isSelf('', ''));
 
 // ---- MTU / MSS change (Phase 7): checks, the captured call, the backup copy, the helpers -------------------------------------------------------------------
@@ -348,32 +348,32 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   assert.throws(() => N.b64Ascii('caf\u00e9pass1'), /printable ASCII/); eq(N.b64Dec('abc'), null); eq(N.b64Dec('a$b='), null); eq(N.b64Dec('QUJD='), null); eq(N.b64Dec('QQ==QQ=='), null);
   // SSID rules
   eq(N.utf8Len('abc'), 3); eq(N.utf8Len('\u00e9'), 2); eq(N.utf8Len('\u20ac'), 3);
-  eq(N.wifiSsidError('CE 2', true), null); eq(N.wifiSsidError('', true) !== null, true); eq(N.wifiSsidError('a'.repeat(32), true), null); assert(N.wifiSsidError('a'.repeat(33), true));
+  eq(N.wifiSsidError('TestWiFi', true), null); eq(N.wifiSsidError('', true) !== null, true); eq(N.wifiSsidError('a'.repeat(32), true), null); assert(N.wifiSsidError('a'.repeat(33), true));
   assert(N.wifiSsidError('\u00e9'.repeat(17), true), '17 x 2 bytes is 34 bytes'); assert(N.wifiSsidError('a\nb', true)); assert(N.wifiSsidError(' x', true)); eq(N.wifiSsidError(' x', false), null);
   // reply shapes as the F50 gives them (real key names; the password is a dummy)
   const PW = 'Dummy-pass-123';
-  const ent = (i, on, o) => Object.assign({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: on ? '1' : '0', SSID: 'CE 2', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '', Password: PW, PasswordShow: PW }, o || {});
+  const ent = (i, on, o) => Object.assign({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: on ? '1' : '0', SSID: 'TestWiFi', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '', Password: PW, PasswordShow: PW }, o || {});
   const raw5 = { WiFiModuleSwitch: '1', ResponseList: [ent(0, false), ent(1, true)] };
   const w5 = N.parseWifi(raw5), act = N.wifiActive(w5);
   eq(act.chip, 1); eq(act.pwSet, true); eq(N.wifiMode(w5), '5g'); eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, false)] })), '2g');
   eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '0', ResponseList: [ent(0, false), ent(1, false)] })), 'off'); eq(N.wifiMode(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, true)] })), 'both'); eq(N.wifiMode(null), null);
   eq(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(0, true), ent(1, true)] })), null);
   assert(!/pass/i.test(JSON.stringify(w5)) || !JSON.stringify(w5).includes(PW), 'no password text in the parsed object');
-  const snap = N.wifiSnapOf(act); eq(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
+  const snap = N.wifiSnapOf(act); eq(snap, { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
   eq(N.wifiSnapOf(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'WPAPSKWPA2PSK' })] }))), null);   // a mode this tool does not offer: not editable
   eq(N.wifiSnapOf(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { ApBroadcastDisabled: '' })] }))), null); eq(N.wifiSnapOf(null), null);
   eq(N.wifiHasPassword(raw5, PW), true); eq(N.wifiHasPassword(raw5, 'other-pass-9'), false); eq(N.wifiHasPassword({}, PW), false);
   // the call = the captured bodies, field for field, in the stock order (isTest first and AD last are added by the host)
   const pwB = Buffer.from(PW).toString('base64');
-  const keep = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 1 };
-  eq(N.wifiSaveCall(raw5, keep), { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'CE 2', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', ApMaxStationNumber: '1', EncrypType: 'CCMP', Password: pwB });   // "max station number 10 to 1"
+  const keep = { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 1 };
+  eq(N.wifiSaveCall(raw5, keep), { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'TestWiFi', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', ApMaxStationNumber: '1', EncrypType: 'CCMP', Password: pwB });   // "max station number 10 to 1"
   eq(Object.keys(N.wifiSaveCall(raw5, keep)), ['goformId', 'ChipIndex', 'AccessPointIndex', 'SSID', 'ApIsolate', 'AuthMode', 'ApBroadcastDisabled', 'ApMaxStationNumber', 'EncrypType', 'Password']);
   eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, hidden: true })).ApBroadcastDisabled, '1');                                    // "Broadcast SSID from on to off"
-  eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, ssid: 'AKO' })).SSID, 'AKO');                                                  // "CE 2 to AKO"
+  eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, ssid: 'TestWiFi2' })).SSID, 'TestWiFi2');                                                  // "TestWiFi to TestWiFi2"
   eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'WPA3PSK' })).AuthMode, 'WPA3PSK'); eq(N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'WPA2PSK' })).EncrypType, 'CCMP');
   const open = N.wifiSaveCall(raw5, Object.assign({}, keep, { max: 10, auth: 'OPEN' }));                                                    // "wpa2 to open": EncrypType=NONE, no Password
-  eq(open, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'CE 2', ApIsolate: '0', AuthMode: 'OPEN', ApBroadcastDisabled: '0', ApMaxStationNumber: '10', EncrypType: 'NONE' }); assert(!('Password' in open));
-  const fromOpen = N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'CE 2', auth: 'WPA3PSK', hidden: false, max: 10, pw: 'new-pass-1234' });   // "OPEN to wpa3 plus the password"
+  eq(open, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'TestWiFi', ApIsolate: '0', AuthMode: 'OPEN', ApBroadcastDisabled: '0', ApMaxStationNumber: '10', EncrypType: 'NONE' }); assert(!('Password' in open));
+  const fromOpen = N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'TestWiFi', auth: 'WPA3PSK', hidden: false, max: 10, pw: 'new-pass-1234' });   // "OPEN to wpa3 plus the password"
   eq(fromOpen.Password, Buffer.from('new-pass-1234').toString('base64')); eq(fromOpen.EncrypType, 'CCMP');
   // keep-the-password needs one to keep; a typed one wins; a saved one (base64) is used as is; bad ones are refused
   assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'x', auth: 'WPA2PSK', hidden: false, max: 5 }), /no Wi-Fi password to keep/);
@@ -384,20 +384,20 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
     { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: 1, pw: 'short' }, { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: 1, pwB64: '!!!!' }]) assert.throws(() => N.wifiSaveCall(raw5, bad), undefined, JSON.stringify(bad));
   assert.throws(() => N.wifiSaveCall(null, null));
   // the form check
-  const fc = (o) => N.wifiFormCheck(act, Object.assign({ ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: '7', pw: '' }, o));
-  eq(fc({}), { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7, pw: null });
+  const fc = (o) => N.wifiFormCheck(act, Object.assign({ ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: '7', pw: '' }, o));
+  eq(fc({}), { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7, pw: null });
   eq(fc({ pw: 'abcdefgh' }).pw, 'abcdefgh'); assert(/8 to 63/.test(fc({ pw: 'abcdefg' }).error)); assert(/8 to 63/.test(fc({ pw: 'a'.repeat(64) }).error)); assert(/ASCII/.test(fc({ pw: 'caf\u00e9caf\u00e9' }).error));
   assert(/empty/.test(fc({ ssid: '' }).error)); assert(/space/.test(fc({ ssid: 'x ' }).error)); assert(/security/.test(fc({ auth: 'WEP' }).error)); assert(/Max devices/.test(fc({ max: '0' }).error) && /Max devices/.test(fc({ max: '11' }).error) && /Max devices/.test(fc({ max: 'x' }).error) && /Max devices/.test(fc({ max: '' }).error));
   eq(fc({ auth: 'OPEN', pw: 'ignored-1234' }).pw, null);   // open: a typed password is not used
   assert(/none to keep/.test(N.wifiFormCheck(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] })), { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: '3', pw: '' }).error));
   // password change detection and the confirming checks
   eq(N.wifiPwChange(raw5, { pw: PW }), false); eq(N.wifiPwChange(raw5, { pw: 'brand-new-pw1' }), true); eq(N.wifiPwChange(raw5, {}), false); eq(N.wifiPwChange(raw5, { pwB64: Buffer.from('old-saved-pw1').toString('base64') }), true);
-  eq(N.wifiSame(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }), true); eq(N.wifiSame(snap, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: true, max: 10 }), false);
-  const want7 = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7 };
+  eq(N.wifiSame(snap, { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }), true); eq(N.wifiSame(snap, { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: true, max: 10 }), false);
+  const want7 = { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7 };
   eq(N.wifiReached(act, Object.assign({}, want7, { max: 10 })), true); eq(N.wifiReached(act, want7), false); eq(N.wifiReached(null, want7), false);
   eq(N.wifiReached(Object.assign({}, act, { on: false }), Object.assign({}, want7, { max: 10 })), false);
-  eq(N.wifiChangeLines(snap, { ssid: 'AKO', auth: 'OPEN', hidden: true, max: 3 }, true), ['Network name: "CE 2" → "AKO"', 'Security: WPA2-PSK / WPA3-PSK → Open (no password)', 'SSID broadcast: Visible → Hidden', 'Max devices: 10 → 3', 'Password: will change', 'The network will have NO password: anyone in range can join.']);
-  assert(!N.wifiChangeLines(snap, { ssid: 'AKO', auth: 'WPA3PSK', hidden: false, max: 10 }, true).join('\n').includes('new-pass'), 'the confirm lines never carry a password');
+  eq(N.wifiChangeLines(snap, { ssid: 'TestWiFi2', auth: 'OPEN', hidden: true, max: 3 }, true), ['Network name: "TestWiFi" → "TestWiFi2"', 'Security: WPA2-PSK / WPA3-PSK → Open (no password)', 'SSID broadcast: Visible → Hidden', 'Max devices: 10 → 3', 'Password: will change', 'The network will have NO password: anyone in range can join.']);
+  assert(!N.wifiChangeLines(snap, { ssid: 'TestWiFi2', auth: 'WPA3PSK', hidden: false, max: 10 }, true).join('\n').includes('new-pass'), 'the confirm lines never carry a password');
   // the band calls = the captured bodies
   eq(N.wifiBandCall('2g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' }); eq(N.wifiBandCall('5g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' }); eq(N.wifiBandCall('off'), { goformId: 'switchWiFiModule', SwitchOption: '0' });
   for (const m of ['both', '', undefined, '__proto__', 'on']) assert.throws(() => N.wifiBandCall(m));
@@ -405,19 +405,19 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(N.wifiBandReached(N.parseWifi({ WiFiModuleSwitch: '0', ResponseList: [ent(0, false), ent(1, false)] }), 'off'), true);
   // backup: the old password goes in only when the change would lose it; the key is "Password" so the log redactors hide it
   const cur = snap;
-  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'AKO', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, false), { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
-  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, true).pwB64, pwB);
-  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'CE 2', auth: 'OPEN', hidden: false, max: 10 }, false).pwB64, pwB);
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'TestWiFi2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, false), { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 });
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10 }, true).pwB64, pwB);
+  eq(N.wifiBackupSnap(raw5, cur, { ssid: 'TestWiFi', auth: 'OPEN', hidden: false, max: 10 }, false).pwB64, pwB);
   assert.throws(() => N.wifiBackupSnap({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'x', PasswordShow: 'x' })] }, cur, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 1 }, true), /cannot be saved/);
   // the backup command written for real: nasty names survive the shell and come back unchanged
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'matchi-wifi-'));
   const nasty = ['it\'s a "net"', '$(touch pwned)', '`touch pwned2`', 'a;b&c|d>e', 'back\\slash', "'; rm -rf / #", '\u00e9\u20ac net'];
   for (const name of nasty) {
-    const o = Object.assign({}, snap, { ssid: name, pwB64: pwB }), n = Object.assign({}, snap, { ssid: 'AKO' });
+    const o = Object.assign({}, snap, { ssid: name, pwB64: pwB }), n = Object.assign({}, snap, { ssid: 'TestWiFi2' });
     const sh = N.wifiBackupWriteSh(o, n, 1700000000000, tmp);
     const out = cp.execFileSync('/bin/sh', ['-c', sh], { encoding: 'utf8', cwd: tmp }); assert(out.includes('MATCHI_BACKUP_OK'), out);
     const back = N.parseWifiBackup(fs.readFileSync(path.join(tmp, 'wifi_backup.json'), 'utf8'));
-    eq(back.old, { ssid: name, auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10, pwB64: pwB }); eq(back.new.ssid, 'AKO'); eq(back.at, 1700000000000);
+    eq(back.old, { ssid: name, auth: 'WPA2PSKWPA3PSK', hidden: false, max: 10, pwB64: pwB }); eq(back.new.ssid, 'TestWiFi2'); eq(back.at, 1700000000000);
   }
   assert(!fs.existsSync(path.join(tmp, 'pwned')) && !fs.existsSync(path.join(tmp, 'pwned2')), 'no command in a name was run');
   assert(/"Password":"/.test(fs.readFileSync(path.join(tmp, 'wifi_backup.json'), 'utf8')), 'the saved password sits under the key Password');
@@ -457,8 +457,8 @@ assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b
 // The router may report Password as Base64 and PasswordShow as plain text (PASSWORD_ENCODE): the plain one is used and a save never double-encodes it.
 {
   const plain = '@716241PLDThome@', b = N.b64Ascii(plain);
-  const mk = (o) => ({ WiFiModuleSwitch: '1', ResponseList: [Object.assign({ ChipIndex: 1, AccessPointIndex: '0', AccessPointSwitchStatus: '1', SSID: 'CE 2', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '' }, o)] });
-  const keep = { ssid: 'CE 2', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 2 };
+  const mk = (o) => ({ WiFiModuleSwitch: '1', ResponseList: [Object.assign({ ChipIndex: 1, AccessPointIndex: '0', AccessPointSwitchStatus: '1', SSID: 'TestWiFi', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', EncrypType: '' }, o)] });
+  const keep = { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 2 };
   for (const o of [{ Password: b, PasswordShow: b }, { Password: b, PasswordShow: plain }, { Password: plain, PasswordShow: b }, { Password: plain, PasswordShow: plain }]) {
     assert.strictEqual(N.wifiPlainPw(mk(o)), plain);
     assert.strictEqual(N.wifiSaveCall(mk(o), keep).Password, b, 'sent as Base64 of the plain password, once');
