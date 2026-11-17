@@ -83,24 +83,24 @@ class PluginTraceTest {
     // ---- Phase 3, step 0: chains and boot scripts the plugin created ----
 
     @Test fun chainsCreatedWithDashN() {
-        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables -t mangle -N UFI_DPI"))
+        assertEquals(listOf("mangle MY_CHAIN iptables"), pluginChains("iptables -t mangle -N MY_CHAIN"))
         assertEquals(listOf("filter MY_CHAIN iptables"), pluginChains("iptables -N MY_CHAIN"))
         assertEquals(listOf("nat X1 ip6tables"), pluginChains("ip6tables --table nat --new-chain X1"))
-        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables --table=mangle -N UFI_DPI 2>/dev/null || true"))
+        assertEquals(listOf("mangle MY_CHAIN iptables"), pluginChains("iptables --table=mangle -N MY_CHAIN 2>/dev/null || true"))
         assertEquals(listOf("mangle A iptables"), pluginChains("/system/bin/iptables -w 5 -t mangle -N A"))
         assertEquals(listOf("mangle A iptables", "mangle A ip6tables"), pluginChains("iptables -t mangle -N A; ip6tables -t mangle -N A"))
     }
 
     @Test fun chainsInsideWrappersAreFound() {
-        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("su -c \"iptables -t mangle -N UFI_DPI\""))
+        assertEquals(listOf("mangle MY_CHAIN iptables"), pluginChains("su -c \"iptables -t mangle -N MY_CHAIN\""))
         assertEquals(listOf("raw R1 iptables"), pluginChains("timeout 5 iptables -t raw -N R1"))
         assertEquals(listOf("mangle Q iptables"), pluginChains("nohup sh -c 'iptables -t mangle -N Q' &"))
         assertEquals(listOf("mangle Z iptables"), pluginChains("FOO=1 iptables -t mangle -N Z"))
     }
 
     @Test fun onlyRealNewChainsAreRecorded() {
-        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -A POSTROUTING -j UFI_DPI"))
-        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -F UFI_DPI; iptables -t mangle -X UFI_DPI"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -A POSTROUTING -j MY_CHAIN"))
+        assertEquals(emptyList<String>(), pluginChains("iptables -t mangle -F MY_CHAIN; iptables -t mangle -X MY_CHAIN"))
         assertEquals(emptyList<String>(), pluginChains("iptables -S"))
         assertEquals(emptyList<String>(), pluginChains("echo iptables -N FAKE"))
         assertEquals(emptyList<String>(), pluginChains("nft add chain inet t c"))
@@ -125,14 +125,14 @@ class PluginTraceTest {
             assertEquals(null, chainEntry("filter", n, "iptables"))
             assertEquals(null, parseChainEntry("filter $n iptables"))
         }
-        assertEquals(listOf("mangle UFI_DPI iptables"), pluginChains("iptables -t mangle -N UFI_DPI"))
+        assertEquals(listOf("mangle MY_CHAIN iptables"), pluginChains("iptables -t mangle -N MY_CHAIN"))
         assertEquals(listOf("filter stable_chain iptables"), pluginChains("iptables -N stable_chain"))
     }
 
     @Test fun chainEntriesRoundTripAndRefuseTampering() {
-        assertEquals(Triple("mangle", "UFI_DPI", "iptables"), parseChainEntry("mangle UFI_DPI iptables"))
-        assertNull(parseChainEntry("mangle UFI_DPI"))
-        assertNull(parseChainEntry("mangle UFI_DPI iptables extra"))
+        assertEquals(Triple("mangle", "MY_CHAIN", "iptables"), parseChainEntry("mangle MY_CHAIN iptables"))
+        assertNull(parseChainEntry("mangle MY_CHAIN"))
+        assertNull(parseChainEntry("mangle MY_CHAIN iptables extra"))
         assertNull(parseChainEntry("mangle INPUT iptables"))
         assertNull(parseChainEntry("mangle X;rm iptables"))
         assertNull(parseChainEntry("mangle X nft"))
@@ -162,10 +162,10 @@ class PluginTraceTest {
         val dir = Files.createTempDirectory("trace3").toFile()
         try {
             val s = PluginTraceStore(dir)
-            s.recordCommand("A.js", "iptables -t mangle -N UFI_DPI && echo x > /data/local/matchitool/boot.d/20-a.sh && echo y > /data/local/ufi_a/f.txt")
-            s.recordCommand("A.js", "iptables -t mangle -N UFI_DPI")
+            s.recordCommand("A.js", "iptables -t mangle -N MY_CHAIN && echo x > /data/local/matchitool/boot.d/20-a.sh && echo y > /data/local/ufi_a/f.txt")
+            s.recordCommand("A.js", "iptables -t mangle -N MY_CHAIN")
             val a = s.read("A.js")
-            assertEquals(listOf("mangle UFI_DPI iptables"), a.chains)
+            assertEquals(listOf("mangle MY_CHAIN iptables"), a.chains)
             assertEquals(listOf("/data/local/matchitool/boot.d/20-a.sh"), a.bootFiles)
             assertEquals(listOf("/data/local/ufi_a/f.txt"), a.paths)
             assertTrue("firewall rules" in a.effects)
@@ -177,7 +177,7 @@ class PluginTraceTest {
             // a ledger for one plugin never shows in another's
             s.recordCommand("B.js", "iptables -N OTHER")
             assertEquals(listOf("filter OTHER iptables"), s.read("B.js").chains)
-            assertEquals(listOf("mangle UFI_DPI iptables"), s.read("A.js").chains)
+            assertEquals(listOf("mangle MY_CHAIN iptables"), s.read("A.js").chains)
             // a boot.d path is not a data path to erase: it must NOT appear in "paths"
             assertTrue(a.paths.none { it.contains("/boot.d/") })
         } finally { dir.deleteRecursively() }
@@ -193,10 +193,10 @@ class PluginTraceTest {
     }
 
     @Test fun theLedgerCapDropsOldPathsBeforeChainsAndBootScripts() {
-        val lines = listOf("C mangle UFI_DPI iptables", "B /data/local/matchitool/boot.d/20-x.sh", "U up.png") + (1..10).map { "P /data/local/tmp/f$it" } + listOf("E firewall rules")
+        val lines = listOf("C mangle MY_CHAIN iptables", "B /data/local/matchitool/boot.d/20-x.sh", "U up.png") + (1..10).map { "P /data/local/tmp/f$it" } + listOf("E firewall rules")
         val out = capLedger(lines, 8)
         assertEquals(8, out.size)
-        assertTrue("C mangle UFI_DPI iptables" in out && "B /data/local/matchitool/boot.d/20-x.sh" in out && "U up.png" in out)   // never the first to go
+        assertTrue("C mangle MY_CHAIN iptables" in out && "B /data/local/matchitool/boot.d/20-x.sh" in out && "U up.png" in out)   // never the first to go
         assertEquals("E firewall rules", out.last())                                                                           // the newest line stays
         assertEquals(lines, capLedger(lines, 100))                                                                              // under the cap: unchanged
         assertEquals(listOf("P /a", "P /b"), capLedger(listOf("P /a", "P /b"), 2))

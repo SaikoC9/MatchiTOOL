@@ -3,7 +3,7 @@
  * modem or router is window.MatchiRadio (web-src/radio-core.js).
  *  - Reads the router once when the dashboard opens, after a change, and on Refresh. Never on the Live Status timer.
  *  - Chips show the ROUTER state. What you tick is kept separately ("pending") and only becomes real when you press Lock.
- *  - Lock sends BOTH lists (like UFI-TOOLS): the type you did not touch is sent again unchanged. Nothing is ever sent empty.
+ *  - Lock sends BOTH lists: the type you did not touch is sent again unchanged. Nothing is ever sent empty.
  *  - During the radio restart Live Status stops polling and keeps its last values (MatchiRadio.beginBusy / onBusy).
  */
 function mountDashRadio() {
@@ -176,7 +176,7 @@ function mountDashRadio() {
     const done = R.beginBusy('Network mode changing…');
     try {
       setStatus('Changing network mode…');
-      await R.setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });   // like UFI-TOOLS: no radio restart
+      await R.setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });   // no radio restart here
       await R.sleep(2000);
       let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
       if (r && r.net === next) { setStatus('Router now reports: ' + R.netLabel(next)); toast('Network mode: ' + R.netLabel(next), 'green'); }

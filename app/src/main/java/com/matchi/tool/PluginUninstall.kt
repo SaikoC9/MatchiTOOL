@@ -94,7 +94,7 @@ internal fun stopPlanHash(commands: List<String>, check: String?, bootFiles: Lis
  *  - [integrity] is integrityState(...) of the file; "changed" (or unknown) blocks the stop: nothing runs, every declared command is listed as refused.
  *  - [sandboxed] and [grant] are the sandbox mode and sandboxGrant(...) for it (Step 2 rules).
  *  - [shellProblem] is shellDanger(cmd, true); it is asked about the MAPPED text, because that is what runs.
- *  - [mapPath] rewrites a declared path or command into the text that really runs (the host passes the identity function since UFI path mapping was removed). The sandbox grant is matched against the DECLARED text, as the person approved it.
+ *  - [mapPath] rewrites a declared path or command into the text that really runs (the host passes the identity function). The sandbox grant is matched against the DECLARED text, as the person approved it.
  *  - [others] are (file name, file text) of every installed plugin; [name] itself is skipped (a plugin is never "shared with itself").
  * Same-folder guard: when another plugin declares the same command (after mapping) or the same boot file, its name is in [StopPlan.shared]
  * and the page skips the stop by default. This protects "install a new copy under a new name, then delete the old one".

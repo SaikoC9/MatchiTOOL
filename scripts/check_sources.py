@@ -35,8 +35,8 @@ assert 'PillSwitch' not in main and 'setLan' not in main, 'LAN switch must be go
 assert '/api/device/adb' not in server and '/api/device/fastboot' not in server
 assert 'deviceDiscovery' not in server
 assert '/api/builtin' not in server and not (root / 'app/src/main/assets/builtin').exists(), 'tools must live in the web page, not as APK assets'
-assert 'uri == "/api/AT" && s.method == Method.GET' in server and 'AtBatch.checkSlot' in server, 'UFI GET /api/AT route missing'
-assert "u.pathname==='/api/AT'" in html, 'page fetch shim must ask the HTTP confirm for UFI AT writes'
+assert 'uri == "/api/AT"' not in server and 'ufiShellReply' not in server and '/api/root_shell' not in server and '/api/one_click_shell' not in server, 'UFI alias routes must stay gone'
+assert "u.pathname==='/api/at'" in html, 'page fetch shim must ask the HTTP confirm for AT writes'
 assert 'adb_enable' in server and 'rndis_enable' in server and 'ecm_enable' in server
 assert 'USB controls' in html and 'rndison' in html and 'ecmon' in html and 'CDC-ECM' in html
 assert 'ADB / Fastboot discovery' not in html and 'Detect Fastboot devices' not in html
@@ -159,8 +159,8 @@ for needle in ('KANO_PLUGIN', 'ufiParse', 'ufiInject', 'ufiImport', 'ufiBuild', 
 assert not any((root / 'app/src/main/web-src' / f).exists() for f in ('plugin-store-ui.js', 'plugin-store-pure.js')), 'plugin store source files are back'
 assert 'window.matchi=Object.freeze(' in html and 'async function runShellWithUser' in html and 'const matchiSh=' in html, 'matchi plugin API missing'
 assert 'id="matchi_menu_btn"' in html and 'matchi-menu-box' in html, 'plugin menu anchors missing'
-for f in ('scan_plugins.js', 'deob_requests_js.js'):
-    assert (root / 'scripts/phase0' / f).is_file(), 'Phase 0 script missing: ' + f
+for f in ('scan_plugins.js', 'deob_requests_js.js', 'run_plugins.js', 'test_store_browser.js', 'test_ufi_globals_browser.js', 'test_ufi_poll_browser.js'):
+    assert not (root / 'scripts/phase0' / f).exists(), 'removed UFI script is back: ' + f
 # Boot-time log capture (Magisk script): shipped, versioned, installable, and no new silent catches.
 logd = (root / 'app/src/main/assets/bin/matchi_logd.sh').read_text()
 logd_ver = re.search(r'^# MATCHI_LOGD_VERSION=(\d+)$', logd, re.M)

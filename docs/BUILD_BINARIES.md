@@ -2,7 +2,7 @@
 
 `.github/workflows/build-binaries.yml` builds `jq` and `curl` for arm64 Android from pinned upstream tags
 with the Android NDK (API 26, the app's minSdk). `curl` links OpenSSL statically, so it no longer depends on
-the device's own libssl/libcrypto/libz (the UFI-TOOLS curl did). `sendat` is **not** built here: its replacement has its own workflow, `.github/workflows/build-sendat.yml`
+the device's own libssl/libcrypto/libz. `sendat` is **not** built here: its replacement has its own workflow, `.github/workflows/build-sendat.yml`
 (source in `tools/sendat/`, steps in its README).
 
 1. GitHub, Actions, "Build jq and curl (arm64 Android)", Run workflow. Defaults: jq-1.7.1, curl-8_11_0, openssl-3.0.15.

@@ -3,15 +3,14 @@ package com.matchi.tool
 /**
  * Pure helpers (no Android classes, unit tested) that let the Log Catcher show what plugins do.
  * Plugin calls reach the server through a fixed set of routes; each one gets a short function tag
- * ("plugin/shell", "plugin/at", ...) so the existing function filter finds them with "plugin".
+ * ("plugin/shell", ...) so the existing function filter finds them with "plugin".
  * Nothing here ever returns a command text, query value, cookie or body: only the route kind, the HTTP status,
  * the time taken and a read/write flag for AT commands.
  */
 internal object PluginLog {
     /** The function tag for a plugin-facing route, or null when the route is not one a plugin uses. */
     fun kindOf(method: String, uri: String): String? = when {
-        uri == "/api/root_shell" || uri == "/api/one_click_shell" || uri == "/api/user_shell" -> "plugin/shell"
-        uri == "/api/AT" -> "plugin/at"
+        uri == "/api/user_shell" -> "plugin/shell"
         else -> null
     }
 

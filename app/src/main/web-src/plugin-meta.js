@@ -6,7 +6,7 @@ const plugClean=(v,n)=>String(v==null?'':v).replace(/[\u0000-\u001f\u007f]/g,' '
 /* A plain text search of the plugin's source. It is a hint for the person about to confirm, NOT a safety check: code can build commands at run time. */
 function plugScan(code){
   const s=String(code),uniq=(a)=>[...new Set(a)];
-  const hasRoot=/matchi\.root|matchi\.sh\b|runShellWithRoot|\/api\/(?:shell|root_shell|one_click_shell)\b/.test(s),hasUser=/matchi\.user|runShellWithUser|\/api\/user_shell\b/.test(s);
+  const hasRoot=/matchi\.root|matchi\.sh\b|runShellWithRoot|\/api\/shell\b/.test(s),hasUser=/matchi\.user|runShellWithUser|\/api\/user_shell\b/.test(s);
   const tools=['curl','jq','sendat','sha256','zreq'].filter(t=>new RegExp('(^|[^A-Za-z0-9_-])'+t+'([^A-Za-z0-9_]|$)').test(s));
   const riskyRx=[['deletes files (rm -r)',/\brm\s+-[a-zA-Z]*[rR]/],['raw disk access (dd / block devices)',/\bdd\s+if=|\/dev\/block\//],['mounts or remounts',/\bmount\b/],['changes system properties',/\bsetprop\b/],['reboots',/\breboot\b|\bsvc\s+power\b/],['uninstalls or disables apps',/\bpm\s+(?:uninstall|disable)/],['writes the boot script',/matchitool\/boot\.sh/],['pipes a download into a shell',/(?:curl|wget)\b[^\n]*\|\s*(?:sh|bash)\b/],['formats storage',/\bmkfs\b/],['builds code at run time (eval / new Function)',/\beval\s*\(|new\s+Function\s*\(/]];
   const risky=riskyRx.filter(([,rx])=>rx.test(s)).map(([l])=>l);

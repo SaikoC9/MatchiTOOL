@@ -6,7 +6,7 @@
 function pluginFromStack(stack){const m=/matchi-plugin\/([A-Za-z0-9._-]{1,80}\.(?:js|html))/.exec(String(stack||''));return m?m[1]:null}
 function pluginTraceInit(url,init,stack){
   const path=String(url||'').replace(/^https?:\/\/[^/]+/,'');
-  if(!/^\/api\/(shell|root_shell|user_shell|upload|upload_img)(\?|$)/.test(path))return init;
+  if(!/^\/api\/(shell|user_shell)(\?|$)/.test(path))return init;
   const name=pluginFromStack(stack);if(!name)return init;
   const out=Object.assign({},init||{});const h=new Headers(out.headers||{});
   if(!h.has('x-matchi-plugin'))h.set('x-matchi-plugin',name);

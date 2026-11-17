@@ -67,7 +67,7 @@ class W:
         return r.returncode,r.stdout+r.stderr
     def boot(s):
         p=s.root+'/data/local/matchitool/boot.d'; os.makedirs(p,exist_ok=True); return p
-C="undo_chain 'mangle' 'UFI_DPI' 'iptables'"
+C="undo_chain 'mangle' 'MY_CHAIN' 'iptables'"
 B="undo_boot '/data/local/matchitool/boot.d/%s'"
 fails=0; total=0
 def check(n,c,extra=''):
@@ -77,20 +77,20 @@ def check(n,c,extra=''):
     if not c: fails+=1
 SYS=["mangle|-P PREROUTING ACCEPT","mangle|-P POSTROUTING ACCEPT","mangle|-N OTHER"]
 # 1 chain + jumps from two parents, other table untouched
-w=W(); w.v4(*SYS,"mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI","mangle|-A POSTROUTING -o wlan0 -j ACCEPT","mangle|-A POSTROUTING -p tcp -g UFI_DPI","mangle|-A OTHER -s 10.0.0.1/32 -j UFI_DPI","mangle|-A OTHER -j ACCEPT","mangle|-A UFI_DPI -p tcp -j TCPMSS --set-mss 1300","nat|-N UFI_DPI","nat|-A UFI_DPI -j RETURN")
+w=W(); w.v4(*SYS,"mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN","mangle|-A POSTROUTING -o wlan0 -j ACCEPT","mangle|-A POSTROUTING -p tcp -g MY_CHAIN","mangle|-A OTHER -s 10.0.0.1/32 -j MY_CHAIN","mangle|-A OTHER -j ACCEPT","mangle|-A MY_CHAIN -p tcp -j TCPMSS --set-mss 1300","nat|-N MY_CHAIN","nat|-A MY_CHAIN -j RETURN")
 rc,out=w.run([C]); 
-exp=sorted(SYS+["nat|-N UFI_DPI","mangle|-A POSTROUTING -o wlan0 -j ACCEPT","mangle|-A OTHER -j ACCEPT","nat|-A UFI_DPI -j RETURN"])
-check('chain+3 jumps removed, rest untouched',rc==0 and 'MTUNDO|chain|mangle|UFI_DPI|iptables|removed' in out and 'MTUNDO|jumps|mangle|UFI_DPI|iptables|3' in out and sorted(w.rules())==exp,(out,w.rules()))
+exp=sorted(SYS+["nat|-N MY_CHAIN","mangle|-A POSTROUTING -o wlan0 -j ACCEPT","mangle|-A OTHER -j ACCEPT","nat|-A MY_CHAIN -j RETURN"])
+check('chain+3 jumps removed, rest untouched',rc==0 and 'MTUNDO|chain|mangle|MY_CHAIN|iptables|removed' in out and 'MTUNDO|jumps|mangle|MY_CHAIN|iptables|3' in out and sorted(w.rules())==exp,(out,w.rules()))
 # 2 two jumps in one parent (numbers shift)
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI","mangle|-A POSTROUTING -j ACCEPT")
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN","mangle|-A POSTROUTING -j ACCEPT")
 rc,out=w.run([C]); check('two adjacent jumps',w.rules()==["mangle|-P POSTROUTING ACCEPT","mangle|-A POSTROUTING -j ACCEPT"],(out,w.rules()))
 # 3 absent
 w=W(); w.v4(*SYS,"mangle|-A POSTROUTING -j ACCEPT"); b=w.rules(); rc,out=w.run([C]); check('absent, unchanged','|absent' in out and w.rules()==b,out)
 # 4 quoted comment
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI",'mangle|-A POSTROUTING -m comment --comment "x -j UFI_DPI"',"mangle|-A POSTROUTING -j UFI_DPI")
-rc,out=w.run([C]); check('comment rule kept',w.rules()==["mangle|-P POSTROUTING ACCEPT",'mangle|-A POSTROUTING -m comment --comment "x -j UFI_DPI"'] and '|removed' in out,(out,w.rules()))
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN",'mangle|-A POSTROUTING -m comment --comment "x -j MY_CHAIN"',"mangle|-A POSTROUTING -j MY_CHAIN")
+rc,out=w.run([C]); check('comment rule kept',w.rules()==["mangle|-P POSTROUTING ACCEPT",'mangle|-A POSTROUTING -m comment --comment "x -j MY_CHAIN"'] and '|removed' in out,(out,w.rules()))
 # 5 undeletable jump => not flushed
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI","mangle|-A UFI_DPI -j ACCEPT"); b=w.rules(); w.faild=True
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN","mangle|-A MY_CHAIN -j ACCEPT"); b=w.rules(); w.faild=True
 rc,out=w.run([C]); check('failed, chain not flushed','|failed' in out and w.rules()==b,(out,w.rules()))
 # 6 ip6 missing tool, ip4 ok
 w=W(ip6=False); w.v4("mangle|-N A","mangle|-A A -j ACCEPT"); rc,out=w.run(["undo_chain 'mangle' 'A' 'iptables'","undo_chain 'mangle' 'A' 'ip6tables'"])
@@ -107,32 +107,32 @@ open(d+'/33-owned-by-other.sh','w').write('x'); rc,out=w.run([B%'33-owned-by-oth
 w=W(); real=w.d+'/elsewhere'; os.makedirs(real); open(real+'/20-bypass-ttl.sh','w').write('x'); os.makedirs(w.root+'/data/local'); os.symlink(real,w.root+'/data/local/matchitool')
 rc,out=w.run([B%'20-bypass-ttl.sh']); check('symlinked parent refused','refused-dir' in out and os.path.exists(real+'/20-bypass-ttl.sh'),out)
 # 9 chain + boot in one run
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI"); open(w.boot()+'/20-bypass-ttl.sh','w').write('x')
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN"); open(w.boot()+'/20-bypass-ttl.sh','w').write('x')
 rc,out=w.run([C,B%'20-bypass-ttl.sh']); check('both, END marker',out.strip().endswith('MTUNDO-END') and w.rules()==["mangle|-P POSTROUTING ACCEPT"],out)
 # 10 hostile rule text: command substitution in a comment must not run
 w=W(); marker=w.d+'/PWNED'
-w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI",f'mangle|-A POSTROUTING -m comment --comment "$(touch {marker})" -j UFI_DPI')
+w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN",f'mangle|-A POSTROUTING -m comment --comment "$(touch {marker})" -j MY_CHAIN')
 rc,out=w.run([C]); check('rule text never executed',not os.path.exists(marker) and '|removed' in out,(out,w.rules()))
 # 12 re-check (Step 3): read-only, sees what is left, never takes an unreadable table for gone
-CK="chk_chain 'mangle' 'UFI_DPI' 'iptables'"; BK="chk_boot '/data/local/matchitool/boot.d/20-bypass-ttl.sh'"
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","nat|-N OTHER"); open(w.boot()+'/20-bypass-ttl.sh','w').write('x'); b=w.rules()
-rc,out=w.run([CK,BK],v=True); check('re-check: both present','MTCHK|chain|mangle|UFI_DPI|iptables|present' in out and '20-bypass-ttl.sh|present' in out and w.rules()==b and os.path.exists(w.boot()+'/20-bypass-ttl.sh'),out)
-w.v4("mangle|-P POSTROUTING ACCEPT","nat|-N UFI_DPI"); os.remove(w.boot()+'/20-bypass-ttl.sh')
+CK="chk_chain 'mangle' 'MY_CHAIN' 'iptables'"; BK="chk_boot '/data/local/matchitool/boot.d/20-bypass-ttl.sh'"
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","nat|-N OTHER"); open(w.boot()+'/20-bypass-ttl.sh','w').write('x'); b=w.rules()
+rc,out=w.run([CK,BK],v=True); check('re-check: both present','MTCHK|chain|mangle|MY_CHAIN|iptables|present' in out and '20-bypass-ttl.sh|present' in out and w.rules()==b and os.path.exists(w.boot()+'/20-bypass-ttl.sh'),out)
+w.v4("mangle|-P POSTROUTING ACCEPT","nat|-N MY_CHAIN"); os.remove(w.boot()+'/20-bypass-ttl.sh')
 rc,out=w.run([CK,BK],v=True); check('re-check: other table same name is not it; both absent','iptables|absent' in out and '20-bypass-ttl.sh|absent' in out and out.strip().endswith('MTCHK-END'),out)
 w.failS=True; rc,out=w.run([CK],v=True); check('re-check: unreadable table is "error", not absent','|error' in out and '|absent' not in out,out)
 w=W(ip6=False); rc,out=w.run(["chk_chain 'mangle' 'A' 'ip6tables'"],v=True); check('re-check: missing tool is notool','|notool' in out,out)
 w=W(); os.symlink(w.d+'/nowhere',w.boot()+'/20-bypass-ttl.sh'); rc,out=w.run([BK],v=True); check('re-check: dangling symlink is present','|present' in out,out)
 r=subprocess.run(['sh','-n','-c',vrender([CK,BK])],capture_output=True,text=True); check('re-check sh -n parses',r.returncode==0,r.stderr)
 # 13 xtables lock (review fix 4): -w 5 is used only where iptables knows it
-w=W(); w.wait=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI")
+w=W(); w.wait=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN")
 rc,out=w.run([C]); cs=w.calls()
 check('-w supported: every call waits for the lock and the chain is removed',cs and all(c.startswith('-w 5 ') for c in cs) and '|removed' in out and w.rules()==["mangle|-P POSTROUTING ACCEPT"],(out,cs))
-w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI")
+w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN")
 rc,out=w.run([C]); cs=w.calls()
 check('-w not supported: only the detection call has it, the rest run as before',cs and cs[0].startswith('-w 5 ') and not any(c.startswith('-w') for c in cs[1:]) and '|removed' in out,(out,cs))
-w=W(); w.wait=True; w.lock=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI")
+w=W(); w.wait=True; w.lock=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN")
 rc,out=w.run([C]); check('busy lock + -w supported: still removed',"|removed" in out and w.rules()==["mangle|-P POSTROUTING ACCEPT"],(out,w.rules()))
-w=W(); w.lock=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N UFI_DPI","mangle|-A POSTROUTING -j UFI_DPI"); b=w.rules()
+w=W(); w.lock=True; w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","mangle|-A POSTROUTING -j MY_CHAIN"); b=w.rules()
 rc,out=w.run([C]); rv,outv=w.run([CK],v=True)
 check('busy lock, no -w: nothing is changed and the re-check says error, never absent',w.rules()==b and '|error' in outv and '|absent' not in outv,(out,outv,w.rules()))
 w=W(); w.wait=True; w.lock=True; w.v4("mangle|-P POSTROUTING ACCEPT"); rc,out=w.run([CK],v=True)

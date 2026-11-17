@@ -262,7 +262,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         auditShell(s.remoteIpAddress ?: "?", name + "\n" + code, "plugin-upload")
         target.writeText(code)
         Prefs.setPluginRecord(ctx, name, PluginRecord(newSha, caps))
-        // UFI-TOOLS blocks keep their original name (it may hold spaces or non-Latin letters) next to the safe file name.
+        // A plugin may carry a display title: its original name (it may hold spaces or non-Latin letters) next to the safe file name.
         if (req.has("title")) Prefs.setPluginTitle(ctx, name, cleanPluginTitle(req.optString("title")).ifBlank { null })
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
@@ -441,7 +441,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         if (mode != "sandbox" && mode != "trusted") throw IllegalArgumentException("mode must be sandbox or trusted")
         val f = File(pluginDir, name)
         if (!f.isFile) throw IllegalArgumentException("no such plugin")
-        if (pluginKind(name) != "js") throw IllegalArgumentException("only .js plugins can run sandboxed; UFI-TOOLS .html blocks need the page")
+        if (pluginKind(name) != "js") throw IllegalArgumentException("only .js plugins can run sandboxed; .html blocks are not loaded")
         val sandboxed = mode == "sandbox"
         pluginPasswordCheck(s, req, if (sandboxed) "run this plugin in the sandbox" else "make this plugin trusted")?.let { return@run it }
         val bytes = f.readBytes()

@@ -26,7 +26,7 @@ internal fun implicitPluginPaths(pluginName: String): List<String> {
 /** Plugin names without the file ending (.js, .html or .txt). */
 internal fun pluginBaseName(pluginName: String): String = pluginName.replace(Regex("\\.(js|html|txt)$"), "")
 
-/** Names a plugin's leftovers may carry: its file name, and (UFI-TOOLS .html blocks end in "-1a2b3c") the name without that hash. */
+/** Names a plugin's leftovers may carry: its file name, and (legacy .html blocks end in "-1a2b3c") the name without that hash. */
 internal fun pluginBaseNames(pluginName: String): List<String> {
     val base = pluginBaseName(pluginName)
     val bare = base.replace(Regex("-[0-9a-f]{6}$"), "")

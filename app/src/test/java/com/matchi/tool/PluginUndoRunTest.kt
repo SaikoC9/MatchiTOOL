@@ -16,7 +16,7 @@ import org.junit.Test
  */
 private const val UR_BOOT = "/data/local/matchitool/boot.d/20-bypass-ttl.sh"
 
-private fun urChain(table: String = "mangle", chain: String = "UFI_DPI", tool: String = "iptables") = UndoItem("chain", "firewall chain $chain ($tool, table $table)", table = table, chain = chain, tool = tool)
+private fun urChain(table: String = "mangle", chain: String = "MY_CHAIN", tool: String = "iptables") = UndoItem("chain", "firewall chain $chain ($tool, table $table)", table = table, chain = chain, tool = tool)
 private fun urBoot(path: String = UR_BOOT) = UndoItem("boot", "boot script ${path.substringAfterLast('/')}", path = path)
 private fun urPlan(vararg items: UndoItem) = UndoPlan(items.toList(), emptyList(), undoHash(items.toList()))
 
@@ -113,17 +113,17 @@ class PluginUndoScriptTest {
         assertFalse(s.contains("eval"))
         assertFalse(Regex("-[FX] \"\\\$p\"|-[FX] \"\\\$JP\"").containsMatchIn(s))          // a parent is only read; the rule is removed by number
         assertTrue(s.contains("-D \"\$IPT\" \"\$JP\" \"\$JN\"") || s.contains("-D \"\$JP\" \"\$JN\""))
-        assertTrue(s.contains("undo_chain 'mangle' 'UFI_DPI' 'iptables'"))
+        assertTrue(s.contains("undo_chain 'mangle' 'MY_CHAIN' 'iptables'"))
         assertTrue(s.contains("undo_boot '$UR_BOOT'"))
     }
 
     @Test fun parserKeepsOnlyKnownAnswers() {
         val a = parseUndoRun(
-            "MTUNDO|chain|mangle|UFI_DPI|iptables|removed\nMTUNDO|jumps|mangle|UFI_DPI|iptables|2\nMTUNDO|boot|$UR_BOOT|refused-owner\n" +
-                "MTUNDO|chain|mangle|UFI_DPI|ip6tables|exploded\nMTUNDO|chain|mangle|INPUT|iptables|removed\nMTUNDO|boot|/etc/passwd|removed\nMTUNDO|jumps|mangle|UFI_DPI|iptables|x\nnoise\n",
+            "MTUNDO|chain|mangle|MY_CHAIN|iptables|removed\nMTUNDO|jumps|mangle|MY_CHAIN|iptables|2\nMTUNDO|boot|$UR_BOOT|refused-owner\n" +
+                "MTUNDO|chain|mangle|MY_CHAIN|ip6tables|exploded\nMTUNDO|chain|mangle|INPUT|iptables|removed\nMTUNDO|boot|/etc/passwd|removed\nMTUNDO|jumps|mangle|MY_CHAIN|iptables|x\nnoise\n",
         )
-        assertEquals(mapOf("chain mangle UFI_DPI iptables" to "removed", "boot $UR_BOOT" to "refused-owner"), a.status)
-        assertEquals(mapOf("mangle UFI_DPI iptables" to 2), a.jumps)
+        assertEquals(mapOf("chain mangle MY_CHAIN iptables" to "removed", "boot $UR_BOOT" to "refused-owner"), a.status)
+        assertEquals(mapOf("mangle MY_CHAIN iptables" to 2), a.jumps)
         assertTrue(parseUndoRun("").status.isEmpty())
     }
 }
@@ -132,19 +132,19 @@ class PluginUndoShellTest {
     private fun <T> world(withIp6: Boolean = true, f: (UrWorld) -> T): T { val w = UrWorld(withIp6); try { return f(w) } finally { w.close() } }
 
     @Test fun chainAndEveryJumpToItAreRemovedAndNothingElseIsTouched() = world { w ->
-        w.v4(*UR_SYSTEM.toTypedArray(), "mangle|-N UFI_DPI",
-            "mangle|-A POSTROUTING -j UFI_DPI", "mangle|-A POSTROUTING -o wlan0 -j ACCEPT", "mangle|-A POSTROUTING -p tcp -g UFI_DPI",
-            "mangle|-A OTHER -s 10.0.0.1/32 -j UFI_DPI", "mangle|-A OTHER -j ACCEPT",
-            "mangle|-A UFI_DPI -p tcp -j TCPMSS --set-mss 1300",
-            "nat|-N UFI_DPI", "nat|-A UFI_DPI -j RETURN")
+        w.v4(*UR_SYSTEM.toTypedArray(), "mangle|-N MY_CHAIN",
+            "mangle|-A POSTROUTING -j MY_CHAIN", "mangle|-A POSTROUTING -o wlan0 -j ACCEPT", "mangle|-A POSTROUTING -p tcp -g MY_CHAIN",
+            "mangle|-A OTHER -s 10.0.0.1/32 -j MY_CHAIN", "mangle|-A OTHER -j ACCEPT",
+            "mangle|-A MY_CHAIN -p tcp -j TCPMSS --set-mss 1300",
+            "nat|-N MY_CHAIN", "nat|-A MY_CHAIN -j RETURN")
         val r = w.run(urPlan(urChain()))
         assertTrue(r.clean)
-        assertTrue(r.log.joinToString("\n"), r.log.any { it.startsWith("undo: removed firewall chain UFI_DPI") && it.contains("3 jump rule(s)") })
-        assertEquals(listOf(*UR_SYSTEM.toTypedArray(), "nat|-N UFI_DPI", "mangle|-A POSTROUTING -o wlan0 -j ACCEPT", "mangle|-A OTHER -j ACCEPT", "nat|-A UFI_DPI -j RETURN").sorted(), w.rules().sorted())
+        assertTrue(r.log.joinToString("\n"), r.log.any { it.startsWith("undo: removed firewall chain MY_CHAIN") && it.contains("3 jump rule(s)") })
+        assertEquals(listOf(*UR_SYSTEM.toTypedArray(), "nat|-N MY_CHAIN", "mangle|-A POSTROUTING -o wlan0 -j ACCEPT", "mangle|-A OTHER -j ACCEPT", "nat|-A MY_CHAIN -j RETURN").sorted(), w.rules().sorted())
     }
 
     @Test fun twoJumpsInOneParentAreBothRemovedEvenThoughNumbersShift() = world { w ->
-        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N UFI_DPI", "mangle|-A POSTROUTING -j UFI_DPI", "mangle|-A POSTROUTING -j UFI_DPI", "mangle|-A POSTROUTING -j ACCEPT")
+        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N MY_CHAIN", "mangle|-A POSTROUTING -j MY_CHAIN", "mangle|-A POSTROUTING -j MY_CHAIN", "mangle|-A POSTROUTING -j ACCEPT")
         assertTrue(w.run(urPlan(urChain())).clean)
         assertEquals(listOf("mangle|-P POSTROUTING ACCEPT", "mangle|-A POSTROUTING -j ACCEPT"), w.rules())
     }
@@ -159,17 +159,17 @@ class PluginUndoShellTest {
     }
 
     @Test fun aCommentThatSaysJumpIsNotAJump() = world { w ->
-        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N UFI_DPI", "mangle|-A POSTROUTING -m comment --comment \"x -j UFI_DPI\"", "mangle|-A POSTROUTING -j UFI_DPI")
+        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N MY_CHAIN", "mangle|-A POSTROUTING -m comment --comment \"x -j MY_CHAIN\"", "mangle|-A POSTROUTING -j MY_CHAIN")
         assertTrue(w.run(urPlan(urChain())).clean)
-        assertEquals(listOf("mangle|-P POSTROUTING ACCEPT", "mangle|-A POSTROUTING -m comment --comment \"x -j UFI_DPI\""), w.rules())   // the comment rule stays
+        assertEquals(listOf("mangle|-P POSTROUTING ACCEPT", "mangle|-A POSTROUTING -m comment --comment \"x -j MY_CHAIN\""), w.rules())   // the comment rule stays
     }
 
     @Test fun aJumpThatCannotBeRemovedKeepsTheChainUnflushed() = world { w ->
-        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N UFI_DPI", "mangle|-A POSTROUTING -j UFI_DPI", "mangle|-A UFI_DPI -j ACCEPT")
+        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N MY_CHAIN", "mangle|-A POSTROUTING -j MY_CHAIN", "mangle|-A MY_CHAIN -j ACCEPT")
         val before = w.rules(); w.failD = true
         val r = w.run(urPlan(urChain()))
         assertFalse(r.clean)
-        assertEquals(listOf("still there: firewall chain UFI_DPI (iptables, table mangle)"), r.leftovers)
+        assertEquals(listOf("still there: firewall chain MY_CHAIN (iptables, table mangle)"), r.leftovers)
         assertEquals(before, w.rules())                                       // not flushed while something still jumps to it
     }
 
@@ -207,7 +207,7 @@ class PluginUndoShellTest {
     }
 
     @Test fun chainsThenBootInOneRun() = world { w ->
-        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N UFI_DPI", "mangle|-A POSTROUTING -j UFI_DPI")
+        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N MY_CHAIN", "mangle|-A POSTROUTING -j MY_CHAIN")
         File(w.bootDir(), "20-bypass-ttl.sh").writeText("x")
         val r = w.run(urPlan(urChain(), urBoot()))
         assertTrue(r.log.joinToString("\n"), r.clean && r.log.size == 2)
@@ -227,13 +227,13 @@ class PluginUndoStopTest {
 
     @Test fun cleanAnswersAreCleanAndOneAuditLinePerItemComesFirst() {
         val seen = ArrayList<String>(); var execAfter = -1
-        val r = runUndoStop(plan, 60_000L, 0L, { 0L }, { _, _ -> execAfter = seen.size; ok("MTUNDO|chain|mangle|UFI_DPI|iptables|removed", "MTUNDO|boot|$UR_BOOT|absent") }, { seen.add(it) })
+        val r = runUndoStop(plan, 60_000L, 0L, { 0L }, { _, _ -> execAfter = seen.size; ok("MTUNDO|chain|mangle|MY_CHAIN|iptables|removed", "MTUNDO|boot|$UR_BOOT|absent") }, { seen.add(it) })
         assertTrue(r.clean); assertEquals(2, execAfter)
-        assertEquals(listOf("undo firewall chain UFI_DPI (iptables, table mangle)", "undo boot script 20-bypass-ttl.sh"), seen)
+        assertEquals(listOf("undo firewall chain MY_CHAIN (iptables, table mangle)", "undo boot script 20-bypass-ttl.sh"), seen)
     }
 
     @Test fun everyNonCleanAnswerIsALeftover() {
-        val r = runUndoStop(plan, 60_000L, 0L, { 0L }, { _, _ -> ok("MTUNDO|chain|mangle|UFI_DPI|iptables|failed") })
+        val r = runUndoStop(plan, 60_000L, 0L, { 0L }, { _, _ -> ok("MTUNDO|chain|mangle|MY_CHAIN|iptables|failed") })
         assertFalse(r.clean); assertEquals(2, r.leftovers.size)                       // the chain failed, the boot script got no answer
         assertTrue(r.leftovers[1].contains("no answer"))
         val t = runUndoStop(plan, 60_000L, 0L, { 0L }, { _, _ -> ShellResult(false, "x\n[timeout after 20 s]") })
@@ -296,16 +296,16 @@ class PluginUndoVerifyTest {
     }
 
     @Test fun parserKeepsOnlyKnownAnswers() {
-        val m = parseUndoVerify("MTCHK|chain|mangle|UFI_DPI|iptables|present\nMTCHK|boot|$UR_BOOT|absent\nMTCHK|chain|mangle|UFI_DPI|ip6tables|weird\nMTCHK|boot|/etc/x|present\nMTCHK|boot|$UR_BOOT|error\nx")
-        assertEquals(mapOf("chain mangle UFI_DPI iptables" to "present", "boot $UR_BOOT" to "absent"), m)
+        val m = parseUndoVerify("MTCHK|chain|mangle|MY_CHAIN|iptables|present\nMTCHK|boot|$UR_BOOT|absent\nMTCHK|chain|mangle|MY_CHAIN|ip6tables|weird\nMTCHK|boot|/etc/x|present\nMTCHK|boot|$UR_BOOT|error\nx")
+        assertEquals(mapOf("chain mangle MY_CHAIN iptables" to "present", "boot $UR_BOOT" to "absent"), m)
     }
 
     @Test fun realShellSeesWhatIsLeftAndWhatIsGone() = world { w ->
-        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N UFI_DPI", "nat|-N OTHER")
+        w.v4("mangle|-P POSTROUTING ACCEPT", "mangle|-N MY_CHAIN", "nat|-N OTHER")
         File(w.bootDir(), "20-bypass-ttl.sh").writeText("x")
         val a = w.verify(plan)
-        assertTrue(a.ran); assertEquals(listOf("still there: firewall chain UFI_DPI (iptables, table mangle)", "still there: boot script 20-bypass-ttl.sh"), a.leftovers)
-        w.v4("mangle|-P POSTROUTING ACCEPT", "nat|-N UFI_DPI")                      // same name in ANOTHER table is not this chain
+        assertTrue(a.ran); assertEquals(listOf("still there: firewall chain MY_CHAIN (iptables, table mangle)", "still there: boot script 20-bypass-ttl.sh"), a.leftovers)
+        w.v4("mangle|-P POSTROUTING ACCEPT", "nat|-N MY_CHAIN")                      // same name in ANOTHER table is not this chain
         File(w.bootDir(), "20-bypass-ttl.sh").delete()
         val b = w.verify(plan); assertTrue(b.ran); assertTrue(b.leftovers.isEmpty()); assertTrue(b.notes.isEmpty())
     }
@@ -334,9 +334,9 @@ class PluginUndoVerifyTest {
 
     @Test fun oneAuditLineAndAnAnswerForEveryItemIsNeeded() {
         val seen = ArrayList<String>()
-        val full = verifyUndo(plan, 60_000L, 0L, { 0L }, { _, _ -> chk("MTCHK|chain|mangle|UFI_DPI|iptables|absent", "MTCHK|boot|$UR_BOOT|absent") }, { seen.add(it) })
+        val full = verifyUndo(plan, 60_000L, 0L, { 0L }, { _, _ -> chk("MTCHK|chain|mangle|MY_CHAIN|iptables|absent", "MTCHK|boot|$UR_BOOT|absent") }, { seen.add(it) })
         assertTrue(full.ran); assertEquals(1, seen.size)
-        val half = verifyUndo(plan, 60_000L, 0L, { 0L }, { _, _ -> chk("MTCHK|chain|mangle|UFI_DPI|iptables|absent") })
+        val half = verifyUndo(plan, 60_000L, 0L, { 0L }, { _, _ -> chk("MTCHK|chain|mangle|MY_CHAIN|iptables|absent") })
         assertFalse(half.ran); assertTrue(half.notes.single().contains("no answer"))
         val dead = verifyUndo(plan, 60_000L, 0L, { 0L }, { _, _ -> throw IllegalStateException("su died") })
         assertFalse(dead.ran); assertTrue(dead.notes.any { it.contains("su died") })

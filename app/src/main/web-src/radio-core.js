@@ -19,7 +19,7 @@ window.MatchiRadio = (() => {
     if (r.error) throw new Error(r.error);
     return String(r.content || '');
   }
-  // Same parsing as UFI-TOOLS: take the text between the first ":" and "OK", split on ",". Text before the "+CMD:" (the bridge can
+  // Parsing: take the text between the first ":" and "OK", split on ",". Text before the "+CMD:" (the bridge can
   // print a stray first character such as "(" or "6") is ignored because only what follows the first ":" is used.
   const fields = (raw) => String(raw).split('OK')[0].split(':').slice(1).join(':').replace(/["\r\n]/g, ' ').split(',').map((x) => x.trim());
   // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
@@ -120,7 +120,7 @@ window.MatchiRadio = (() => {
     if (typeof v === 'string' && v.trim()) { try { const j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (_) { return []; } }
     return [];
   };
-  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // same as UFI: 12 is 4G, anything else is shown as 5G
+  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // 12 is 4G, anything else is shown as 5G
   // The neighbour list has no rat field. Only a band written as "n78" / "B3" decides it; a bare number does not, and then the user picks.
   const guessRat = (band) => { const b = String(band == null ? '' : band).trim(); return /^n/i.test(b) ? '16' : /^b/i.test(b) ? '12' : ''; };
   const cellOk = (pci, earfcn, rat) => /^\d{1,4}$/.test(pci) && +pci <= 1007 && /^\d{1,7}$/.test(earfcn) && +earfcn <= 3279165 && (rat === '12' || rat === '16');
@@ -184,13 +184,13 @@ window.MatchiRadio = (() => {
   }
 
   // ---- Radio restart ------------------------------------------------------------------------------------------
-  // Copied from UFI-TOOLS 4.1.5 (its code is obfuscated; the order was read from the real call sites):
+  // Order of the sequence:
   //   AT+SFUN=5 on SIM slot 0, then slot 1 (radio OFF), then AT+SFUN=4 on slot 0, then slot 1 (radio ON), 100 ms apart.
   // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF and left it there.
   // On the F50 AT+SFUN? is not supported (+CME ERROR: 3), so this meaning is confirmed only indirectly: registration returns after the sequence.
   // The whole sequence runs ON the device in ONE root call. Found on the F50: while the radio is off the browser loses the host for a few
   // seconds, so a step sent from the page ("slot 0 on") never arrived and the radio stayed off. On the device nothing depends on the page.
-  // A slot that did not switch off is sent the "on" command once (as UFI does); a slot that did is retried for about 16 s.
+  // A slot that did not switch off is sent the "on" command once (once, no retry); a slot that did is retried for about 16 s.
   const CYCLE_SH = [
     'SA=/data/data/com.matchi.tool/files/sendat',
     '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',

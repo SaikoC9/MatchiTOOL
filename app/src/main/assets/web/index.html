@@ -877,8 +877,7 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
 /* @include web-src/at-radio-ui.js */
 /*
  * AT & Radio - MatchiTOOL plugin
- * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
- * modem restart (formats: docs/AT_RADIO_FORMATS.md). Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
+ * AT command terminal, VoLTE / VoNR switches, NR band list and modem restart (formats: docs/AT_RADIO_FORMATS.md). Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
  * AT commands are sent with MatchiTOOL's own sendat binary (tools/sendat).
  * This file is only the window. Everything that talks to the modem or router is in web-src/radio-core.js (window.MatchiRadio).
  */
@@ -1319,7 +1318,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const KEYS = ['network_type', 'network_provider', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band', 'wan_active_channel',
     'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'pm_sensor_mdm', 'pm_modem_5g',
     'realtime_rx_thrpt', 'realtime_tx_thrpt', 'wifi_access_sta_num', 'monthly_rx_bytes', 'monthly_tx_bytes', 'ppp_status', 'dial_mode', 'roam_setting_option',
-    'nr_rsrq', 'Nr_snr'];   // last two: the names UFI-TOOLS shows for 5G RSRQ / SINR (some firmware fills these when Z5g_rsrq / Z5g_SINR are empty)   // last six: UFI-TOOLS fields (speed in bytes/s, monthly totals in bytes)
+    'nr_rsrq', 'Nr_snr'];   // last two: alternate router keys for 5G RSRQ / SINR (some firmware fills these when Z5g_rsrq / Z5g_SINR are empty)   // last six: speed (bytes/s) and monthly totals (bytes)
 
   // ---- helpers -------------------------------------------------------------------------------------------
   const has = (v) => v !== undefined && v !== null && String(v).trim() !== '' && String(v).trim() !== '—';
@@ -1380,7 +1379,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   // they dropped so the telephony / AT fallback takes over and old numbers cannot pass for current ones.
   const FAST_TIMEOUT_MS = 4000, STALE_KEEP_MS = 60000, STALE_MARK_S = 12;
   const LIGHT_KEYS = ['network_type', 'signalbar', 'lte_rsrp', 'Z5g_rsrp'];
-  // UFI-TOOLS merges a second source (its own host endpoint) over the router answer, because the router leaves RSRQ / SINR / PCI / channel empty on some firmware.
+  // A second source (the host's own readings) is merged over the router answer, because the router leaves RSRQ / SINR / PCI / channel empty on some firmware.
   // Here the second source is Android telephony (dumpsys telephony.registry, read by the slow loop). radioGap() = the router left a detail field empty for the RAT in use.
   const radioGap = () => {
     const z = zteData, nr = has(z.Z5g_rsrp) || /5G|NR|ENDC|^SA$/i.test(String(z.network_type || '').trim()), lte = has(z.lte_rsrp) || /LTE|4G|ENDC|NSA/i.test(String(z.network_type || ''));
@@ -1472,7 +1471,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const parseCpu = (a) => (a.length >= 4 && a.every(Number.isFinite)) ? { total: a.slice(0, 8).reduce((x, y) => x + y, 0), idle: a[3] + (a[4] || 0) } : null;
     const cpuA = (grab(/^cpu:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
     const cpu0A = (grab(/^cpu0:\s*cpu\s+([\d ]+?)\s*$/m, sh) || '').trim().split(/\s+/).map(Number);
-    // Same method as UFI-TOOLS (DeviceInfo.kt): two reads of /proc/stat a short moment apart, busy = 1 - idle / total, idle = idle + iowait,
+    // Method: two reads of /proc/stat a short moment apart, busy = 1 - idle / total, idle = idle + iowait,
     // one decimal. The two reads are inside ONE root call, right after each other, so the window is the last second and not the whole
     // 15 s between polls (which also counted this app's own polling and gave a floor of 1 % or more on a quiet phone).
     const statRows = (tag) => { const m = {}; for (const x of sh.matchAll(new RegExp('^' + tag + '(cpu\\d*)\\s+([\\d ]+?)\\s*$', 'gm'))) { const r = parseCpu(x[2].trim().split(/\s+/).map(Number)); if (r) m[x[1]] = r; } return m; };
@@ -1494,7 +1493,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const memM = sh.match(/^mem:\s*(\d+)\s+(\d+)\s*$/m), memT = memM ? Number(memM[1]) : 0, memA = memM ? Number(memM[2]) : 0;
     const mem = memT > 0 ? { pct: Math.round(100 * (memT - memA) / memT), used: Math.round((memT - memA) / 1024), total: Math.round(memT / 1024) } : undefined;
     const load = grab(/^load:\s*(.+)$/m, sh), upSec = Number(grab(/^up:\s*([\d.]+)/m, sh));
-    // Per-core speed (UFI-TOOLS "CPU Frequency"): "F:<core> <online 0/1> <cur kHz> <max kHz>". An offline core shows 0.
+    // Per-core speed: "F:<core> <online 0/1> <cur kHz> <max kHz>". An offline core shows 0.
     const freqs = [...sh.matchAll(/^F:(\d+) ([01]) (\d+) (\d+)\s*$/gm)].map((m) => ({ id: Number(m[1]), on: m[2] === '1', cur: Number(m[3]), max: Number(m[4]) })).sort((a, b) => a.id - b.id);
     return { bat, st, temp, zones, cpu, cores, freqs, mem, load, upSec, errs, raw: rowB };
   }
@@ -1574,7 +1573,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       net: net || '—', op: pick(zte.network_provider, PLMN[plmn], plmn), reg: REG[regStat] || '', bars, prim: first(prim, csqDbm), primLabel: nr.rsrp !== undefined ? '5G RSRP' : lte.rsrp !== undefined ? 'LTE RSRP' : 'RSSI',
       at: Date.now(), lte, nr, hasNr, hasLte, bat: has(bat) ? Number(bat) : undefined, charging: st === '2', chargeTxt: ({ '1': 'Unknown', '2': 'Charging', '3': 'Discharging', '4': 'Not charging', '5': 'Full' })[st] || '',
       batTemp, sysMax, modemTemp, thermalLevel, cpu, cores, freqs, cpuAt, mem, load: load ? load.trim() : undefined, upSec: Number.isFinite(upSec) && upSec > 0 ? upSec : undefined, errs,
-      // UFI fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
+      // Optional fields: undefined (row hidden) when the router does not return the key; a real 0 stays 0
       rx: num(zte.realtime_rx_thrpt), tx: num(zte.realtime_tx_thrpt), devs: num(zte.wifi_access_sta_num), monthRx: num(zte.monthly_rx_bytes), monthTx: num(zte.monthly_tx_bytes),
       ppp: has(zte.ppp_status) ? String(zte.ppp_status).trim() : undefined,
       dial: has(zte.dial_mode) ? String(zte.dial_mode).trim() : undefined, roam: has(zte.roam_setting_option) ? String(zte.roam_setting_option).trim() : undefined,
@@ -1652,7 +1651,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
       ${tile(dot('#55b6ff'), 'Load', esc(M.load ? M.load.split(' ')[0] : '—'), M.load ? '1 / 5 / 15 m: ' + M.load.split(' ').join(' / ') : '')}
       ${tile(dot('#55b6ff'), 'Uptime', fmtUp(M.upSec))}</div>`;
-    // UFI-TOOLS "Core Usage" (one bar per core) and "CPU Frequency" (MHz per core, offline core = 0). Tap the speed card for the CPU Governor.
+    // Core usage (one bar per core) and CPU frequency (MHz per core, offline core = 0). Tap the speed card for the CPU Governor.
     const coreCards = (() => {
       const fr = M.freqs || [], have = new Map((M.cores || []).map((c) => [c.id, c]));
       // Cores that are switched off (the F50 outside performance mode keeps cores 4-7 off) are missing from /proc/stat: still draw them, as an empty bar.
@@ -1799,7 +1798,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     }
   }
   // LIVE CPU loop (third loop): ONLY the per-core usage and the per-core speed, read straight from /proc/stat (two reads 0.5 s apart in one root call,
-  // busy = 1 - idle / total, same method as UFI-TOOLS) and scaling_cur_freq, then the next read starts as soon as this one ends (about 1 update a second).
+  // busy = 1 - idle / total) and scaling_cur_freq, then the next read starts as soon as this one ends (about 1 update a second).
   // It never touches battery, temperatures, memory or the radio. The command text is fixed: the host recognises it exactly (RootGate.CPU_LIVE_CMD)
   // and writes one audit line a minute for it instead of one per read. Guards: hidden tab, battery pause, radio restart, slow loop running -> no read;
   // warm / hot phone -> the normal heat table (6 s / 15 s); Eco chip -> 9 s; failures back off 2 / 4 / 8 / 16 / 30 s.
@@ -2079,7 +2078,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       `if [ -f ${BOOT_FILE} ]; then echo "BOOT|1"; else echo "BOOT|0"; fi`,
     ].join('\n');
 
-    // CPU usage per core, UFI-TOOLS way: busy = 1 - idle / total between two reads of /proc/stat (idle = idle + iowait), one decimal.
+    // CPU usage per core: busy = 1 - idle / total between two reads of /proc/stat (idle = idle + iowait), one decimal.
     // This is the real load. The bar used to show speed / max speed, which is always full in Performance mode.
     const prevU = {}, lastU = {};
     const parse = (txt) => {
@@ -2399,7 +2398,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 /*
  * Memory Cleaner - MatchiTOOL built-in tool.
  * Stops background third-party apps (never the foreground app, launcher, keyboard, MatchiTOOL or root/network helpers),
- * then trims and reclaims memory. Needs root. Adapted from the UFI-TOOLS Memory Cleaner.
+ * then trims and reclaims memory. Needs root.
  */
 (() => {
   const TITLE = 'Clean memory';
@@ -2422,11 +2421,9 @@ rm -f $P.g $P.4 $P.6 $P.d
     'android.ext.services',
     'android.process.media',
     'com.matchi.tool',
-    'com.minikano.f50_sms',
     'easytier',
     'mihomo',
     'clash',
-    'kano_at_daemon',
     'magisk',
     'apatch',
     'ksu',
@@ -2931,7 +2928,7 @@ rm -rf "${DEVICE_TMP_DIR}"
 /*
  * Change IP - MatchiTOOL built-in tool.
  * Turns mobile data off and on again so the carrier hands out a new WAN address, then shows the old and the new
- * public IP. Needs root (svc data). Adapted from Change_IP v1.2 (UFI-TOOLS plugin).
+ * public IP. Needs root (svc data).
  * Clients on the hotspot lose internet for a few seconds while this runs.
  */
 (() => {
@@ -3029,7 +3026,7 @@ rm -rf "${DEVICE_TMP_DIR}"
 <script type="text/plain" class="webtool" data-name="SMS.js">
 /*
  * SMS - MatchiTOOL plugin
- * Ported idea from UFI-TOOLS (MIT, (c) 2025 Minikano): read, send and delete SMS using the router's web API.
+ * Read, send and delete SMS using the router's web API.
  * Works with no router login: without a saved router password it talks to the modem directly (AT commands).
  * If the router web API (port 80) cannot be reached from the app (seen on the F50), the tool automatically
  * falls back to the modem's AT commands (via sendat as root): read, send and delete work without the password.
@@ -3226,7 +3223,7 @@ rm -rf "${DEVICE_TMP_DIR}"
   async function apiDelete(m) {
     const notes = [];
     // 1) the router. A delete is safe to repeat, so it is tried up to three ways: as is, after a fresh login, and after a
-    // fresh login with the older MD5 AD token (SHA-256 is the normal form, as in UFI-TOOLS). Every attempt is checked against the router's own list, because some
+    // fresh login with the older MD5 AD token (SHA-256 is the normal form). Every attempt is checked against the router's own list, because some
     // firmware deletes the message and still answers with an empty body. (It used to try once and then skip the router
     // for an hour, which left messages that only the router holds impossible to delete.)
     for (let level = 0; level <= 2; level++) {
@@ -4335,7 +4332,7 @@ async function insecureOk(){
 function pluginFromStack(stack){const m=/matchi-plugin\/([A-Za-z0-9._-]{1,80}\.(?:js|html))/.exec(String(stack||''));return m?m[1]:null}
 function pluginTraceInit(url,init,stack){
   const path=String(url||'').replace(/^https?:\/\/[^/]+/,'');
-  if(!/^\/api\/(shell|root_shell|user_shell|upload|upload_img)(\?|$)/.test(path))return init;
+  if(!/^\/api\/(shell|user_shell)(\?|$)/.test(path))return init;
   const name=pluginFromStack(stack);if(!name)return init;
   const out=Object.assign({},init||{});const h=new Headers(out.headers||{});
   if(!h.has('x-matchi-plugin'))h.set('x-matchi-plugin',name);
@@ -4437,7 +4434,7 @@ window.MatchiRadio = (() => {
     if (r.error) throw new Error(r.error);
     return String(r.content || '');
   }
-  // Same parsing as UFI-TOOLS: take the text between the first ":" and "OK", split on ",". Text before the "+CMD:" (the bridge can
+  // Parsing: take the text between the first ":" and "OK", split on ",". Text before the "+CMD:" (the bridge can
   // print a stray first character such as "(" or "6") is ignored because only what follows the first ":" is used.
   const fields = (raw) => String(raw).split('OK')[0].split(':').slice(1).join(':').replace(/["\r\n]/g, ' ').split(',').map((x) => x.trim());
   // sendat prints the closing OK/ERROR with no line break after the data ("+CSQ: 99,99OK"). Put it on its own line and drop blank lines.
@@ -4538,7 +4535,7 @@ window.MatchiRadio = (() => {
     if (typeof v === 'string' && v.trim()) { try { const j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (_) { return []; } }
     return [];
   };
-  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // same as UFI: 12 is 4G, anything else is shown as 5G
+  const ratLabel = (r) => (String(r) === '12' ? '4G' : '5G');   // 12 is 4G, anything else is shown as 5G
   // The neighbour list has no rat field. Only a band written as "n78" / "B3" decides it; a bare number does not, and then the user picks.
   const guessRat = (band) => { const b = String(band == null ? '' : band).trim(); return /^n/i.test(b) ? '16' : /^b/i.test(b) ? '12' : ''; };
   const cellOk = (pci, earfcn, rat) => /^\d{1,4}$/.test(pci) && +pci <= 1007 && /^\d{1,7}$/.test(earfcn) && +earfcn <= 3279165 && (rat === '12' || rat === '16');
@@ -4602,13 +4599,13 @@ window.MatchiRadio = (() => {
   }
 
   // ---- Radio restart ------------------------------------------------------------------------------------------
-  // Copied from UFI-TOOLS 4.1.5 (its code is obfuscated; the order was read from the real call sites):
+  // Order of the sequence:
   //   AT+SFUN=5 on SIM slot 0, then slot 1 (radio OFF), then AT+SFUN=4 on slot 0, then slot 1 (radio ON), 100 ms apart.
   // 5 = off and 4 = on (Unisoc). An earlier version here had them the other way round, so the "restart" turned the radio OFF and left it there.
   // On the F50 AT+SFUN? is not supported (+CME ERROR: 3), so this meaning is confirmed only indirectly: registration returns after the sequence.
   // The whole sequence runs ON the device in ONE root call. Found on the F50: while the radio is off the browser loses the host for a few
   // seconds, so a step sent from the page ("slot 0 on") never arrived and the radio stayed off. On the device nothing depends on the page.
-  // A slot that did not switch off is sent the "on" command once (as UFI does); a slot that did is retried for about 16 s.
+  // A slot that did not switch off is sent the "on" command once (once, no retry); a slot that did is retried for about 16 s.
   const CYCLE_SH = [
     'SA=/data/data/com.matchi.tool/files/sendat',
     '[ -x "$SA" ] || { echo NOSENDAT; exit 0; }',
@@ -4839,7 +4836,7 @@ button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(
  * modem or router is window.MatchiRadio (web-src/radio-core.js).
  *  - Reads the router once when the dashboard opens, after a change, and on Refresh. Never on the Live Status timer.
  *  - Chips show the ROUTER state. What you tick is kept separately ("pending") and only becomes real when you press Lock.
- *  - Lock sends BOTH lists (like UFI-TOOLS): the type you did not touch is sent again unchanged. Nothing is ever sent empty.
+ *  - Lock sends BOTH lists: the type you did not touch is sent again unchanged. Nothing is ever sent empty.
  *  - During the radio restart Live Status stops polling and keeps its last values (MatchiRadio.beginBusy / onBusy).
  */
 function mountDashRadio() {
@@ -5012,7 +5009,7 @@ function mountDashRadio() {
     const done = R.beginBusy('Network mode changing…');
     try {
       setStatus('Changing network mode…');
-      await R.setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });   // like UFI-TOOLS: no radio restart
+      await R.setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });   // no radio restart here
       await R.sleep(2000);
       let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
       if (r && r.net === next) { setStatus('Router now reports: ' + R.netLabel(next)); toast('Network mode: ' + R.netLabel(next), 'green'); }
@@ -5057,7 +5054,7 @@ function mountDashRadio() {
  *  - The type of a neighbour (4G / 5G) comes from its band name (n78 / B3). A bare number asks you. Never guessed.
  *  - Auto-unlock is ON by default: 60 s after a lock, if the modem is not registered, UNLOCK_ALL_CELL is sent once. The pending check
  *    survives a page reload (the start time is kept in localStorage and the check resumes only if the router still lists a locked cell).
- *  - No radio restart after a cell lock or unlock (UFI-TOOLS does none). The router is read again 3 s later.
+ *  - No radio restart after a cell lock or unlock (none is needed). The router is read again 3 s later.
  *  - "Unlock all cells" is always on screen and also works while a band change is restarting the radio.
  */
 function mountDashCell() {
@@ -7165,24 +7162,27 @@ function mountNetTools() {
 const wait=(ms)=>new Promise((r)=>setTimeout(r,ms));
 const debounce=(func,delay)=>{let timer;return function(...args){if(timer)clearTimeout(timer);timer=setTimeout(()=>{func.apply(this,args)},delay)}};
 function escapeHtml(input){if(input==null)return '';return String(input).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+/* 1024-based size text with two decimals ("1.50 MB"). needTrim pads the number with &nbsp; to a common width so a column lines up. */
 function formatBytes(bytes,needTrim=false){
-  if(bytes===0)return ' 0.00 B';
-  const sizes=['B','KB','MB','GB','TB','PB','EB','ZB','YB'];
-  const i=Math.floor(Math.log(bytes)/Math.log(1024));
-  const size=(bytes/Math.pow(1024,i)).toFixed(2);let str=String(size);
-  if(needTrim){if(size<10)str='&nbsp;&nbsp;&nbsp;'+size;else if(size<100)str='&nbsp;&nbsp;'+size;else if(size<1000)str='&nbsp;'+size}
-  return `${str} ${sizes[i]}`;
+  const units=['B','KB','MB','GB','TB','PB','EB','ZB','YB'];
+  const n=Number(bytes);
+  if(!n)return ' 0.00 B';
+  let step=0,v=n;
+  while(Math.abs(v)>=1024&&step<units.length-1){v/=1024;step++}
+  const num=v.toFixed(2);
+  const pad=needTrim?'&nbsp;'.repeat(Math.max(0,7-num.length)):'';
+  return pad+num+' '+units[step];
 }
 /* Root shell. Reply {success, content}; the page adds the "Cannot reach" retry and the HTTP confirmation in api(). */
 async function runShellWithRoot(cmd,timeout=20000){
   return api('/api/shell',{method:'POST',body:JSON.stringify({cmd,timeout})});
 }
-/* No-root shell: runs as the app's own user (POST /api/user_shell). The reply is {success, content: result}, where result
-   is an object holding the output text as "content". A failure is returned, not thrown. */
+/* No-root shell: runs as the app's own user (POST /api/user_shell). The reply is {success, content}, the same as the root shell.
+   A failure is returned, not thrown. */
 async function runShellWithUser(cmd){
   try{
     const d=await api('/api/user_shell',{method:'POST',body:JSON.stringify({command:cmd})});
-    return d&&d.error?{success:false,content:d.error}:{success:true,content:d?d.result:''};
+    return d&&d.error?{success:false,content:d.error}:{success:!!(d&&d.success),content:String((d&&d.content)??'')};
   }catch(e){return {success:false,content:String(e&&e.message||e)}}
 }
 /* Modals: the footer buttons are #NAME_confirm and #NAME_close; onConfirm/onClose may be async and the dialog closes only when
@@ -7286,12 +7286,14 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
    page's usual "not encrypted" question first. Headers a plugin sets itself pass through unread. */
 (function(){
   const nativeFetch=window.fetch.bind(window);
-  const ROOTY=/^\/api\/(?:root_shell|user_shell|one_click_shell|shell)$/;
-  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on GET /api/AT. */
+  const ROOTY=/^\/api\/(?:user_shell|shell)$/;
+  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on POST /api/at. */
   const AT_READS=['AT','ATI','AT+CSQ','AT+CESQ','AT+CGSN','AT+CIMI','AT+CCID','AT+CNUM','AT+CGMR','AT+CGMM','AT+CGMI'];
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;
   const atIsRead=c=>{c=String(c||'').trim();return !!c&&c.length<=64&&(AT_READS.indexOf(c.toUpperCase())>=0||AT_QUERY.test(c))};
   window.__matchiAtIsRead=atIsRead;
+  /* POST /api/at carries {"command","slot"} as JSON; a body that cannot be read as that counts as a write. */
+  const atBodyIsRead=b=>{try{return atIsRead(JSON.parse(String(b)).command)}catch(_){return false}};
   /* Idle sign-out: the host restarts a session's idle timer only for a request marked x-active, and the mark is added only
      within 60 s of a real click, key press or touch. Polls (Live Status, host ping, SMS check) therefore no longer keep a forgotten tab signed in. */
   let lastInput=Date.now();
@@ -7304,7 +7306,7 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
       const h=new Headers((init&&init.headers)||(input&&input.headers)||undefined);
       if(!h.has('x-token')&&TOKEN)h.set('x-token',TOKEN);
       if(Date.now()-lastInput<60000)h.set('x-active','1');
-      if((ROOTY.test(u.pathname)||(u.pathname==='/api/AT'&&!atIsRead(u.searchParams.get('command'))))&&insecurePage()){
+      if((ROOTY.test(u.pathname)||(u.pathname==='/api/at'&&!atBodyIsRead(init&&init.body)))&&insecurePage()){
         if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
         h.set('x-insecure-ok','1');
       }
@@ -7517,7 +7519,7 @@ const plugClean=(v,n)=>String(v==null?'':v).replace(/[\u0000-\u001f\u007f]/g,' '
 /* A plain text search of the plugin's source. It is a hint for the person about to confirm, NOT a safety check: code can build commands at run time. */
 function plugScan(code){
   const s=String(code),uniq=(a)=>[...new Set(a)];
-  const hasRoot=/matchi\.root|matchi\.sh\b|runShellWithRoot|\/api\/(?:shell|root_shell|one_click_shell)\b/.test(s),hasUser=/matchi\.user|runShellWithUser|\/api\/user_shell\b/.test(s);
+  const hasRoot=/matchi\.root|matchi\.sh\b|runShellWithRoot|\/api\/shell\b/.test(s),hasUser=/matchi\.user|runShellWithUser|\/api\/user_shell\b/.test(s);
   const tools=['curl','jq','sendat','sha256','zreq'].filter(t=>new RegExp('(^|[^A-Za-z0-9_-])'+t+'([^A-Za-z0-9_]|$)').test(s));
   const riskyRx=[['deletes files (rm -r)',/\brm\s+-[a-zA-Z]*[rR]/],['raw disk access (dd / block devices)',/\bdd\s+if=|\/dev\/block\//],['mounts or remounts',/\bmount\b/],['changes system properties',/\bsetprop\b/],['reboots',/\breboot\b|\bsvc\s+power\b/],['uninstalls or disables apps',/\bpm\s+(?:uninstall|disable)/],['writes the boot script',/matchitool\/boot\.sh/],['pipes a download into a shell',/(?:curl|wget)\b[^\n]*\|\s*(?:sh|bash)\b/],['formats storage',/\bmkfs\b/],['builds code at run time (eval / new Function)',/\beval\s*\(|new\s+Function\s*\(/]];
   const risky=riskyRx.filter(([,rx])=>rx.test(s)).map(([l])=>l);

@@ -3,7 +3,7 @@ package com.matchi.tool
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Plugin file kinds. ".js" is injected as a script; ".html" holds a UFI-TOOLS block (script, style and meta tags). */
+/** Plugin file kinds. ".js" is injected as a script; ".html" is a legacy HTML block (script, style and meta tags), listed but not loaded. */
 internal fun pluginKind(name: String): String = if (name.endsWith(".html")) "html" else "js"
 
 /**

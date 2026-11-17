@@ -6,7 +6,7 @@ router web-API client. The intended target is stock ZTE F50 firmware, but the ap
 
 ## Independence and root model
 
-MatchiTOOL does **not** require UFI-TOOLS, its private app directory, `socat`, a UFI Unix socket, or a UFI boot script.
+MatchiTOOL is self-contained: it needs no other app, `socat`, shared socket or external boot script.
 It invokes the Android device's existing `su` command (`su -c sh`) when a privileged operation is requested. A compatible
 root manager (for example Magisk, KernelSU, or APatch) must already be installed and must grant MatchiTOOL root
 permission. This is a root **client/backend**, not a rooting exploit or boot-image installer.
@@ -101,11 +101,11 @@ Log Catcher > "Boot capture" installs `matchi_logd.sh` into `/data/adb/service.d
 
 ## Compatibility notes
 
-**UFI-TOOLS plugins:** no longer supported. The UFI plugin format, `UFI_DATA`, the plugin store, the UFI upload routes (`/api/upload`, `/api/uploads/*`), the router routes (`/api/goform/*`, `/api/proxy/*`, `/api/get_cookie`, `/api/set_cookie`) and the rewriting of UFI paths (`/data/data/com.minikano.f50_sms/...`, `/sdcard/ufi_tools_boot.sh`) are removed (UFI removal stages 2 and 3, see `UFI_REMOVAL_PATH.txt`). Plugins use `window.matchi`; the boot file is `/data/local/matchitool/boot.sh`.
+**Plugin API:** plugins use `window.matchi` (see `web-src/plugin-host-api.js`); the boot file is `/data/local/matchitool/boot.sh`. Plugins written for other tools that rely on their own helper names, upload routes or file paths do not run unchanged.
 
 **Plugin data is erased when you delete the plugin (1.2.26).** MatchiTOOL cannot see what arbitrary plugin code wrote, so a plugin tells it. The delete dialog lists what will be erased and asks first.
 - Every plugin has its own folder, `/data/local/matchitool/plugin_data/<plugin name without .js>/`. Keep the plugin's files there and they are removed automatically.
-- Other folders: add header lines to the plugin source, one per path: `// @matchi-data /data/local/myplugin`. Allowed: folders inside `/data/local/` (not `tmp`, `matchitool` or MatchiTOOL's `ufi_*` folders), inside `/data/local/tmp/` (not MatchiTOOL's own `matchi*`, `mt_*`, `sqlite` names) and inside `/sdcard/` (not `Android`, and not a standard folder such as `Download` itself, but a folder inside it is fine). Letters, digits, `.`, `_`, `-` and `/` only, no `..`, at most 20 lines. Anything else is refused and listed in the dialog.
+- Other folders: add header lines to the plugin source, one per path: `// @matchi-data /data/local/myplugin`. Allowed: folders inside `/data/local/` (not `tmp`, `matchitool` or MatchiTOOL's own `ufi_*` folders), inside `/data/local/tmp/` (not MatchiTOOL's own `matchi*`, `mt_*`, `sqlite` names) and inside `/sdcard/` (not `Android`, and not a standard folder such as `Download` itself, but a folder inside it is fine). Letters, digits, `.`, `_`, `-` and `/` only, no `..`, at most 20 lines. Anything else is refused and listed in the dialog.
 - Browser settings: `// @matchi-localstorage myplugin_` removes the saved keys that start with that prefix. The prefix has to start with the plugin's own name (letters and digits, any case) and can never match MatchiTOOL's own keys.
 - Automatic (1.4.1, no header needed): folders named after the plugin (`/data/local/<name>`, `/data/local/tmp/<name>`; nothing under `/sdcard/` is guessed, declare it with `@matchi-data`; only if they exist and pass the same checks) and saved browser settings (local and session storage) whose key starts with the plugin's name (4+ letters/digits). Everything is listed in the Delete dialog before you confirm.
 - Traced writes (1.4.1): while a plugin runs, the page tags every root command and upload it sends with the plugin's file name. The host reads the command text and remembers the paths it writes to (`>`/`>>`, `tee`, `mkdir`, `touch`, `cp`/`mv`/`install`/`ln` destination, `dd of=`, `curl -o`, `wget -O`, `unzip -d`, `tar -C`, `sqlite3`, also inside `sh -c`/`su -c`, with simple `NAME=/path` variables filled in). Delete erases those paths (same strict path rules, listed in the dialog first), removes the uploaded files the plugin sent, and removes parent folders that are left empty. Only commands run **after** this version are traced. Not traced: a path that only appears inside a script file the plugin wrote and then ran, a program that writes by itself, and a call the page cannot attribute (no plugin frame in the browser's stack).
@@ -124,11 +124,11 @@ What is **not** undone: anything MatchiTOOL did not see in command text (made in
 
 Checked so far: the header stop and the process sweep were run on the F50 (Phases 1 and 2, see `MatchiTOOL_Phase1_todo.txt` and `MatchiTOOL_Phase2_todo.txt`); the firewall and boot-script undo and Turn off and stop are compiled and unit-tested in CI and were also run on the F50 by the owner (Phase 3 tests A-E; the owner's report, per-test results are not written in the repo; the no-root / timeout test F was waived and not run). Details, limits and examples: [`docs/PLUGIN_STOP.md`](docs/PLUGIN_STOP.md). Every plugin header line in one table: [`docs/PLUGIN_HEADERS.md`](docs/PLUGIN_HEADERS.md).
 
-**UFI-TOOLS plugin API (Phase 2, 1.4.0):** the page defines UFI's helpers (`createModal`, `showModal`, `closeModal`, `createToast`, `copyText`, `runShellWithUser`, `createSwitch`, `createFormToast`, `setBtnLoading`, `formatBytes`, `escapeHtml`, `wait`, `debounce`, `t`), and the host serves `/api/root_shell`, `/api/user_shell` and `/api/one_click_shell`. A root command that names UFI's boot script or UFI's files folder is rewritten to MatchiTOOL's own (`/data/local/matchitool/boot.sh`, this app's files folder). `runShellWithUser` runs as the app's own user, not root.
+**Plugin API (`window.matchi`):** `toast`, `modal`, `root` and `user` (shell as root / as the app user), `hasRoot`, `copy`, `menu`, `router.get/set` (`/api/zte`), `sh` (shell helpers: curl wrapper, background jobs, paths) and small helpers (`escapeHtml`, `formatBytes`, `wait`, `debounce`, `interval`, `base64`, `panel`, `switch`, `loading`, `form`). The host serves `/api/shell` (root) and `/api/user_shell` (the app's own user, not root); both return `{success, content}`.
 
 **Bundled tools:** the app carries MatchiTOOL's own `jq`, `sha256` and `zreq` (arm64) next to curl and sendat, in this app's files folder (`/data/data/com.matchi.tool/files/NAME`). Router access for plugins goes through `matchi.router.get/set` (`/api/zte`), which only talks to the saved router address. None of this has been compiled or run on a device.
 
-**Plugin header and compatibility report (1.4.0).** A plugin may start with optional header lines (first 40 lines): `// @matchi-name`, `// @matchi-version`, `// @matchi-author`, `// @matchi-description`, `// @matchi-requires root, curl, jq`. The list shows name, version and author; the description and requirements appear as a tooltip. Before a store install or any `.txt`/`.html` import, the confirm dialog also shows a static **Compatibility** check: `/api` routes the plugin calls that MatchiTOOL does not serve (for example UFI's `/api/get_custom_head`, which answers 404 here), `getCookie`/`setCookie` that nothing defines, UFI tools MatchiTOOL does not ship (`socat`, `ttyd`, `iperf3`, `imei_reader`, `ufi_req`) and UFI files under `/data/data/com.minikano.f50_sms/files/` that are not shipped. It is a text search, so a plugin that builds a route or command at run time is not covered. The list of served routes in the page is checked against `WebServer.kt` by `scripts/test_ufi_store.js`, so it cannot drift.
+**Plugin header and compatibility report (1.4.0).** A plugin may start with optional header lines (first 40 lines): `// @matchi-name`, `// @matchi-version`, `// @matchi-author`, `// @matchi-description`, `// @matchi-requires root, curl, jq`. The list shows name, version and author; the description and requirements appear as a tooltip. Before a plugin is added, the confirm dialog shows a summary read from the file: the header fields, whether it runs commands as root or as the app user, and which bundled tools it names (`curl`, `jq`, `sendat`, `zreq`). It is a text search, so a plugin that builds a route or command at run time is not covered.
 
 The web bridge retains the existing plugin-facing functions (`runShellWithRoot`, `createToast`, `createModal`, and
 `showModal`) and the `.actions-buttons` insertion point. Plugin compatibility is best-effort: plugins may still rely on
@@ -144,7 +144,6 @@ CPU architecture and runtime environment of the target device.
 ## Licenses and attribution
 
 - MatchiTOOL project code: MIT, see `LICENSE`.
-- UFI-TOOLS-derived components and notices: see `LICENSE-UFI-TOOLS` and the retained source/plugin headers.
 - Third-party dependencies retain their respective upstream licenses; NanoHTTPD is distributed under its upstream license.
 
-Do not remove upstream copyright or license notices when modifying or redistributing derived components.
+Do not remove upstream copyright or license notices from third-party components you redistribute.

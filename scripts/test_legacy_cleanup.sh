@@ -15,9 +15,9 @@ fs.writeFileSync(process.argv[2]+"/leg.js",code);
 fs.writeFileSync(process.argv[2]+"/legacy.sh",require(process.argv[2]+"/leg.js").LEGACY_SH.split("/data/local").join(process.argv[3])+"\n");
 ' "$HTML" "$T" "$R" || { echo "FAIL: could not extract LEGACY_SH"; exit 1; }
 sh -n "$T/legacy.sh" || { echo "FAIL: generated shell has a syntax error"; exit 1; }
-printf '#!/bin/sh\n# UFI TTL helper: legacy\nwhile :; do sleep 1; done\n' > "$R/matchitool/ttl/ttl.sh"
+printf '#!/bin/sh\n# TTL helper: legacy\nwhile :; do sleep 1; done\n' > "$R/matchitool/ttl/ttl.sh"
 # the old dpi watcher respawns nfqws whenever it is gone (like the real old keep-alive), so the cleanup must freeze it before killing
-printf '#!/bin/sh\n# UFI anti-DPI helper: legacy\nwhile :; do pgrep -f "%s/matchitool/dpi/nfqws" >/dev/null 2>&1 || { setsid "%s/matchitool/dpi/nfqws" </dev/null >/dev/null 2>&1 & }; sleep 0.05; done\n' "$R" "$R" > "$R/matchitool/dpi/dpi.sh"
+printf '#!/bin/sh\n# anti-DPI helper: legacy\nwhile :; do pgrep -f "%s/matchitool/dpi/nfqws" >/dev/null 2>&1 || { setsid "%s/matchitool/dpi/nfqws" </dev/null >/dev/null 2>&1 & }; sleep 0.05; done\n' "$R" "$R" > "$R/matchitool/dpi/dpi.sh"
 printf '#!/bin/sh\nsleep 300\n' > "$R/matchitool/dpi/nfqws"; chmod 755 "$R/matchitool/dpi/nfqws"
 echo 4242 > "$R/matchitool/dpi/nfqws.pid"; echo keep > "$R/matchitool/dpi/user-notes.txt"
 printf '#!/bin/sh\n# my own script\nexit 0\n' > "$R/matchitool/other.sh"

@@ -69,12 +69,9 @@ TABLE = {
   ('POST', '/api/plugins/scan'): ('OPEN', ''),
   ('GET',  '/api/root/status'): ('OPEN', 'asks only whether root is granted'),
   ('POST', '/api/shell'): ('GATE', ''),
-  ('POST', '/api/root_shell'): ('GATE', ''),
-  ('GET',  '/api/one_click_shell'): ('OPEN', 'only reports whether root is granted; runs nothing'),
   ('POST', '/api/user_shell'): ('GATE', ''),
   ('POST', '/api/imei/apply'): ('GATE', ''),
   ('POST', '/api/at'): ('PARTIAL', 'pure AT read queries skip the gate; anything else needs it'),
-  ('GET',  '/api/AT'): ('PARTIAL', 'same rule as /api/at'),
   ('POST', '/api/at/batch'): ('PARTIAL', 'same rule as /api/at; only an all-read batch skips the gate'),
   ('POST', '/api/zte'): ('PARTIAL', 'goes to the saved router address only; a set call needs the gate unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS); reads stay open'),
   ('GET',  '/api/net/whoami'): ('OPEN', 'read only: returns the caller\'s own address'),
@@ -92,7 +89,6 @@ TABLE = {
 # Routes that touch root-ish code without a gate, each with the reason. Anything not listed here must be gated.
 ROOT_WITHOUT_GATE = {
   '/api/root/status': 'RootShell.status only',
-  '/api/one_click_shell': 'RootShell.status only',
 }
 DANGEROUS = ('RootShell.run', 'RootShell.exec', 'UserShell.run', 'ApkUpdater.install')
 
@@ -159,9 +155,9 @@ for route, kind in (('/api/at"', 'at-write'), ('/api/at/batch"', 'at-batch-write
     if 'auditShell(' not in seg or '"' + kind + '"' not in seg:
         errors.append(f'WebRoutesRoot.kt: {route[:-1]} must write its own audit line (kind "{kind}") for a non-read AT command, not only auditBusy')
 
-# UFI removal, stage 3: these routes must stay gone (nothing on the page calls them, and /api/proxy/ and the cookie routes handed out router access).
+# UFI removal, stages 3 and 4: these routes must stay gone (nothing on the page calls them, and /api/proxy/ and the cookie routes handed out router access).
 all_src = '\n'.join(f.read_text() for f in D.glob('*.kt'))
-for gone in ('/api/goform/', '/api/proxy/', '/api/get_cookie', '/api/set_cookie', '/api/upload', '/api/upload_img', '/api/uploads/'):
+for gone in ('/api/goform/', '/api/proxy/', '/api/get_cookie', '/api/set_cookie', '/api/upload', '/api/upload_img', '/api/uploads/', '/api/root_shell', '/api/one_click_shell', '/api/AT'):
     if '"' + gone in all_src: errors.append(f'removed route {gone} is back in the Kotlin sources')
 
 # Plain-HTTP and sign-in age rules live in one function.

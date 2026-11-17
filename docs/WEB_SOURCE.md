@@ -4,10 +4,8 @@ The console is one self-contained page, `app/src/main/assets/web/index.html` (th
 
 | file | what it holds |
 | --- | --- |
-| `plugin-host-api.js` | UFI-TOOLS helper globals plugins call (`createModal`, `runShellWithRoot`, `createToast`, ...) |
-| `plugin-store-pure.js` | store and plugin logic with no DOM: URL rules, UFI/JSON index parsing, SHA-256, `plugScan`, `plugCompat`, `plugMeta`, route list (tested by `scripts/test_ufi_store.js`) |
-| `plugin-store-ui.js` | the Plugin store window: fetch, install, source picker |
-| `plugin-trace.js` | tags root commands and uploads with the plugin that sent them (header `x-matchi-plugin`), so Delete can erase what that plugin wrote (tested by `scripts/test_plugin_trace.js`) |
+| `plugin-host-api.js` | `window.matchi`, the plugin API (`toast`, `modal`, `root`, `user`, `router`, `sh`, ...), and the page helpers it wraps (`createModal`, `runShellWithRoot`, `createToast`, ...) |
+| `plugin-trace.js` | tags shell commands with the plugin that sent them (header `x-matchi-plugin`), so Delete can erase what that plugin wrote (tested by `scripts/test_plugin_trace.js`) |
 | `radio-core.js` | `window.MatchiRadio`: AT and router calls, band lock, cell lock, radio restart, parsing. No DOM (tested by `scripts/test_at_radio.js`) |
 | `at-radio-ui.js` | the AT & Radio window (a built-in tool block in `index.html`): AT terminal, VoLTE / VoNR, quick buttons, modem restart; calls `MatchiRadio`. No network mode, band lock or cell lock (they are on the dashboard) |
 | `perf-mode.js` | `mountPerfMode()`: the "Performance mode" button in the top button row (next to Change IP) and its small window |

@@ -55,20 +55,24 @@ STAGE 3 - DONE 2026-11-17 in source (Kotlin NOT compiled here: no Kotlin compile
     ZteClient.kt comments naming UFI-TOOLS (AD sign-in rewrite is stage 4), scripts/test_phase0.js and scripts/phase0/*.
   Check: push, CI build + unit tests, then install and test on the F50.
 
-STAGE 4 - rewrite ported code, then remove notices
-  Rewrite in your own code and wording (not just rename):
-   - web-src/at-radio-ui.js   (AT terminal, VoLTE/VoNR switches, NR band list)
-   - web-src/radio-core.js    (radio restart sequence)
-   - SMS tool in index.html   (~line 3036)
-   - ZteClient.kt AD sign-in  (verify against what the router's own login page sends)
-   - plugin-host-api.js leftovers
-  Before calling it clean: compare against the UFI-TOOLS source and remove anything still identical.
-  Then delete, LAST:
-   - LICENSE-UFI-TOOLS
-   - UFI line in NOTICE.md, README.md (UFI plugin API sections), PROJECT_IDENTITY.md
-   - docs/AT_RADIO_UFI_PLAN.txt, UFI parts of docs/AT_RADIO_FORMATS.md, docs/PLUGIN_STORE.md, CHANGELOG_DETAIL.md
-   - UFI checks in scripts/check_sources.py, scripts/validate.sh, scripts/phase0/*
-  Check: validate.sh, check_repo.py, CI build, F50 test.
+STAGE 4 - DONE 2026-11-17 (Kotlin NOT compiled here; validate.sh passes; CI build + unit tests + F50 test still to do)
+  Compared first: every .kt/.go/.sh/.js/.html file of this repo against the UFI-TOOLS `main` (phone edition) and `http-server-version` (full, with frontEnd/) branches,
+    3-line windows of normalised code lines. Only `formatBytes` (plugin-host-api.js) matched; it was rewritten and the pad widths are unchanged.
+    LIMIT: this compares against the current heads of those branches, not against the 4.1.5 APK or older commits. radio-core.js, at-radio-ui.js, the SMS tool and
+    ZteClient match nothing there. The AD token formula SHA256(SHA256(wa_inner_version + cr_version) + RD) is the router's own scheme (it also appears in UFI's
+    kanoGoformRequest.kt); it is an interface fact, not copied code, and it was NOT re-checked against the router's login page on the F50.
+  Removed: /api/root_shell, /api/one_click_shell, GET /api/AT, ufiShellReply, AtBatch.checkCommand/checkSlot/ufiText (+ tests), PluginLog "plugin/at" tag,
+    root_shell / one_click_shell names in PluginIntegrity, PluginGuard, plugin-meta.js, plugin-trace.js, plugin-host-api.js.
+    /api/user_shell kept, now {success, content}.
+  Reworded (no UFI mentions left in code comments): at-radio-ui.js, radio-core.js, dash-radio.js, dash-cell.js, SMS and other tools in index.html, ZteClient, PluginOrder,
+    PluginPaths, WebRoutesPlugins, PluginUninstall, Prefs, RootShell, UserShell.
+  Deleted: LICENSE-UFI-TOOLS, docs/AT_RADIO_UFI_PLAN.txt, docs/PLUGIN_STORE.md, scripts/test_phase0.js, scripts/phase0/{deob_requests_js,run_plugins,scan_plugins,test_store_browser,test_ufi_globals_browser,test_ufi_poll_browser}.js.
+    FILES TO DELETE from your copy (a zip cannot delete) if they are still there: the ones above.
+  Rewritten: docs/AT_RADIO_FORMATS.md (no UFI comparisons), NOTICE.md, README.md, PROJECT_IDENTITY.md, SECURITY.md, docs/{BINARIES,BUILD_BINARIES,WEB_SOURCE,LIVE_STATUS_BASELINE,PLUGIN_SANDBOX,PLUGIN_STOP}.md.
+  Left on purpose: PluginPaths LOCAL_PROTECTED still lists ufi_ttl / ufi_dpi / ufi_boot / ufi_lock (a safety guard: removing them lets a plugin declare those folders);
+    the legacy ".html" plugin kind and "-1a2b3c" name handling; docs/CHANGELOG_DETAIL.md and CHANGELOG.md history (history is not rewritten);
+    the "must stay gone" tripwires in check_sources.py and test_route_gates.py (they name UFI strings on purpose).
+  Check: bash scripts/validate.sh -> passes. Still to do: CI build + unit tests, install, F50 test (plugin_host: matchi.user, AT write over HTTP confirm; Memory Cleaner).
 
-ORDER RULE
-  Do not delete LICENSE-UFI-TOOLS until stage 4 rewrites are done and compared. It must stay for any copied code.
+ORDER RULE (kept for the record)
+  LICENSE-UFI-TOOLS was deleted only after the comparison above. If older UFI-TOOLS code turns up in the repo, restore it from the earlier zip.

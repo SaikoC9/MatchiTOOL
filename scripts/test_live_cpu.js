@@ -1,4 +1,4 @@
-// Live Status CPU % (UFI-TOOLS method). Cuts the real parseSys() out of index.html and feeds it root-shell output with known numbers.
+// Live Status CPU % (busy = 1 - idle / total between two reads of /proc/stat). Cuts the real parseSys() out of index.html and feeds it root-shell output with known numbers.
 const fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/web/index.html'), 'utf8');
 const a = html.indexOf('function parseSys(sh, errs) {'), b = html.indexOf('\n  }\n', a);
@@ -39,7 +39,7 @@ const sys = (A, B, extra = '') => 'BATTERY\nlevel: 50\ntemperature: 300\nstatus:
   const r = make()(sys('', '', old), []);
   ok(r.cpu === 20, 'old form: 20 busy of 100 = 20 (got ' + r.cpu + ')');
 }
-// 6. per-core speed lines "F:<core> <online> <cur kHz> <max kHz>" (UFI "CPU Frequency"); an offline core stays in the list with on=false
+// 6. per-core speed lines "F:<core> <online> <cur kHz> <max kHz>"; an offline core stays in the list with on=false
 {
   const f = 'F:1 0 0 1800000\nF:0 1 936000 1800000\nF:2 1 614000 2000000\ngarbage\n';
   const r = make()(sys('Acpu  0 0 0 0 0 0 0 0\n', 'Bcpu  1 0 0 9 0 0 0 0\n', f), []);

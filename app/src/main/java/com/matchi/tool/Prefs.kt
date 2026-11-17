@@ -21,7 +21,7 @@ object Prefs {
         if (enabled) d.remove(name) else d.add(name)
         sp(c).edit().putStringSet("disabled", d).apply()
     }
-    /** Plugin load order (JSON array of file names) and display titles (JSON object, file name to title) for UFI-TOOLS blocks. */
+    /** Plugin load order (JSON array of file names) and display titles (JSON object, file name to title) for plugins. */
     fun pluginOrder(c: Context): List<String> = parsePluginOrder(sp(c).getString("plugin_order", null))
     fun setPluginOrder(c: Context, names: List<String>) {
         sp(c).edit().putString("plugin_order", org.json.JSONArray(names.distinct()).toString()).apply()

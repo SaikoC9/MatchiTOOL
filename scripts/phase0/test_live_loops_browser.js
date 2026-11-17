@@ -72,8 +72,8 @@ async function scenario(name, run, opts = {}) {
     await run1(2); ok(st.zte > z, 'coming back to the tab polls again');
   });
 
-  // Phase 2: UFI rows (speed in bytes/s, monthly totals in bytes, device count); hidden when the router gives nothing.
-  await scenario('UFI rows', async ({ page, st, run1 }) => {
+  // Phase 2: speed and totals rows (speed in bytes/s, monthly totals in bytes, device count); hidden when the router gives nothing.
+  await scenario('Speed and totals rows', async ({ page, st, run1 }) => {
     const tiles = async () => page.locator('#liv_inline .liv-tn .liv-tile').allInnerTexts().then((a) => a.map((t) => t.replace(/\s+/g, ' ').trim()));
     await run1(1);
     ok((await tiles()).length === 0, 'no speed / devices / month tiles while the router returns none of those keys');

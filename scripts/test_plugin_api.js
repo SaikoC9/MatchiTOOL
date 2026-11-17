@@ -61,14 +61,14 @@ eq(' 0.00 B', lib.formatBytes(0), 'formatBytes 0');
 eq('1.00 KB', lib.formatBytes(1024), 'formatBytes KB');
 eq('1.50 MB', lib.formatBytes(1.5 * 1024 * 1024), 'formatBytes MB');
 
-// ---- runShellWithUser: host reply {result, error} -> {success, content} ----
+// ---- runShellWithUser: host reply {success, content} (or {error}) -> {success, content} ----
 state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._apiReply; };
 (async () => {
-  env._apiReply = { result: { content: 'uid=10123' }, error: null };
+  env._apiReply = { success: true, content: 'uid=10123' };
   let r = await lib.runShellWithUser('id');
-  eq({ success: true, content: { content: 'uid=10123' } }, r, 'user shell success keeps result as content');
+  eq({ success: true, content: 'uid=10123' }, r, 'user shell success returns the output text');
   eq(['/api/user_shell', { command: 'id' }], calls[0], 'user shell request body uses "command"');
-  env._apiReply = { result: null, error: 'boom' };
+  env._apiReply = { error: 'boom' };
   r = await lib.runShellWithUser('false');
   eq({ success: false, content: 'boom' }, r, 'user shell error is returned');
 
@@ -114,20 +114,21 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
   res = await win.fetch('/not-api', {});
   eq(undefined, res.init && res.init.headers, 'non-/api paths are not touched');
   state.insecure = true; let asked = 0; state.ask = async () => { asked++; return true; };
-  res = await win.fetch('/api/root_shell', { method: 'POST' });
+  res = await win.fetch('/api/shell', { method: 'POST' });
   eq(1, asked, 'root route over HTTP asks once');
   eq('1', res.init.headers.get('x-insecure-ok'), 'x-insecure-ok set after the answer');
   res = await win.fetch('/api/plugins', {});
   eq(1, asked, 'non-root route does not ask');
-  // GET /api/AT: pure reads never ask; anything that can change the modem asks once over HTTP
-  for (const c of ['AT+CSQ', 'AT+COPS?', 'at+cgmr=?', 'ATI']) { await win.fetch('/api/AT?command=' + encodeURIComponent(c) + '&slot=0', {}); }
+  // POST /api/at: pure reads never ask; anything that can change the modem asks once over HTTP
+  const atCall = (c) => win.fetch('/api/at', { method: 'POST', body: JSON.stringify({ command: c, slot: 0 }) });
+  for (const c of ['AT+CSQ', 'AT+COPS?', 'at+cgmr=?', 'ATI']) { await atCall(c); }
   eq(1, asked, 'AT reads over HTTP do not ask');
-  res = await win.fetch('/api/AT?command=' + encodeURIComponent('AT+CFUN=1') + '&slot=0', {});
+  res = await atCall('AT+CFUN=1');
   eq(2, asked, 'AT write over HTTP asks');
   eq('1', res.init.headers.get('x-insecure-ok'), 'AT write gets x-insecure-ok');
-  await win.fetch('/api/AT?command=' + encodeURIComponent('AT+CSQ;+CFUN=0') + '&slot=0', {});
+  await atCall('AT+CSQ;+CFUN=0');
   eq(3, asked, 'a chained AT command counts as a write');
-  await win.fetch('/api/AT', {});
+  await win.fetch('/api/at', { method: 'POST', body: '{}' });
   eq(4, asked, 'a missing command is not treated as a read');
 
   // ---- shell helpers (matchi.sh) ----

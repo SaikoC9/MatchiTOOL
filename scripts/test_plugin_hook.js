@@ -305,12 +305,12 @@ test('handler: with declared commands the hook line comes with them, and a refus
 });
 
 // Phase 3 / Step 4: the undo list in the same handler.
-const UNDO = { items: [{ kind: 'chain', label: 'firewall chain UFI_DPI (iptables, table mangle)' }, { kind: 'boot', label: 'boot script 20-bypass-ttl.sh' }], notUndone: [], hash: 'U1' };
+const UNDO = { items: [{ kind: 'chain', label: 'firewall chain MY_CHAIN (iptables, table mangle)' }, { kind: 'boot', label: 'boot script 20-bypass-ttl.sh' }], notUndone: [], hash: 'U1' };
 const trustedP = { name: 'T.js', mode: 'trusted' };
 test('handler: a headerless plugin with only undo items gets \"Delete and stop\", lists them, and sends undoHash with stop', async () => {
   const r = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [mkInfo([], '', { undo: UNDO })], dialogs: [true] });
   assert.strictEqual(r.dlgs[0].okText, 'Delete and stop');
-  assert.ok(r.dlgs[0].message.includes('firewall chain UFI_DPI') && r.dlgs[0].message.includes('boot script 20-bypass-ttl.sh') && r.dlgs[0].message.includes('if it is still there'));
+  assert.ok(r.dlgs[0].message.includes('firewall chain MY_CHAIN') && r.dlgs[0].message.includes('boot script 20-bypass-ttl.sh') && r.dlgs[0].message.includes('if it is still there'));
   assert.strictEqual(r.deletes.length, 1); const b = r.deletes[0];
   assert.strictEqual(b.stop, true); assert.strictEqual(b.undoHash, 'U1'); assert.strictEqual(b.sweepHash, ''); assert.ok(!b.skipStop);
 });

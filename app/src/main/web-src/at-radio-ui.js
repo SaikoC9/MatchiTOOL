@@ -1,7 +1,6 @@
 /*
  * AT & Radio - MatchiTOOL plugin
- * Ported from UFI-TOOLS (MIT, (c) 2025 Minikano): AT command terminal, VoLTE / VoNR switches, NR band list,
- * modem restart (formats: docs/AT_RADIO_FORMATS.md). Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
+ * AT command terminal, VoLTE / VoNR switches, NR band list and modem restart (formats: docs/AT_RADIO_FORMATS.md). Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
  * AT commands are sent with MatchiTOOL's own sendat binary (tools/sendat).
  * This file is only the window. Everything that talks to the modem or router is in web-src/radio-core.js (window.MatchiRadio).
  */

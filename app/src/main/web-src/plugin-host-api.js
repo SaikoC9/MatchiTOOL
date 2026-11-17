@@ -14,24 +14,27 @@
 const wait=(ms)=>new Promise((r)=>setTimeout(r,ms));
 const debounce=(func,delay)=>{let timer;return function(...args){if(timer)clearTimeout(timer);timer=setTimeout(()=>{func.apply(this,args)},delay)}};
 function escapeHtml(input){if(input==null)return '';return String(input).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+/* 1024-based size text with two decimals ("1.50 MB"). needTrim pads the number with &nbsp; to a common width so a column lines up. */
 function formatBytes(bytes,needTrim=false){
-  if(bytes===0)return ' 0.00 B';
-  const sizes=['B','KB','MB','GB','TB','PB','EB','ZB','YB'];
-  const i=Math.floor(Math.log(bytes)/Math.log(1024));
-  const size=(bytes/Math.pow(1024,i)).toFixed(2);let str=String(size);
-  if(needTrim){if(size<10)str='&nbsp;&nbsp;&nbsp;'+size;else if(size<100)str='&nbsp;&nbsp;'+size;else if(size<1000)str='&nbsp;'+size}
-  return `${str} ${sizes[i]}`;
+  const units=['B','KB','MB','GB','TB','PB','EB','ZB','YB'];
+  const n=Number(bytes);
+  if(!n)return ' 0.00 B';
+  let step=0,v=n;
+  while(Math.abs(v)>=1024&&step<units.length-1){v/=1024;step++}
+  const num=v.toFixed(2);
+  const pad=needTrim?'&nbsp;'.repeat(Math.max(0,7-num.length)):'';
+  return pad+num+' '+units[step];
 }
 /* Root shell. Reply {success, content}; the page adds the "Cannot reach" retry and the HTTP confirmation in api(). */
 async function runShellWithRoot(cmd,timeout=20000){
   return api('/api/shell',{method:'POST',body:JSON.stringify({cmd,timeout})});
 }
-/* No-root shell: runs as the app's own user (POST /api/user_shell). The reply is {success, content: result}, where result
-   is an object holding the output text as "content". A failure is returned, not thrown. */
+/* No-root shell: runs as the app's own user (POST /api/user_shell). The reply is {success, content}, the same as the root shell.
+   A failure is returned, not thrown. */
 async function runShellWithUser(cmd){
   try{
     const d=await api('/api/user_shell',{method:'POST',body:JSON.stringify({command:cmd})});
-    return d&&d.error?{success:false,content:d.error}:{success:true,content:d?d.result:''};
+    return d&&d.error?{success:false,content:d.error}:{success:!!(d&&d.success),content:String((d&&d.content)??'')};
   }catch(e){return {success:false,content:String(e&&e.message||e)}}
 }
 /* Modals: the footer buttons are #NAME_confirm and #NAME_close; onConfirm/onClose may be async and the dialog closes only when
@@ -135,12 +138,14 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
    page's usual "not encrypted" question first. Headers a plugin sets itself pass through unread. */
 (function(){
   const nativeFetch=window.fetch.bind(window);
-  const ROOTY=/^\/api\/(?:root_shell|user_shell|one_click_shell|shell)$/;
-  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on GET /api/AT. */
+  const ROOTY=/^\/api\/(?:user_shell|shell)$/;
+  /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on POST /api/at. */
   const AT_READS=['AT','ATI','AT+CSQ','AT+CESQ','AT+CGSN','AT+CIMI','AT+CCID','AT+CNUM','AT+CGMR','AT+CGMM','AT+CGMI'];
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;
   const atIsRead=c=>{c=String(c||'').trim();return !!c&&c.length<=64&&(AT_READS.indexOf(c.toUpperCase())>=0||AT_QUERY.test(c))};
   window.__matchiAtIsRead=atIsRead;
+  /* POST /api/at carries {"command","slot"} as JSON; a body that cannot be read as that counts as a write. */
+  const atBodyIsRead=b=>{try{return atIsRead(JSON.parse(String(b)).command)}catch(_){return false}};
   /* Idle sign-out: the host restarts a session's idle timer only for a request marked x-active, and the mark is added only
      within 60 s of a real click, key press or touch. Polls (Live Status, host ping, SMS check) therefore no longer keep a forgotten tab signed in. */
   let lastInput=Date.now();
@@ -153,7 +158,7 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
       const h=new Headers((init&&init.headers)||(input&&input.headers)||undefined);
       if(!h.has('x-token')&&TOKEN)h.set('x-token',TOKEN);
       if(Date.now()-lastInput<60000)h.set('x-active','1');
-      if((ROOTY.test(u.pathname)||(u.pathname==='/api/AT'&&!atIsRead(u.searchParams.get('command'))))&&insecurePage()){
+      if((ROOTY.test(u.pathname)||(u.pathname==='/api/at'&&!atBodyIsRead(init&&init.body)))&&insecurePage()){
         if(!(await insecureOk()))throw new Error('Root commands cancelled: the connection is not encrypted (HTTP). Reload the page to be asked again.');
         h.set('x-insecure-ok','1');
       }

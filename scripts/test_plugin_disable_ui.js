@@ -12,7 +12,7 @@ const ui = Object.assign({}, sweepUi, undoUi, dis);
 const page = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/web/index.html'), 'utf8');
 const kt = fs.readFileSync(path.join(__dirname, '../app/src/main/java/com/matchi/tool/WebRoutesPlugins.kt'), 'utf8');
 const tests = []; const test = (name, f) => tests.push([name, f]); let n = 0;
-const CH = 'firewall chain UFI_DPI (iptables, table mangle)', BT = 'boot script 20-bypass-ttl.sh';
+const CH = 'firewall chain MY_CHAIN (iptables, table mangle)', BT = 'boot script 20-bypass-ttl.sh';
 const UNDO = { items: [{ kind: 'chain', label: CH }, { kind: 'boot', label: BT }], notUndone: [], hash: 'U1' };
 const c1 = { pid: 11, start: 111, how: 'tag', args: 'beat.sh' };
 const mkInfo = (o) => Object.assign({ rootOk: true, items: [], uploads: [], effects: [], stopPlan: { commands: [], refused: [], shared: [], planHash: '' },

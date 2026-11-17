@@ -20,7 +20,7 @@ internal const val CAP_UNINSTALL_PREFIX = "unin:"
 /** What the host remembers about an approved plugin: its SHA-256 and the capabilities the person was shown. */
 internal class PluginRecord(val sha: String, val caps: List<String>)
 
-private val CAP_ROOT_RX = Regex("""runShellWithRoot|/api/(?:shell|root_shell|one_click_shell)\b""")
+private val CAP_ROOT_RX = Regex("""runShellWithRoot|/api/shell\b""")
 private val CAP_NET_RX = Regex("""\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts)\b""")
 private val CAP_TOKEN_RX = Regex("""matchi_token|\bTOKEN\b|x-token""")
 

@@ -7,7 +7,7 @@
  *  - The type of a neighbour (4G / 5G) comes from its band name (n78 / B3). A bare number asks you. Never guessed.
  *  - Auto-unlock is ON by default: 60 s after a lock, if the modem is not registered, UNLOCK_ALL_CELL is sent once. The pending check
  *    survives a page reload (the start time is kept in localStorage and the check resumes only if the router still lists a locked cell).
- *  - No radio restart after a cell lock or unlock (UFI-TOOLS does none). The router is read again 3 s later.
+ *  - No radio restart after a cell lock or unlock (none is needed). The router is read again 3 s later.
  *  - "Unlock all cells" is always on screen and also works while a band change is restarting the radio.
  */
 function mountDashCell() {

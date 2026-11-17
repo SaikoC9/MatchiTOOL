@@ -53,29 +53,4 @@ class AtBatchTest {
         assertTrue(s.contains("-n 1 -c 'AT+CSQ'"))
         assertTrue(s.contains("'AT+X='\\''a'\\'''"))
     }
-
-    @Test fun ufiRouteCommandRules() {
-        assertEquals("AT+CSQ", AtBatch.checkCommand("  AT+CSQ "))
-        assertEquals("at+cops?", AtBatch.checkCommand("at+cops?"))
-        for (bad in listOf(null, "", "ls /data", "AT\nAT+CFUN=1", "AT\rX", "AT\u0000", "A".repeat(301)))
-            assertTrue("rejected: $bad", try { AtBatch.checkCommand(bad); false } catch (_: IllegalArgumentException) { true })
-        assertEquals(300, AtBatch.checkCommand("AT" + "A".repeat(298)).length)
-    }
-
-    @Test fun ufiRouteSlotRules() {
-        assertEquals(0, AtBatch.checkSlot(null)); assertEquals(0, AtBatch.checkSlot("")); assertEquals(0, AtBatch.checkSlot("0"))
-        assertEquals(1, AtBatch.checkSlot(" 1 "))
-        for (bad in listOf("2", "-1", "01", "abc", "0;id"))
-            assertTrue("rejected: $bad", try { AtBatch.checkSlot(bad); false } catch (_: IllegalArgumentException) { true })
-    }
-
-    // Expected values worked out from UFI-TOOLS' atModule.kt: newlines removed, closing "ok" becomes " OK", leading comma dropped.
-    @Test fun ufiTextMatchesUfiServer() {
-        assertEquals("+CSQ: 20,99 OK", AtBatch.ufiText("+CSQ: 20,99\nOK\n"))
-        assertEquals(" OK", AtBatch.ufiText("\nOK\n"))
-        assertEquals("+CFUN: 1 OK", AtBatch.ufiText("\r\n+CFUN: 1\r\nOK\r\n"))
-        assertEquals("ERROR", AtBatch.ufiText("ERROR\n"))
-        assertEquals("1,2 OK", AtBatch.ufiText(",1,2\nok"))
-        assertEquals("", AtBatch.ufiText(""))
-    }
 }

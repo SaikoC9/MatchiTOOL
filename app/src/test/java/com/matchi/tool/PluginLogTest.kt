@@ -8,16 +8,15 @@ import org.junit.Test
 
 class PluginLogTest {
     @Test fun routesGetKinds() {
-        assertEquals("plugin/shell", PluginLog.kindOf("POST", "/api/root_shell"))
         assertEquals("plugin/shell", PluginLog.kindOf("POST", "/api/user_shell"))
-        assertEquals("plugin/at", PluginLog.kindOf("GET", "/api/AT"))
     }
 
     @Test fun otherRoutesAreNotPluginRoutes() {
         assertNull(PluginLog.kindOf("POST", "/api/shell"))
         assertNull(PluginLog.kindOf("GET", "/api/logs/entries"))
         // routes removed in UFI removal stage 3
-        for (gone in listOf("/api/goform/goform_get_cmd_process", "/api/proxy/x", "/api/get_cookie", "/api/set_cookie", "/api/upload", "/api/upload_img", "/api/get_custom_head"))
+        for (gone in listOf("/api/goform/goform_get_cmd_process", "/api/proxy/x", "/api/get_cookie", "/api/set_cookie", "/api/upload", "/api/upload_img", "/api/get_custom_head",
+            "/api/root_shell", "/api/one_click_shell", "/api/AT"))
             assertNull(gone, PluginLog.kindOf("POST", gone))
     }
 
@@ -29,10 +28,10 @@ class PluginLogTest {
     }
 
     @Test fun messageHasNoQueryValues() {
-        val m = PluginLog.message("GET", "/api/AT?command=AT%2BCFUN%3D0&slot=0", 200, 12)
-        assertEquals("GET /api/AT -> 200 in 12 ms", m)
-        assertFalse(m.contains("CFUN"))
-        assertTrue(PluginLog.message("POST", "/api/root_shell", 403, 3).contains("refused"))
+        val m = PluginLog.message("POST", "/api/user_shell?command=id", 200, 12)
+        assertEquals("POST /api/user_shell -> 200 in 12 ms", m)
+        assertFalse(m.contains("command"))
+        assertTrue(PluginLog.message("POST", "/api/user_shell", 403, 3).contains("refused"))
     }
 
     @Test fun sourceUrlRoundTrip() {

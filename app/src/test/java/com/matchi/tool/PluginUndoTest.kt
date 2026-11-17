@@ -10,10 +10,10 @@ class PluginUndoTest {
     private fun use(chains: List<String> = emptyList(), boots: List<String> = emptyList(), text: String = "") = UndoUse(chains, boots, text)
 
     @Test fun listsOwnChainsAndBootScriptsWithAHash() {
-        val p = undoPlan(listOf("mangle UFI_DPI iptables"), listOf(boot), emptyMap())
+        val p = undoPlan(listOf("mangle MY_CHAIN iptables"), listOf(boot), emptyMap())
         assertEquals(2, p.items.size)
-        assertEquals("chain", p.items[0].kind); assertEquals("UFI_DPI", p.items[0].chain); assertEquals("mangle", p.items[0].table); assertEquals("iptables", p.items[0].tool)
-        assertEquals("firewall chain UFI_DPI (iptables, table mangle)", p.items[0].label)
+        assertEquals("chain", p.items[0].kind); assertEquals("MY_CHAIN", p.items[0].chain); assertEquals("mangle", p.items[0].table); assertEquals("iptables", p.items[0].tool)
+        assertEquals("firewall chain MY_CHAIN (iptables, table mangle)", p.items[0].label)
         assertEquals("boot", p.items[1].kind); assertEquals(boot, p.items[1].path); assertEquals("boot script 20-bypass-ttl.sh", p.items[1].label)
         assertEquals(emptyList<String>(), p.notUndone)
         assertEquals(64, p.hash.length)
@@ -25,17 +25,17 @@ class PluginUndoTest {
     }
 
     @Test fun aChainAnotherPluginAlsoRecordsIsKept() {
-        val p = undoPlan(listOf("mangle UFI_DPI iptables"), emptyList(), mapOf("New.js" to use(chains = listOf("mangle UFI_DPI iptables"))))
+        val p = undoPlan(listOf("mangle MY_CHAIN iptables"), emptyList(), mapOf("New.js" to use(chains = listOf("mangle MY_CHAIN iptables"))))
         assertEquals(0, p.items.size); assertEquals("", p.hash)
-        assertEquals(listOf("firewall chain UFI_DPI (iptables, table mangle): also used by New.js, so it is kept"), p.notUndone)
+        assertEquals(listOf("firewall chain MY_CHAIN (iptables, table mangle): also used by New.js, so it is kept"), p.notUndone)
     }
 
     @Test fun aChainNamedInAnotherPluginsCommandsIsKeptButOnlyAsAWholeWord() {
-        val named = undoPlan(listOf("mangle UFI_DPI iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F UFI_DPI; iptables -t mangle -X UFI_DPI")))
+        val named = undoPlan(listOf("mangle MY_CHAIN iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F MY_CHAIN; iptables -t mangle -X MY_CHAIN")))
         assertEquals(0, named.items.size); assertEquals(1, named.notUndone.size)
-        val longer = undoPlan(listOf("mangle UFI iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F UFI_DPI")))
+        val longer = undoPlan(listOf("mangle UFI iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F MY_CHAIN")))
         assertEquals(1, longer.items.size)
-        val partOfWord = undoPlan(listOf("mangle DPI iptables"), emptyList(), mapOf("N.js" to use(text = "x UFI_DPI y")))
+        val partOfWord = undoPlan(listOf("mangle DPI iptables"), emptyList(), mapOf("N.js" to use(text = "x MY_CHAIN y")))
         assertEquals(1, partOfWord.items.size)
     }
 

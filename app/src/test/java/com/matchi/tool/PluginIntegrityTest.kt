@@ -20,8 +20,7 @@ class PluginIntegrityTest {
     }
 
     @Test fun rootRoutesCount() {
-        assertEquals(listOf("root"), pluginCaps("api('/api/root_shell')", emptyList()))
-        assertEquals(listOf("root"), pluginCaps("api('/api/one_click_shell')", emptyList()))
+        assertEquals(listOf("root"), pluginCaps("api('/api/shell')", emptyList()))
         // the app-user shell is not root
         assertTrue(pluginCaps("api('/api/user_shell')", emptyList()).isEmpty())
     }

@@ -22,7 +22,7 @@ Each on a line of its own, starting with `//`, inside the **first 400 lines** of
 
 ## What happens
 
-1. The Delete dialog shows the plan. The plan is the commands exactly as they will run (UFI paths such as `/sdcard/ufi_tools_boot.sh` are mapped to MatchiTOOL's), then the check command.
+1. The Delete dialog shows the plan. The plan is the commands exactly as they will run (exactly the text that runs; nothing is rewritten), then the check command.
 2. The commands run in order inside **one 60 second total**. A failed command does not stop the rest. Nothing is retried.
 3. Then the check command and the boot file test run, with what is left of the 60 seconds.
 4. Only if every command exited 0, the check passed and no boot file is left, the plugin and its data are deleted. Otherwise the plugin is **kept**, the report is shown, and the person can try again, delete without stopping, or restart the device when only running leftovers remain.
@@ -142,7 +142,7 @@ Every shell command MatchiTOOL sees from a plugin with its name (the shell route
 
 | line | written when the command text contains | example |
 | --- | --- | --- |
-| `C TABLE CHAIN TOOL` | `iptables` or `ip6tables`, optionally `-t TABLE`, then `-N CHAIN`. Also inside `sh -c`, `su -c`, `timeout`, `nohup` and after `VAR=x`. | `C mangle UFI_DPI iptables` |
+| `C TABLE CHAIN TOOL` | `iptables` or `ip6tables`, optionally `-t TABLE`, then `-N CHAIN`. Also inside `sh -c`, `su -c`, `timeout`, `nohup` and after `VAR=x`. | `C mangle MY_CHAIN iptables` |
 | `B /path` | a write (`>`, `tee`, `cp`, `mv`, ...) to a file **directly** inside `/data/local/matchitool/boot.d`, named like `20-name.sh`. | `B /data/local/matchitool/boot.d/20-bypass-ttl.sh` |
 
 What is never recorded (so it can never be undone):
@@ -155,7 +155,7 @@ A jump rule (`-A POSTROUTING ... -j CHAIN`) is **not** recorded. The undo finds 
 
 ### What the dialog shows
 
-The Delete dialog (and the Turn off dialog, below) lists every undo item before anything happens, for example *"the firewall chain UFI_DPI (iptables, mangle)"* and *"the boot script 20-bypass-ttl.sh"*. It says **"if it is still there"**, because the plan comes from the ledger and does not look at the system; the check afterwards does.
+The Delete dialog (and the Turn off dialog, below) lists every undo item before anything happens, for example *"the firewall chain MY_CHAIN (iptables, mangle)"* and *"the boot script 20-bypass-ttl.sh"*. It says **"if it is still there"**, because the plan comes from the ledger and does not look at the system; the check afterwards does.
 
 - **Not undone** lists what is kept on purpose, with the reason (see "Two plugins" below), what is not listed because there are too many (more than **20** chains or **10** boot scripts), and, in one line, how many ledger lines were ignored because they were not a valid entry.
 - If the stop is blocked, has a refused command, or has too many processes, the dialog says **"The stop does not run, so these stay in the system"** and lists the items.

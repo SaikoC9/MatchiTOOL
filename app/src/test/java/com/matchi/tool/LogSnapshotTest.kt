@@ -11,9 +11,9 @@ class LogSnapshotTest {
         "10:00:02 [ERROR] [plugin/js] [E5.js] JS error: again",
         "10:00:03 [WARNING] [plugin/js] [Zed.js] JS error: slow",
         "10:00:04 [INFO] [plugin/js] [Zed.js] loaded",
-        "10:00:05 [DEBUG] [plugin/at] POST /api/AT -> 200 in 9 ms",
-        "10:00:06 [WARNING] [plugin/at] POST /api/AT -> 403 (forbidden) in 5 ms",
-        "10:00:07 [ERROR] [plugin/shell] POST /api/root_shell -> 500 (server error) in 5 ms",
+        "10:00:05 [DEBUG] [plugin/at] POST /api/at -> 200 in 9 ms",
+        "10:00:06 [WARNING] [plugin/at] POST /api/at -> 403 (forbidden) in 5 ms",
+        "10:00:07 [ERROR] [plugin/shell] POST /api/user_shell -> 500 (server error) in 5 ms",
         "10:00:08 [INFO] [app] something else"
     )
 
@@ -62,7 +62,7 @@ class LogSnapshotTest {
         val c = LogSnapshot.Counter()
         // two "files": the counts keep growing even though the tail shows only the last lines
         (1..300).forEach { c.add("t [ERROR] [plugin/js] [E5.js] JS error: $it") }
-        (1..250).forEach { c.add("t [INFO] [plugin/at] POST /api/AT -> 200 in 5 ms") }
+        (1..250).forEach { c.add("t [INFO] [plugin/at] POST /api/at -> 200 in 5 ms") }
         c.add("")
         assertEquals(550, c.examined)
         val t = LogSnapshot.render("1", "s", "", "x", c.counts(), c.examined, listOf("last line"))

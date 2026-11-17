@@ -242,12 +242,6 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         if (it.status.requestStatus >= 400) it.addHeader("Connection", "close")
     }
 
-    /** UFI-TOOLS shell reply: {"result": ..., "error": ...}; the one that does not apply is JSON null. */
-    /** UFI's shell routes (read from its advancedToolsModule.kt): {"result":...} with 200, or {"error":"..."} with HTTP 500. */
-    internal fun ufiShellReply(result: Any?, error: String?): Response =
-        if (error == null) json(Response.Status.OK, JSONObject().put("result", result ?: JSONObject.NULL))
-        else json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", error))
-
     internal fun json(code: Response.IStatus, o: Any) = harden(newFixedLengthResponse(code, "application/json; charset=utf-8", o.toString()))
 
     // NanoHTTPD 2.3.1 decodes a request body with no charset as US-ASCII, so every non-ASCII character in a posted

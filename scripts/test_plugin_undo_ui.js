@@ -6,7 +6,7 @@ const ui = require('../app/src/main/web-src/plugin-undo-ui.js');
 const sweep = require('../app/src/main/web-src/plugin-sweep-ui.js');
 const page = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/web/index.html'), 'utf8');
 let n = 0; const t = (name, f) => { f(); n++; };
-const CH = 'firewall chain UFI_DPI (iptables, table mangle)', BT = 'boot script 20-bypass-ttl.sh';
+const CH = 'firewall chain MY_CHAIN (iptables, table mangle)', BT = 'boot script 20-bypass-ttl.sh';
 const info = (u) => ({ undo: Object.assign({ items: [], notUndone: [], hash: '' }, u) });
 const un = (u) => ui.undoNorm(info(u));
 const full = () => un({ items: [{ kind: 'chain', label: CH }, { kind: 'boot', label: BT }], hash: 'H1' });
@@ -88,7 +88,7 @@ t('retry: a restart is not offered while a boot file or boot script is left', ()
   assert.strictEqual(ui.leftHasBoot(['boot file still there: /data/local/matchitool/boot.d/20-x.sh']), true);
   assert.strictEqual(ui.leftHasBoot(['still there: boot script 20-bypass-ttl.sh']), true);
   assert.strictEqual(ui.leftHasBoot(['not undone: boot script 20-bypass-ttl.sh (symlink check failed)']), true);
-  assert.strictEqual(ui.leftHasBoot(['still there: firewall chain UFI_DPI (iptables, table mangle)']), false);
+  assert.strictEqual(ui.leftHasBoot(['still there: firewall chain MY_CHAIN (iptables, table mangle)']), false);
   assert.strictEqual(ui.leftHasBoot(['PID 5 sh']), false); assert.strictEqual(ui.leftHasBoot(null), false);
 });
 t('request: the undoHash goes with stop only, and the key is present even when empty', () => {

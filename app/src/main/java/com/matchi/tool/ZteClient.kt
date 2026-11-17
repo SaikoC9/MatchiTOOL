@@ -10,7 +10,7 @@ import java.security.MessageDigest
 
 /**
  * Minimal client for the ZTE router web API (/goform/goform_get_cmd_process and goform_set_cmd_process),
- * the same API UFI-TOOLS uses for SMS and signal data. The app runs on the router itself, so it simply
+ * the API the router's own web page uses for SMS, settings and signal data. The app runs on the router itself, so it simply
  * talks to the gateway address over HTTP. Logs in with the admin password when the router asks for it.
  */
 object ZteClient {
@@ -204,7 +204,7 @@ object ZteClient {
 
     /**
      * Newer ZTE firmware (F50 included) answers every "set" that lacks a valid AD token with an empty body or
-     * {"result":"failure"} and does nothing: SMS delete / send, settings. UFI-TOOLS 4.1.5 (read from its APK) builds it as
+     * {"result":"failure"} and does nothing: SMS delete / send, settings. The router's own page builds it as
      *   AD = SHA256( SHA256(wa_inner_version + cr_version) + RD )   (upper-case hex both times),
      * where RD is a fresh value for every request. Older firmware used MD5 instead: [legacyMd5] = md5(md5(wa_inner_version +
      * cr_version) + RD), lower case. The SHA-256 form is tried first; the MD5 form is the last retry (see [callLocked]).

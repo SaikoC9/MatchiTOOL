@@ -50,7 +50,7 @@ private val SCAN_RULES = listOf(
     ScanRule("warn", "blob", "Contains a long encoded blob", """(?<![A-Za-z0-9+/=])(?<!base64,)[A-Za-z0-9+/=]{400,}"""),
     ScanRule("warn", "escapes", "Contains long runs of escaped characters", """(?:\\x[0-9a-fA-F]{2}){40,}|(?:\\u[0-9a-fA-F]{4}){30,}"""),
     ScanRule("info", "net", "Makes network requests", """\b(?:fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|importScripts)\b"""),
-    ScanRule("info", "root", "Runs commands on the device", """/api/(?:shell|root_shell|user_shell)"""),
+    ScanRule("info", "root", "Runs commands on the device", """/api/(?:shell|user_shell)"""),
 )
 
 private val URL_HOST = Regex("""https?://([A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9])""")

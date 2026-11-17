@@ -7,7 +7,7 @@ import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
-// Everything that runs as root (or as the app user) for the page and for UFI-TOOLS plugins: shell routes, IMEI, AT commands.
+// Everything that runs as root (or as the app user) for the page and for plugins: shell routes, IMEI, AT commands.
 // Split out of WebServer.kt (route groups are extension functions; helpers moved with them). Each route function
 // returns null when the path is not one of its own, so WebServer.route() can ask the next group.
 
@@ -39,27 +39,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         val r = RootShell.run(ctx, tagged(s, command), t)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
     }
-    // UFI-TOOLS aliases (shapes read from UFI's own server source, advancedToolsModule.kt). root_shell: request {"command","timeout"},
-    // reply {"result":"<text>"} or HTTP 500 {"error":"..."}; UFI's timeout cap is 100 s (kept). The default is 30 s, not UFI's 100 s: above 30 s a call counts as a long job and shares only 3 slots with the boot script and the IMEI keeper. Same gate and limits as /api/shell. UFI's kano-t / kano-sign / authorization headers are never read, so they are ignored.
-    uri == "/api/root_shell" && s.method == Method.POST -> rootGate(s) ?: run {
-        val req = body(s)
-        val command = req.optString("command")
-        if (command.isBlank() || command.length > 128_000 || command.contains('\u0000'))
-            throw IllegalArgumentException("command must be 1 to 128 KB and contain no NUL bytes")
-        val t = req.optLong("timeout", 30000).coerceIn(1000, 100000)
-        commandBlocked(s, command)?.let { return@run it }
-        auditShell(s.remoteIpAddress ?: "?", command, "root_shell")
-        traceCommand(s, command)
-        val r = RootShell.run(ctx, tagged(s, command), t)
-        ufiShellReply(if (r.success) r.content else null, if (r.success) null else r.content.ifBlank { "command failed" })
-    }
-    // UFI's one_click_shell is a GET with no body: it drives the phone screen over adb to switch on UFI's own root shell. It is
-    // not a command runner. MatchiTOOL already runs commands as root, so there is nothing to switch on: the reply says whether
-    // root is available. (Before this it was wrongly treated as a second root_shell.)
-    uri == "/api/one_click_shell" && s.method == Method.GET -> run {
-        if (RootShell.status(ctx).granted) ufiShellReply("Root shell is already available (MatchiTOOL runs commands as root)", null)
-        else ufiShellReply(null, "Root access has not been granted to MatchiTOOL")
-    }
+    // Runs a command as the app's own Android user (no su). Same limits and gate as /api/shell; reply {success, content}.
     uri == "/api/user_shell" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
         val command = req.optString("command")
@@ -69,8 +49,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         auditShell(s.remoteIpAddress ?: "?", command, "user_shell")
         traceCommand(s, command)
         val r = UserShell.run(ctx.filesDir, tagged(s, command), 20000)
-        // UFI's reply: {"result":{"done":true,"content":"<stdout>"}}; any stderr output makes UFI answer an error instead.
-        ufiShellReply(if (r.success) JSONObject().put("done", true).put("content", r.content) else null, if (r.success) null else r.content.ifBlank { "command failed" })
+        json(Response.Status.OK, JSONObject().put("success", r.success).put("content", r.content))
     }
     // Re-write the saved IMEI now (the same keeper that runs at boot): {"force":true}
     uri == "/api/imei/apply" && s.method == Method.POST -> rootGate(s) ?: run {
@@ -94,23 +73,6 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         val q = "'" + cmd.replace("'", "'\\''") + "'"
         val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
-    }
-    // UFI-TOOLS route GET /api/AT?command=AT+CSQ&slot=0 (UFI's own tools and plugins call it). Reply shape taken from UFI's
-    // server source (atModule.kt): {"result":"<modem text>"} on success, HTTP 500 {"error":"<text>"} on failure. The text is
-    // normalised the way UFI does it (AtBatch.ufiText). No "success" field: UFI's reply has none. Difference kept on purpose:
-    // a slot other than 0 or 1 is refused with 400 (UFI silently passes any number on). Same gate as /api/at: pure read
-    // commands skip the sign-in age check, everything else (NV writes, AT+CFUN, AT^...) needs it. Writes are audited.
-    uri == "/api/AT" && s.method == Method.GET -> run {
-        val cmd = AtBatch.checkCommand(s.parameters["command"]?.firstOrNull())
-        val slot = AtBatch.checkSlot(s.parameters["slot"]?.firstOrNull())
-        val readOnly = RootGate.isReadOnlyAt(cmd)
-        if (!readOnly) rootGate(s)?.let { return@run it }
-        if (readOnly) auditBusy(s.remoteIpAddress ?: "?", "at-ufi") else auditShell(s.remoteIpAddress ?: "?", cmd, "at-ufi-write")
-        val q = "'" + cmd.replace("'", "'\\''") + "'"
-        val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
-        val text = r.content.trim()
-        if (r.success) json(Response.Status.OK, JSONObject().put("result", AtBatch.ufiText(text)))
-        else json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "AT command failed: " + text.ifBlank { "no output" }))
     }
     // Several AT commands in ONE root call: {"commands":["AT+CSQ","AT+COPS?"],"slot":0} -> {"results":["...","..."]}
     uri == "/api/at/batch" && s.method == Method.POST -> run {

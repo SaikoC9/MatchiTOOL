@@ -4,7 +4,7 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Runs a command as the app's own Android user (no su). UFI-TOOLS plugins call this for work that needs no privileges,
+ * Runs a command as the app's own Android user (no su). Plugins call this for work that needs no privileges,
  * so it must never be a plain alias for the root shell. The command starts in the app's private files folder and its
  * output (stdout and stderr together) is cut at [MAX_OUT] bytes.
  */

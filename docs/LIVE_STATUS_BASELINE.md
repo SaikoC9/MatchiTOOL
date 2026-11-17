@@ -1,11 +1,11 @@
 # Live status - Phase 0 baseline (before any behaviour change)
 
-Written from the code in `app/src/main/assets/web/index.html` (Live device status block, version 1.4.0) and from the UFI-TOOLS 4.1.5 APK.
+Written from the code in `app/src/main/assets/web/index.html` (Live device status block, version 1.4.0).
 The "Measure on the phone" section is empty on purpose: it needs the real F50.
 
 ## 1. Which code is the baseline
 
-The zip you attached (1.4.0) is the OLD poll, exactly as `LIVE_STATUS_UFI_PLAN.txt` describes it:
+The zip you attached (1.4.0) is the OLD poll:
 one `collect()` (router GET plus root shell together), one `tick()`, `arm(3000)`, then `nextDelay()` of 60 s cool, 120 s warm, 180 s hot.
 That is the Phase 0 reference for "before": first read at 3 s, one update per minute when cool.
 
@@ -46,16 +46,10 @@ Extra work only when the router gives nothing: `dumpsys telephony.registry` (cac
 The first CPU % read costs an extra 0.4 s in the shell (two samples); later reads reuse the previous sample.
 The router client serialises calls behind one lock (ZteClient), so a 3 s fast poll can queue an SMS send or delete. Both loops pause while any other `.modal-bg` window is open.
 
-## 4. What UFI-TOOLS 4.1.5 really does (read from `requests.js`, decoded with `scripts/phase0/deob_requests_js.js`)
+## 4. Router key notes
 
-- Request: `GET /goform/goform_get_cmd_process?multi_data=1&isTest=false&cmd=<keys>&_=<Date.now()>` with a cookie header. No AD token (only "set" needs it).
-- Key list (39), exactly: usb_port_switch, battery_charging, sms_received_flag, sms_unread_num, sms_sim_unread_num, sim_msisdn, dual_sim_support, sim_slot, data_volume_limit_switch, battery_value, battery_vol_percent, network_signalbar, network_rssi, cr_version, iccid, imei, imsi, ipv6_wan_ipaddr, lan_ipaddr, mac_address, msisdn, network_information, Lte_ca_status, rssi, Z5g_rsrp, lte_rsrp, wifi_access_sta_num, loginfo, data_volume_alert_percent, data_volume_limit_size, realtime_rx_thrpt, realtime_tx_thrpt, realtime_time, monthly_tx_bytes, monthly_rx_bytes, monthly_time, network_type, network_provider, ppp_status.
-- It then also calls `GET /baseDeviceInfo` (its own app endpoint) and merges the two results. CPU, memory and device info come from there, not from the router.
-- Differences worth knowing for Phase 2:
-  - UFI asks for `network_signalbar`; MatchiTOOL asks for `signalbar`. Which one your F50 answers is a Phase 0 measurement (see section 5).
-  - The plan lists `battery_charging` and `lan_ipaddr`, which are in the UFI list; the plan's Phase 2 key list does not need them.
-  - MatchiTOOL has no `/baseDeviceInfo` route in `WebServer.kt` or `ZteClient.kt` (not found by grep), so the slow loop's root shell stays the source for CPU and memory.
-- Not confirmed: the plan says UFI polls "about every second". `main.js` is obfuscated differently from `requests.js` and the decoder does not handle it. It contains two `setInterval` calls (one has a 0x3e8 = 1000 ms divisor, which looks like a timer display), and the actual refresh interval was not recovered. Treat "1 s" as unverified.
+- MatchiTOOL asks the router for `signalbar`; some firmware answers `network_signalbar` instead. Which one your F50 answers is a Phase 0 measurement (see section 5).
+- MatchiTOOL has no `/baseDeviceInfo` route in `WebServer.kt` or `ZteClient.kt`, so the slow loop's root shell stays the source for CPU and memory.
 
 ## 5. Measure on the phone (still to do)
 

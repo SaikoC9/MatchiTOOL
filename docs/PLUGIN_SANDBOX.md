@@ -2,7 +2,7 @@
 
 Current for MatchiTOOL 1.4.1 (the sandbox is unchanged in 1.4.2). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); nothing of the sandbox is recorded as run on the F50.
 
-A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; UFI-TOOLS `.html` blocks need the page.
+A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; legacy `.html` blocks are not loaded.
 
 ## What the sandbox is
 
@@ -43,9 +43,9 @@ The page checks first, so a bad call gets a quick, clear error. Anything that ge
 ## What it does not do
 
 - **The host cannot tell which page code relays a call.** A trusted plugin (which already has root through the page) could send `/api/plugins/call` with a sandboxed plugin's name and use that plugin's narrow approved list. So this protects against a bug or bypass in the page's check and against a changed file; it does not make a trusted plugin weaker or stronger.
-- Permissions for **trusted** plugins are not enforced (declare / approve per ability): that would break most UFI-TOOLS plugins. Not done.
+- Permissions for **trusted** plugins are not enforced (declare / approve per ability): that would break most existing plugins. Not done.
 - A root command you approved runs as root. An approved `net:` host is a place data can go.
-- A plugin written for UFI-TOOLS almost always needs the page (`createModal`, `runShellWithRoot`, `document`...) and will not work sandboxed. This is for plugins written for the bridge.
+- A plugin that uses the page helpers (`createModal`, `runShellWithRoot`, `document`...) will not work sandboxed. This is for plugins written for the bridge.
 - **Import / restore** installs plugins as trusted; switch them again.
 - Seen in Chromium only. Firefox and Safari may treat the policies differently, and nothing was run on the F50's browser.
 

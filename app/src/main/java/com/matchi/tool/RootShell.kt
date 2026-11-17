@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Independent root backend. Uses the device's existing su implementation (Magisk, KernelSU,
- * APatch, etc.) and never relies on UFI-TOOLS, socat, a shared socket, or an external boot script.
+ * APatch, etc.) and never relies on another app, socat, a shared socket, or an external boot script.
  * Root authorization is granted/revoked by the installed su manager.
  */
 data class ShellResult(val success: Boolean, val content: String)
