@@ -5188,12 +5188,15 @@ function mountDashCell() {
     card.querySelectorAll('.dc-lk').forEach((el) => { el.disabled = lockOff(); });
     const u = card.querySelector('[data-a=unlock]'); if (u) u.disabled = st.unlocking;
   }
+  // True when this serving cell is already one of the locked cells (same PCI and channel; same type when both sides give one).
+  const isLockedCell = (c) => st.locked.some((l) => String(l.pci) === String(c.pci) && String(l.earfcn) === String(c.earfcn)
+    && (!['12', '16'].includes(String(l.rat)) || !['12', '16'].includes(String(c.rat)) || String(l.rat) === String(c.rat)));
   function paint() {
     if (st.err) { dyn.innerHTML = '<div class="dc-note">Cell info not available: ' + esc(st.err) + '. Unlock all cells still works.</div>'; sync(); return; }
     let h = '<div class="dc-c1"><div class="dc-l">Locked now</div>';
     h += st.locked.length ? st.locked.map((c) => `<div>${cellText(c, String(c.rat))}</div>`).join('') : '<div>none</div>';
     h += '<div class="dc-l">This phone is on</div>';
-    h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}${c.tele ? ' <i title="The router left its serving cell empty. This is the cell Android telephony reports; it can differ from the router\'s.">(Android telephony)</i>' : ''}</span><button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button></div>`).join('')
+    h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}${c.tele ? ' <i title="The router left its serving cell empty. This is the cell Android telephony reports; it can differ from the router\'s.">(Android telephony)</i>' : ''}</span>${isLockedCell(c) ? '<button type="button" class="dc-lk-on" disabled>Locked ✓</button>' : `<button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button>`}</div>`).join('')
       : '<div class="dc-note">No serving cell with a valid PCI and channel was reported by the router or by Android telephony (Live Status must have a recent reading). Use a neighbour below or lock by hand.</div>';
     h += '</div><div class="dc-c2"><div class="dc-l">Neighbours</div>';
     h += st.nb.length ? st.nb.map((c, i) => {
