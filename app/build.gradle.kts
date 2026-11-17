@@ -47,9 +47,11 @@ android {
     }
     buildTypes {
         // Releases must never be debuggable (a debuggable APK exposes the app's private data through `run-as`).
-        // Release builds shrink unused library code and unused resources (R8 in shrink-only mode: no renaming, no optimising - see
-        // proguard-rules.pro). That keeps stack traces readable in the Log Catcher and the app's own code untouched. If a release build
-        // ever misbehaves on the device and you need to rule shrinking out: set isMinifyEnabled and isShrinkResources to false here.
+        // Release builds shrink unused code/resources, obfuscate (rename) MatchiTOOL's own classes and members, and optimise
+        // (see proguard-rules.pro for what stays readable and why that's still safe). This means app/build/outputs/mapping/release/mapping.txt
+        // from THIS EXACT build must be kept to read a crash trace pulled off a device; CI uploads it as a private artifact, named by
+        // versionCode (never publish it - that undoes the obfuscation for anyone who downloads the public release). If a release build
+        // ever misbehaves on the device and you need to rule shrinking/obfuscation out: set isMinifyEnabled and isShrinkResources to false here.
         release {
             isMinifyEnabled = true
             isShrinkResources = true
