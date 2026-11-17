@@ -85,7 +85,8 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
       const script = R.CYCLE_SH.replace('/data/data/com.matchi.tool/files/sendat', path.join(d, 'sendat'));
       const out = cp.execFileSync('sh', ['-c', script], { env: { PATH: d + ':' + process.env.PATH }, encoding: 'utf8' });
       let svc = ''; try { svc = fs.readFileSync(path.join(d, 'svc.log'), 'utf8'); } catch (_) { /* no toggle */ }
-      return { out, svc };
+      let s1 = ''; try { s1 = fs.readFileSync(path.join(d, 's1.log'), 'utf8'); } catch (_) { /* none */ }
+      return { out, svc, s1 };
     };
     assert(!/route show default/.test(R.CYCLE_SH), 'the F50 has no default route in the main table even when online: never test for one');
     let r = run({ route0: 'yes' });
@@ -98,6 +99,10 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
     assert(/DATA:off/.test(r.out) && r.svc === '', 'mobile data switched off by the owner: never touched');
     r = run({ route0: 'no', sendat: 'case "$*" in *SFUN=4*) echo ERROR;; *) echo OK;; esac' });
     assert(/DATA:skip/.test(r.out) && r.svc === '', 'radio did not come back: no data toggle');
+    // one SIM slot (the F50): sendat has no device for slot 1, so slot 1 is skipped and never sent AT+SFUN
+    r = run({ route0: 'yes', sendat: 'case "$*" in *"-n 1"*) echo "no modem AT device found for slot 1"; echo "$*" >> "$(dirname "$0")/s1.log";; *) echo OK;; esac' });
+    assert(/OFF1:NOSLOT/.test(r.out) && /ON1:0:NOSLOT/.test(r.out) && /ON0:1:OK/.test(r.out) && /DATA:ok/.test(r.out), 'no slot 1: skipped, slot 0 restarted, data ok');
+    assert(!/SFUN/.test(r.s1 || ''), 'no SFUN is sent to a slot that does not exist');
     r = run({ route0: 'no', sendat: 'echo ERROR' });
     assert(/NOAT:/.test(r.out) && !/DATA:/.test(r.out) && r.svc === '', 'modem silent: script stops before anything');
   }

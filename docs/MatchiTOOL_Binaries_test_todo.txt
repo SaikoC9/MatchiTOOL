@@ -154,13 +154,32 @@ RESULTS 2026-11-17 (retest, F50)
         scripts/zreq_f50_test.sh on the F50 (part 1 finds the web port with no password; part 2 = ONE sign-in with ZPW=...).
         Still unproven on the router: that the F50 accepts this form from zreq (ZteClient does the same, so it is expected to).
 
+RESULTS 2026-11-17 (new CI binaries, all run on the F50)
+[CONFIRMED ON DEVICE] sendat sha256 1ec33c2096c6... and zreq sha256 694cc2666e43... match the CI build and NOTICE.md / docs/BINARIES.md.
+[CONFIRMED ON DEVICE] zreq -version = "zreq 1.1 (MatchiTOOL)".
+[CONFIRMED ON DEVICE] sendat -n 0 -c AT (no sendat.conf) = OK, exit 0.
+[CONFIRMED ON DEVICE] sendat -n 1 -c AT = "no modem AT device found for slot 1": slot 1 no longer writes to the RIL (item 6 DONE).
+[CONFIRMED ON DEVICE] sendat -probe skips the ports urild holds (stty_nr0, stty_nr1 shown as "held by urild"). Free ports nr6.. answer OK.
+[CONFIRMED ON DEVICE] Router web port = 8080 (GET cmd=LD returns {"LD":...}). 80 = connection refused, 9090 / 9999 = timeout.
+[CONFIRMED ON DEVICE] zreq sign-in (-enc auto, SHA256(SHA256(pw)+LD)): "sign-in ok", then cmd=modem_main_state = 200
+        {"modem_main_state":"modem_init_complete"}. One attempt, no lock (item 4 DONE).
+[CONFIRMED ON DEVICE] curl https via /data/local/matchitool/bin/curl and files/curl = 200 and 200; jq .a|add==6 = true.
+[CONFIRMED ON DEVICE] AT & Radio "Radio restart": slot 0 off OK, slot 0 on OK, slot 1 = "no modem AT device found" (both lines),
+        "Mobile data: the internet works (ping answered)" = no toggle needed. Bug 1 DONE.
+[OPEN] zreq default -ip is 192.168.0.1:80, refused on the F50. A plugin calling zreq without -ip ...:8080 fails. Plan: when no port is
+        given, try 8080 (then 80). Needs one more zreq rebuild + hash update.
+[OPEN] Radio restart log: slot 1 prints as "Shell error: no modem AT device found for slot 1" (2 lines). Plan: skip slot 1 quietly when sendat
+        finds no device, and drop "as UFI-TOOLS does" from the first log line (web-only change).
+[CONFIRMED ON DEVICE] Bypass_v65_22.js public IP check passes.
+[OPEN] Sign-in password was typed into the console: clear the console command history.
+
 STILL OPEN
- 4. zreq sign-in with the LD hash (SHA256(SHA256(pw)+LD)): test once, a wrong password can lock the login. Also find the router web port
-    (the earlier "connection refused" on 192.168.0.1:80 never reached a sign-in) and retest ZQ-1 with and without PW.
- 5. zreq source is in tools/zreq/ now: rebuild with the workflow and compare the hash (89948a9f...).
- 6. Remove stty_nr1 from the slot 1 defaults (see PLAN above); needs one more sendat rebuild (bug 3 is already in the 341bfb4d... build).
+ 1. zreq: default port 8080 fallback is DONE IN CODE (tests pass); rebuild with the workflow, new hash into NOTICE.md, docs/BINARIES.md, assets/bin/zreq, then retest "zreq -params cmd=LD" with no -ip port.
+ 2. Radio restart: slot 1 skip + UFI wording removed DONE IN CODE (test_at_radio.js); install the new APK and run Radio restart: expect "slot 1: not present on this device, skipped".
+ 3. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started).
 
 DONE-WHEN (updated)
- - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE, confirmed on the device)
- - sendat -n 0 -c AT prints OK on the F50 with no sendat.conf, and the probe leaves the RIL's ports alone.
- - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok), Live signal and AT & Radio work.
+ - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE)
+ - sendat -n 0 -c AT prints OK on the F50 with no sendat.conf, and the probe leaves the RIL's ports alone. (DONE)
+ - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok). (DONE) Live signal and AT & Radio pages: not re-checked.
+ - zreq signs in on the F50. (DONE) zreq works with no -ip port. (OPEN)

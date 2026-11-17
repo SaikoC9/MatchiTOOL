@@ -87,7 +87,7 @@ func execute(args []string, stdout, stderr io.Writer) *exitErr {
 	fs := flag.NewFlagSet("zreq", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var o options
-	fs.StringVar(&o.ip, "ip", "192.168.0.1", "router address: IPv4, optionally with :port (private/loopback only)")
+	fs.StringVar(&o.ip, "ip", "192.168.0.1", "router address: IPv4, optionally with :port (private/loopback only); without a port it tries 8080, then 80")
 	fs.StringVar(&o.method, "method", "", "GET or POST (default: POST when -body is given, otherwise GET)")
 	fs.StringVar(&o.params, "params", "", "GET query, e.g. cmd=LD&multi_data=1 (isTest=false is added when missing)")
 	fs.StringVar(&o.body, "body", "", "POST body, e.g. goformId=SET_X&isTest=false")
@@ -126,6 +126,9 @@ func execute(args []string, stdout, stderr io.Writer) *exitErr {
 	base, bad := baseURL(o.ip)
 	if bad != nil {
 		return bad
+	}
+	if _, _, err := net.SplitHostPort(o.ip); err != nil {
+		base = pickPort(o.ip, defaultPorts, 3*time.Second) // no port given: use the one the router answers on (the F50: 8080)
 	}
 	method := strings.ToUpper(strings.TrimSpace(o.method))
 	if method == "" {
@@ -246,6 +249,22 @@ func baseURL(addr string) (string, *exitErr) {
 		return "", &exitErr{code: exitUsage, msg: "-ip must be a private, loopback or link-local address"}
 	}
 	return "http://" + addr, nil
+}
+
+// defaultPorts are tried in this order when -ip has no port. The F50 web server is on 8080 and refuses 80.
+var defaultPorts = []string{"8080", "80"}
+
+// pickPort returns the base URL for ip on the first port that answers HTTP (any status). When none answers it returns the
+// plain address (port 80), so the request then fails with the usual network error.
+func pickPort(ip string, ports []string, timeout time.Duration) string {
+	c := newClient(timeout)
+	for _, p := range ports {
+		b := "http://" + ip + ":" + p
+		if _, err := doRequest(c, http.MethodGet, b, getPath, "isTest=false&cmd=LD", "", ""); err == nil {
+			return b
+		}
+	}
+	return "http://" + ip
 }
 
 var pathRx = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,200}$`)

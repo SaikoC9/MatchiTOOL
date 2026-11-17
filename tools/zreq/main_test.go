@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // call runs zreq in-process and returns exit code, stdout and stderr.
@@ -369,5 +370,25 @@ func TestChallengeServerErrorPostsNoLogin(t *testing.T) {
 func TestBadEncIsUsageError(t *testing.T) {
 	if code, _, _ := call("-ip", "127.0.0.1:1", "-pwd", "x", "-enc", "md5", "-params", "cmd=x"); code != exitUsage {
 		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestNoPortPicksTheAnsweringPort(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"LD":"X"}`))
+	}))
+	defer srv.Close()
+	host, port, _ := strings.Cut(addr(srv), ":")
+	if got := pickPort(host, []string{"1", port}, 2*time.Second); got != "http://"+host+":"+port {
+		t.Errorf("pickPort = %q", got)
+	}
+	if got := pickPort(host, []string{"1"}, 2*time.Second); got != "http://"+host {
+		t.Errorf("no port answers: want the plain address, got %q", got)
+	}
+	old := defaultPorts
+	defaultPorts = []string{"1", port}
+	defer func() { defaultPorts = old }()
+	if code, out, _ := call("-ip", host, "-params", "cmd=LD"); code != exitOK || !strings.Contains(out, `"LD"`) {
+		t.Errorf("code=%d out=%q", code, out)
 	}
 }
