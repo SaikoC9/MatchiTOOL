@@ -61,3 +61,14 @@ jobs:
           name: MatchiTOOL-release
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+      # R8 renames classes/methods in the release build (proguard-rules.pro); this mapping is the only way to turn a renamed
+      # class/method back into the real one in a trace pulled off a device. Kept as a PRIVATE build artifact only - neither
+      # release workflow downloads it, so it never reaches the public releases repo. Download it from this run and keep it
+      # next to the version it was built for (the file name below has versionCode in it for that reason).
+      - name: Rename mapping.txt with this build's versionCode
+        run: cp app/build/outputs/mapping/release/mapping.txt "mapping-$(grep -oP '^VERSION_CODE=\K.+' version.properties).txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MatchiTOOL-mapping
+          path: mapping-*.txt
+          if-no-files-found: error

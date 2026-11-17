@@ -58,6 +58,15 @@ jobs:
             echo "::error::the release APK is debuggable; refusing to publish"; exit 1
           fi
           "$BT/apksigner" verify --print-certs "$APK"
+      # R8 renames classes/methods in the release build (proguard-rules.pro). Kept as a PRIVATE artifact of this workflow
+      # run ONLY - the next step publishes just the APK to the public releases repo, so this mapping never goes there.
+      - name: Upload mapping.txt as a private build artifact (needed to de-obfuscate a trace pulled off a device)
+        run: cp app/build/outputs/mapping/release/mapping.txt "mapping-$(grep -oP '^VERSION_CODE=\K.+' version.properties).txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MatchiTOOL-mapping
+          path: mapping-*.txt
+          if-no-files-found: error
       - name: Publish to the public releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
