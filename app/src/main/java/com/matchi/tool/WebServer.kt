@@ -74,16 +74,16 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         @Suppress("DEPRECATION")
         val ver = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (_: Exception) { 0 }
         val refresh = Prefs.seededVersion(ctx) != ver
-        // sendat (from UFI-TOOLS, MIT) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
+        // sendat (MatchiTOOL's own Go build, tools/sendat) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
         val sendat = File(ctx.filesDir, "sendat")
         var copied = true
         if (refresh || !intact("bin/sendat", sendat)) copied = installSendat(sendat)
         try { sendat.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
-        // curl (arm64, from UFI-TOOLS V4.0.0) is for plugins that download files (for example ADGuard Home). Android has no curl.
+        // curl (arm64, built by build-binaries.yml) is for plugins that download files (for example ADGuard Home). Android has no curl.
         val curl = File(ctx.filesDir, "curl")
         if (refresh || !intact("bin/curl", curl)) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
-        // jq, sha256 and zreq (arm64, from UFI-TOOLS 4.1.5) are for plugins that call them by the UFI path
+        // jq, sha256 and zreq (arm64, MatchiTOOL's own builds) are for plugins that call them by the UFI path
         // /data/data/com.minikano.f50_sms/files/NAME, which UfiPathMap rewrites to this folder. Same copy-then-rename as curl.
         for (tool in BUNDLED_TOOLS) {
             val dest = File(ctx.filesDir, tool)
