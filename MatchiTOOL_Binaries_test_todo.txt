@@ -49,13 +49,13 @@ DONE IN CODE (2026-11-17)
  - sendat: ENODATA counts as "nothing to read yet"; errors name the stage (open/write/read); stty_nr0/1 added to the guess list.
    Test added. Needs the build-sendat workflow, then copy the binary to assets/bin/sendat and update the hashes.
 
-NEXT
+NEXT (older list, superseded by "TO TEST ON THE F50" below)
  1. Rebuild sendat (workflow), install, run: sendat -probe ; sendat -n 0 -c AT ; sendat -n 1 -c AT
  2. Test curl through the wrapper: /data/local/matchitool/bin/curl -sS -o /dev/null -w "%{http_code}\n" https://example.com
  3. zreq: find the router web port (ss/netstat or how RouterHost reaches it), then retest ZQ-1 with and without PW.
  4. Pin the answering ports in /data/local/matchitool/sendat.conf.
 
-DONE-WHEN
+DONE-WHEN (first version)
  - curl https://example.com = 200 with no -k, called the way plugins call it.
  - sendat -n 0 -c AT prints OK on the F50, the port is pinned, Live signal and AT & Radio work.
 
@@ -76,17 +76,62 @@ RESULTS 2026-11-17 (no internet after radio restart, then curl on the UFI path)
         the UFI path and the wrapper, and boot.sh / boot.d (they run through RootShell.run). CurlCaTest.kt runs the real prelude in the
         host sh: 9 tests pass here (compiled on its own: scripts/kotlin_pure_tests.sh does not compile here because PluginGuard.kt uses
         org.json without an import; unrelated to this change). RootShell.kt is not compiled here (Android classes): CI must confirm.
-[OPEN] Build and install the new APK, then check on the F50 (no setup needed, the wrapper no longer matters):
-        /data/data/com.minikano.f50_sms/files/curl -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org   (expect 200)
-        /data/data/com.matchi.tool/files/curl      -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org   (expect 200)
-        Run them from the web console terminal (root shell), not from adb shell: the prelude only applies to commands the app runs.
-[OPEN] Bypass_v65_22.js: re-run its public IP check and confirm it prints an IP.
+[DONE] Built and installed the new APK, checked on the F50 (web console terminal, root shell):
+        /data/local/matchitool/bin/curl       -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
+        /data/data/com.matchi.tool/files/curl -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
+        /data/data/com.minikano.f50_sms/files/curl ... (UfiPathMap rewrites the command text to the matchi.tool path above before
+        the shell runs, so the printed path showed matchi.tool even though minikano was typed) -> 200
+[CONFIRMED ON DEVICE] curl: raw binary, UFI path and wrapper all now 200 with no -k. The CA bug is fixed end to end.
+[CONFIRMED ON DEVICE] jq: jq-1.7.1-dirty, `.a|add==6` -> true. No change needed, still fine.
+[CONFIRMED ON DEVICE] sendat: hash a6d26055f4f477eb... matches; `sendat -n 0 -c AT` -> OK. Still fine.
+[CONFIRMED ON DEVICE] zreq: hash 89948a9f47326e88... matches; `-version` -> "zreq 1.0 (MatchiTOOL)". Binary itself is fine; sign-in not
+        attempted here on purpose (a wrong password can lock the router login) - see BUGS item 4 below.
+[OPEN] Bypass_v65_22.js: re-run its public IP check and confirm it prints an IP (expected to pass now that the raw path is 200).
 
-BUGS STILL TO FIX (not done yet)
- 1. AT & Radio "Radio restart": after AT+SFUN=5/4 run svc data disable; sleep 3; svc data enable (or at least warn that data may need
-    a toggle). Check ip -4 addr show sipa_eth0 afterwards.
- 2. sendat -probe: skip ports other processes hold (stty_nr0..5 urild, nr28 cplog_svc, nr31 engpc) so it cannot disturb the RIL. After
-    the next radio restart, check whether data still drops without the probe, to find out which of the two caused it.
- 3. Slot 0 default guess list should start with a free port (stty_nr6), so no sendat.conf is needed.
- 4. zreq sign-in with the LD hash (SHA256(SHA256(pw)+LD)); test once, a wrong password can lock the login.
- 5. Source of zreq is in tools/zreq/ now: rebuild and compare the hash.
+FIXES 2026-11-17 (bugs 1-3; see CHANGELOG.md 1.4.2)
+[DONE IN CODE] Bug 1, no internet after "Radio restart" (web-src/radio-core.js, CYCLE_SH): once a slot confirms radio "on", the on-device
+        script waits up to ~24 s for a default route (ip -4 route show default). None -> svc data disable; sleep 3; svc data enable, then
+        waits up to ~15 s more. Prints DATA:ok / toggled / none / off / skip and the log says which. It never turns mobile data ON for an
+        owner who turned it off (settings get global mobile_data = 0 -> DATA:off) and does nothing if the radio did not come back.
+        Script timeout 110 s (was 60; /api/shell caps at 120). scripts/test_at_radio.js runs the real script in the host sh with fake
+        sendat/ip/settings/svc (6 cases). validate.sh passes. NOT yet run on the F50.
+[DONE, CI] Bug 2, sendat -probe skips ports other processes hold: it reads /proc/<pid>/fd (root) and skips a port another process has open
+        (another sendat does not count); fixed fallback list nr0..5 urild, nr28 cplog_svc, nr31 engpc. Skipped ports are listed with the
+        reason. New flag: -probe -all (tries them anyway, can drop mobile data). Normal calls unchanged.
+        CI build-sendat.yml: go vet + go test passed. Binary sha256 f33b7aa2f39f9721661c75d2a844d8f4bc1e3810218fb4c15630fe6280b5cadf
+        (static arm64, strings checked); it was replaced by the bug 3 build (341bfb4d..., below), which includes this fix.
+        NOT yet run on the F50.
+[DONE, CI] Bug 3, slot 0 default port: the guess list now starts with /dev/stty_nr6 (free on the F50), stty_nr0 last as a
+        fallback. Test TestDefaultSlot0StartsWithFreePort.
+        CI build: go vet + go test passed. NEW sendat sha256 341bfb4d2890e66f753cba42436155f672997190a71097eee8064a5ef4e9342e (replaces f33b7aa2...,
+        has bug 2 and bug 3), installed in assets/bin/sendat, NOTICE.md and docs/BINARIES.md updated, check_repo.py passes. NOT yet run on the F50.
+        NOT proven that stty_nr6 answers AT, only that it is free. Test: sendat -d /dev/stty_nr6 -c AT
+
+NEW FINDING 2026-11-17
+[FACT] The ZTE F50 has ONE SIM slot only (slot 0). Slot 1 does not exist.
+[SUSPECT] sendat's slot 1 default is /dev/stty_nr1, a port urild (the RIL) holds, and the radio restart script (CYCLE_SH) sends AT and
+        AT+SFUN=5 / 4 to slot 1 as well, so every restart writes to a port the RIL reads. This may be a second cause of the data drop
+        (besides the probe). NOT proven.
+[PLAN, not done] Remove /dev/stty_nr1 from sendat's slot 1 defaults, so "-n 1" says "no modem AT device found for slot 1" instead of writing
+        to the RIL; the restart script already ignores a slot that does not switch off. Needs a sendat rebuild + hash update. Also check
+        the UI / plugins for other slot 1 uses (AT & Radio, Live signal, sendat.conf "1=").
+
+TO TEST ON THE F50 (after installing the build with the 341bfb4d... sendat)
+ 1. sendat -probe : held ports (stty_nr0..5, 28, 31) must be listed "skipped, held by ..."; free ports probed.
+ 2. sendat -d /dev/stty_nr6 -c AT : does it answer OK? If yes, slot 0 needs no sendat.conf (after the bug 3 build).
+ 3. AT & Radio "Radio restart": read the log line "Mobile data: ..."; then ip -4 addr show sipa_eth0 and ping 1.1.1.1.
+    DATA:ok = Android brought the network back by itself (the drop was probably the probe, now skipped).
+    DATA:toggled = the toggle was needed and worked. DATA:none = still no route: check by hand.
+ 4. Bypass_v65_22.js: re-run its public IP check and confirm it prints an IP (expected to pass, the raw curl path is 200).
+ 5. Pin the answering port for slot 0 in /data/local/matchitool/sendat.conf only if stty_nr6 does not answer.
+
+STILL OPEN
+ 4. zreq sign-in with the LD hash (SHA256(SHA256(pw)+LD)): test once, a wrong password can lock the login. Also find the router web port
+    (the earlier "connection refused" on 192.168.0.1:80 never reached a sign-in) and retest ZQ-1 with and without PW.
+ 5. zreq source is in tools/zreq/ now: rebuild with the workflow and compare the hash (89948a9f...).
+ 6. Remove stty_nr1 from the slot 1 defaults (see PLAN above); needs one more sendat rebuild (bug 3 is already in the 341bfb4d... build).
+
+DONE-WHEN (updated)
+ - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE, confirmed on the device)
+ - sendat -n 0 -c AT prints OK on the F50 with no sendat.conf, and the probe leaves the RIL's ports alone.
+ - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok), Live signal and AT & Radio work.
