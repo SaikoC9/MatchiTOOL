@@ -6759,6 +6759,38 @@ function mountNetTools() {
   const mtuReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.mtu });
   const mtuRead = async () => N.parseMtu(await mtuReadRaw());
   const MTU_WAIT_FIRST_MS = 15000, MTU_WAIT_STEP_MS = 5000, MTU_WAIT_TRIES = 34, MTU_DATA_TRIES = 12;
+  // Sending a change that restarts the router or Wi-Fi. The F50 answers some set commands with an EMPTY reply, and it answers EMPTY too when it lost our
+  // sign-in or token and did NOTHING (see radio-core setConfirmed). Taking an empty reply as "sent" made this window wait 3 minutes for a restart that never
+  // came and then report the old values. So after an empty reply the router gets TAKE_TRIES reads (TAKE_STEP_MS apart) to show that it took the change: the
+  // console stops answering (the restart began) or a read already shows the wanted values. If neither, the same command goes out again with a fresh
+  // sign-in (retry 1), then with the older token form (retry 2). A reply of "success" is never repeated. These commands are idempotent.
+  // Returns { took, down, reply, attempts }, or null when the window was closed meanwhile. Throws when the first send fails or the router answers with text other
+  // than "success" (nothing was changed then).
+  const TAKE_STEP_MS = 5000, TAKE_TRIES = 6;
+  async function sendTaken(call, read, reached, my, sentText) {
+    let reply = 'empty', attempts = 0;
+    for (let level = 0; level <= 2; level++) {
+      attempts++;
+      try { reply = await R.setRouter(call, true, level); }
+      catch (e) {
+        if (level === 0 || /^Router refused/.test(String(e && e.message))) throw e;
+        return { took: true, down: true, reply: 'down', attempts };   // a later send found the console gone: the restart began
+      }
+      if (reply === 'success') return { took: true, down: false, reply, attempts };
+      progress(level === 0 ? (sentText || 'Sent. Checking that the router took the change…') : 'The router did not react yet. The change was sent again with a fresh sign-in (' + attempts + ' of 3). Keep this window open.');
+      for (let i = 0; i < TAKE_TRIES; i++) {
+        await R.sleep(TAKE_STEP_MS); if (my !== actId) return null;
+        let r;
+        try { r = await read(); }
+        catch (e) { if (N.isAuthError(e && e.message)) break; return { took: true, down: true, reply, attempts }; }
+        if (my !== actId) return null;
+        if (reached(r)) return { took: true, down: false, reply, attempts };
+      }
+    }
+    return { took: false, down: false, reply, attempts };
+  }
+  const wifiProbe = async () => { const raw = await wifiReadRaw(); return { raw, w: N.parseWifi(raw) }; };
+  const ignoredText = async (attempts) => 'The router ignored the change: it answered ' + attempts + ' times with an empty reply (with a fresh sign-in each time) and nothing changed. ' + (R.emptyHint ? await R.emptyHint() : '');
   async function mtuApply(want, why) {
     if (anyAct()) return;
     st.mtuAct = true; st.mtuMsg = null; progress('Reading the current values from the router…'); syncButtons(); paint('mtu');
@@ -6782,12 +6814,15 @@ function mountNetTools() {
         if (!String(w).includes('MATCHI_BACKUP_OK') || !back || back.old.mtu !== cur.mtu || back.old.mss !== cur.mss) throw new Error('the copy could not be read back');
       } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
       progress('Sending the change to the router…');
-      try { await R.setRouter(call, true); }
+      let sent;
+      try { sent = await sendTaken(call, mtuRead, (r) => !!r && r.mtu === want.mtu && r.mss === want.mss, my, 'Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.'); }
       catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
-      // the router answers once more before it restarts: wait first, then ask until it is back
-      let back = null, wentDown = false, authStop = false;
+      if (!sent) return;
+      if (!sent.took) { done(true, [await ignoredText(sent.attempts) + ' The router still has MTU ' + cur.mtu + ' and MSS ' + cur.mss + '.']); return; }
+      // the router answers once more before it restarts: wait first (unless it is already down), then ask until it is back
+      let back = null, wentDown = sent.down, authStop = false;
       progress('Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.');
-      await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return;
+      if (!sent.down) { await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return; }
       for (let i = 0; i < MTU_WAIT_TRIES; i++) {
         try {
           const r = await mtuRead();
@@ -6803,7 +6838,9 @@ function mountNetTools() {
       try { st.cache.mtu = { d: await mtuReadRaw(), at: Date.now() }; } catch (_) { /* the view keeps the last values */ }
       const lines = [], same = back.mtu === want.mtu && back.mss === want.mss;
       let bad = !same;
-      lines.push(same ? 'The router restarted and reports MTU ' + back.mtu + ', MSS ' + back.mss + '.' : 'The router is back but reports MTU ' + back.mtu + ' and MSS ' + back.mss + ', not the wanted ' + want.mtu + ' / ' + want.mss + '.');
+      lines.push(same ? 'The router restarted and reports MTU ' + back.mtu + ', MSS ' + back.mss + '.'
+        : !wentDown ? 'The router never restarted and still reports MTU ' + back.mtu + ' and MSS ' + back.mss + ', not the wanted ' + want.mtu + ' / ' + want.mss + '. The change was not applied: press Apply to try again.'
+        : 'The router is back but reports MTU ' + back.mtu + ' and MSS ' + back.mss + ', not the wanted ' + want.mtu + ' / ' + want.mss + '.');
       let ppp = null;
       for (let i = 0; i < MTU_DATA_TRIES; i++) {
         try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
@@ -6817,7 +6854,7 @@ function mountNetTools() {
         try {
           st.root = N.parseRootNet(await R.sh(N.ROOT_READ_SH, 20000)); st.rootErr = '';
           const f = N.wanFollowed(st.root, want.mtu);
-          if (want.mtu === cur.mtu) lines.push('MTU was not changed, only MSS.');
+          if (want.mtu === cur.mtu) { if (same) lines.push('MTU was not changed, only MSS.'); }
           else if (f === true) lines.push('The mobile interface MTU is ' + st.root.wanMtu + ': it follows the new MTU.');
           else if (f === false) { bad = true; lines.push('The mobile interface MTU is ' + st.root.wanMtu + ': it did NOT follow the router setting (' + want.mtu + '). The router value alone does not change the real interface.'); }
           else lines.push('The real interface MTU could not be read.');
@@ -6920,20 +6957,21 @@ function mountNetTools() {
         } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
       }
       progress('Sending the change to the router…');
-      try { await R.setRouter(call, true); }
-      catch (e) {
-        if (ipKind) { try { await R.sh(N.LAN_PENDING_DELETE_SH, 15000); } catch (_) { /* a stale note is dropped by the host after 30 minutes */ } }
-        done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return;
-      }
+      let sent;
+      const dropNote = async () => { if (ipKind) { try { await R.sh(N.LAN_PENDING_DELETE_SH, 15000); } catch (_) { /* a stale note is dropped by the host after 30 minutes */ } } };
+      try { sent = await sendTaken(call, lanRead, (r) => !!r && r.start !== null && r.end !== null && r.leaseHours !== null && N.lanReached(r, wantAll) && r.ip === wantAll.ip, my, 'Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.' + (ipKind ? ' The console is then at ' + url + '.' : '')); }
+      catch (e) { await dropNote(); done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      if (!sent) return;
+      if (!sent.took) { await dropNote(); done(true, [await ignoredText(sent.attempts)]); return; }
       let appliedNote = null;
       if (ipKind) {
         // the old address is about to stop answering: point the host at the new one now (it also checks the router after the restart)
         try { await api('/api/net/lan-applied', { method: 'POST', body: JSON.stringify({ ip: wantAll.ip }) }); }
         catch (e) { appliedNote = 'The console could not be pointed at the new address automatically (' + N.maskSecrets(e.message) + '). After the restart MatchiTOOL checks the router itself.'; }
       }
-      let back = null, wentDown = false, authStop = false;
+      let back = null, wentDown = sent.down, authStop = false;
       progress('Sent. The router is restarting now: internet, Wi-Fi and this console will drop for about 1 to 2 minutes. Keep this window open.' + (ipKind ? ' The console is then at ' + url + '.' : ''));
-      await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return;
+      if (!sent.down) { await R.sleep(MTU_WAIT_FIRST_MS); if (my !== actId) return; }
       for (let i = 0; i < MTU_WAIT_TRIES; i++) {
         try {
           const r = await lanRead();
@@ -6952,6 +6990,7 @@ function mountNetTools() {
       const lines = [], same = N.lanReached(back, wantAll) && back.ip === wantAll.ip;
       let bad = !same;
       lines.push(same ? 'The router restarted and reports ' + (ipKind ? 'router IP ' + back.ip + ', ' : '') + 'pool ' + back.start + ' - ' + back.end + ', lease ' + N.leaseText(back.leaseHours) + (onKind ? ', DHCP On' : '') + '.'
+        : !wentDown && !ipKind ? 'The router never restarted and still reports pool ' + back.start + ' - ' + back.end + ', lease ' + (back.leaseHours === null ? back.leaseRaw : N.leaseText(back.leaseHours)) + ', not the wanted values. The change was not applied: press Apply to try again.'
         : 'The router is back but reports ' + (ipKind ? 'router IP ' + back.ip + ', ' : '') + 'pool ' + back.start + ' - ' + back.end + ', lease ' + (back.leaseHours === null ? back.leaseRaw : N.leaseText(back.leaseHours)) + ', DHCP ' + (back.dhcp || 'not reported') + ', not the wanted values.');
       if (back.ip !== wantAll.ip || back.mask !== cur.mask) { bad = true; if (!ipKind || back.ip !== wantAll.ip) lines.push('The router IP / mask now read ' + back.ip + ' / ' + back.mask + ', not ' + wantAll.ip + ' / ' + cur.mask + '.'); }
       if (appliedNote) lines.push(appliedNote);
@@ -7038,7 +7077,10 @@ function mountNetTools() {
       if (!ok) { st.wifiAct = false; return; }
       if (my !== actId) return;
       progress('Sending the band change to the router…');
-      try { await R.setRouter(call, true); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      let sent;
+      try { sent = await sendTaken(call, wifiProbe, (x) => !!x && !!x.w && N.wifiBandReached(x.w, mode), my, 'Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.'); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      if (!sent) return;
+      if (!sent.took) { done(true, [await ignoredText(sent.attempts) + ' Wi-Fi was not changed.']); return; }
       progress('Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.');
       const r = await wifiWait(my, (x) => N.wifiBandReached(x, mode), 'Wi-Fi is restarting…'); if (!r) return;
       if (r.authStop) { done(true, ['The console is asking for a new sign-in. Sign in again and press Refresh to see the Wi-Fi state.']); return; }
@@ -7076,8 +7118,11 @@ function mountNetTools() {
         if (!String(wr).includes('MATCHI_BACKUP_OK') || !back || !N.wifiSame(back.old, oldSnap) || (oldSnap.pwB64 || null) !== (back.old.pwB64 || null)) throw new Error('the copy could not be read back');
       } catch (e) { done(true, ['Not sent: the backup copy of the old values could not be saved (' + N.maskSecrets(e.message) + '). Nothing was changed.']); return; }
       progress('Sending the Wi-Fi settings to the router…');
-      try { await R.setRouter(call, true); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
+      let sent;
+      try { sent = await sendTaken(call, wifiProbe, (x) => !!x && !!x.w && N.wifiReached(N.wifiActive(x.w), want) && (!pwChanges || N.wifiHasPassword(x.raw, N.wifiWantPw(want))), my, 'Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.'); } catch (e) { done(true, ['Not sent: ' + N.maskSecrets(e.message) + '. Nothing was changed.']); return; }
       call = null;
+      if (!sent) return;
+      if (!sent.took) { done(true, [await ignoredText(sent.attempts) + ' Wi-Fi was not changed.']); return; }
       progress('Sent. Wi-Fi is restarting now: Wi-Fi devices drop for a short while. Keep this window open.');
       const r = await wifiWait(my, (x, rawNow) => N.wifiReached(N.wifiActive(x), want) && (!pwChanges || N.wifiHasPassword(rawNow, N.wifiWantPw(want))), 'Wi-Fi is restarting…'); if (!r) return;
       const way = 'The old values are saved: "Restore" puts them back (if you are on Wi-Fi, reconnect first).';

@@ -84,7 +84,7 @@ const apnWrite = (q) => {
 };
 let stuckApn = false, sleepSpy = null;
 // The MTU part of the fake router: SET_DEVICE_MTU changes the values and the router "restarts" (the next reads fail), the backup file lives in fileText.
-const mtuState = { mtu: 1500, mss: 1460, ifMtu: 1500 }; let mtuDown = 0, stuckMtu = false, followWan = true, pingOk = true, fileText = '', failBackup = false, mtuReadErr = null;
+const mtuState = { mtu: 1500, mss: 1460, ifMtu: 1500 }; let mtuDown = 0, stuckMtu = false, ignoreMtu = 0, restartOldMtu = false, retryLevels = [], followWan = true, pingOk = true, fileText = '', failBackup = false, mtuReadErr = null;
 const mtuAnswer = () => { if (mtuDown > 0) { mtuDown--; throw new Error(mtuReadErr || 'Failed to fetch'); } return { mtu: String(mtuState.mtu), tcp_mss: String(mtuState.mss) }; };
 // The LAN part of the fake router: DHCP_SETTING changes pool / lease and the router "restarts" (the next reads fail); the backup file lives in lanFile.
 const lanState = { ip: '192.168.0.1', mask: '255.255.255.0', dhcp: '1', start: '192.168.0.2', end: '192.168.0.253', lease: 24 }; let lanDown = 0, stuckLan = false, lanFile = '', failLanBackup = false, lanReadErr = null, pendingFile = '', failPending = false;
@@ -116,12 +116,12 @@ const R = {
     return rootOut(); },
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
   sleep: async () => { if (sleepSpy) { const e = doc.getElementById('matchi_net_prog'); sleepSpy.push(e ? e.textContent : null); } },
-  setRouter: async (params, allowEmpty) => { sets.push({ params, allowEmpty }); if (setFail) { const e = setFail; setFail = null; throw e; }
+  setRouter: async (params, allowEmpty, level) => { sets.push({ params, allowEmpty, level }); if (setFail) { const e = setFail; setFail = null; throw e; }
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
     if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
-    if (params.goformId === 'SET_DEVICE_MTU') { if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
-    if (params.goformId === 'DHCP_SETTING') { if (!stuckLan) { lanState.ip = params.lanIp; lanState.mask = params.lanNetmask; lanState.start = params.dhcpStart; lanState.end = params.dhcpEnd; lanState.lease = Number(params.dhcpLease); lanState.dhcp = '1'; lanDown = 2; } return; }
-    if (params.goformId === 'switchWiFiChip' || params.goformId === 'switchWiFiModule' || params.goformId === 'setAccessPointInfo') { wifiWrite(params); return; }
+    if (params.goformId === 'SET_DEVICE_MTU') { if (mtuDown > 0) throw new Error('Failed to fetch'); /* a router that is down answers nothing */ retryLevels.push(level || 0); if (ignoreMtu > 0) { ignoreMtu--; return 'empty'; } if (restartOldMtu) { mtuDown = 2; return 'empty'; } if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
+    if (params.goformId === 'DHCP_SETTING') { if (lanDown > 0) throw new Error('Failed to fetch'); if (!stuckLan) { lanState.ip = params.lanIp; lanState.mask = params.lanNetmask; lanState.start = params.dhcpStart; lanState.end = params.dhcpEnd; lanState.lease = Number(params.dhcpLease); lanState.dhcp = '1'; lanDown = 2; } return; }
+    if (params.goformId === 'switchWiFiChip' || params.goformId === 'switchWiFiModule' || params.goformId === 'setAccessPointInfo') { if (wifiDown > 0) throw new Error('Failed to fetch'); wifiWrite(params); return; }
     if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
     if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
@@ -354,7 +354,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // the real change: backup written first, then the call, then the wait, then the checks
   shells.length = 0; sets.length = 0; calls.length = 0;
   sleepSpy = []; await trySubmit('1500', '1459'); const spied = sleepSpy; sleepSpy = null;
-  assert(spied.length >= 3 && spied.every((x) => x), 'a progress banner is on the screen at every wait: ' + JSON.stringify(spied));
+  assert(spied.length >= 2 && spied.every((x) => x), 'a progress banner is on the screen at every wait: ' + JSON.stringify(spied));
   assert(/router is restarting now.*Keep this window open/.test(spied[0]) && spied.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'the banner says what is happening: ' + JSON.stringify(spied));
   assert(!doc.getElementById('matchi_mtu_apply').disabled && !doc.getElementById('matchi_net_prog'), 'the banner is gone when the change is done');
   assert(shells[0].includes('mtu_backup.json') && shells[0].includes('"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459}'), 'backup first: ' + shells[0]);
@@ -376,8 +376,19 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   pingOk = false; await trySubmit('1500', '1460'); pingOk = true;
   assert(/ping to 1\.1\.1\.1 through the mobile connection FAILED/.test(mt()), 'ping: ' + mt());
   // the router says success but keeps the old values: the real value is shown, not success
+  // (1) the router ignores the command and never restarts (a lost sign-in answers EMPTY and does nothing): the command is sent 3 times, each with a fresh
+  // sign-in (levels 0, 1, 2), then it says so at once; it does NOT wait 3 minutes and does NOT say "the router is back"
   stuckMtu = true; sets.length = 0; await trySubmit('1500', '1459'); stuckMtu = false;
-  t = mt(); assert(/is back but reports MTU 1500 and MSS 1460, not the wanted 1500 \/ 1459/.test(t) && !/The router restarted and reports/.test(t), 'stuck: ' + t);
+  t = mt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && /still has MTU 1500 and MSS 1460/.test(t) && !/The router restarted and reports|is back but reports|never restarted/.test(t), 'ignored: ' + t);
+  assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'three sends, fresh sign-in on the 2nd and 3rd');
+  assert(!doc.getElementById('matchi_net_prog') && !doc.getElementById('matchi_mtu_apply').disabled, 'the window is free again after the refusal');
+  // (2) the first send is ignored, the second (fresh sign-in) is taken: the change goes through and the result is real
+  ignoreMtu = 1; sets.length = 0; await trySubmit('1500', '1459'); ignoreMtu = 0;
+  t = mt(); assert(sets.length === 2 && sets[1].level === 1 && /The router restarted and reports MTU 1500, MSS 1459/.test(t) && !/ignored/.test(t), 'second send took: ' + t + ' / ' + sets.length);
+  await trySubmit('1500', '1460');
+  // (3) the router restarts but comes back with the OLD values: said plainly, with the real values
+  restartOldMtu = true; sets.length = 0; await trySubmit('1500', '1459'); restartOldMtu = false;
+  t = mt(); assert(sets.length === 1 && /is back but reports MTU 1500 and MSS 1460, not the wanted 1500 \/ 1459/.test(t) && !/The router restarted and reports|ignored/.test(t) && !/MTU was not changed, only MSS/.test(t), 'restarted with old values: ' + t);
   // the console asks for a new sign-in after the restart: the wait stops and says so
   mtuReadErr = 'HTTP 401 sign in required'; await trySubmit('1500', '1459'); mtuReadErr = null;
   assert(/asking for a new sign-in/.test(mt()) && /Restore/.test(mt()), 'auth: ' + mt());
@@ -412,7 +423,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // the real change
   shells.length = 0; sets.length = 0; calls.length = 0;
   sleepSpy = []; await lanTry('192.168.0.10', '192.168.0.200', '12'); const lspy = sleepSpy; sleepSpy = null;
-  assert(lspy.length >= 3 && lspy.every((x) => x) && /router is restarting now.*Keep this window open/.test(lspy[0]) && lspy.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'banner at every wait: ' + JSON.stringify(lspy));
+  assert(lspy.length >= 2 && lspy.every((x) => x) && /router is restarting now.*Keep this window open/.test(lspy[0]) && lspy.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'banner at every wait: ' + JSON.stringify(lspy));
   assert(!lb('matchi_net_prog') && !lb('matchi_lan_apply').disabled, 'the banner is gone when done');
   assert(shells[0].includes('lan_backup.json') && shells[0].includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2","end":"192.168.0.253","lease":24}') && shells[0].includes('"new":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.10","end":"192.168.0.200","lease":12}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '0' }); assert.strictEqual(sets[0].allowEmpty, true);
@@ -431,7 +442,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(sets.length, 0); assert(/not the saved one any more/.test(lt()), 'restore with another IP: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
   // the router comes back with other values: said plainly
   stuckLan = true; sets.length = 0; await lanTry('192.168.0.20', '192.168.0.100', '6'); stuckLan = false;
-  t = lt(); assert(/is back but reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && !/The router restarted and reports/.test(t) && /Restore/.test(t), 'stuck: ' + t);
+  t = lt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && !/The router restarted and reports|is back but reports/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'DHCP: three sends, fresh sign-in on the 2nd and 3rd');
   // the console asks for a new sign-in after the restart: the wait stops and says so
   lanReadErr = 'HTTP 401 sign in required'; await lanTry('192.168.0.30', '192.168.0.100', '6'); lanReadErr = null;
   assert(/asking for a new sign-in/.test(lt()) && /Restore/.test(lt()), 'auth: ' + lt());
@@ -471,10 +482,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
   assert(!shells.some((c) => c.includes('lan_backup.json') && c.includes("printf '%s' '")) && lanFile === bkBefore, 'restore keeps the original backup'); assert.deepStrictEqual(applied, [{ method: 'POST', ip: '192.168.0.1' }]);
   assert(/reports router IP 192\.168\.0\.1, pool 192\.168\.0\.10 - 192\.168\.0\.200/.test(lt()) && pendingFile === '' && lanState.ip === '192.168.0.1', 'after the restore: ' + lt());
-  // the router does not take the change: said plainly, the pending note stays (the host decides after the restart), no claim of success
+  // the router ignores the change (never restarts): said plainly, the pending note is removed, no claim of success
   stuckLan = true; shells.length = 0; sets.length = 0; applied.length = 0; await ipTry('192.168.1.1'); stuckLan = false;
-  t = lt(); assert(/is back but reports router IP 192\.168\.0\.1/.test(t) && /router IP \/ mask now read 192\.168\.0\.1/.test(t) && !/The router restarted and reports/.test(t), 'stuck ip: ' + t);
-  assert(pendingFile.includes('"new":{"ip":"192.168.1.1"'), 'the note stays: ' + pendingFile); pendingFile = '';
+  t = lt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && !/The router restarted and reports|is back but reports/.test(t) && applied.length === 0, 'ignored ip: ' + t + ' / applied ' + applied.length);
+  assert(pendingFile === '', 'the router never took the change (three empty replies, no restart): the pending note is removed: ' + pendingFile);
   // the host cannot be told: the change still goes through and the text says so
   applyFail = 'HTTP 500'; sets.length = 0; await ipTry('192.168.1.1'); applyFail = null; assert(/could not be pointed at the new address automatically/.test(lt()), lt());
   // put the router back for the next tests
@@ -527,7 +538,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // the real change: max devices 10 -> 7, password kept (read from the router, encoded by net-core.js)
   shells.length = 0; sets.length = 0; calls.length = 0;
   sleepSpy = []; await wifiTry({ max: '7' }); const wspy = sleepSpy; sleepSpy = null;
-  assert(wspy.length >= 3 && wspy.every((x) => x) && /Wi-Fi is restarting now.*Keep this window open/.test(wspy[0]) && wspy.some((x) => /Wi-Fi is restarting… \d+ s of up to \d+ s/.test(x)), 'banner at every wait: ' + JSON.stringify(wspy));
+  assert(wspy.length >= 2 && wspy.every((x) => x) && /Wi-Fi is restarting now.*Keep this window open/.test(wspy[0]) && wspy.some((x) => /Wi-Fi is restarting… \d+ s of up to \d+ s/.test(x)), 'banner at every wait: ' + JSON.stringify(wspy));
   assert(!wb('matchi_net_prog') && !wb('matchi_wifi_apply').disabled, 'the banner is gone when done');
   assert(/wifi_backup\.json/.test(shells[0]) && !/Password/.test(shells[0]), 'backup first, without a password when it is not lost: ' + shells[0].replace(/'/g, '').slice(0, 200));
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'HomeNet', ApIsolate: '0', AuthMode: 'WPA2PSKWPA3PSK', ApBroadcastDisabled: '0', ApMaxStationNumber: '7', EncrypType: 'CCMP', Password: b64('TopSecret-pass-1') }); assert.strictEqual(sets[0].allowEmpty, true);
@@ -564,7 +575,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await wifiTry({ auth: 'WPA2PSKWPA3PSK', pass: 'TopSecret-pass-1' }); assert.strictEqual(wifiState.auth, 'WPA2PSKWPA3PSK');
   // the router says OK but keeps the old values: the real values are shown, not success
   stuckWifi = true; sets.length = 0; await wifiTry({ max: '3' }); stuckWifi = false;
-  t = wt(); assert(/answers but does not report all the wanted settings\. It reports "HomeNet", WPA2-PSK \/ WPA3-PSK, visible, max 7 devices/.test(t) && !/reports the new settings/.test(t) && /Restore/.test(t), 'stuck: ' + t);
+  t = wt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && /Wi-Fi was not changed/.test(t) && !/reports the new settings/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'Wi-Fi settings: three sends, fresh sign-in on the 2nd and 3rd');
   // the console asks for a new sign-in after the restart: the wait stops and says so
   wifiDown = 0; wifiReadErr = 'HTTP 401 sign in required'; await wifiTry({ max: '3' }); wifiReadErr = null; wifiDown = 0;
   assert(/asking for a new sign-in/.test(wt()) && /Restore/.test(wt()), 'auth: ' + wt());
@@ -595,7 +606,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.deepStrictEqual(sets[0].params, { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' }); assert(/The router reports Wi-Fi: 5 GHz only\./.test(wt()) && wb('matchi_wifi_apply'), wt());
   // the router answers success but stays on the old band: said plainly
   stuckWifi = true; sets.length = 0; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply')); stuckWifi = false;
-  assert(/answers but reports Wi-Fi: 5 GHz only, not 2\.4 GHz only/.test(wt()) && !/The router reports Wi-Fi: 2\.4/.test(wt()), 'band stuck: ' + wt());
+  assert(/The router ignored the change: it answered 3 times with an empty reply/.test(wt()) && /Wi-Fi was not changed/.test(wt()) && !/The router reports Wi-Fi: 2\.4/.test(wt()), 'band ignored: ' + wt());
   // refused band write: nothing claimed
   setFail = new Error('Session too old for root commands'); sets.length = 0; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply')); assert(/Not sent: Session too old/.test(wt()) && /Nothing was changed/.test(wt()), wt());
   // forget the backup

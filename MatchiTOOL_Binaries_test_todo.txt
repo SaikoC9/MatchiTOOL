@@ -204,3 +204,73 @@ DONE-WHEN (updated)
  - sendat -n 0 -c AT prints OK on the F50 with no sendat.conf, and the probe leaves the RIL's ports alone. (DONE)
  - A radio restart leaves mobile data working (route back, ping 1.1.1.1 ok). (DONE) Live signal and AT & Radio pages: re-checked, PASS.
  - zreq signs in on the F50. (DONE) zreq works with no -ip port. (DONE)
+
+RESULTS 2026-11-17 (idle check on the F50: top -H and pgrep, pasted by user)
+[PASS] CPU: 800%cpu = 17% user, 17% sys, 764% idle. Nothing hot. The only busy thread in the list was top itself (30%).
+[PASS] No sendat, logcat or dmesg process is running (pgrep matched none). No stray capture or AT process is left behind.
+[PASS] com.matchi.tool: 95 MB RES, 0.0% CPU on its threads (NanoHttpd, OkHttp, Okio Watchdog all idle).
+[NOTE] Memory: 1.5 GB total, 26 MB free, 473 MB cached, swap 361 MB used, 1895 threads. Normal for this low-RAM Android box; no sign of a leak.
+[NOTE] Two "sh /dev/fd/3" processes (4418 and 5599) are root scripts started by the app (RootShell.run, or the Live sampler loop that
+        sleeps 1 s per round and has sleep children). One is expected while the Live panel is open. Whether the second is a one-shot root
+        call or a second Live loop is NOT proven from pgrep alone: needs PPID and age (command in the chat reply).
+[NOTE] "sh /data/local/matchi_ttl/ttl.sh watch" (pid 2816, low pid = since boot) belongs to the TTL plugin folder, not to the app.
+        /system_ext/bin/ip_monitor.sh is a stock system script.
+[OPEN] Identify the second "sh /dev/fd/3": run the PPID/age check, then close the Live panel and see whether one of them goes away.
+
+RESULTS 2026-11-17 (heat/CPU measure, run 1 = Live panel OPEN; top -H -d 2 -n 15, F50)
+[PASS] Whole device: about 8-15 of 800 percent busy (about 1-2% of all cores), 750-790 idle. No sustained load.
+[PASS] MatchiTOOL cost with Live open: root loop "sh" (pid 7776) 0.5-2% of ONE core; MatchiLiveSampler thread (nice 19) 0.5%;
+        NanoHttpd 0.5-1%. Together under 0.5% of the 8-core total. The app is not a heat source here.
+[NOTE] Two short bumps (rounds 8 and 14: 16-17% user, up to 28% sys of 800). Round 8 matches a page request plus a new
+        su/sh pair (pids 7826, 7833, 7838); round 14 matches ttl.sh watch (pid 2816, 2%). One round each, then back to idle.
+[WATCH] Time used by the Live loop sh (7776) per 2 s round rises: TIME+ 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.12, 0.14, 0.17,
+        0.20, 0.23, 0.27, 0.31 (steps 0.01 -> 0.04 s). NOT proven a real trend (30 s only, could be cpu clock or a mode change).
+        Needs a longer run; if the step keeps growing the loop gets slower the longer it runs.
+[OPEN] Run 2 with the Live panel CLOSED (wait 10 s first) to compare. Only one Live-style loop seen this time (7776); the two
+        "sh /dev/fd/3" of the earlier check are not repeated here (app was restarted, new pids).
+
+NOTE 2026-11-17 (test method): the web console stops any command after 60000 ms ("[timeout after 60000ms] [failed]"), so the 2-minute
+        loop-ticks run (Part A) failed and printed nothing. Not an app bug. Long measures must run in the background with nohup and write
+        to /data/local/tmp/*.txt, then be read with cat. Part A and Part B are run that way.
+
+RESULTS 2026-11-17 (Part A: Live loop CPU ticks, panel OPEN, 2 min, background run, pid 10058)
+[PASS] Ticks per 10 s (1 tick = 10 ms): 9, 17, 20, 18, 22, 21, 19, 20, 21, 21, 19. After the first 20 s it is flat at about 20 ticks
+        = 0.2 s per 10 s = about 2% of ONE core (about 0.25% of the 8 cores). No growth over the 2 minutes.
+[CLOSED] The earlier "WATCH" (loop time per round rising 0.01 -> 0.04 s) was the warm-up of the first ~20 s, not a leak or a slowing loop.
+        No code change needed for it.
+[NOTE] Cost of the loop is about 0.02 s per 1 s round (about 50 small reads + one sleep fork). Small; can be cut later (read thermal
+        zones/frequencies every 2nd round) but it is not a problem now.
+[OPEN] Part B: Live NOT showing (does the loop and sampler stop?), file /data/local/tmp/mt_b.txt.
+
+RESULTS 2026-11-17 (Part B: Live on, user in ANOTHER browser tab for ~45 s, 16 s top, background run)
+[PASS] The Live loop and MatchiLiveSampler are NOT in any top round while the tab is away. "left behind" lists only the test's own
+        shell (pid 11942, its command line contains the search text). So the grace stop works: no loop is left running.
+[PASS] Device 2-7% busy of 800 in 7 of 8 rounds; MatchiTOOL threads 0.0-0.5% (NanoHttpd only).
+[FOUND] Recurring short CPU bump (18% user / 27% sys of 800, one round) in the same round as "sh /data/local/matchi_ttl/ttl.sh watch"
+        (pid 2816, 2.0%). It also lined up with the bump in the first measure (round 14). ttl.sh TIME+ 1.36 s -> 2.49 s between the two runs.
+        ttl.sh belongs to the Bypass plugin (the four matchi_* folders are its, per UFI_REMOVAL_PATH.txt), not to MatchiTOOL core.
+[OPEN] Find how often ttl.sh watch wakes and what it runs per wake (read the plugin's ttl.sh); that is the only spike source seen so far.
+
+RESULTS 2026-11-17 (ttl.sh read on the F50, first part: grep + head -c 4000; file is 20583 bytes, script-id 277682e8)
+[FOUND] ttl.sh watch wake interval: IV=30 (seconds; falls back to 30 if the value is not a number). V6=0 (ip6tables part off).
+[FOUND] Each check recomputes the LAN interfaces (calc_lan): uplink_ifs runs "ip route show default", "ip route show table all"
+        and "ip route get 8.8.8.8", then a grep/cut/sort pipe, so several process starts per wake. Then rule checks via iptables -C.
+        Not yet seen: the watch() function itself (it was not found by grep 'watch)'; the call is at line 503, "watch) watch ;;").
+[OPEN] Read watch() (about lines 415-502) to count what runs per 30 s wake. Not changed, not proven heavy: one wake lines up with
+        a one-round bump (2% of one core), then idle for the rest of the 30 s.
+
+RESULTS 2026-11-17 (ttl.sh watch() read from the F50, lines 415-502)
+[FOUND] After start: 20 checks 3 s apart (first minute), then one check every IV=30 s, forever. A check = wself (cat pid file) + load (source
+        ttl.conf + calc_lan = ip route show default, ip route show table all, ip route get 8.8.8.8 + grep/cut/sort) + healthy (iptables -C
+        checks via ok_one; ip6tables only if V6=1). Roughly 10-15 short process starts per check, about 0.5 per second on average.
+        That is less than the Live loop (1 fork per second while Live is showing).
+[FOUND] Back-off exists: if apply keeps failing it skips up to 4 cycles. When healthy it does not rebuild anything (v65.22 behaviour).
+[NOTE] top shows only ttl.sh's own 2% for the bump round; the children (ip, iptables, grep) are short-lived and not in that line, so the
+        full cost of one check is larger than 2% of one core for that 2 s window. The bump (about 0.45 core for one round) lines up with a check;
+        NOT proven that all of it is the check.
+[VERDICT] No bug. It is a watchdog design cost: one short burst every 30 s. Not the heat source.
+[OPTIONS, not built] (1) IV 30 -> 60 (halves the bursts; slower repair if the firewall rule disappears). (2) In calc_lan drop
+        "ip route show table all" (the heaviest of the three route calls) and keep "ip route get". (3) Skip load/calc_lan when the uplink did not
+        change. All three are changes to the Bypass plugin text (script-id 277682e8), not to MatchiTOOL core. Needs the plugin source (not in the repo).
+
+2026-11-17 note: the Network MTU / MSS "router is back but reports the old values" problem is tracked in MatchiTOOL_Network_restart_fix_todo.txt.
