@@ -18,6 +18,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,12 +49,13 @@ func run(args []string, out, errw *os.File) int {
 	slotS := fs.String("n", "0", "SIM slot, 0 or 1")
 	dev := fs.String("d", "", "modem device path (overrides lookup)")
 	secs := fs.Int("t", 8, "seconds to wait for the final result code")
-	probe := fs.Bool("probe", false, "try \"AT\" on the likely modem ports and report which answer")
+	probe := fs.Bool("probe", false, "try \"AT\" on the likely modem ports and report which answer (skips ports other processes hold)")
+	all := fs.Bool("all", false, "with -probe: also try ports other processes hold (can disturb the RIL and drop mobile data)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
 	if *probe {
-		return runProbe(out)
+		return runProbe(out, *all)
 	}
 	slot, err := strconv.Atoi(strings.TrimSpace(*slotS))
 	if err != nil || (slot != 0 && slot != 1) {
@@ -131,7 +133,97 @@ func resolve(slot int, override string) (string, error) {
 	return "", fmt.Errorf("no modem AT device found for slot %d (run: sendat -probe, then set %s)", slot, confPath)
 }
 
-func runProbe(out *os.File) int {
+// Ports that other processes own on the F50 (read from /proc on the device, 16 Nov 2026): urild (the RIL) holds stty_nr0..5,
+// cplog_svc holds stty_nr28 and engpc holds stty_nr31. Writing "AT" to a port the RIL is reading can confuse it; after a probe
+// plus a radio restart the F50 lost mobile data (sipa_eth0 stayed down). The probe therefore skips them unless -all is given.
+// This fixed list is only the fallback: findHolders asks /proc who really has a port open right now.
+func knownHeld() map[string]string {
+	m := map[string]string{"/dev/stty_nr28": "cplog_svc", "/dev/stty_nr31": "engpc"}
+	for i := 0; i <= 5; i++ {
+		m["/dev/stty_nr"+strconv.Itoa(i)] = "urild"
+	}
+	return m
+}
+
+// findHolders maps a /dev path to "name (pid N)" for every other process that has it open. It reads procDir/<pid>/fd, which needs
+// root for other users' processes; without it the map is just smaller and knownHeld still applies. self is skipped, and so is
+// another sendat (our own tool, which takes the flock on the port, is not a reason to leave a port alone).
+func findHolders(procDir string, self int) map[string]string {
+	m := map[string]string{}
+	ents, err := os.ReadDir(procDir)
+	if err != nil {
+		return m
+	}
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == self {
+			continue
+		}
+		b, _ := os.ReadFile(filepath.Join(procDir, e.Name(), "comm"))
+		name := strings.TrimSpace(string(b))
+		if name == "sendat" {
+			continue
+		}
+		if name == "" {
+			name = "?"
+		}
+		fds, err := os.ReadDir(filepath.Join(procDir, e.Name(), "fd"))
+		if err != nil {
+			continue
+		}
+		for _, f := range fds {
+			target, err := os.Readlink(filepath.Join(procDir, e.Name(), "fd", f.Name()))
+			if err != nil || !strings.HasPrefix(target, "/dev/") {
+				continue
+			}
+			if _, seen := m[target]; !seen {
+				m[target] = fmt.Sprintf("%s (pid %d)", name, pid)
+			}
+		}
+	}
+	return m
+}
+
+// skipReason says why a port must not be probed; "" means it is fine to probe.
+func skipReason(path string, holders, known map[string]string) string {
+	if h, ok := holders[path]; ok {
+		return "held by " + h
+	}
+	if n, ok := known[path]; ok {
+		return "normally held by " + n
+	}
+	return ""
+}
+
+type sendFn func(path, cmd string, timeout time.Duration) (string, status, error)
+
+// probeList tries "AT" on every existing port in paths that is not held by another process (all=true tries those too).
+// It returns how many answered OK and how many were skipped.
+func probeList(out io.Writer, paths []string, holders, known map[string]string, all bool, send sendFn) (found, skipped int) {
+	for _, p := range paths {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		if why := skipReason(p, holders, known); why != "" && !all {
+			skipped++
+			fmt.Fprintf(out, "%-18s skipped, %s\n", p, why)
+			continue
+		}
+		raw, st, err := send(p, "AT", 2*time.Second)
+		switch {
+		case err != nil:
+			fmt.Fprintf(out, "%-18s %v\n", p, err)
+		case st == statusOK:
+			found++
+			fmt.Fprintf(out, "%-18s ANSWERS (OK)\n", p)
+		default:
+			fmt.Fprintf(out, "%-18s no OK (%q)\n", p, clean(raw, "AT"))
+		}
+	}
+	return found, skipped
+}
+
+func runProbe(out io.Writer, all bool) int {
 	seen := map[string]bool{}
 	var paths []string
 	add := func(p string) {
@@ -151,21 +243,9 @@ func runProbe(out *os.File) int {
 			add(p)
 		}
 	}
-	found := 0
-	for _, p := range paths {
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		raw, status, err := sendOn(p, "AT", 2*time.Second)
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "%-18s %v\n", p, err)
-		case status == statusOK:
-			found++
-			fmt.Fprintf(out, "%-18s ANSWERS (OK)\n", p)
-		default:
-			fmt.Fprintf(out, "%-18s no OK (%q)\n", p, clean(raw, "AT"))
-		}
+	found, skipped := probeList(out, paths, findHolders("/proc", os.Getpid()), knownHeld(), all, sendOn)
+	if skipped > 0 {
+		fmt.Fprintf(out, "%d port(s) skipped because another process holds them (urild is the RIL). -probe -all tries them too, but can drop mobile data.\n", skipped)
 	}
 	if found == 0 {
 		fmt.Fprintln(out, "no port answered. Run as root; check `ls /dev | grep -E 'stty|smd|ttyUSB'`.")
