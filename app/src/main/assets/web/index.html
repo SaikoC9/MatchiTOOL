@@ -833,8 +833,9 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   <div class="card pop" id="terminal">
     <div class="mut" style="margin-bottom:8px">Root terminal</div>
     <div class="mut" style="margin-bottom:8px;font-size:12px">Commands run as root. The safety check only catches common mistakes (it is not a security boundary): only run commands you understand.</div>
-    <input id="cmd" placeholder="Command, press Enter to run" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <pre id="out" style="display:none"></pre>
+    <div class="btnrow" style="flex-wrap:nowrap"><input id="cmd" placeholder="Command, press Enter to run" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="cmdrun">Apply</button></div>
+    <div class="btnrow" style="margin:8px 0"><button type="button" id="cmdclear">Clear</button><button type="button" id="cmdcopy">Copy output</button><span class="mut" id="cmdcwd" style="font-size:12px;align-self:center;word-break:break-all"></span></div>
+    <pre id="out" style="display:none;max-height:50vh;overflow:auto"></pre>
     <div class="popfoot"><button type="button" class="popx" onclick="closePop()">Close</button></div>
   </div>
   <div class="card pop" id="conpw">
@@ -8518,13 +8519,68 @@ document.getElementById('plugfile').onchange=async(e)=>{
   }
   e.target.value='';if(done){await refreshPluginList();setTimeout(()=>location.reload(),500)}
 };
-document.getElementById('cmd').onkeydown=async(e)=>{
-  if(e.key!=='Enter')return;
-  const c=e.target.value.trim();if(!c)return;
-  const out=document.getElementById('out');out.style.display='block';out.textContent='$ '+c+'\n...';
-  try{const r=await runShellWithRoot(c,60000);out.textContent='$ '+c+'\n'+(r.content||'')+(r.success?'':'\n[failed]')}
-  catch(err){out.textContent='Error: '+err.message}
-};
+/* Root terminal: history (Up/Down), scrollback, remembered folder (cd), Apply / Clear / Copy. Each call is a fresh root shell, so the folder is remembered here and re-entered. */
+(function(){
+  const inp=document.getElementById('cmd'),out=document.getElementById('out'),runB=document.getElementById('cmdrun'),clrB=document.getElementById('cmdclear'),cpB=document.getElementById('cmdcopy'),cwdL=document.getElementById('cmdcwd');
+  const HK='matchi_term_hist',MAXH=100,MAXLINES=2000;
+  let hist=[],hi=0,draft='',cwd='',busy=false,log='';
+  try{const h=JSON.parse(sessionStorage.getItem(HK)||'[]');if(Array.isArray(h))hist=h.filter(x=>typeof x==='string').slice(-MAXH)}catch(_){}
+  hi=hist.length;
+  const saveHist=()=>{try{sessionStorage.setItem(HK,JSON.stringify(hist))}catch(_){}};
+  const q=v=>"'"+String(v).replace(/'/g,"'\\''")+"'";
+  const show=()=>{
+    let lines=log.split('\n');
+    if(lines.length>MAXLINES){lines=lines.slice(-MAXLINES);log=lines.join('\n')}
+    out.style.display='block';out.textContent=log;out.scrollTop=out.scrollHeight;
+  };
+  const setCwd=d=>{cwd=d;cwdL.textContent=d?('Folder: '+d):''};
+  async function run(){
+    if(busy)return;
+    const c=inp.value.trim();if(!c)return;
+    if(hist[hist.length-1]!==c){hist.push(c);if(hist.length>MAXH)hist.shift();saveHist()}
+    hi=hist.length;draft='';inp.value='';
+    if(c==='clear'||c==='cls'){log='';out.textContent='';out.style.display='none';return}
+    busy=true;runB.disabled=true;
+    const prompt=(cwd||'~')+' $ '+c;
+    const base=log;
+    log=base+(base?'\n':'')+prompt+'\n...';show();
+    const t0=performance.now();
+    /* start in the remembered folder, run the command, then report its exit code and the folder it ended in */
+    const script=(cwd?'cd '+q(cwd)+' 2>/dev/null\n':'')+c+'\n__rc=$?\necho "__MATCHI_RC__$__rc"\necho "__MATCHI_PWD__$(pwd)"';
+    let body='',ok=false,rc=null;
+    try{
+      const r=await runShellWithRoot(script,60000);
+      let txt=String((r&&r.content)||'');ok=!!(r&&r.success);
+      const mr=txt.match(/__MATCHI_RC__(\d+)\s*$/m),mp=txt.match(/__MATCHI_PWD__(.*)\s*$/m);
+      if(mr)rc=parseInt(mr[1],10);
+      if(mp&&mp[1].trim())setCwd(mp[1].trim());
+      body=txt.replace(/^__MATCHI_RC__\d+\s*$/m,'').replace(/^__MATCHI_PWD__.*$/m,'').replace(/\s+$/,'');
+    }catch(err){body='Error: '+err.message}
+    const sec=((performance.now()-t0)/1000).toFixed(1);
+    const status=rc!==null?(rc===0?'exit 0':'exit '+rc):(ok?'done':'failed (no exit code: blocked, timed out or the command ended the shell)');
+    log=base+(base?'\n':'')+prompt+'\n'+(body?body+'\n':'')+'['+status+' · '+sec+'s]\n';
+    show();busy=false;runB.disabled=false;inp.focus();
+  }
+  inp.onkeydown=e=>{
+    if(e.key==='Enter'){e.preventDefault();run();return}
+    if(e.key==='ArrowUp'){
+      if(!hist.length)return;e.preventDefault();
+      if(hi===hist.length)draft=inp.value;
+      if(hi>0)hi--;inp.value=hist[hi];
+    }else if(e.key==='ArrowDown'){
+      if(hi>=hist.length)return;e.preventDefault();
+      hi++;inp.value=hi===hist.length?draft:hist[hi];
+    }
+  };
+  runB.onclick=run;
+  clrB.onclick=()=>{log='';out.textContent='';out.style.display='none';inp.focus()};
+  cpB.onclick=async()=>{
+    const t=out.textContent||'';if(!t){createToast('Nothing to copy','red');return}
+    try{await navigator.clipboard.writeText(t)}
+    catch(_){const ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(__){}ta.remove()}
+    createToast('Output copied');
+  };
+})();
 /* ===== Full self-test: read-only, changes nothing on the device ===== */
 const PAGE_VERSION='1.4.2';
 const ST_TOOLS=[
@@ -10152,7 +10208,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     'Sign out':'Mag-sign out','End this session':'Tapusin ang session na ito','Reboot':'I-reboot','Reboot device':'I-reboot ang device',
     'Sign in':'Mag-sign in','Admin password':'Admin password','Connect':'Kumonekta',
     'Diagnostics':'Diagnostics','Log Basket':'Basket ng log','Full diagnose':'Buong diagnosis','USB':'USB','Firmware':'Firmware','Update':'I-update',
-    'Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
+    'Clear':'Burahin','Copy output':'Kopyahin ang output','Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
     'Device diagnostics':'Diagnostics ng device','Run diagnostics':'Patakbuhin ang diagnostics',
     'Run full diagnose':'Patakbuhin ang buong diagnosis','Copy report':'Kopyahin ang ulat','Download .txt':'I-download ang .txt',
     'USB controls':'Mga kontrol ng USB','Enable debugging':'I-on ang debugging','Disable debugging':'I-off ang debugging','Auto':'Awtomatiko',
@@ -10223,7 +10279,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
     ['#usbtools > .mut:first-child','text'],['#adbon','text'],['#adboff','text'],['#tetheroff','text'],
     ['#firmware > .mut:first-child','text'],['#fwinspect','text'],
     ['#appupdate > .mut:first-child','text'],['#updcheck','text'],['#updinstall','text'],['#updfetch','text'],['#updonline','text'],['#upddl','text'],
-    ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],
+    ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],['#cmdrun','text'],['#cmdclear','text'],['#cmdcopy','text'],
     ['#conpw > .mut:first-child','text'],['#conpwcur','placeholder'],['#conpwnew','placeholder'],['#conpwnew2','placeholder'],['#conpwset','text'],['#conpwoff','text'],
     ['#pluginmgr .pm-title','text'],['#plugin_refresh','title'],['#plugin_export','text'],['#plugin_import','text'],
     ['#lcstart','text'],['#lcstop','text'],['#lccopy','text'],['#logbasket .row > strong','text'],['#lbview','text'],['#lbcopy','text'],['#lbdelete','text']

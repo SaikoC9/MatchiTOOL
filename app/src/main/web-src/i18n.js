@@ -10,7 +10,7 @@
     'Sign out':'Mag-sign out','End this session':'Tapusin ang session na ito','Reboot':'I-reboot','Reboot device':'I-reboot ang device',
     'Sign in':'Mag-sign in','Admin password':'Admin password','Connect':'Kumonekta',
     'Diagnostics':'Diagnostics','Log Basket':'Basket ng log','Full diagnose':'Buong diagnosis','USB':'USB','Firmware':'Firmware','Update':'I-update',
-    'Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
+    'Clear':'Burahin','Copy output':'Kopyahin ang output','Terminal':'Terminal','Plugins':'Mga plugin','Password':'Password','Close':'Isara','Back to basket':'Bumalik sa basket',
     'Device diagnostics':'Diagnostics ng device','Run diagnostics':'Patakbuhin ang diagnostics',
     'Run full diagnose':'Patakbuhin ang buong diagnosis','Copy report':'Kopyahin ang ulat','Download .txt':'I-download ang .txt',
     'USB controls':'Mga kontrol ng USB','Enable debugging':'I-on ang debugging','Disable debugging':'I-off ang debugging','Auto':'Awtomatiko',
@@ -81,7 +81,7 @@
     ['#usbtools > .mut:first-child','text'],['#adbon','text'],['#adboff','text'],['#tetheroff','text'],
     ['#firmware > .mut:first-child','text'],['#fwinspect','text'],
     ['#appupdate > .mut:first-child','text'],['#updcheck','text'],['#updinstall','text'],['#updfetch','text'],['#updonline','text'],['#upddl','text'],
-    ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],
+    ['#terminal > .mut:first-child','text'],['#cmd','placeholder'],['#cmdrun','text'],['#cmdclear','text'],['#cmdcopy','text'],
     ['#conpw > .mut:first-child','text'],['#conpwcur','placeholder'],['#conpwnew','placeholder'],['#conpwnew2','placeholder'],['#conpwset','text'],['#conpwoff','text'],
     ['#pluginmgr .pm-title','text'],['#plugin_refresh','title'],['#plugin_export','text'],['#plugin_import','text'],
     ['#lcstart','text'],['#lcstop','text'],['#lccopy','text'],['#logbasket .row > strong','text'],['#lbview','text'],['#lbcopy','text'],['#lbdelete','text']
