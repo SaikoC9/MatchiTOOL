@@ -58,3 +58,13 @@ NEXT
 DONE-WHEN
  - curl https://example.com = 200 with no -k, called the way plugins call it.
  - sendat -n 0 -c AT prints OK on the F50, the port is pinned, Live signal and AT & Radio work.
+
+REBUILD 2026-11-17 (workflows build-sendat / build-zreq)
+[DONE] New sendat sha256 a6d26055f4f477eb... (has the ENODATA fix and stty_nr0/1). New zreq sha256 89948a9f47326e88...
+       Both put in app/src/main/assets/bin/, NOTICE.md, docs/BINARIES.md and CHANGELOG.md updated, check_repo.py passes.
+[FOUND] Before this, the installed APK held the OLD sendat (dd694216...) and zreq (5fd16c5b...), checked on the F50.
+[FOUND] Router web port is 8080: zreq -ip 192.168.0.1:8080 -params 'cmd=LD' returned {"LD":...}.
+[FOUND] curl with CURL_CA_BUNDLE = joined system certs = 200. The old 587-byte wrapper in /data/local/matchitool/bin/curl was
+        not yet replaced: open the web console, hard-refresh, run a plugin, then re-check.
+[OPEN] Build and install the new APK, then rerun: sendat -probe ; sendat -n 0 -c AT ; sendat -n 1 -c AT
+[OPEN] urild holds stty_nr0..5, engpc nr31, cplog_svc nr28: no free port; test nr0..5 one at a time if the probe fails.
