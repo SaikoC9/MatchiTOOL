@@ -148,3 +148,20 @@ func TestProbeListSkipsHeldPorts(t *testing.T) {
 		t.Errorf("-all: found=%d skipped=%d sent=%v", found, skipped, sent)
 	}
 }
+
+func TestDefaultSlot0StartsWithFreePort(t *testing.T) {
+	d := defaultDevices[0]
+	if len(d) == 0 || d[0] != "/dev/stty_nr6" {
+		t.Fatalf("slot 0 must start with /dev/stty_nr6, got %v", d)
+	}
+	if h := knownHeld()[d[0]]; h != "" {
+		t.Errorf("the first slot 0 guess must not be a port held by %s", h)
+	}
+	seen := map[string]bool{}
+	for _, p := range d {
+		if seen[p] {
+			t.Errorf("%s is listed twice", p)
+		}
+		seen[p] = true
+	}
+}

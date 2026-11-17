@@ -20,7 +20,7 @@ update the SHA-256 in `NOTICE.md` and `docs/BINARIES.md`.
     su -c '/data/local/tmp/sendat -probe'
     su -c '/data/local/tmp/sendat -n 0 -c AT+CGSN'
 Pin the port the probe finds in `/data/local/matchitool/sendat.conf` (`0=/dev/...`, `1=/dev/...`).
-The built-in device list is a guess, not taken from the old binary.
+The built-in device list is a guess, not taken from the old binary. Slot 0 tries `/dev/stty_nr6` first (free on the F50, so no `sendat.conf` is needed there); slot 1 has no known free port yet.
 
 ## What `-probe` leaves alone
 On the F50 the Unisoc ports `stty_nr0..5` belong to `urild` (the RIL), `stty_nr28` to `cplog_svc` and `stty_nr31` to `engpc`.
