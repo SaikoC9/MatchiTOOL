@@ -25,7 +25,7 @@ class PluginDataTest {
     @Test fun refusesAnythingBroadOrOwnedByMatchiTool() {
         for (p in listOf("/", "/data", "/data/local", "/data/local/", "/data/local/tmp", "/data/local/matchitool",
             "/data/local/matchitool/boot.sh", "/data/local/matchitool/boot.d", "/data/local/matchitool/plugin_data",
-            "/data/local/ufi_ttl", "/data/local/ufi_dpi/x", "/data/local/tmp/matchi_update.log", "/data/local/tmp/.matchi_out_1",
+            "/data/local/matchi_ttl", "/data/local/matchi_dpi/x", "/data/local/matchi_boot", "/data/local/matchi_lock", "/data/local/tmp/matchi_update.log", "/data/local/tmp/.matchi_out_1",
             "/data/local/tmp/mt_isms.sh", "/sdcard", "/sdcard/", "/sdcard/Download", "/sdcard/DCIM", "/sdcard/Android/data/x",
             "/storage/emulated/0/Pictures", "/system/bin", "/data/data/com.matchi.tool", "relative/path",
             "/data/local/x/../../system", "/data/local/a b", "/data/local/a;rm", "/data/local/*", "/data/local/x'y",

@@ -76,3 +76,9 @@ STAGE 4 - DONE 2026-11-17 (Kotlin NOT compiled here; validate.sh passes; CI buil
 
 ORDER RULE (kept for the record)
   LICENSE-UFI-TOOLS was deleted only after the comparison above. If older UFI-TOOLS code turns up in the repo, restore it from the earlier zip.
+
+STAGE 5 - DONE 2026-11-17 (Kotlin NOT compiled here; CI must build and run PluginDataTest)
+  The four folders of the Bypass plugin are renamed: ufi_ttl / ufi_dpi / ufi_boot / ufi_lock -> matchi_ttl / matchi_dpi / matchi_boot / matchi_lock.
+  PluginPaths.kt LOCAL_PROTECTED and PluginDataTest.kt use the new names; README.md names them. Bypass v65.25 moves an old install over once at load
+  (watchers stopped, folders renamed, old path rewritten in the helper scripts and boot entry, boot-file seal renewed only if it was valid, watchers restarted).
+  Firewall chain names (UFI_TTL, UFI_DPI, UFI_DPI_NAT, UFI_DPI6, UFI_PROBE) are NOT renamed: a rule from an older version is replaced by the same chain.

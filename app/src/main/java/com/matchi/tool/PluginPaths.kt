@@ -4,7 +4,7 @@ package com.matchi.tool
 private const val MATCHI_DIR = "/data/local/matchitool"
 private val DATA_DECL = Regex("^\\s*//\\s*@matchi-data\\s+(\\S+)\\s*$")
 private val DATA_PATH_CHARS = Regex("^/[A-Za-z0-9._/-]+$")
-private val LOCAL_PROTECTED = setOf("tmp", "matchitool", "ufi_ttl", "ufi_dpi", "ufi_boot", "ufi_lock")
+private val LOCAL_PROTECTED = setOf("tmp", "matchitool", "matchi_ttl", "matchi_dpi", "matchi_boot", "matchi_lock")
 private val SDCARD_PROTECTED = setOf("download", "dcim", "pictures", "movies", "music", "documents", "android",
     "alarms", "notifications", "podcasts", "ringtones", "audiobooks", "recordings")
 private val SDCARD_MEDIA = setOf("dcim", "pictures", "movies", "music", "podcasts", "audiobooks", "recordings")
