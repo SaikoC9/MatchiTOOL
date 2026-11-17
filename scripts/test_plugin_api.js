@@ -179,6 +179,14 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
   tmp.askAnswer = true; await X.router.set({ goformId: 'ENABLE_PIN', OldPinNumber: '1234' });
   await X.router.set({ goformId: 'enable_pin', OldPinNumber: '1234' });
   eq([2, 4], [tmp.asked, zte.length], 'ENABLE_PIN asks once per page load after the first yes');
+  // The curl wrapper text written to /data/local/matchitool/bin/curl must parse in a real sh (a missing ';' before 'do' made every
+  // plugin's curl fail with "syntax error: unexpected 'if'" on the F50, found by the AdGuard Home preflight 2026-11-18).
+  { const m = src.match(/cat > \$\{P\.curl\} <<'MATCHI_CURL_EOF'\n([\s\S]*?)\nMATCHI_CURL_EOF/);
+    ok(!!m, 'curl wrapper text found in plugin-host-api.js');
+    if (m) { const cp = require('child_process'); const f = path.join(require('os').tmpdir(), 'matchi-curl-wrapper-' + process.pid + '.sh');
+      fs.writeFileSync(f, m[1] + '\n');
+      const r = cp.spawnSync('sh', ['-n', f], { encoding: 'utf8' });
+      ok(r.status === 0, 'curl wrapper parses in sh: ' + (r.stderr || '').trim()); fs.unlinkSync(f); } }
   if (bad) { console.error(bad + ' failure(s)'); process.exit(1); }
   console.log('plugin API test passed');
 })().catch((e) => { console.error('test crashed', e); process.exit(1); });

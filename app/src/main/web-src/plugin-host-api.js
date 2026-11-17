@@ -185,7 +185,7 @@ chmod 700 /data/local/matchitool/tmp ${P.jobs} 2>/dev/null
 [ -f ${P.boot} ] || printf '#!/system/bin/sh\n' > ${P.boot}
 cat > ${P.curl} <<'MATCHI_CURL_EOF'
 #!/system/bin/sh
-for c in /data/local/matchitool/bin/curl.real /data/data/com.matchi.tool/files/curl /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl do
+for c in /data/local/matchitool/bin/curl.real /data/data/com.matchi.tool/files/curl /data/local/tmp/curl /system/bin/curl /system/xbin/curl /vendor/bin/curl; do
   if [ -x "$c" ]; then
     # The bundled curl (OpenSSL 3) cannot read Android's hashed cacerts folder, so https failed with (60). Give it the system
     # roots as one PEM file (same certs, checked on the F50: https 200 with no -k). A caller's own --cacert / -k / env wins.

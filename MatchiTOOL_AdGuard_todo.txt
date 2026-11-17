@@ -1,0 +1,9 @@
+MatchiTOOL - AdGuard Home plugin: progress (plan: ADGUARD_PLUGIN_PLAN.txt, plugin file: AdGuardHome_MatchiTOOL.js)
+
+2026-11-18  Step 2 (preflight) ran on the F50: ready to install with 2 warnings.
+  [PASS] root, aarch64, 19172 MB free, 712 MB RAM, ports 5353 / 3000 free, dnsmasq owns 53, iptables nat, tar, curl, jq, sha256, br0, SELinux permissive, no old AdGuard Home.
+  [WARN] No IPv6 nat (plan risk 3): IPv6 DNS from hotspot clients skips filtering. Decision still open: accept / block v6 DNS / hand out v4 DNS only.
+  [WARN] GitHub reachable failed with a shell syntax error, not a network error. Cause found and fixed in MatchiTOOL (curl wrapper missing ";" before "do").
+         Fix is in MatchiTOOL-changes-curl-wrapper.zip. Needs: GitHub Actions build, new APK on the F50, reload the page, run the preflight again.
+  Plan items settled by this run: SELinux permissive (risk 1 lower), RAM 712 MB free (risk 4 still to measure with AGH running).
+  Next: after the curl fix is on the device, T1 again (GitHub reachable OK), then T2 (download + sha256 + --version).

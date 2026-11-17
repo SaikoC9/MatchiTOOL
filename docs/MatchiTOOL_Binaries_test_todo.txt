@@ -274,3 +274,17 @@ RESULTS 2026-11-17 (ttl.sh watch() read from the F50, lines 415-502)
         change. All three are changes to the Bypass plugin text (script-id 277682e8), not to MatchiTOOL core. Needs the plugin source (not in the repo).
 
 2026-11-17 note: the Network MTU / MSS "router is back but reports the old values" problem is tracked in MatchiTOOL_Network_restart_fix_todo.txt.
+
+
+RESULTS 2026-11-18 (AdGuard Home plugin preflight on the F50, plugin AdGuardHome_MatchiTOOL__2_.js, plan ADGUARD_PLUGIN_PLAN.txt)
+[PASS] Root, aarch64 (AdGuardHome_linux_arm64), 19172 MB free on /data, 712 MB RAM free, ports 5353 and 3000 free, router DNS on 53 is dnsmasq
+        (AdGuard Home will not touch it), iptables nat present, tar / curl / sha256 / jq present, hotspot br0 (upstream sipa_eth0), SELinux permissive,
+        no older AdGuard Home from another plugin.
+[FOUND] ip6tables nat: no IPv6 nat on the F50. IPv6 DNS from hotspot clients will skip filtering (plan risk 3, still to decide: accept / block v6 DNS / v4 DNS only).
+[FOUND] "GitHub reachable: No answer (/data/local/matchitool/bin/curl[3]: syntax error: unexpected 'if')". Cause: the curl wrapper text in
+        app/src/main/web-src/plugin-host-api.js (SETUP) had "...vendor/bin/curl do" with no ";" before "do". Not a network problem.
+        This also means every earlier curl call through matchi.sh failed the same way (the plain root curl paths in the page were not affected).
+[FIXED] Added the missing ";" (web-src and the built index.html). New check in scripts/test_plugin_api.js runs the wrapper text through "sh -n"
+        (proved: it fails on the old text, passes on the new). scripts/validate.sh passes here. Kotlin not touched.
+[OPEN]  Not run on the F50: build via GitHub Actions, install the APK, reload the page, run the AdGuard preflight again: "GitHub reachable" should turn OK.
+        Quick check in the web console: /data/local/matchitool/bin/curl -sI https://github.com | head -1   (expect HTTP/2 200 or 301).
