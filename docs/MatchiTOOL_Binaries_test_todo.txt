@@ -56,7 +56,7 @@ NEXT (older list, superseded by "DEVICE TEST 2026-11-17 PST (one-paste test, sen
         29, 30 all answer AT with OK (so "answers OK" alone does not identify the modem port).
 [PASS] sendat -d /dev/stty_nr6 -c AT -> OK. sendat -n 0 -c AT -> OK, BUT /data/local/matchitool/sendat.conf EXISTS on the device, so this did
         not prove "no conf needed". Retest with the conf moved aside (retest paste, step B).
-[PASS] curl https x3 = 200 (matchi bin wrapper, raw files/curl, minikano path rewritten to the same), jq true, zreq 1.0 (MatchiTOOL).
+[PASS] curl https x3 = 200 (matchi bin wrapper, raw files/curl), jq true, zreq 1.0 (MatchiTOOL).
 [FOUND] ip -4 route show default is EMPTY on the F50 even when the internet works (curl 200, ping works). Android keeps routes in per-interface
         tables. The bug 1 script tested that, so it always saw "no route", always toggled mobile data, and reported DATA:none although the
         internet worked afterwards (ping 0% loss, sipa_eth0 had a new address 100.82.104.120). So it is still unknown whether the restart
@@ -88,7 +88,7 @@ RESULTS 2026-11-17 (no internet after radio restart, then curl on the UFI path)
 [PASS]  Fix by hand: svc data disable; sleep 3; svc data enable -> sipa_eth0 UP with an IPv4 address, ping 1.1.1.1 = 0% loss (about 30 ms).
 [NOTE]  "sendat: inaccessible or not found" in the web console terminal = sendat is not on PATH. Use /data/data/com.matchi.tool/files/sendat.
 [FAIL]  curl https://api.ipify.org: /data/data/com.matchi.tool/files/curl = (60) SSL peer certificate not OK. The UFI path
-        /data/data/com.minikano.f50_sms/files/curl is rewritten by UfiPathMap to the same raw binary and fails the same way.
+        (old UFI path rewrite: removed in stage 3; this note is historical)
         /data/local/matchitool/bin/curl (wrapper) = 200. So Bypass_v65_22.js's public IP check hits the raw curl with no CA bundle.
 [DONE IN CODE] CurlCa.kt: RootShell.run puts a prelude in front of every root script. It builds /data/local/matchitool/bin/cacert.pem
         from /apex/com.android.conscrypt/cacerts (else /system/etc/security/cacerts) when missing or older than the store, and exports
@@ -99,8 +99,7 @@ RESULTS 2026-11-17 (no internet after radio restart, then curl on the UFI path)
 [DONE] Built and installed the new APK, checked on the F50 (web console terminal, root shell):
         /data/local/matchitool/bin/curl       -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
         /data/data/com.matchi.tool/files/curl -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
-        /data/data/com.minikano.f50_sms/files/curl ... (UfiPathMap rewrites the command text to the matchi.tool path above before
-        the shell runs, so the printed path showed matchi.tool even though minikano was typed) -> 200
+        (old UFI path rewrite: removed in stage 3; this note is historical)
 [CONFIRMED ON DEVICE] curl: raw binary, UFI path and wrapper all now 200 with no -k. The CA bug is fixed end to end.
 [CONFIRMED ON DEVICE] jq: jq-1.7.1-dirty, `.a|add==6` -> true. No change needed, still fine.
 [CONFIRMED ON DEVICE] sendat: hash a6d26055f4f477eb... matches; `sendat -n 0 -c AT` -> OK. Still fine.
@@ -195,10 +194,6 @@ RESULTS 2026-11-17 (zreq port fallback + radio restart slot 1 skip, run on the F
 [DONE] curl reproducibility: workflow now fixes the build date (SOURCE_DATE_EPOCH) and strips paths/build id. Two runs gave the identical curl
         4c063298cc2d2b710d729c8f54f2ad503b504bfb80ff1f9f1e8dea7d8017d2b3 and identical jq 738ee056... Earlier unfixed runs gave ab2e34cd, 178dc2b4, a0fc563e
         (only the OpenSSL "built on" date differed in the text). Copied into assets/bin; NOTICE.md and docs/BINARIES.md updated.
-
-STILL OPEN
- 1. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started). The file is not in the repo zip of 2026-11-17.
- 2. New reproducible curl 4c063298... is in assets/bin: run the F50 curl test (version, https example.com = 200 with no -k via the wrapper and files/curl, Bypass public IP check).
 
 DONE-WHEN (updated)
  - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE)
