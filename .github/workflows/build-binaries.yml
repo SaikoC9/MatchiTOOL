@@ -77,6 +77,10 @@ jobs:
           # compiler name; NDK r23+ is clang-only, so CC must be "clang" (not a full path).
           export ANDROID_NDK_ROOT="$NDK"
           export PATH="$TC/bin:$PATH"
+          # Reproducible build: OpenSSL writes "built on: <date>" into the library. SOURCE_DATE_EPOCH (the tag's commit time)
+          # makes that date the same on every run, so the same tags give the same curl.
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
           CC=clang AR=llvm-ar RANLIB=llvm-ranlib \
           ./Configure android-arm64 -D__ANDROID_API__=$API no-shared no-tests \
             --prefix="$PWD/../ossl" --openssldir=/system/etc/security
@@ -93,6 +97,11 @@ jobs:
       - name: Build curl
         run: |
           cd curl-src
+          # Reproducible build: fixed dates, no build path or build id in the binary (see the OpenSSL step).
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export TZ=UTC LC_ALL=C
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -g0"
+          export LDFLAGS="-Wl,--build-id=none"
           autoreconf -fi
           ./configure --host=$TRIPLE --disable-shared --enable-static \
             --with-openssl="$PWD/../ossl" --with-ca-path=/system/etc/security/cacerts \
