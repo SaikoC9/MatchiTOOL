@@ -62,7 +62,7 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
   assert.strictEqual(await R.radioCycle({ log: () => {}, toast: () => {} }), false);
   assert.strictEqual(await R.radioCycle(), false);   // no callbacks given: still works
   // radioCycle logs what happened to mobile data, and the verdict does not depend on it
-  for (const [d, re] of [['ok', /came back by itself/], ['toggled', /switched off and on/], ['none', /still no default route/], ['off', /switched off in Android/]]) {
+  for (const [d, re] of [['ok', /internet works \(ping answered\)/], ['toggled', /switched off and on/], ['none', /no internet \(ping failed\)/], ['off', /switched off in Android/]]) {
     const lg = [];
     reply = (path) => path === '/api/shell' ? { content: 'OFF0:+OK\nOFF1:+OK\nON0:1:OK\nON1:1:OK\nDATA:' + d + '\n' } : {};
     assert.strictEqual(await R.radioCycle({ log: (l) => lg.push(l), toast: () => {} }), true);
@@ -75,24 +75,25 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
     const run = (o) => {
       const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cyc-')), w = (n, t) => { fs.writeFileSync(path.join(d, n), '#!/bin/sh\n' + t + '\n', { mode: 0o755 }); };
       const st = path.join(d, 'state');
-      fs.writeFileSync(st, o.route0 || 'no');   // does a default route exist now
+      fs.writeFileSync(st, o.route0 || 'no');   // does the internet work now (the fake ping reads it)
       w('sendat', o.sendat || 'echo OK');
       w('sleep', 'exit 0');
       w('settings', 'echo "' + (o.mobileData === undefined ? '1' : o.mobileData) + '"');
       w('svc', 'echo "$*" >> ' + d + '/svc.log; [ "$*" = "data enable" ] && echo ' + (o.routeAfterToggle || 'no') + ' > ' + st);   // the route appears only after the toggle
-      // ip: route exists when the state file says yes
-      w('ip', 'if [ "$(cat ' + st + ')" = yes ]; then echo "default via 10.0.0.1 dev sipa_eth0"; fi');
+            w('ip', 'exit 0');   // only the NET: diagnostic line uses it
+      w('ping', '[ "$(cat ' + st + ')" = yes ]');   // internet works when the state file says yes
       const script = R.CYCLE_SH.replace('/data/data/com.matchi.tool/files/sendat', path.join(d, 'sendat'));
       const out = cp.execFileSync('sh', ['-c', script], { env: { PATH: d + ':' + process.env.PATH }, encoding: 'utf8' });
       let svc = ''; try { svc = fs.readFileSync(path.join(d, 'svc.log'), 'utf8'); } catch (_) { /* no toggle */ }
       return { out, svc };
     };
+    assert(!/route show default/.test(R.CYCLE_SH), 'the F50 has no default route in the main table even when online: never test for one');
     let r = run({ route0: 'yes' });
-    assert(/DATA:ok/.test(r.out) && r.svc === '', 'route present: no toggle');
+    assert(/DATA:ok/.test(r.out) && r.svc === '', 'internet works: no toggle');
     r = run({ route0: 'no', routeAfterToggle: 'yes' });
-    assert(/DATA:toggled/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'no route: disable then enable, route back');
+    assert(/DATA:toggled/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'no internet: disable then enable, works again');
     r = run({ route0: 'no', routeAfterToggle: 'no' });
-    assert(/DATA:none/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'toggled once, still no route');
+    assert(/DATA:none/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'toggled once, still no internet');
     r = run({ route0: 'no', mobileData: 0 });
     assert(/DATA:off/.test(r.out) && r.svc === '', 'mobile data switched off by the owner: never touched');
     r = run({ route0: 'no', sendat: 'case "$*" in *SFUN=4*) echo ERROR;; *) echo OK;; esac' });

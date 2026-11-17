@@ -209,21 +209,24 @@ window.MatchiRadio = (() => {
     '  echo "ON$s:$ok:$r"',
     'done',
     // Mobile data after the restart. Found on the F50: the modem data call stayed up (AT+CGACT? 1,1) but Android never brought sipa_eth0 back,
-    // so there was no default route and no internet until "svc data disable; sleep 3; svc data enable". So: when the radio is on again, wait up
-    // to ~24 s for a default route; if none appears, and mobile data is switched ON in Android, do that toggle. A phone whose owner turned mobile
-    // data off is left alone. Prints DATA:ok (route came back by itself), DATA:toggled (route back after the toggle), DATA:none (still no route),
-    // DATA:off (mobile data is off in Android, nothing done) or DATA:skip (the radio did not come back, nothing done).
-    'hasnet() { ip -4 route show default 2>/dev/null | grep -q .; }',
+    // so there was no internet until "svc data disable; sleep 3; svc data enable". So: when the radio is on again, wait up to ~36 s for the
+    // internet to work (a ping, root, to 1.1.1.1 or 8.8.8.8); if it does not, and mobile data is switched ON in Android, do that toggle. A phone
+    // whose owner turned mobile data off is left alone. NOT a default-route check: on the F50 "ip -4 route show default" is EMPTY even while the
+    // internet works (Android keeps its routes in per-interface tables; seen on the device, 17 Nov 2026), so that test always said "down".
+    // Prints DATA:ok (internet works by itself), DATA:toggled (works after the toggle), DATA:none (still no internet), DATA:off (mobile data is
+    // off in Android, nothing done) or DATA:skip (the radio did not come back, nothing done). NET: is only a diagnostic line (sipa_eth0 addresses).
+    'hasnet() { ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; }',
     'if [ "$anyon" != 1 ]; then echo DATA:skip',
     'else',
-    '  w=0; while [ $w -lt 8 ] && ! hasnet; do sleep 3; w=$((w+1)); done',
+    '  w=0; while [ $w -lt 6 ] && ! hasnet; do sleep 2; w=$((w+1)); done',
     '  if hasnet; then echo DATA:ok',
     '  else',
+    '    echo "NET:$(ip -4 addr show sipa_eth0 2>&1 | grep -c inet) inet on sipa_eth0"',
     '    md=$(settings get global mobile_data 2>/dev/null)',
     '    case "$md" in 0) echo DATA:off;;',
     '    *)',
     '      svc data disable; sleep 3; svc data enable',
-    '      w=0; while [ $w -lt 5 ] && ! hasnet; do sleep 3; w=$((w+1)); done',
+    '      w=0; while [ $w -lt 4 ] && ! hasnet; do sleep 2; w=$((w+1)); done',
     '      if hasnet; then echo DATA:toggled; else echo DATA:none; fi;;',
     '    esac',
     '  fi',
@@ -234,14 +237,14 @@ window.MatchiRadio = (() => {
     const log = (ui && ui.log) || (() => {}), toast = (ui && ui.toast) || (() => {});
     log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does; runs on the device)');
     let text = '', lost = false;
-    try { text = await sh(CYCLE_SH, 110000); }   // radio off/on (up to ~35 s) + mobile data recovery (up to ~45 s); /api/shell caps a call at 120 s
+    try { text = await sh(CYCLE_SH, 110000); }   // radio off/on (up to ~35 s) + mobile data recovery (up to ~65 s); /api/shell caps a call at 120 s
     catch (e) { lost = true; log('The page lost the host while the radio was off (' + e.message + '). The restart keeps going on the device; waiting for the host to come back...'); }
     const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
     if (!lost) {
       if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
       if (/^NOAT:/m.test(text)) { log('The modem did not answer a plain AT on either slot (sendat gave no OK), so the radio was NOT switched off. Nothing was changed. Run Full diagnose and look at "sendat architecture & execution".'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
       for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
-      const dataMsg = { ok: 'Mobile data: the network came back by itself.', toggled: 'Mobile data: Android did not bring the network back, so mobile data was switched off and on (svc data). The network is back.', none: 'Mobile data: still no default route after switching mobile data off and on. Check Live Status; run "svc data disable; sleep 3; svc data enable" by hand if there is still no internet.', off: 'Mobile data is switched off in Android, so it was left alone.' }[get('DATA')];
+      const dataMsg = { ok: 'Mobile data: the internet works (ping answered).', toggled: 'Mobile data: no internet after the restart, so mobile data was switched off and on (svc data). The internet works again.', none: 'Mobile data: no internet (ping failed) after switching mobile data off and on. Check Live Status; run "svc data disable; sleep 3; svc data enable" by hand if there is still no internet.', off: 'Mobile data is switched off in Android, so it was left alone.' }[get('DATA')];
       if (dataMsg) log(dataMsg);
       const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
       if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }

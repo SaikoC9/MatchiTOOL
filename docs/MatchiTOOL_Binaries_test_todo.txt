@@ -49,7 +49,27 @@ DONE IN CODE (2026-11-17)
  - sendat: ENODATA counts as "nothing to read yet"; errors name the stage (open/write/read); stty_nr0/1 added to the guess list.
    Test added. Needs the build-sendat workflow, then copy the binary to assets/bin/sendat and update the hashes.
 
-NEXT (older list, superseded by "TO TEST ON THE F50" below)
+NEXT (older list, superseded by "DEVICE TEST 2026-11-17 PST (one-paste test, sendat 341bfb4d..., first version of the bug 1 script)
+[PASS] Hashes: sendat 341bfb4d2890e66f, zreq 89948a9f47326e88 match; curl 8dda0f1104f17f2e, jq 738ee0567401f51c printed.
+[PASS] sendat -probe: nr0..5 skipped (urild pid 678), nr31 skipped (engpc pid 662), nr28 skipped but held by "vendor.sprd.har" (pid 629), NOT
+        cplog_svc as assumed: the /proc scan found it, the fixed list would have missed the name. 8 ports skipped. Free ports nr6..nr27,
+        29, 30 all answer AT with OK (so "answers OK" alone does not identify the modem port).
+[PASS] sendat -d /dev/stty_nr6 -c AT -> OK. sendat -n 0 -c AT -> OK, BUT /data/local/matchitool/sendat.conf EXISTS on the device, so this did
+        not prove "no conf needed". Retest with the conf moved aside (retest paste, step B).
+[PASS] curl https x3 = 200 (matchi bin wrapper, raw files/curl, minikano path rewritten to the same), jq true, zreq 1.0 (MatchiTOOL).
+[FOUND] ip -4 route show default is EMPTY on the F50 even when the internet works (curl 200, ping works). Android keeps routes in per-interface
+        tables. The bug 1 script tested that, so it always saw "no route", always toggled mobile data, and reported DATA:none although the
+        internet worked afterwards (ping 0% loss, sipa_eth0 had a new address 100.82.104.120). So it is still unknown whether the restart
+        alone drops data. FIXED in code: the check is now a root ping to 1.1.1.1 / 8.8.8.8 (waits up to ~36 s, then toggles, then ~24 s), and a
+        test fails if the script asks for a default route again. Also prints NET:<n> inet on sipa_eth0 before any toggle. NOT yet run on device.
+[FOUND] Radio restart log: OFF0:OK, OFF1: "timeout waiting for modem reply", ON0:1:OK, ON1:1:"+COPS: 0 OK". Slot 1 does not exist; -n 1 writes to
+        /dev/stty_nr1 which urild holds, and the answer "+COPS: 0" is the RIL's own traffic, not a reply to AT+SFUN=4. Evidence that slot 1
+        writes touch the RIL. Fix still to do: remove stty_nr1 from sendat's slot 1 defaults (needs a sendat rebuild).
+
+RETEST (paste "matchitool_retest_restart_oneline.sh"): shows sendat.conf, slot 0 without it, internet before, then the radio restart in the
+        background; after ~100 s read cycle.log. Expect DATA:ok (no toggle needed) or DATA:toggled; NET: tells the interface state if a toggle ran.
+
+TO TEST ON THE F50" below)
  1. Rebuild sendat (workflow), install, run: sendat -probe ; sendat -n 0 -c AT ; sendat -n 1 -c AT
  2. Test curl through the wrapper: /data/local/matchitool/bin/curl -sS -o /dev/null -w "%{http_code}\n" https://example.com
  3. zreq: find the router web port (ss/netstat or how RouterHost reaches it), then retest ZQ-1 with and without PW.
@@ -96,7 +116,7 @@ FIXES 2026-11-17 (bugs 1-3; see CHANGELOG.md 1.4.2)
         Script timeout 110 s (was 60; /api/shell caps at 120). scripts/test_at_radio.js runs the real script in the host sh with fake
         sendat/ip/settings/svc (6 cases). validate.sh passes. NOT yet run on the F50.
 [DONE, CI] Bug 2, sendat -probe skips ports other processes hold: it reads /proc/<pid>/fd (root) and skips a port another process has open
-        (another sendat does not count); fixed fallback list nr0..5 urild, nr28 cplog_svc, nr31 engpc. Skipped ports are listed with the
+        (another sendat does not count); fixed fallback list nr0..5 urild, nr28 cplog_svc (really vendor.sprd.har), nr31 engpc. Skipped ports are listed with the
         reason. New flag: -probe -all (tries them anyway, can drop mobile data). Normal calls unchanged.
         CI build-sendat.yml: go vet + go test passed. Binary sha256 f33b7aa2f39f9721661c75d2a844d8f4bc1e3810218fb4c15630fe6280b5cadf
         (static arm64, strings checked); it was replaced by the bug 3 build (341bfb4d..., below), which includes this fix.
