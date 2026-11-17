@@ -174,7 +174,7 @@ RESULTS 2026-11-17 (new CI binaries, all run on the F50)
 [OPEN] Sign-in password was typed into the console: clear the console command history.
 
 STILL OPEN
- 1. zreq: default port 8080 fallback is DONE IN CODE (tests pass); rebuild with the workflow, new hash into NOTICE.md, docs/BINARIES.md, assets/bin/zreq, then retest "zreq -params cmd=LD" with no -ip port.
+ 1. zreq 8dc2144a... (default port 8080 fallback) is installed and pinned: retest on the F50 "zreq -params cmd=LD" with no -ip port (expect {"LD":...}).
  2. Radio restart: slot 1 skip + UFI wording removed DONE IN CODE (test_at_radio.js); install the new APK and run Radio restart: expect "slot 1: not present on this device, skipped".
  3. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started).
 
