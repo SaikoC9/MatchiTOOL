@@ -9382,7 +9382,9 @@ document.getElementById('updinstall').onclick=async()=>{
       try{const st=await api('/api/update/status'+(Date.now()-t0>45000?'?log=1':''));
         // A same-version reinstall keeps the same version text, so also watch the package's last-update time.
         const replaced=before?(st.lastUpdate!==before.lastUpdate||st.code!==before.code):true;
-        if(st.version===want&&Number(st.code)===wantCode&&replaced){out.textContent='MatchiTOOL '+'updated to '+want+'. Reload this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';createToast('MatchiTOOL '+want+' installed','green',8000);return}
+        if(st.version===want&&Number(st.code)===wantCode&&replaced){const done='MatchiTOOL '+'updated to '+want+'. Reloading this page so the page and host versions match. Temporary files were removed.';document.getElementById('updfile').value='';createToast('MatchiTOOL '+want+' installed','green',8000);
+          // Reload by itself: the old page cannot talk to the new host build reliably. A short countdown, so the result stays readable; a failed reload leaves the manual hint.
+          let left=3;const go=()=>{out.textContent=done+'\n\nReloading in '+left+' s…';if(left-- <= 0){try{location.reload()}catch(_){out.textContent=done.replace('Reloading','Reload')+'\n\nReload this page (Ctrl+F5).'}return}setTimeout(go,1000)};go();return}
         if(Date.now()-t0>45000&&st.log)out.textContent='Still version '+st.version+'. Installer output:\n'+st.log;
       }catch(_){/* host is restarting */}
     }
