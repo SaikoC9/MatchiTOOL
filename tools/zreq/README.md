@@ -7,7 +7,7 @@ and does not promise identical output. It keeps the flag names, so most plugin c
     zreq -body 'goformId=SET_X&isTest=false'                 # POST /goform/goform_set_cmd_process
     zreq -pwd-file /data/local/matchitool/router.pw -params 'cmd=wan_ipaddr'    # sign in first, then GET
 
-Flags: `-ip` (default 192.168.0.1, optional `:port`), `-method`, `-params`, `-body`, `-pwd`, `-pwd-file`, `-enc b64|raw`,
+Flags: `-ip` (default 192.168.0.1, optional `:port`), `-method`, `-params`, `-body`, `-pwd`, `-pwd-file`, `-enc auto|ld|b64|raw`,
 `-cookie`, `-path`, `-json`, `-v`, `-t` (seconds, default 10), `-version`.
 Env: `ZREQ_PWD` (password), `ZREQ_COOKIE` (session cookie).
 
@@ -34,8 +34,9 @@ Run the workflow, download `matchitool-zreq-arm64`, then do the device test belo
     /data/local/tmp/zreq -v -params 'cmd=LD'                       # unauthenticated GET, expect JSON
     /data/local/tmp/zreq -v -pwd-file /data/local/tmp/pw -params 'cmd=modem_main_state'
 Open points to confirm on the real router:
-1. Password encoding. `b64` (base64 of the password) is the common ZTE form, but some firmware wants another form. If sign-in
-   returns `result=1` with the right password, look at what the router's own login page sends and use `-enc raw` with the
-   already-encoded value. **Do not loop on a failing sign-in: it can lock the login.**
+1. Password encoding. Default `-enc auto` asks `cmd=LD` first: with an `LD` it sends `SHA256(SHA256(pw)+LD)` (upper-case hex, the F50 form,
+   same as the app's ZteClient), without one it sends base64 (older firmware). `-enc ld|b64|raw` force one form. If sign-in returns
+   `result=1` with the right password, look at what the router's own login page sends. **Do not loop on a failing sign-in: it can lock the login.**
+   On the F50 run `scripts/zreq_f50_test.sh` (it also finds the web port).
 2. Whether the get endpoint needs a cookie for the commands your plugins use.
 3. Compare with the old binary on the calls your plugins make (`./zreq-old ...` vs `./zreq ...`) and note any difference in the output.

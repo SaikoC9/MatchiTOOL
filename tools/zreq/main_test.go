@@ -187,7 +187,9 @@ func TestPostLoginThenSet(t *testing.T) {
 func TestWrongPasswordIsTriedOnce(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
+		if r.Method == http.MethodPost {
+			hits++
+		}
 		w.Write([]byte(`{"result":"1"}`))
 	}))
 	defer srv.Close()
@@ -277,5 +279,95 @@ func TestHelpAndVersion(t *testing.T) {
 	}
 	if code, out, _ := call("-version"); code != exitOK || !strings.HasPrefix(out, "zreq ") {
 		t.Errorf("-version: code=%d out=%q", code, out)
+	}
+}
+
+func TestLdSecret(t *testing.T) {
+	// SHA256("abc") = BA7816BF...; the login value is SHA256(upper(SHA256(pw)) + LD), upper-case hex.
+	if got := sha256Upper("abc"); got != "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD" {
+		t.Errorf("sha256Upper = %s", got)
+	}
+	want := sha256Upper(sha256Upper("pw") + "LD1")
+	if got := ldSecret("pw", "LD1"); got != want || got != strings.ToUpper(got) {
+		t.Errorf("ldSecret = %s", got)
+	}
+}
+
+// ldServer answers cmd=LD with ld (or no LD field when ld is "-") and accepts LOGIN only with the matching secret.
+func ldServer(ld, wantSecret string, logins *int, getsAfterLogin *int) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.Method == http.MethodGet && r.URL.Query().Get("cmd") == "LD" {
+			if ld == "-" {
+				w.Write([]byte(`{"x":"y"}`))
+			} else {
+				w.Write([]byte(`{"LD":"` + ld + `"}`))
+			}
+			return
+		}
+		if r.Method == http.MethodPost && r.PostForm.Get("goformId") == "LOGIN" {
+			*logins++
+			if r.PostForm.Get("password") != wantSecret {
+				w.Write([]byte(`{"result":"1"}`))
+				return
+			}
+			http.SetCookie(w, &http.Cookie{Name: "zsid", Value: "tok"})
+			w.Write([]byte(`{"result":"0"}`))
+			return
+		}
+		if c, err := r.Cookie("zsid"); err != nil || c.Value != "tok" {
+			w.WriteHeader(401)
+			return
+		}
+		*getsAfterLogin++
+		w.Write([]byte(`{"ok":"1"}`))
+	}))
+}
+
+func TestAutoSignInUsesLdChallenge(t *testing.T) {
+	logins, gets := 0, 0
+	srv := ldServer("A1B2C3", ldSecret("hunter2", "A1B2C3"), &logins, &gets)
+	defer srv.Close()
+	code, out, errs := call("-ip", addr(srv), "-pwd", "hunter2", "-params", "cmd=wan_ipaddr")
+	if code != exitOK || out != `{"ok":"1"}` || logins != 1 || gets != 1 {
+		t.Fatalf("code=%d out=%q logins=%d gets=%d err=%q", code, out, logins, gets, errs)
+	}
+}
+
+func TestAutoFallsBackToBase64WithoutLd(t *testing.T) {
+	logins, gets := 0, 0
+	srv := ldServer("-", base64.StdEncoding.EncodeToString([]byte("old")), &logins, &gets)
+	defer srv.Close()
+	if code, _, errs := call("-ip", addr(srv), "-pwd", "old", "-params", "cmd=x"); code != exitOK || logins != 1 {
+		t.Fatalf("code=%d logins=%d err=%q", code, logins, errs)
+	}
+}
+
+func TestLdModeRefusesWhenNoChallenge(t *testing.T) {
+	logins, gets := 0, 0
+	srv := ldServer("-", "", &logins, &gets)
+	defer srv.Close()
+	if code, _, _ := call("-ip", addr(srv), "-pwd", "x", "-enc", "ld", "-params", "cmd=x"); code != exitLogin || logins != 0 {
+		t.Fatalf("code=%d logins=%d (no login may be posted)", code, logins)
+	}
+}
+
+func TestChallengeServerErrorPostsNoLogin(t *testing.T) {
+	posts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+		}
+		w.WriteHeader(503)
+	}))
+	defer srv.Close()
+	if code, _, _ := call("-ip", addr(srv), "-pwd", "x", "-params", "cmd=x"); code != exitNet || posts != 0 {
+		t.Fatalf("code=%d posts=%d: a busy router must not get a base64 password", code, posts)
+	}
+}
+
+func TestBadEncIsUsageError(t *testing.T) {
+	if code, _, _ := call("-ip", "127.0.0.1:1", "-pwd", "x", "-enc", "md5", "-params", "cmd=x"); code != exitUsage {
+		t.Fatalf("code=%d", code)
 	}
 }

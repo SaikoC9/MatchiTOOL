@@ -145,6 +145,15 @@ TO TEST ON THE F50 (after installing the build with the 341bfb4d... sendat)
  4. Bypass_v65_22.js: re-run its public IP check and confirm it prints an IP (expected to pass, the raw curl path is 200).
  5. Pin the answering port for slot 0 in /data/local/matchitool/sendat.conf only if stty_nr6 does not answer.
 
+RESULTS 2026-11-17 (retest, F50)
+[PASS] sendat.conf holds only "0=/dev/stty_nr6". With it moved aside, sendat -n 0 -c AT = OK, exit 0: slot 0 needs no conf.
+[PASS] Radio restart: OFF0:OK, ON0:1:OK, DATA:ok in ~26 s (08:25 -> 08:51), sipa_eth0 had a new IPv4, ping 1.1.1.1 0% loss, no toggle needed. Bug 1 done.
+[FOUND] Slot 1 still writes to the RIL: OFF1 timed out, ON1 "OK" came from the RIL's own "+CNEM: 1,0,0,0,1" line.
+[DONE IN CODE] Item 6: stty_nr1 removed from sendat's slot 1 defaults (tools/sendat/main.go, test TestSlot1NeverDefaultsToRILPort). Needs workflow rebuild + hash update.
+[DONE IN CODE] Item 4: zreq 1.1 signs in with SHA256(SHA256(pw)+LD) (-enc auto). Tests pass. Needs workflow rebuild + hash update, then run
+        scripts/zreq_f50_test.sh on the F50 (part 1 finds the web port with no password; part 2 = ONE sign-in with ZPW=...).
+        Still unproven on the router: that the F50 accepts this form from zreq (ZteClient does the same, so it is expected to).
+
 STILL OPEN
  4. zreq sign-in with the LD hash (SHA256(SHA256(pw)+LD)): test once, a wrong password can lock the login. Also find the router web port
     (the earlier "connection refused" on 192.168.0.1:80 never reached a sign-in) and retest ZQ-1 with and without PW.

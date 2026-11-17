@@ -4,6 +4,7 @@
 //	zreq [-ip 192.168.0.1] -body 'goformId=X&isTest=false'                POST /goform/goform_set_cmd_process
 //
 // Add -pwd / -pwd-file / env ZREQ_PWD to sign in first (goformId=LOGIN), then send the request with the session cookie.
+// The password goes as SHA256(SHA256(pw)+LD) when the router gives an LD challenge (the F50), else as base64 (-enc auto).
 //
 // This is NOT a copy of the UFI-TOOLS binary and does not promise byte-identical output. It keeps the flag names
 // (-ip -method -params -body -pwd -json) and the usual calls. Differences, on purpose:
@@ -18,7 +19,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -45,7 +48,7 @@ const (
 	getPath = "/goform/goform_get_cmd_process"
 	setPath = "/goform/goform_set_cmd_process"
 	maxBody = 4 << 20
-	version = "zreq 1.0 (MatchiTOOL)"
+	version = "zreq 1.1 (MatchiTOOL)"
 )
 
 type exitErr struct {
@@ -90,7 +93,7 @@ func execute(args []string, stdout, stderr io.Writer) *exitErr {
 	fs.StringVar(&o.body, "body", "", "POST body, e.g. goformId=SET_X&isTest=false")
 	fs.StringVar(&o.pwd, "pwd", "", "router password (visible in the process list; prefer -pwd-file or env ZREQ_PWD)")
 	fs.StringVar(&o.pwdFile, "pwd-file", "", "read the router password from this file (trailing newline removed)")
-	fs.StringVar(&o.enc, "enc", "b64", "how the password is sent: b64 (base64 of the password) or raw (send it exactly as given)")
+	fs.StringVar(&o.enc, "enc", "auto", "how the password is sent: auto (ask the router for its LD challenge: SHA256(SHA256(pw)+LD) when it gives one, else base64), ld (challenge only), b64 (base64 of the password) or raw (exactly as given)")
 	fs.StringVar(&o.cookie, "cookie", "", "session cookie to send, e.g. zsid=abc (or env ZREQ_COOKIE); replaced by the cookie from -pwd sign-in")
 	fs.StringVar(&o.path, "path", "", "override the endpoint path (default: the get or set goform path)")
 	fs.BoolVar(&o.asJSON, "json", false, "print the reply as indented JSON (exit 5 if it is not JSON)")
@@ -163,6 +166,11 @@ func execute(args []string, stdout, stderr io.Writer) *exitErr {
 	pwd, err := resolvePwd(o.pwd, o.pwdFile, os.Getenv)
 	if err != nil {
 		return &exitErr{code: exitUsage, msg: "cannot read password file: " + cleanErr(err).Error()}
+	}
+	switch o.enc {
+	case "auto", "ld", "b64", "raw":
+	default:
+		return &exitErr{code: exitUsage, msg: "-enc must be auto, ld, b64 or raw"}
 	}
 	cookie := o.cookie
 	if cookie == "" {
@@ -267,7 +275,37 @@ func getQuery(params string) (string, error) {
 	return "isTest=false&" + params, nil
 }
 
-// encodePwd turns the password into what the login form field carries.
+// sha256Upper is SHA-256 of s as upper-case hex (the form the router's login uses).
+func sha256Upper(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return strings.ToUpper(hex.EncodeToString(h[:]))
+}
+
+// ldSecret is the newer-firmware login value: SHA256(SHA256(password) + LD), upper-case hex both times.
+func ldSecret(pwd, ld string) string { return sha256Upper(sha256Upper(pwd) + ld) }
+
+// fetchLD asks the router for its login challenge (GET cmd=LD). It returns "" when the router answers without one (older
+// firmware). A network error or an HTTP 5xx is an error, NOT "older firmware", so the weak base64 form is never posted
+// because of a transient failure.
+func fetchLD(c *http.Client, base string) (string, *exitErr) {
+	rp, err := doRequest(c, http.MethodGet, base, getPath, "isTest=false&cmd=LD", "", "")
+	if err != nil {
+		return "", &exitErr{code: exitNet, msg: "sign-in challenge request failed: " + cleanErr(err).Error()}
+	}
+	if rp.status >= 500 {
+		return "", &exitErr{code: exitNet, msg: fmt.Sprintf("router error HTTP %d on the sign-in challenge", rp.status)}
+	}
+	var m map[string]any
+	if json.Unmarshal(rp.body, &m) != nil {
+		return "", nil
+	}
+	if v, ok := m["LD"].(string); ok {
+		return v, nil
+	}
+	return "", nil
+}
+
+// encodePwd turns the password into what the login form field carries (b64 and raw only; ld needs the router, see login).
 func encodePwd(enc, pwd string) (string, error) {
 	switch enc {
 	case "b64":
@@ -275,7 +313,7 @@ func encodePwd(enc, pwd string) (string, error) {
 	case "raw":
 		return pwd, nil
 	}
-	return "", errors.New("-enc must be b64 or raw")
+	return "", errors.New("-enc must be auto, ld, b64 or raw")
 }
 
 // resolvePwd: -pwd, then -pwd-file, then env ZREQ_PWD. Empty means "do not sign in".
@@ -351,9 +389,26 @@ func doRequest(c *http.Client, method, base, path, query, body, cookie string) (
 
 // login signs in once (goformId=LOGIN) and returns the session cookie the router set ("" when it set none).
 func login(c *http.Client, base, pwd, enc string) (string, *exitErr) {
-	encoded, err := encodePwd(enc, pwd)
-	if err != nil {
-		return "", &exitErr{code: exitUsage, msg: err.Error()}
+	var encoded string
+	switch enc {
+	case "auto", "ld":
+		ld, e := fetchLD(c, base)
+		if e != nil {
+			return "", e
+		}
+		switch {
+		case ld != "":
+			encoded = ldSecret(pwd, ld)
+		case enc == "ld":
+			return "", &exitErr{code: exitLogin, msg: "the router gave no LD challenge (use -enc b64 for older firmware)"}
+		default:
+			encoded = base64.StdEncoding.EncodeToString([]byte(pwd))
+		}
+	default:
+		var err error
+		if encoded, err = encodePwd(enc, pwd); err != nil {
+			return "", &exitErr{code: exitUsage, msg: err.Error()}
+		}
 	}
 	body := "goformId=LOGIN&isTest=false&password=" + url.QueryEscape(encoded)
 	rp, err := doRequest(c, http.MethodPost, base, setPath, "", body, "")

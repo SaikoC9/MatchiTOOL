@@ -37,10 +37,10 @@ const (
 // Guess list, per SIM slot. Verify with -probe on the real device, then pin the answer in sendat.conf.
 // Slot 0 starts with /dev/stty_nr6 on purpose: on the F50 stty_nr0..5 belong to urild (the RIL, see knownHeld), nr6 is free, so a plain
 // "sendat -n 0 -c AT" works without a sendat.conf and without touching a port the RIL reads. The held nr0 stays last, only as a fallback
-// for a device that has no nr6. Slot 1 is unchanged: its free port on the F50 is not known yet (run -probe and send the output).
+// for a device that has no nr6. Slot 1 has no stty_nr1 on purpose: the F50 has one SIM slot, and stty_nr1 is held by urild (the RIL), so "-n 1" must say "no modem AT device found for slot 1" instead of writing to the RIL.
 var defaultDevices = map[int][]string{
 	0: {"/dev/stty_nr6", "/dev/stty_lte0", "/dev/smd11", "/dev/smd7", "/dev/ttyUSB2", "/dev/stty_nr0"},
-	1: {"/dev/stty_lte1", "/dev/smd8", "/dev/ttyUSB3", "/dev/stty_nr1"},
+	1: {"/dev/stty_lte1", "/dev/smd8", "/dev/ttyUSB3"},
 }
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }

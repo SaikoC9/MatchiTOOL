@@ -165,3 +165,17 @@ func TestDefaultSlot0StartsWithFreePort(t *testing.T) {
 		seen[p] = true
 	}
 }
+
+func TestSlot1NeverDefaultsToRILPort(t *testing.T) {
+	held := knownHeld()
+	for _, p := range defaultDevices[1] {
+		if held[p] != "" {
+			t.Errorf("slot 1 default %s is held by another process (%s): a plain -n 1 would write to it", p, held[p])
+		}
+	}
+	for _, p := range defaultDevices[0][:len(defaultDevices[0])-1] {
+		if held[p] != "" {
+			t.Errorf("slot 0 default %s is held (%s)", p, held[p])
+		}
+	}
+}
