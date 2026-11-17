@@ -44,19 +44,53 @@ window.MatchiRadio = (() => {
   }
 
   // ---- Router (goform through the /api/zte proxy) -------------------------------------------------------------
-  async function zte(op, params) {
-    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: 0 }) });
+  // retry: 0 = send as is; 1 = drop the cached router session and sign in again first; 2 = the same plus the older AD token form (ZteClient.callLocked).
+  async function zte(op, params, retry) {
+    const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op, params, retry: retry || 0 }) });
     if (r.error) throw new Error(r.error);
     return r.data;
   }
   // allowEmpty: the F50 answers some set commands (PERFORMANCE_MODE_SETTING, like CELL_LOCK) with HTTP 200 and an EMPTY reply instead of "success".
   // With allowEmpty an empty reply is accepted and the caller's read-back decides; anything else that is not "success" is still refused.
-  async function setRouter(params, allowEmpty) {
-    const d = await zte('set', params);
+  // Returns 'success' or 'empty'. retry: see zte().
+  async function setRouter(params, allowEmpty, retry) {
+    const d = await zte('set', params, retry);
     const res = d && typeof d === 'object' ? d.result : d;
     const t = res === undefined || res === null ? '' : String(res).trim();
-    if (t === 'success' || (allowEmpty && t === '')) return;
+    if (t === 'success') return 'success';
+    if (allowEmpty && t === '') return 'empty';
     throw new Error('Router refused the change (' + (res === undefined ? 'no answer' : t.slice(0, 80)) + ')');
+  }
+  // Radio set calls (band lock, network mode, cell lock, unlock) are idempotent: sending the same one twice changes nothing more.
+  // A router that lost our sign-in, or got no valid AD token, answers a set with an EMPTY reply and does NOTHING, which looks exactly like
+  // the F50's real "accepted" reply to CELL_LOCK. So an empty reply is judged by the read-back (verify), and when the change is not there
+  // the call is sent again with a fresh sign-in (retry 1) and then with the older AD token form (retry 2). A reply of "success" is
+  // never repeated. Text other than "success" / "" is refused at once (setRouter throws).
+  // verify() must return true when the router now shows the change; it may keep what it read for the caller.
+  // Returns { reply: 'success'|'empty' (of the last send), attempts, ok }.
+  let settleMs = 1200;                       // how long the router gets to apply a change before it is read back (tests set 0)
+  const setSettle = (ms) => { settleMs = ms; };
+  const pause = (ms) => (settleMs === 0 ? Promise.resolve() : sleep(ms));
+  async function setConfirmed(params, verify, afterSuccessMs) {
+    const judge = async () => { try { return !!(await verify()); } catch (_) { return false; } };
+    let reply = 'empty', ok = false, attempts = 0;
+    for (let level = 0; level <= 2; level++) {
+      attempts++;
+      reply = await setRouter(params, true, level);
+      if (reply === 'success') { if (afterSuccessMs) await pause(afterSuccessMs); ok = await judge(); break; }
+      await pause(settleMs);
+      ok = await judge();
+      if (ok) break;
+    }
+    return { reply, attempts, ok };
+  }
+  // Why an empty reply that changed nothing happened, in words. Without the saved router admin password the host never signs in, and
+  // the router then ignores every change.
+  async function emptyHint() {
+    let set = null; try { const c = await api('/api/zte/config'); set = !!(c && c.passwordSet); } catch (_) { /* unknown */ }
+    return set === false
+      ? 'MatchiTOOL has no router admin password saved, so the router ignores changes. Sign in to the web console with the router password once (that saves it), then try again.'
+      : 'The router ignored the command even after a fresh sign-in. Reboot the device and try again.';
   }
   const NET_MODES = [
     ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
@@ -68,6 +102,17 @@ window.MatchiRadio = (() => {
     const d = (await zte('get', { multi_data: '1', cmd: 'net_select,BearerPreference,performance_mode' })) || {};
     if (typeof d !== 'object') throw new Error('Unexpected router answer');
     return { net: clean(d.net_select) || clean(d.BearerPreference), perf: clean(d.performance_mode) };
+  }
+
+  // Network mode: send, give the router 2 s, read it back. An empty reply with the old mode still showing is repeated with a fresh sign-in.
+  // Returns { reply, attempts, ok, read } (read = last readRadio() result or null).
+  async function setNetMode(next) {
+    let read = null;
+    const s = await setConfirmed({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next }, async () => {
+      read = null; try { read = await readRadio(); } catch (_) { /* reported by the caller */ }
+      return !!read && read.net === next;
+    }, 2000);
+    return { ...s, read };
   }
 
   // ---- Band lock ----------------------------------------------------------------------------------------------
@@ -94,18 +139,27 @@ window.MatchiRadio = (() => {
     if (typeof d !== 'object') throw new Error('Unexpected router answer');
     return { lteRaw: d.lte_band_lock, nrRaw: d.nr_band_lock, lte: parseBands(d.lte_band_lock), nr: parseBands(d.nr_band_lock) };
   }
-  // Sends only the parts that are given: [goformId, param, value]. Every one must answer success; the first failure stops the rest.
-  async function sendBands(parts) {
+  // Sends only the parts that are given: [goformId, param, value]. Every one must be accepted; the first failure stops the rest.
+  // With `expect` ({lte?, nr?}) a part whose reply is EMPTY is judged by a read-back and repeated with a fresh sign-in when nothing changed
+  // (setConfirmed); if it still did not change, that is an error with the reason, not a silent "sent".
+  async function sendBands(parts, expect) {
     const sent = [];
     for (const [goformId, param, value] of parts) {
-      await setRouter({ goformId, [param]: value }); sent.push(goformId);
+      const want = expect ? (goformId === 'LTE_BAND_LOCK' ? expect.lte : goformId === 'NR_BAND_LOCK' ? expect.nr : undefined) : undefined;
+      if (want === undefined) { await setRouter({ goformId, [param]: value }); sent.push(goformId); continue; }
+      const s = await setConfirmed({ goformId, [param]: value }, async () => {
+        const r = await readBands();
+        return bandsCheck(goformId === 'LTE_BAND_LOCK' ? r.lte : r.nr, want).ok;
+      });
+      if (s.reply === 'empty' && !s.ok) throw new Error('The router answered ' + goformId + ' with an empty reply ' + s.attempts + ' times and the bands did not change. ' + (await emptyHint()));
+      sent.push(goformId);
     }
     return sent;
   }
   // Send, then read back and compare with `expect` ({lte?: [..], nr?: [..]}). Throws when the router refuses. Never restarts the radio.
   // Returns { sent, read (null when the read-back failed), bad[] (types that do not match), notes[] (dropped bands), ok }.
   async function setBands(parts, expect) {
-    const sent = await sendBands(parts);
+    const sent = await sendBands(parts, expect);
     let read = null; try { read = await readBands(); } catch (_) { /* reported as ok:false below */ }
     const bad = [], notes = [];
     if (read && expect.lte !== undefined) { const c = bandsCheck(read.lte, expect.lte); if (!c.ok) bad.push('LTE reports ' + bandsMsg(read.lte || [], false)); else if (c.dropped.length) notes.push('LTE ' + bandsMsg(c.dropped, false) + ' not supported, dropped by the router'); }
@@ -131,15 +185,8 @@ window.MatchiRadio = (() => {
     return { nb: toList(d.neighbor_cell_info), locked: toList(d.locked_cell_info) };
   }
   // CELL_LOCK / UNLOCK_ALL_CELL on the F50 answer HTTP 200 with an EMPTY reply (seen on the device: success:true, data "", "reply empty"),
-  // not with the word "success". An empty reply is therefore accepted here, and the read-back (locked_cell_info) decides whether it worked.
-  // A reply that says something else (failure, error text) is still refused.
-  async function setRouterCell(params) {
-    const d = await zte('set', params);
-    const res = d && typeof d === 'object' ? d.result : d;
-    const t = res === undefined || res === null ? '' : String(res).trim();
-    if (t !== '' && t !== 'success') throw new Error('Router refused the change (' + t.slice(0, 80) + ')');
-    return t === '' ? 'empty' : 'success';
-  }
+  // not with the word "success". An empty reply is therefore accepted, and the read-back (locked_cell_info) decides whether it worked;
+  // when it did not, setConfirmed repeats the call with a fresh sign-in. A reply that says something else (failure, error text) is refused.
   // Is exactly this lock listed by the router?
   const cellListed = (cells, pci, earfcn, rat) => !!cells && cells.locked.some((x) => String(x.pci) === pci && String(x.earfcn) === earfcn && String(x.rat) === rat);
   // Every lock, unlock and auto-unlock watch takes a new epoch. A watch that sees the epoch change was replaced (newer lock) or made
@@ -149,17 +196,24 @@ window.MatchiRadio = (() => {
   const cellAutoOn = () => { try { return localStorage.getItem('matchi_cell_auto') !== '0'; } catch (_) { return true; } };
   const setCellAuto = (on) => { try { localStorage.setItem('matchi_cell_auto', on ? '1' : '0'); } catch (_) { /* not fatal */ } };
   // Send CELL_LOCK, then read the cells back. cells = null when the read failed. hit = the router lists exactly this lock.
+  // reply = 'empty' with hit false after `attempts` sends means the router ignored the command (see emptyHint).
   async function cellLock(pci, earfcn, rat) {
     cellEpoch++;
-    const reply = await setRouterCell({ goformId: 'CELL_LOCK', pci, earfcn, rat });
-    let cells = null; try { cells = await readCells(); } catch (_) { /* reported as hit:false */ }
-    return { cells, hit: cellListed(cells, pci, earfcn, rat), reply };
+    let cells = null;
+    const s = await setConfirmed({ goformId: 'CELL_LOCK', pci, earfcn, rat }, async () => {
+      cells = null; try { cells = await readCells(); } catch (_) { /* reported as hit:false */ }
+      return cellListed(cells, pci, earfcn, rat);
+    });
+    return { cells, hit: s.ok, reply: s.reply, attempts: s.attempts };
   }
   async function cellUnlock() {
     cellEpoch++;
-    const reply = await setRouterCell({ goformId: 'UNLOCK_ALL_CELL' });
-    let cells = null; try { cells = await readCells(); } catch (_) { /* reported as none:false */ }
-    return { cells, none: !!cells && !cells.locked.length, reply };
+    let cells = null;
+    const s = await setConfirmed({ goformId: 'UNLOCK_ALL_CELL' }, async () => {
+      cells = null; try { cells = await readCells(); } catch (_) { /* reported as none:false */ }
+      return !!cells && !cells.locked.length;
+    });
+    return { cells, none: s.ok, reply: s.reply, attempts: s.attempts };
   }
   // Wait, then look once at the registration. Resolves 'cancelled' (a newer lock or an unlock happened meanwhile), 'off' (auto-unlock was
   // switched off while waiting), 'registered' (the lock stays) or 'unregistered' (the caller should unlock). Never repeats, never unlocks by itself.
@@ -302,7 +356,7 @@ window.MatchiRadio = (() => {
   return {
     sleep, at, sh, fields, tidy, parseNrSupported, readNrSupported, isRegistered, waitRegistered,
     isBusy, busyReason, beginBusy, onBusy,
-    zte, setRouter, NET_MODES, netLabel, clean, readRadio,
+    zte, setRouter, setConfirmed, setSettle, emptyHint, setNetMode, NET_MODES, netLabel, clean, readRadio,
     LTE_BANDS, parseBands, bandText, bandsMsg, sameList, bandsCheck, readBands, sendBands, setBands,
     toList, ratLabel, guessRat, cellOk, readCells, cellListed, cellLock, cellUnlock, cellAutoOn, setCellAuto, watchCell, servingCells,
     CYCLE_SH, radioCycle,

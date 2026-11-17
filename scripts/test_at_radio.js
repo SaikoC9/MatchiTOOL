@@ -3,11 +3,12 @@ const fs = require('fs'), assert = require('assert');
 const src = fs.readFileSync(__dirname + '/../app/src/main/web-src/radio-core.js', 'utf8');
 const calls = [];                       // every api() call, in order
 let reply = () => ({});                 // set per test: (path, body) -> response object
-const api = async (path, opt) => { const body = JSON.parse(opt.body); calls.push({ path, body }); return reply(path, body); };
+const api = async (path, opt) => { const body = opt && opt.body ? JSON.parse(opt.body) : {}; calls.push({ path, body }); return reply(path, body); };
 const win = {};
 new Function('window', 'api', src)(win, api);
 const R = win.MatchiRadio;
 assert(R, 'window.MatchiRadio is not defined');
+R.setSettle(0);   // no waiting for the router in tests
 const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSupported, fields } = R;
 (async () => {
   assert.deepStrictEqual(parseBands('41,n78,3,3'), [3, 41, 78]);
@@ -164,6 +165,43 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
   reply = (path, b) => path === '/api/zte' ? { data: b.op === 'set' ? { result: 'failure' } : {} } : {};
   await assert.rejects(R.cellLock('100', '620640', '16'), /refused/);
   await assert.rejects(R.cellUnlock(), /refused/);
+  // Empty reply that changed NOTHING = the router ignored the command (lost sign-in / no AD token). The call is repeated with a fresh sign-in
+  // (retry 1), then the older AD form (retry 2); a router that applies it on the retry is a success, one that never does is reported as ignored.
+  {
+    let lk = [], seen = [], applyAt = 99;   // applyAt: the retry level that finally works
+    const mk = () => (path, b) => {
+      if (path === '/api/zte/config') return { passwordSet: true };
+      if (path !== '/api/zte') return {};
+      if (b.op === 'set') { seen.push(b.retry); if (b.retry >= applyAt) lk = b.params.goformId === 'CELL_LOCK' ? [{ pci: b.params.pci, earfcn: b.params.earfcn, rat: b.params.rat }] : []; return { data: '' }; }
+      return { data: { neighbor_cell_info: [], locked_cell_info: lk } };
+    };
+    lk = [{ pci: '100', earfcn: '620640', rat: '16' }]; seen = []; applyAt = 1; reply = mk();
+    let u = await R.cellUnlock(); assert(u.none && u.attempts === 2, 'ignored at retry 0, applied after the fresh sign-in'); assert.deepStrictEqual(seen, [0, 1]);
+    lk = []; seen = []; applyAt = 99; reply = mk();
+    cl = await R.cellLock('100', '620640', '16'); assert(!cl.hit && cl.reply === 'empty' && cl.attempts === 3, 'never applied: 3 tries, reported as ignored'); assert.deepStrictEqual(seen, [0, 1, 2]);
+    assert(/Reboot|password/.test(await R.emptyHint()));
+    seen = []; lk = []; applyAt = 0; reply = mk();
+    cl = await R.cellLock('100', '620640', '16'); assert(cl.hit && cl.attempts === 1 && seen.length === 1, 'applied on the first send (the F50 case): never repeated');
+    // "success" is never repeated, even when the read-back does not show the change yet
+    seen = []; reply = (path, b) => path === '/api/zte' ? (b.op === 'set' ? (seen.push(b.retry), { data: { result: 'success' } }) : { data: { neighbor_cell_info: [], locked_cell_info: [] } }) : {};
+    cl = await R.cellLock('100', '620640', '16'); assert(!cl.hit && cl.reply === 'success' && seen.length === 1);
+    // password not saved: the hint says so
+    reply = (path) => path === '/api/zte/config' ? { passwordSet: false } : {};
+    assert(/no router admin password/.test(await R.emptyHint()));
+    // network mode: empty reply + old mode -> repeated; applied on retry 1 -> ok
+    let mode = 'WL_AND_5G'; seen = [];
+    reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set' ? (seen.push(b.retry), b.retry >= 1 && (mode = b.params.BearerPreference), { data: '' }) : { data: { net_select: mode } };
+    let nm = await R.setNetMode('LTE_AND_5G'); assert(nm.ok && nm.attempts === 2 && nm.read.net === 'LTE_AND_5G');
+    mode = 'WL_AND_5G'; reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set' ? { data: '' } : { data: { net_select: mode } };
+    nm = await R.setNetMode('LTE_AND_5G'); assert(!nm.ok && nm.reply === 'empty' && nm.attempts === 3);
+    reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set' ? { data: { result: 'failure' } } : { data: { net_select: mode } };
+    await assert.rejects(R.setNetMode('LTE_AND_5G'), /refused/);
+    // band lock with an empty reply that changes nothing: error with the reason, not "sent"
+    let bl = '1,3'; reply = (path, b) => path === '/api/zte/config' ? { passwordSet: true } : path !== '/api/zte' ? {} : b.op === 'set' ? { data: '' } : { data: { lte_band_lock: bl, nr_band_lock: '78' } };
+    await assert.rejects(R.setBands([['LTE_BAND_LOCK', 'lte_band_lock', '8']], { lte: [8] }), /empty reply 3 times/);
+    reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set' ? (b.retry >= 1 && (bl = b.params.lte_band_lock), { data: '' }) : { data: { lte_band_lock: bl, nr_band_lock: '78' } };
+    r = await R.setBands([['LTE_BAND_LOCK', 'lte_band_lock', '8']], { lte: [8] }); assert(r.ok, 'band lock applied after a fresh sign-in');
+  }
   // watchCell: registered -> keeps, not registered -> asks the caller to unlock, a newer lock / unlock cancels it, switch-off is honoured
   const store = {}; global.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
   assert.strictEqual(R.cellAutoOn(), true, 'auto-unlock is ON by default');

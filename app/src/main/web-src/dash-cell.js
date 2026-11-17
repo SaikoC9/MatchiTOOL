@@ -164,10 +164,11 @@ function mountDashCell() {
       if (r.cells) take(r.cells);
       if (!r.hit) {   // the router can take a moment to list the lock: read once more after 3 s
         setStatus('Sent. Reading the router again in 3 s…'); await R.sleep(3000);
-        try { const c = await R.readCells(); take(c); r = { cells: c, hit: R.cellListed(c, pci, earfcn, rat) }; } catch (_) { /* reported below */ }
+        try { const c = await R.readCells(); take(c); r = { ...r, cells: c, hit: R.cellListed(c, pci, earfcn, rat) }; } catch (_) { /* reported below */ }
       }
       paint();
       if (r.hit) { addLog('Router now reports the locked cell.'); setStatus('Cell locked.'); toast('Cell locked', 'green'); }
+      else if (r.reply === 'empty') { const why = await R.emptyHint(); addLog('Router answered with an empty reply and no lock appeared (' + (r.attempts || 1) + ' tries, fresh sign-in). ' + why); setStatus('The router ignored the lock. ' + why); toast('Router ignored the cell lock', 'red'); }
       else { addLog('Router accepted the lock but does not list it (yet). Check Live Status, and unlock if the signal is gone.'); setStatus('Sent, but the router does not list the lock yet.'); toast('Sent, but the router does not list the lock yet', 'red'); }
     } catch (e) { addLog('Cell lock failed: ' + e.message); setStatus('Cell lock failed: ' + e.message); toast(e.message, 'red'); }
     finally { st.working = false; sync(); }
@@ -183,10 +184,11 @@ function mountDashCell() {
       if (r.cells) take(r.cells);
       if (!r.none) {
         setStatus('Sent. Reading the router again in 3 s…'); await R.sleep(3000);
-        try { const c = await R.readCells(); take(c); r = { cells: c, none: !c.locked.length }; } catch (_) { /* reported below */ }
+        try { const c = await R.readCells(); take(c); r = { ...r, cells: c, none: !c.locked.length }; } catch (_) { /* reported below */ }
       }
       paint();
       if (r.none) { addLog('Router reports no locked cell.'); setStatus('No locked cell. Live values return once the modem re-registers.'); toast('Cells unlocked', 'green'); }
+      else if (r.reply === 'empty' && r.cells) { const why = await R.emptyHint(); addLog('Router answered with an empty reply and the lock is still listed (' + (r.attempts || 1) + ' tries, fresh sign-in). ' + why); setStatus('The router ignored the unlock. ' + why); toast('Router ignored the unlock', 'red'); }
       else { addLog('Router accepted the unlock but still lists a locked cell, or could not be read. Press Refresh.'); setStatus('Unlock sent, but the router still lists a locked cell. Press Refresh.'); toast('Unlock sent, but a lock is still listed', 'red'); }
     } catch (e) { addLog('Unlock failed: ' + e.message + '. Try again, or restart the modem.'); setStatus('Unlock failed: ' + e.message); toast(e.message, 'red'); }
     finally { st.unlocking = false; sync(); }

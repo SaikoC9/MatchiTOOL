@@ -176,10 +176,10 @@ function mountDashRadio() {
     const done = R.beginBusy('Network mode changing…');
     try {
       setStatus('Changing network mode…');
-      await R.setRouter({ goformId: 'SET_BEARER_PREFERENCE', BearerPreference: next });   // no radio restart here
-      await R.sleep(2000);
-      let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
-      if (r && r.net === next) { setStatus('Router now reports: ' + R.netLabel(next)); toast('Network mode: ' + R.netLabel(next), 'green'); }
+      const sr = await R.setNetMode(next);   // no radio restart here; an empty reply with no change is repeated after a fresh router sign-in
+      const r = sr.read;
+      if (sr.ok) { setStatus('Router now reports: ' + R.netLabel(next)); toast('Network mode: ' + R.netLabel(next), 'green'); }
+      else if (sr.reply === 'empty') { const why = await R.emptyHint(); setStatus('Network mode not changed: the router answered with an empty reply ' + sr.attempts + ' times. ' + why); toast('Router ignored the network mode change', 'red'); }
       else { setStatus('Router accepted the change but reports ' + (r && r.net ? R.netLabel(r.net) : 'nothing') + '. It may need a moment: press Refresh.'); toast('Sent, but the router does not report the new mode yet', 'red'); }
     } catch (e) { setStatus('Network mode failed: ' + e.message); toast(e.message, 'red'); }
     finally { done(); }
