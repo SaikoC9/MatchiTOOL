@@ -58,3 +58,35 @@ NEXT
 DONE-WHEN
  - curl https://example.com = 200 with no -k, called the way plugins call it.
  - sendat -n 0 -c AT prints OK on the F50, the port is pinned, Live signal and AT & Radio work.
+
+RESULTS 2026-11-17 (no internet after radio restart, then curl on the UFI path)
+[FOUND] After AT & Radio "Radio restart" (AT+SFUN=5 / 4) the F50 had no internet. ip -4 addr showed only lo and br0; sipa_eth0 was
+        state DOWN (NOARP, no IP), no default route. The modem side was fine: AT+CEREG? = 2,1, AT+CGACT? = 1,1 and 11,1 (both active),
+        AT+CGDCONT? listed the default and ims contexts. A Linux PC behind the F50 also had 100% loss to 1.1.1.1.
+[CAUSE] The modem data call stayed up but Android never brought the network interface back up after the radio restart.
+        Not proven which step did it: the restart itself, or sendat -probe having written "AT" to ports that urild/engpc/cplog_svc hold.
+[PASS]  Fix by hand: svc data disable; sleep 3; svc data enable -> sipa_eth0 UP with an IPv4 address, ping 1.1.1.1 = 0% loss (about 30 ms).
+[NOTE]  "sendat: inaccessible or not found" in the web console terminal = sendat is not on PATH. Use /data/data/com.matchi.tool/files/sendat.
+[FAIL]  curl https://api.ipify.org: /data/data/com.matchi.tool/files/curl = (60) SSL peer certificate not OK. The UFI path
+        /data/data/com.minikano.f50_sms/files/curl is rewritten by UfiPathMap to the same raw binary and fails the same way.
+        /data/local/matchitool/bin/curl (wrapper) = 200. So Bypass_v65_22.js's public IP check hits the raw curl with no CA bundle.
+[DONE IN CODE] CurlCa.kt: RootShell.run puts a prelude in front of every root script. It builds /data/local/matchitool/bin/cacert.pem
+        from /apex/com.android.conscrypt/cacerts (else /system/etc/security/cacerts) when missing or older than the store, and exports
+        CURL_CA_BUNDLE. A caller's own CURL_CA_BUNDLE / SSL_CERT_FILE wins; curl's --cacert and -k still win. It covers the raw binary,
+        the UFI path and the wrapper, and boot.sh / boot.d (they run through RootShell.run). CurlCaTest.kt runs the real prelude in the
+        host sh: 9 tests pass here (compiled on its own: scripts/kotlin_pure_tests.sh does not compile here because PluginGuard.kt uses
+        org.json without an import; unrelated to this change). RootShell.kt is not compiled here (Android classes): CI must confirm.
+[OPEN] Build and install the new APK, then check on the F50 (no setup needed, the wrapper no longer matters):
+        /data/data/com.minikano.f50_sms/files/curl -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org   (expect 200)
+        /data/data/com.matchi.tool/files/curl      -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org   (expect 200)
+        Run them from the web console terminal (root shell), not from adb shell: the prelude only applies to commands the app runs.
+[OPEN] Bypass_v65_22.js: re-run its public IP check and confirm it prints an IP.
+
+BUGS STILL TO FIX (not done yet)
+ 1. AT & Radio "Radio restart": after AT+SFUN=5/4 run svc data disable; sleep 3; svc data enable (or at least warn that data may need
+    a toggle). Check ip -4 addr show sipa_eth0 afterwards.
+ 2. sendat -probe: skip ports other processes hold (stty_nr0..5 urild, nr28 cplog_svc, nr31 engpc) so it cannot disturb the RIL. After
+    the next radio restart, check whether data still drops without the probe, to find out which of the two caused it.
+ 3. Slot 0 default guess list should start with a free port (stty_nr6), so no sendat.conf is needed.
+ 4. zreq sign-in with the LD hash (SHA256(SHA256(pw)+LD)); test once, a wrong password can lock the login.
+ 5. Source of zreq is in tools/zreq/ now: rebuild and compare the hash.

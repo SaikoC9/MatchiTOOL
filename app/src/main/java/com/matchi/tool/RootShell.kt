@@ -254,6 +254,8 @@ object RootShell {
         val timeout = timeoutMs.coerceIn(1_000L, 180_000L) // ImeiGuard asks for 150 s; the web console caps its own calls at 120 s
         // Root was just refused: answer at once instead of making the root manager ask again.
         blockedResult()?.let { return it }
+        // Every root script starts with a default CA bundle for curl (see CurlCa): the bundled curl cannot read Android's hashed cacerts folder.
+        val full = CurlCa.prelude() + script
         // A busy router should fail clearly instead of queuing/spawning an unbounded number of root processes.
         if (!commandSlots.tryAcquire(2, TimeUnit.SECONDS))
             return ShellResult(false, "Root command capacity reached; wait for the current operation to finish")
@@ -271,14 +273,14 @@ object RootShell {
                 var broken = true
                 var r: ShellResult? = null
                 try {
-                    r = runOn(s, script, timeout)
+                    r = runOn(s, full, timeout)
                     broken = r == null || !s.alive()
                 } catch (_: Exception) {
                 } finally { release(s, broken) }
                 if (r != null) return r
                 sessionFailedToStart = true
             }
-            val one = runOnce(script, timeout)
+            val one = runOnce(full, timeout)
             // The session could not start AND the one-shot su failed like a refusal: remember it, ask once.
             if (sessionFailedToStart && looksLikeSuRefusal(one)) blockSu()
             return one
