@@ -200,25 +200,49 @@ window.MatchiRadio = (() => {
     'o0=$(tx 0 AT+SFUN=5); echo "OFF0:$o0"',
     'o1=$(tx 1 AT+SFUN=5); echo "OFF1:$o1"',
     'sleep 0.1',
+    'anyon=0',
     'for s in 0 1; do',
     '  eval "o=\\$o$s"; n=1; case "$o" in *OK*) n=8;; esac',
     '  i=0; ok=0; r=',
     '  while [ $i -lt $n ]; do r=$(tx $s AT+SFUN=4); case "$r" in *OK*) ok=1; break;; esac; i=$((i+1)); [ $i -lt $n ] && sleep 2; done',
+    '  [ $ok = 1 ] && anyon=1',
     '  echo "ON$s:$ok:$r"',
     'done',
+    // Mobile data after the restart. Found on the F50: the modem data call stayed up (AT+CGACT? 1,1) but Android never brought sipa_eth0 back,
+    // so there was no default route and no internet until "svc data disable; sleep 3; svc data enable". So: when the radio is on again, wait up
+    // to ~24 s for a default route; if none appears, and mobile data is switched ON in Android, do that toggle. A phone whose owner turned mobile
+    // data off is left alone. Prints DATA:ok (route came back by itself), DATA:toggled (route back after the toggle), DATA:none (still no route),
+    // DATA:off (mobile data is off in Android, nothing done) or DATA:skip (the radio did not come back, nothing done).
+    'hasnet() { ip -4 route show default 2>/dev/null | grep -q .; }',
+    'if [ "$anyon" != 1 ]; then echo DATA:skip',
+    'else',
+    '  w=0; while [ $w -lt 8 ] && ! hasnet; do sleep 3; w=$((w+1)); done',
+    '  if hasnet; then echo DATA:ok',
+    '  else',
+    '    md=$(settings get global mobile_data 2>/dev/null)',
+    '    case "$md" in 0) echo DATA:off;;',
+    '    *)',
+    '      svc data disable; sleep 3; svc data enable',
+    '      w=0; while [ $w -lt 5 ] && ! hasnet; do sleep 3; w=$((w+1)); done',
+    '      if hasnet; then echo DATA:toggled; else echo DATA:none; fi;;',
+    '    esac',
+    '  fi',
+    'fi',
   ].join('\n');
   // ui = { log(line), toast(text, colour) }, both optional. Returns true when the radio is confirmed back on.
   async function radioCycle(ui) {
     const log = (ui && ui.log) || (() => {}), toast = (ui && ui.toast) || (() => {});
     log('> Radio restart (AT+SFUN=5 radio off, then AT+SFUN=4 radio on, SIM slots 0 and 1, as UFI-TOOLS does; runs on the device)');
     let text = '', lost = false;
-    try { text = await sh(CYCLE_SH, 60000); }
+    try { text = await sh(CYCLE_SH, 110000); }   // radio off/on (up to ~35 s) + mobile data recovery (up to ~45 s); /api/shell caps a call at 120 s
     catch (e) { lost = true; log('The page lost the host while the radio was off (' + e.message + '). The restart keeps going on the device; waiting for the host to come back...'); }
     const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
     if (!lost) {
       if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
       if (/^NOAT:/m.test(text)) { log('The modem did not answer a plain AT on either slot (sendat gave no OK), so the radio was NOT switched off. Nothing was changed. Run Full diagnose and look at "sendat architecture & execution".'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
       for (const sl of [0, 1]) { log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
+      const dataMsg = { ok: 'Mobile data: the network came back by itself.', toggled: 'Mobile data: Android did not bring the network back, so mobile data was switched off and on (svc data). The network is back.', none: 'Mobile data: still no default route after switching mobile data off and on. Check Live Status; run "svc data disable; sleep 3; svc data enable" by hand if there is still no internet.', off: 'Mobile data is switched off in Android, so it was left alone.' }[get('DATA')];
+      if (dataMsg) log(dataMsg);
       const off = [/OK/.test(get('OFF0')), /OK/.test(get('OFF1'))];
       if (!off[0] && !off[1]) { log('Radio-off step failed on both slots. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
       const bad = [0, 1].filter((sl) => off[sl] && !/^1:/.test(get('ON' + sl)));

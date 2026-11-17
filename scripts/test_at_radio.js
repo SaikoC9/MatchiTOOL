@@ -61,6 +61,45 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
   reply = (path) => path === '/api/shell' ? { content: 'NOSENDAT\n' } : {};
   assert.strictEqual(await R.radioCycle({ log: () => {}, toast: () => {} }), false);
   assert.strictEqual(await R.radioCycle(), false);   // no callbacks given: still works
+  // radioCycle logs what happened to mobile data, and the verdict does not depend on it
+  for (const [d, re] of [['ok', /came back by itself/], ['toggled', /switched off and on/], ['none', /still no default route/], ['off', /switched off in Android/]]) {
+    const lg = [];
+    reply = (path) => path === '/api/shell' ? { content: 'OFF0:+OK\nOFF1:+OK\nON0:1:OK\nON1:1:OK\nDATA:' + d + '\n' } : {};
+    assert.strictEqual(await R.radioCycle({ log: (l) => lg.push(l), toast: () => {} }), true);
+    assert(lg.some((l) => re.test(l)), 'DATA:' + d + ' is logged');
+  }
+  assert(!logs.some((l) => /Mobile data/.test(l)), 'an answer without a DATA line logs nothing about mobile data');
+  // the real on-device script, run in the host sh with fake sendat / ip / settings / svc (sleep is a no-op)
+  {
+    const cp = require('child_process'), os = require('os'), path = require('path');
+    const run = (o) => {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cyc-')), w = (n, t) => { fs.writeFileSync(path.join(d, n), '#!/bin/sh\n' + t + '\n', { mode: 0o755 }); };
+      const st = path.join(d, 'state');
+      fs.writeFileSync(st, o.route0 || 'no');   // does a default route exist now
+      w('sendat', o.sendat || 'echo OK');
+      w('sleep', 'exit 0');
+      w('settings', 'echo "' + (o.mobileData === undefined ? '1' : o.mobileData) + '"');
+      w('svc', 'echo "$*" >> ' + d + '/svc.log; [ "$*" = "data enable" ] && echo ' + (o.routeAfterToggle || 'no') + ' > ' + st);   // the route appears only after the toggle
+      // ip: route exists when the state file says yes
+      w('ip', 'if [ "$(cat ' + st + ')" = yes ]; then echo "default via 10.0.0.1 dev sipa_eth0"; fi');
+      const script = R.CYCLE_SH.replace('/data/data/com.matchi.tool/files/sendat', path.join(d, 'sendat'));
+      const out = cp.execFileSync('sh', ['-c', script], { env: { PATH: d + ':' + process.env.PATH }, encoding: 'utf8' });
+      let svc = ''; try { svc = fs.readFileSync(path.join(d, 'svc.log'), 'utf8'); } catch (_) { /* no toggle */ }
+      return { out, svc };
+    };
+    let r = run({ route0: 'yes' });
+    assert(/DATA:ok/.test(r.out) && r.svc === '', 'route present: no toggle');
+    r = run({ route0: 'no', routeAfterToggle: 'yes' });
+    assert(/DATA:toggled/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'no route: disable then enable, route back');
+    r = run({ route0: 'no', routeAfterToggle: 'no' });
+    assert(/DATA:none/.test(r.out) && r.svc === 'data disable\ndata enable\n', 'toggled once, still no route');
+    r = run({ route0: 'no', mobileData: 0 });
+    assert(/DATA:off/.test(r.out) && r.svc === '', 'mobile data switched off by the owner: never touched');
+    r = run({ route0: 'no', sendat: 'case "$*" in *SFUN=4*) echo ERROR;; *) echo OK;; esac' });
+    assert(/DATA:skip/.test(r.out) && r.svc === '', 'radio did not come back: no data toggle');
+    r = run({ route0: 'no', sendat: 'echo ERROR' });
+    assert(/NOAT:/.test(r.out) && !/DATA:/.test(r.out) && r.svc === '', 'modem silent: script stops before anything');
+  }
   assert.strictEqual(await R.isRegistered(0), false);   // api returns nothing useful: counts as not registered (unlock is the safe side)
   // busy state: nested periods, listeners, release only once
   const seen = []; const off = R.onBusy((b, why) => seen.push([b, why]));
