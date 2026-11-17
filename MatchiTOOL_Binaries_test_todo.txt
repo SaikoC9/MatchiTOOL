@@ -196,9 +196,12 @@ RESULTS 2026-11-17 (zreq port fallback + radio restart slot 1 skip, run on the F
         4c063298cc2d2b710d729c8f54f2ad503b504bfb80ff1f9f1e8dea7d8017d2b3 and identical jq 738ee056... Earlier unfixed runs gave ab2e34cd, 178dc2b4, a0fc563e
         (only the OpenSSL "built on" date differed in the text). Copied into assets/bin; NOTICE.md and docs/BINARIES.md updated.
 
+[CONFIRMED ON DEVICE] New reproducible curl 4c063298...: hash matches, "curl 8.11.0-DEV ... OpenSSL/3.0.15", https://example.com = 200 (exit 0) via
+        /data/local/matchitool/bin/curl and files/curl with no -k; Bypass_v65_22 public IP check passes (user confirmed 2026-11-17).
+        (One pasted line showed "20" instead of 200 once; a rerun with labels gave code=200 twice. Cause unknown, likely a display/copy cut.)
+
 STILL OPEN
  1. UFI removal path: see UFI_REMOVAL_PATH.txt (stage 1 done; stages 2-4 not started). The file is not in the repo zip of 2026-11-17.
- 2. New reproducible curl 4c063298... is in assets/bin: run the F50 curl test (version, https example.com = 200 with no -k via the wrapper and files/curl, Bypass public IP check).
 
 DONE-WHEN (updated)
  - curl https://example.com = 200 with no -k, called the way plugins call it. (DONE)
