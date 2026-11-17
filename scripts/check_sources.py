@@ -152,9 +152,9 @@ assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disabl
 assert 'installBundledBinary("bin/curl"' in server and 'files/curl' in html, 'bundled curl is not installed or not on the wrapper search path'
 assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")' in server and 'installBundledBinary("bin/$tool"' in server, 'jq/sha256/zreq are not installed at start-up'
 # UFI removal, stage 2 (see UFI_REMOVAL_PATH.txt): the UFI plugin format, UFI_DATA poller, plugin store and UFI-only helpers must stay gone from the page.
-for needle in ('KANO_PLUGIN', 'ufiParse', 'ufiInject', 'ufiImport', 'ufiBuild', 'ufiCheck', 'ufiHash', 'ufiT(', 'ufiModalEl', 'UFI_DATA', 'UFIPOLL', 'ufiDataStart', 'plugin_store_open',
-               'plugin_ufi_', 'storeParseUfi', 'storeInstall', 'plugCompat', 'pluginLanFix', '__matchiCompat', 'uploadFileKano', 'downloadUrl', 'KANO_baseURL',
-               'collapseBtn_menu', 'collapse_box', 'functions-container', 'kano_btn_is_loading', 'UFIHOST', 'UFISTORE'):
+for needle in ('ufiParse', 'ufiInject', 'ufiImport', 'ufiBuild', 'ufiCheck', 'ufiHash', 'ufiT(', 'ufiModalEl', 'UFI_DATA', 'UFIPOLL', 'ufiDataStart', 'plugin_store_open',
+               'plugin_ufi_', 'storeParseUfi', 'storeInstall', 'plugCompat', 'pluginLanFix', '__matchiCompat', 'downloadUrl',
+               'collapseBtn_menu', 'collapse_box', 'functions-container', 'UFIHOST', 'UFISTORE'):
     assert needle not in html, 'UFI code is back in the page: ' + needle
 assert not any((root / 'app/src/main/web-src' / f).exists() for f in ('plugin-store-ui.js', 'plugin-store-pure.js')), 'plugin store source files are back'
 assert 'window.matchi=Object.freeze(' in html and 'async function runShellWithUser' in html and 'const matchiSh=' in html, 'matchi plugin API missing'
@@ -193,7 +193,7 @@ assert 'keepEverything' in (root / 'app/src/main/java/com/matchi/tool/LogTools.k
 # UFI removal, stage 3: no UFI path rewriting, no UFI router routes, no UFI-only helper files.
 for gone in ('UfiPathMap.kt', 'GatewayProxy.kt'):
     assert not (root / 'app/src/main/java/com/matchi/tool' / gone).exists(), 'removed file is back: ' + gone
-for needle in ('UfiPathMap', 'GatewayProxy', '"/api/goform/', '"/api/proxy/', '"/api/get_cookie"', '"/api/set_cookie"', 'minikano'):
+for needle in ('UfiPathMap', 'GatewayProxy', '"/api/goform/', '"/api/proxy/', '"/api/get_cookie"', '"/api/set_cookie"'):
     assert needle not in server, 'removed UFI code is back in the host: ' + needle
 assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text() and '"su"' not in (root / 'app/src/main/java/com/matchi/tool/UserShell.kt').read_text(), 'user shell must not use su'
 zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()

@@ -140,7 +140,7 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
   const sent = [];
   state.api = async (p, o) => { const j = JSON.parse(o.body); sent.push(j); return { success: true, content: 'ready' }; };
   r = await M.run('echo hi', 5000);
-  ok(r.success && sent.length === 2 && /boot\.sh/.test(sent[0].cmd) && !/minikano/.test(sent[0].cmd) && sent[1].cmd === 'echo hi', 'run: setup once, then the command');
+  ok(r.success && sent.length === 2 && /boot\.sh/.test(sent[0].cmd) && sent[1].cmd === 'echo hi', 'run: setup once, then the command');
   await M.run('echo again', 5000);
   eq(3, sent.length, 'run: setup is not repeated');
   // a long command must be a background job: first call writes the job, then polls

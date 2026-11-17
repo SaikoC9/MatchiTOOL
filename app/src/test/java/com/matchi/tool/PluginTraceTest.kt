@@ -162,12 +162,12 @@ class PluginTraceTest {
         val dir = Files.createTempDirectory("trace3").toFile()
         try {
             val s = PluginTraceStore(dir)
-            s.recordCommand("A.js", "iptables -t mangle -N MY_CHAIN && echo x > /data/local/matchitool/boot.d/20-a.sh && echo y > /data/local/ufi_a/f.txt")
+            s.recordCommand("A.js", "iptables -t mangle -N MY_CHAIN && echo x > /data/local/matchitool/boot.d/20-a.sh && echo y > /data/local/matchi_a/f.txt")
             s.recordCommand("A.js", "iptables -t mangle -N MY_CHAIN")
             val a = s.read("A.js")
             assertEquals(listOf("mangle MY_CHAIN iptables"), a.chains)
             assertEquals(listOf("/data/local/matchitool/boot.d/20-a.sh"), a.bootFiles)
-            assertEquals(listOf("/data/local/ufi_a/f.txt"), a.paths)
+            assertEquals(listOf("/data/local/matchi_a/f.txt"), a.paths)
             assertTrue("firewall rules" in a.effects)
             assertEquals(emptyList<String>(), s.read("B.js").chains)
             // an old ledger file (only P / E / U lines) still reads, chains and bootFiles are empty

@@ -33,7 +33,7 @@ class PluginUndoTest {
     @Test fun aChainNamedInAnotherPluginsCommandsIsKeptButOnlyAsAWholeWord() {
         val named = undoPlan(listOf("mangle MY_CHAIN iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F MY_CHAIN; iptables -t mangle -X MY_CHAIN")))
         assertEquals(0, named.items.size); assertEquals(1, named.notUndone.size)
-        val longer = undoPlan(listOf("mangle UFI iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F MY_CHAIN")))
+        val longer = undoPlan(listOf("mangle MATCHI iptables"), emptyList(), mapOf("N.js" to use(text = "iptables -t mangle -F MY_CHAIN")))
         assertEquals(1, longer.items.size)
         val partOfWord = undoPlan(listOf("mangle DPI iptables"), emptyList(), mapOf("N.js" to use(text = "x MY_CHAIN y")))
         assertEquals(1, partOfWord.items.size)

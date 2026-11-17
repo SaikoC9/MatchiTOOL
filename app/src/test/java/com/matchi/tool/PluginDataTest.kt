@@ -65,7 +65,7 @@ class PluginDataTest {
         assertEquals(emptyList<String>(), implicitPluginFiles(".hidden.js"))
     }
 
-    @Test fun hashedUfiBlockNamesAlsoMatchTheNameWithoutTheHash() {
+    @Test fun hashedHtmlBlockNamesAlsoMatchTheNameWithoutTheHash() {
         assertEquals(listOf("Signal_Meter-1f2e3d", "Signal_Meter"), pluginBaseNames("Signal_Meter-1f2e3d.html"))
         assertEquals(listOf("Signal_Meter"), pluginBaseNames("Signal_Meter.txt"))
         assertEquals("/sdcard/Signal_Meter", implicitPluginPaths("Signal_Meter-1f2e3d.html")[5])

@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MatchiTOOL's own replacement for the prebuilt "sha256" helper that UFI-TOOLS ships (plugins call it by the UFI path, which MatchiTOOL maps to this file).
+# MatchiTOOL helper "sha256": prints a SHA-256 hash (plugins call it by name from the bin folder).
 # Prints the SHA-256 of its first argument as lowercase hex, or of standard input when no argument is given. Uses the system's sha256sum (toybox).
 H=/system/bin/sha256sum
 [ -x "$H" ] || H=$(command -v sha256sum 2>/dev/null)
