@@ -272,26 +272,33 @@
     const st = document.createElement('style'); st.id = 'at_css';
     st.textContent = `
 #matchi_at_modal .modal{padding:14px}
-#matchi_at_modal .at-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
-#matchi_at_modal .at-seg{display:inline-flex;border:1px solid var(--bd);border-radius:9px;overflow:hidden}
-#matchi_at_modal .at-seg button{border:0;border-radius:0;min-height:28px;padding:3px 12px;font-size:12px;background:transparent}
-#matchi_at_modal .at-seg button[aria-pressed=true]{background:rgba(85,182,255,.22);font-weight:700}
-#matchi_at_modal .at-sec{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;margin-bottom:8px}
-#matchi_at_modal .at-h{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:0 0 6px}
-#matchi_at_modal .at-sw{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:3px 0}
+#matchi_at_modal .at-top{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:10px}
+#matchi_at_modal .at-seg{display:inline-flex;gap:2px;padding:2px;border-radius:999px;background:rgba(139,170,211,.12)}
+#matchi_at_modal .at-seg button{border:0;border-radius:999px;min-height:26px;padding:3px 12px;font-size:12px;background:transparent;color:var(--mut);font-weight:500}
+#matchi_at_modal .at-seg button[aria-pressed=true]{background:var(--fg);color:var(--bg);font-weight:600}
+#matchi_at_modal .at-sec{margin-bottom:10px}
+#matchi_at_modal .at-h{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:0 0 6px}
+#matchi_at_modal .at-voice{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#matchi_at_modal .at-voice .at-h{grid-column:1/-1;margin:0}
+#matchi_at_modal .at-sw{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(139,170,211,.10)}
 #matchi_at_modal .at-sw small{display:block;font-size:11px;color:var(--mut)}
-#matchi_at_modal .at-st{font-size:11.5px;color:var(--mut);min-width:64px;text-align:right}
-#matchi_at_modal .at-sw input{-webkit-appearance:none;appearance:none;width:32px;height:18px;margin:0;padding:0;border:0;border-radius:9px;background:rgba(255,255,255,.22);position:relative;cursor:pointer}
-#matchi_at_modal .at-sw input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
-#matchi_at_modal .at-sw input:checked{background:rgba(100,230,164,.75)}
+#matchi_at_modal .at-st{font-size:11px;color:var(--mut);text-align:right}
+#matchi_at_modal .at-sw input{-webkit-appearance:none;appearance:none;width:34px;height:20px;margin:0;padding:0;border:0;border-radius:10px;background:rgba(255,255,255,.22);position:relative;cursor:pointer}
+#matchi_at_modal .at-sw input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+#matchi_at_modal .at-sw input:checked{background:var(--acc)}
 #matchi_at_modal .at-sw input:checked::after{transform:translateX(14px)}
 #matchi_at_modal .at-sw input:disabled{opacity:.45;cursor:default}
 #matchi_at_modal .at-chips{display:flex;flex-wrap:wrap;gap:6px}
-#matchi_at_modal .at-chips button,#matchi_at_modal .at-bar button{min-height:28px;padding:3px 10px;font-size:12px;border-radius:7px}
-#matchi_at_modal .at-bar{display:flex;gap:6px;align-items:center;margin:8px 0 6px}
-#matchi_at_modal .at-bar input{flex:1;min-width:0;min-height:30px;padding:4px 9px;font-size:12.5px}
+#matchi_at_modal .at-chips button,#matchi_at_modal .at-bar button,#matchi_at_modal .mfoot button{width:auto;min-height:0;padding:6px 10px;font-size:12px;font-weight:500;line-height:1.2;border:0;border-radius:8px;background:rgba(139,170,211,.12);color:var(--fg)}
+#matchi_at_modal .at-chips button:hover,#matchi_at_modal .mfoot button:hover{background:rgba(139,170,211,.22)}
+#matchi_at_modal #at_imei{color:#ffb86b;background:rgba(255,184,107,.12)}
+#matchi_at_modal .at-bar{display:flex;gap:6px;align-items:center;margin:10px 0 8px}
+#matchi_at_modal .at-bar input{flex:1;min-width:0;min-height:0;padding:7px 11px;font-size:12.5px;border-radius:10px;background:transparent;border:1px solid var(--bd)}
+#matchi_at_modal .at-bar #at_send{background:var(--acc);color:#04101f;font-weight:600;padding:7px 14px}
 #matchi_at_modal .at-tools{display:flex;justify-content:space-between;align-items:center}
-#matchi_at_modal #at_out{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;height:150px;overflow:auto;white-space:pre-wrap;margin:4px 0 0;font-size:11px;line-height:1.45}`;
+#matchi_at_modal .at-tools .at-chips button{background:transparent;color:var(--mut)}
+#matchi_at_modal .at-tools .at-chips button:hover{background:rgba(139,170,211,.12);color:var(--fg)}
+#matchi_at_modal #at_out{background:var(--bg);border:0;border-radius:10px;padding:10px 12px;height:120px;overflow:auto;white-space:pre-wrap;margin:4px 0 0;font-size:11px;line-height:1.45}`;
     document.head.appendChild(st);
   }
   const chip = (label, attr, val) => `<button type="button" ${attr}="${esc(val)}">${esc(label)}</button>`;
@@ -303,7 +310,7 @@
       name: MODAL, title: 'AT & Radio', maxWidth: '560px', showConfirm: false, onClose: () => true,
       content:
         '<div class="at-top"><div class="at-seg" role="group" aria-label="SIM slot"><button type="button" data-slot="0" aria-pressed="true">SIM 0</button><button type="button" data-slot="1" aria-pressed="false">SIM 1</button></div></div>' +
-        `<div class="at-sec"><div class="at-h">Voice</div>${switches}</div>` + groups +
+        `<div class="at-sec at-voice"><div class="at-h">Voice</div>${switches}</div>` + groups +
         '<div class="at-sec"><div class="at-h">Actions</div><div class="at-chips"><button type="button" id="at_restart">Restart modem</button><button type="button" id="at_report">Radio report</button><button type="button" id="at_imei">Change IMEI…</button></div></div>' +
         '<div class="at-bar"><input id="at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false"><button type="button" id="at_send">Send</button></div>' +
         '<div class="at-tools"><span class="at-h" style="margin:0">Output</span><span class="at-chips"><button type="button" id="at_copy">Copy</button><button type="button" id="at_clear">Clear</button></span></div>' +
