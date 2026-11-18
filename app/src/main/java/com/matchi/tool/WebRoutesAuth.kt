@@ -14,6 +14,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
     uri == "/api/logout" && s.method == Method.POST -> {
         drainBody(s)
         Sessions.revoke(ctx, sessionToken(s))
+        AghDoor.sweepAsync(ctx)   // the AdGuard Home page door of this session closes with it
         json(Response.Status.OK, JSONObject().put("ok", true)).also { it.addHeader("Set-Cookie", clearSessionCookieHeader(Tls.active)) }
     }
     uri == "/api/console/password" && s.method == Method.GET ->
@@ -25,6 +26,7 @@ internal fun WebServer.routeAuth(s: IHTTPSession, uri: String): Response? = when
         passwordGate(s, req.optString("current").take(200), "Current password is wrong")?.let { return@run it }
         Prefs.setConsolePassword(ctx, req.optString("password").take(200))   // empty = go back to the router password
         Sessions.revokeAllExcept(ctx, sessionToken(s))
+        AghDoor.sweepAsync(ctx)
         auditShell(s.remoteIpAddress ?: "?", "console-password " + (if (Prefs.hasConsolePassword(ctx)) "set" else "removed"), "console-password")
         json(Response.Status.OK, JSONObject().put("ok", true).put("separate", Prefs.hasConsolePassword(ctx)))
     }

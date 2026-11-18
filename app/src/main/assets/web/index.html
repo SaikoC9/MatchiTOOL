@@ -7565,7 +7565,7 @@ const createFormToast=({title,id,fields},cb=async()=>{})=>{
    page's usual "not encrypted" question first. Headers a plugin sets itself pass through unread. */
 (function(){
   const nativeFetch=window.fetch.bind(window);
-  const ROOTY=/^\/api\/(?:user_shell|shell)$/;
+  const ROOTY=/^\/api\/(?:user_shell|shell|agh\/door)$/;
   /* Same rule as RootGate.isReadOnlyAt (Kotlin): only pure AT reads skip the "not encrypted" question on POST /api/at. */
   const AT_READS=['AT','ATI','AT+CSQ','AT+CESQ','AT+CGSN','AT+CIMI','AT+CCID','AT+CNUM','AT+CGMR','AT+CGMM','AT+CGMI'];
   const AT_QUERY=/^AT(\+[A-Z0-9_]+)?(\?|=\?)$/i;

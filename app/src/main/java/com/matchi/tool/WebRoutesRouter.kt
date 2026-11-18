@@ -65,7 +65,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
                 throw IllegalArgumentException("The Android key store could not encrypt the password, so it was NOT saved")
             if (changed) {
                 routerChanged = true
-                Sessions.revokeAllExcept(ctx, sessionToken(s))   // other sessions end; this one stays
+                Sessions.revokeAllExcept(ctx, sessionToken(s)); AghDoor.sweepAsync(ctx)   // other sessions end; this one stays
             }
         }
         // Drop the cached router session, the 60 s "login failed recently" cool-down and the detected port, so the new

@@ -40,6 +40,10 @@ The console (port **2334**) is meant for a trusted ZTE hotspot / USB-tether netw
 - **Root gate:** every root-capable route needs a sign-in younger than 4 h, plus the HTTP rules above. The gate logic is `RootGate.decide()`, and `scripts/test_route_gates.py` checks every route against a table of which ones are gated. `/api/plugins/delete` is gated only when it erases data or runs a stop (see "Plugins"); `/api/plugins/toggle` (a plain Turn off) is open, and `/api/plugins/data` is open except for its two root calls (see "Plugins").
 - **Router password:** stored encrypted with an Android Keystore AES-GCM key where available; older plain values are migrated when first read.
 
+## AdGuard Home web page door
+
+The AdGuard Home page (port 3000) has its own login and a long-lived cookie, which a console sign-out cannot end. While the plugin's "Web UI on LAN" is on, port 3000 is dropped for every non-loopback client by the iptables chain `AGH_UI` (jumped to from INPUT, IPv4 and IPv6). `POST /api/agh/door` (root gate) adds an ACCEPT for the caller's own address; `AghDoor.kt` closes it when that session ends (sign-out, idle, 12 h, password change), after 30 minutes, and when the host starts. The plugin's watchdog and boot script put the chain back after a netd restart or a reboot. Limits: the door is per IP address, so another device that takes the same address (spoofing) gets in until it closes, and the AdGuard login is still needed behind it. Not run on a device yet.
+
 ## Root shell
 
 - Commands go to `sh` over a separate file descriptor, not into a `su -c` string; stdin is `/dev/null`, so a script that reads stdin cannot eat the rest of the command.

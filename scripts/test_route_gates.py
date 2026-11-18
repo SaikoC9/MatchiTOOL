@@ -74,6 +74,7 @@ TABLE = {
   ('POST', '/api/at'): ('PARTIAL', 'pure AT read queries skip the gate; anything else needs it'),
   ('POST', '/api/at/batch'): ('PARTIAL', 'same rule as /api/at; only an all-read batch skips the gate'),
   ('POST', '/api/zte'): ('PARTIAL', 'goes to the saved router address only; a set call needs the gate unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS); reads stay open'),
+  ('POST', '/api/agh/door'): ('GATE', 'opens iptables chain AGH_UI (port 3000) for the caller\'s own address only while the session lives; closed on sign-out / expiry (AghDoor)'),
   ('GET',  '/api/net/whoami'): ('OPEN', 'read only: returns the caller\'s own address'),
   ('POST', '/api/net/lan-applied'): ('GATE', 'points the router client at the new address named in the pending IP-change note; checks the router afterwards'),
   ('POST', '/api/zte/page'): ('OPEN', ''),

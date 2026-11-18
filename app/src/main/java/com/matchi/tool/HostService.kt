@@ -259,6 +259,7 @@ class HostService : Service() {
         }
         // Phase 6b: a router IP change leaves a pending note; check that the router came back as wanted (own thread: it can wait up to 2 minutes).
         LanRevert.start(this, 0L)
+        workers.execute { try { AghDoor.closeAll(this) } catch (e: Exception) { Quiet.note("HostService.aghDoor", e) } }   // no AdGuard Home page door survives a host restart
         workers.execute {
             // Why did the app process die last time (crash, ANR, memory kill, update)? Android 11+ only.
             try { ExitReasons.logNew(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Exit reasons failed: ${e.message}") }

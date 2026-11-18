@@ -435,7 +435,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         if (!good && pw.isNotEmpty() && !Prefs.hasConsolePassword(ctx) && guard.failCount(ip) < 3 && guard.mayAskRouter(ip)) {
             releaseSlot()   // the router check below can wait for the router lock; the router budget (mayAskRouter) limits it, not the slot
             if (ZteClient.verify(ctx, pw) == true) {
-                if (Prefs.setZtePass(ctx, pw)) Sessions.revokeAll(ctx)   // the password changed (or was learned): every older session ends
+                if (Prefs.setZtePass(ctx, pw)) { Sessions.revokeAll(ctx); AghDoor.sweepAsync(ctx) }   // the password changed (or was learned): every older session ends
                 else LogCatcher.log("WARNING", "WebServer", "Signed in with the router password, but it could not be saved (Keystore); older sessions were kept")
                 good = true
             }
@@ -462,7 +462,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
 
     private fun route(s: IHTTPSession, uri: String): Response =
         routeDevice(s, uri) ?: routeAuth(s, uri) ?: routeLogs(s, uri) ?: routeRoot(s, uri) ?: routeUpdate(s, uri)
-            ?: routeRouter(s, uri) ?: routePlugins(s, uri)
+            ?: routeRouter(s, uri) ?: routePlugins(s, uri) ?: routeAgh(s, uri)
             ?: json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found"))
 }
 
