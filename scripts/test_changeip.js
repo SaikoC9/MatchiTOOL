@@ -50,10 +50,11 @@ r = run(C.cycleScript()); assert(C.cycleOk(r.stdout));
 write('ip', 'echo "1.1.1.1 via 10.64.1.1 dev rmnet0 src 10.64.1.2 uid 0"');
 assert.strictEqual(C.ipOf(run(C.localScript()).stdout), '10.64.1.2');
 const noCurl = { PATH: dir + ':/usr/bin:/bin' };
+// fake wget / busybox / toybox too, so the script never reaches a real one (a CI runner has wget and a real internet connection)
+for (const w of ['wget', 'busybox', 'toybox']) write(w, 'exit 1');
 write('curl', 'for a; do case "$a" in https://checkip*) echo "<html>blocked</html>";; https://api.ipify*) echo 198.51.100.9;; esac; done');
 r = run(C.publicScript(false), noCurl); assert.strictEqual(C.ipOf(r.stdout), '198.51.100.9', r.stdout + r.stderr);
 write('curl', 'exit 7');
-for (const w of ['wget', 'busybox', 'toybox']) write(w, 'exit 1');
 r = run(C.publicScript(false), noCurl); assert.strictEqual(r.status, 1);
 write('curl', 'for a; do case "$a" in https://checkip*) echo 203.0.113.5;; esac; done');
 r = run(C.publicScript(true), noCurl); assert.strictEqual(C.ipOf(r.stdout), '203.0.113.5');
