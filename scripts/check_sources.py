@@ -148,7 +148,7 @@ for needle in ('"/api/upload"', '"/api/upload_img"', '"/api/uploads/', 'fun WebS
 assert 'withUploadSlot(len)' in server and 'uploadSpaceOk(' in server, 'the app-update upload must keep the one-at-a-time slot and free-space check'
 for fn in ('createFixedToast', 'requestInterval', 'createModal', 'runShellWithRoot', 'runShellWithUser', 'checkRoot', 'plugScan', 'plugStopDecls', 'plugSummary'):
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
-assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in dict(tools)['Change_IP.js'], 'Change IP tool missing'
+assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in (root / 'app/src/main/web-src/changeip-core.js').read_text(), 'Change IP tool missing'   # the switch script is in changeip-core.js
 assert 'installBundledBinary("bin/curl"' in server and 'files/curl' in html, 'bundled curl is not installed or not on the wrapper search path'
 assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")' in server and 'installBundledBinary("bin/$tool"' in server, 'jq/sha256/zreq are not installed at start-up'
 # UFI removal, stage 2 (see UFI_REMOVAL_PATH.txt): the UFI plugin format, UFI_DATA poller, plugin store and UFI-only helpers must stay gone from the page.

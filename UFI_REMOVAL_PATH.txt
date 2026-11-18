@@ -88,3 +88,8 @@ STAGE 6 - DONE 2026-11-18 (web side only; validate.sh passes; browser-checked ag
   New: web-src/memclean-core.js (window.MatchiMemClean), scripts/test_memclean.js. Tool in index.html: scan -> pick apps -> stop -> before / after. Old progress panel removed
   (its entry is gone from scripts/innerhtml-reviewed.json). FILES TO DELETE: none.
   Still to do on the F50: Clean memory button (list shows, stop works, foreground app not stopped), Self-test 'Memory Cleaner' row.
+
+STAGE 7 - DONE 2026-11-18 (web side only; validate.sh passes; browser-checked against a fake root shell; NOT tested on the F50)
+  Change IP rewritten the same way as the Memory Cleaner: web-src/changeip-core.js (window.MatchiChangeIp), scripts/test_changeip.js, new window in index.html.
+  scripts/check_sources.py now looks for 'svc data disable' in changeip-core.js. FILES TO DELETE: none.
+  Still to do on the F50: Change IP window (addresses show, public IP changes, data comes back on), Self-test 'Change IP' row.

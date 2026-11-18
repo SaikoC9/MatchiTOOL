@@ -2584,99 +2584,109 @@ rm -f $P.g $P.4 $P.6 $P.d
 <script type="text/plain" class="webtool" data-name="Change_IP.js">
 /*
  * Change IP - MatchiTOOL built-in tool.
- * Turns mobile data off and on again so the carrier hands out a new WAN address, then shows the old and the new
- * public IP. Needs root (svc data).
+ * Opens a window with the current local (mobile-data) and public address. "Change IP" switches mobile data off and on so the
+ * carrier hands out a new address, then shows the old and the new one. Needs root (svc data).
  * Clients on the hotspot lose internet for a few seconds while this runs.
+ * The logic (address checks, the switch script, the wording) is in web-src/changeip-core.js (window.MatchiChangeIp).
  */
 (() => {
   'use strict';
-  const BTN_ID = 'matchi_changeip_btn', LABEL = 'Change IP';
+  const BTN_ID = 'matchi_changeip_btn', MODAL = 'matchi_changeip_modal', LABEL = 'Change IP';
   if (document.getElementById(BTN_ID)) return;
   const host = document.querySelector('.actions-buttons');
-  if (!host) return;
+  const C = window.MatchiChangeIp;
+  if (!host || !C) return;
 
-  const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const sh = async (cmd, ms) => {
-    try { const r = await runShellWithRoot(cmd, ms || 20000); return { ok: !!(r && r.success), text: String((r && r.content) || '').trim() }; }
-    catch (e) { return { ok: false, text: '' }; }
+    try { const r = await runShellWithRoot(cmd, ms); return { ok: !!(r && r.success), text: String((r && r.content) || '').trim() }; }
+    catch (_) { return { ok: false, text: '' }; }
   };
-
-  // Address of the mobile-data interface: the source address Android would use to reach the internet,
-  // then the original plugin's guess (first 10.x address) as a fallback.
-  const LOCAL_CMD = [
-    "ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\"){print $(i+1);exit}}'",
-    "ip addr 2>/dev/null | awk '/inet 10\\./ {sub(/\\/.*/, \"\", $2); print $2; exit}'",
-  ].join('\n');
-  // Public IP: curl (with DNS-over-HTTPS first, then plain), then wget. Prints the first valid-looking answer.
-  const U = 'https://checkip.amazonaws.com/';
-  // Only a clean dotted-number answer counts (an HTML error page or a proxy message must not stop the fallbacks).
-  const publicCmd = (quick) => [
-    'v() { case "$1" in ""|*[!0-9.]*) return 1;; *.*.*.*) return 0;; esac; return 1; }',
-    'C=/data/local/matchitool/bin/curl; [ -x "$C" ] || C=$(command -v curl); [ -n "$C" ] || { for c in /data/data/com.matchi.tool/files/curl /data/user/0/com.matchi.tool/files/curl; do [ -x "$c" ] && C=$c && break; done; }',
-    `for t in ${quick ? '1' : '1 2'}; do`,
-    ...(quick ? [] : [`  if [ -n "$C" ]; then r=$($C -s --connect-timeout 6 --max-time 8 --doh-url https://dns.google/dns-query ${U} 2>/dev/null); v "$r" && echo "$r" && exit 0; fi`]),
-    `  if [ -n "$C" ]; then r=$($C -s --connect-timeout ${quick ? 4 : 6} --max-time ${quick ? 5 : 8} ${U} 2>/dev/null); v "$r" && echo "$r" && exit 0; fi`,
-    `  for W in "wget -qO- -T ${quick ? 5 : 6}" "busybox wget -qO- -T ${quick ? 5 : 6}" "toybox wget -qO-"; do r=$($W ${U} 2>/dev/null); v "$r" && echo "$r" && exit 0; done`,
-    ...(quick ? [] : ['  sleep 2']),
-    'done',
-    'exit 1',
-  ].join('\n');
-
-  const localIP = async (tries) => {
-    for (let i = 0; i < tries; i++) {
-      const r = await sh(LOCAL_CMD, 8000);
-      const ip = r.text.split('\n').map((x) => x.trim()).find((x) => IPV4.test(x));
-      if (ip) return ip;
-      await sleep(1000);
-    }
-    return null;
-  };
-  // quick: one short attempt (used before the switch, so an offline device does not make the user wait)
-  const publicIP = async (quick) => {
-    const r = await sh(publicCmd(quick), quick ? 25000 : 90000);
-    const ip = r.text.split('\n').map((x) => x.trim()).find((x) => IPV4.test(x));
-    return ip || null;
-  };
+  const $ = (id) => document.getElementById(MODAL + id);
+  const setText = (id, t, color) => { const e = $(id); if (e) { e.textContent = t; if (color !== undefined) e.style.color = color; } };
 
   let busy = false;
-  const run = async (btn) => {
+
+  const readLocal = async (tries) => {
+    for (let i = 0; i < tries; i++) {
+      const ip = C.ipOf((await sh(C.localScript(), 8000)).text);
+      if (ip) return ip;
+      if (i < tries - 1) await sleep(1000);
+    }
+    return '';
+  };
+  const readPublic = async (quick) => C.ipOf((await sh(C.publicScript(quick), quick ? 25000 : 60000)).text);
+
+  const setButtons = (disabled) => { for (const id of ['_go', '_close']) { const b = $(id); if (b) b.disabled = disabled; } };
+
+  // Show the addresses now, without changing anything.
+  async function readNow() {
+    setText('_msg', 'Reading the current addresses…', 'var(--mut)');
+    const root = await sh('id -u', 8000);
+    if (!root.ok || root.text.split('\n')[0].trim() !== '0') {
+      setText('_msg', 'Root access is needed. Check that root is granted to MatchiTOOL.', 'var(--danger)');
+      const g = $('_go'); if (g) g.disabled = true;
+      return false;
+    }
+    const [lip, pub] = await Promise.all([readLocal(1), readPublic(true)]);
+    setText('_local', lip || 'none (mobile data may be off)');
+    setText('_public', pub || 'unknown');
+    setText('_msg', '', 'var(--mut)');
+    return true;
+  }
+
+  async function change() {
     if (busy) return;
-    busy = true;
-    btn.disabled = true; btn.textContent = 'Changing IP\u2026';
-    let dataOff = false;
+    busy = true; setButtons(true);
     try {
-      const root = await sh('id -u', 8000);
-      if (!root.ok || root.text.split('\n')[0].trim() !== '0') { createToast('Root access is needed to change the IP. Check that root is granted to MatchiTOOL.', 'red', 5000); return; }
-      createToast('Changing IP\u2026 internet drops for a few seconds');
-      const before = await publicIP(true);
-      dataOff = true;
-      await sh('svc data disable');
-      for (let i = 0; i < 6; i++) { if (!(await localIP(1))) break; await sleep(1000); }   // wait for the old link to go down
-      await sleep(1000);
-      let on = false;
-      for (let i = 0; i < 3 && !on; i++) { on = (await sh('svc data enable')).ok; if (!on) await sleep(1500); }
-      if (!on) { createToast('Could not turn mobile data back on - run: svc data enable', 'red', 10000); return; }
-      dataOff = false;
+      const before = C.ipOf($('_public').textContent);
+      setText('_msg', 'Switching mobile data off and on… internet drops for a few seconds.', 'var(--mut)');
+      const cyc = await sh(C.cycleScript(), 45000);
+      if (!C.cycleOk(cyc.text)) {
+        // The script did not report back (a timeout, say): make sure data is on before saying anything else.
+        let on = false;
+        for (let i = 0; i < 3 && !on; i++) { on = (await sh('svc data enable', 10000)).ok; if (!on) await sleep(1500); }
+        setText('_msg', on ? 'Mobile data was switched back on, but the switch did not finish cleanly. Try again.' : 'Could not turn mobile data back on. Run: svc data enable', 'var(--danger)');
+        if (!on) createToast('Could not turn mobile data back on - run: svc data enable', 'red', 10000);
+        return;
+      }
+      setText('_msg', 'Waiting for the new address…', 'var(--mut)');
       await sleep(2000);
-      const lip = await localIP(30);
-      if (!lip) { createToast('Mobile data did not come back with an address. Check the SIM / signal, then try again.', 'red', 6000); return; }
-      createToast('Local WAN IP: ' + lip, 'green', 5000);
-      const pub = await publicIP(false);
-      if (pub) createToast('Public IP: ' + pub + (before ? (before === pub ? ' (unchanged, try again)' : ' (was ' + before + ')') : ''), before && before === pub ? 'orange' : 'green', 8000);
-      else createToast('Could not read the public IP (no curl or wget with internet on the device).', 'red', 6000);
+      const lip = await readLocal(30);
+      if (!lip) { setText('_msg', 'Mobile data came back without an address. Check the SIM and signal, then try again.', 'var(--danger)'); setText('_local', 'none'); return; }
+      setText('_local', lip);
+      const pub = await readPublic(false);
+      const v = C.verdict(before, pub);
+      setText('_public', pub || 'unknown');
+      setText('_msg', v.text, v.kind === 'changed' || v.kind === 'new' ? 'var(--good)' : v.kind === 'same' ? 'var(--acc2)' : 'var(--danger)');
+      createToast(v.text, v.kind === 'changed' || v.kind === 'new' ? 'green' : v.kind === 'same' ? 'orange' : 'red', 8000);
     } catch (e) {
       console.error(e);
-      createToast('Failed to change IP', 'red');
+      setText('_msg', 'Failed to change the IP.', 'var(--danger)');
+      try { await sh('svc data enable', 10000); } catch (_) {}   // best effort: never leave mobile data off
     } finally {
-      if (dataOff) { try { await sh('svc data enable'); } catch (_) {} }   // best effort: never leave mobile data off
-      busy = false; btn.disabled = false; btn.textContent = LABEL;
+      busy = false; setButtons(false);
     }
-  };
+  }
+
+  async function open() {
+    const row = (label, id) => '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--bd)"><span style="color:var(--mut)">' + label + '</span><strong id="' + MODAL + id + '" style="overflow-wrap:anywhere;text-align:right">…</strong></div>';
+    createModal({
+      name: MODAL, title: 'Change IP', maxWidth: '420px', showConfirm: false, onClose: () => !busy,
+      content: '<p style="margin:0 0 8px;color:var(--mut)">Switches mobile data off and on so the carrier hands out a new address. Devices on the hotspot lose internet for a few seconds.</p>' +
+        row('Local (mobile data)', '_local') + row('Public', '_public') +
+        '<div id="' + MODAL + '_msg" style="margin:10px 0 8px;min-height:1.4em"></div>' +
+        '<button type="button" id="' + MODAL + '_go">Change IP</button>',
+    });
+    showModal(MODAL);
+    $('_go').onclick = change;
+    setButtons(true);
+    try { await readNow() && ($('_go').disabled = false); } finally { const c = $('_close'); if (c) c.disabled = false; }
+  }
 
   const b = document.createElement('button');
   b.id = BTN_ID; b.type = 'button'; b.textContent = LABEL;
-  b.onclick = () => run(b);
+  b.onclick = () => { if (!busy) open(); };
   host.appendChild(b);
 })();
 </script>
@@ -7041,6 +7051,81 @@ function mountNetTools() {
 })();
 
 /* @end-include web-src/memclean-core.js */
+/* @include web-src/changeip-core.js */
+/* changeip-core.js: the logic of the Change IP tool, with no DOM and no network (scripts/test_changeip.js runs this file as it is).
+ *   ipOf(text)            first valid IPv4 address in a text, or ''. Each part must be 0-255; HTML error pages, proxy messages and "1.2.3.4.5" give ''.
+ *   localScript()         root script: the address of the mobile-data link (the source address Android uses to reach the internet).
+ *   publicScript(quick)   root script: the public address as seen from outside (curl, then wget), tries two services.
+ *   cycleScript()         root script: mobile data off, wait until the link is down, mobile data on again (3 tries). One script on purpose:
+ *                         once it has started, data is switched back on even if the page stops waiting for it. Last line: "ENABLED|1" or "ENABLED|0".
+ *   cycleOk(text)         true when that last line says data is on again.
+ *   verdict(before, after) how to word the result. */
+(() => {
+  'use strict';
+
+  function ipOf(text) {
+    for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
+      const t = raw.trim();
+      const m = t.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+      if (m && m.slice(1).every((p) => Number(p) <= 255)) return t;
+    }
+    return '';
+  }
+
+  const LOCAL_LINE = "ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\"){print $(i+1);exit}}'";
+  const localScript = () => LOCAL_LINE;
+
+  // Where curl may be: the app's own copy first (it is always there once MatchiTOOL has started), then the system one.
+  const FIND_CURL = [
+    'C=""',
+    'for c in /data/local/matchitool/bin/curl /data/data/com.matchi.tool/files/curl /data/user/0/com.matchi.tool/files/curl; do [ -x "$c" ] && C=$c && break; done',
+    '[ -n "$C" ] || C=$(command -v curl)',
+  ];
+  const SERVICES = ['https://checkip.amazonaws.com/', 'https://api.ipify.org/'];
+
+  function publicScript(quick) {
+    const to = quick ? 5 : 8;
+    const lines = ['ok() { case "$1" in ""|*[!0-9.]*) return 1;; *.*.*.*) return 0;; esac; return 1; }', ...FIND_CURL];
+    for (const u of SERVICES) {
+      lines.push(`if [ -n "$C" ]; then r=$($C -s --connect-timeout ${to} --max-time ${to + 2} ${u} 2>/dev/null); ok "$r" && echo "$r" && exit 0; fi`);
+      if (!quick) lines.push(`if [ -n "$C" ]; then r=$($C -s --connect-timeout ${to} --max-time ${to + 2} --doh-url https://dns.google/dns-query ${u} 2>/dev/null); ok "$r" && echo "$r" && exit 0; fi`);
+      lines.push(`for W in "wget -qO- -T ${to}" "busybox wget -qO- -T ${to}" "toybox wget -qO-"; do r=$($W ${u} 2>/dev/null); ok "$r" && echo "$r" && exit 0; done`);
+      if (quick) break;                       // the quick read (before the switch) tries one service only
+    }
+    lines.push('exit 1');
+    return lines.join('\n');
+  }
+
+  function cycleScript() {
+    return [
+      'svc data disable',
+      'i=0',
+      `while [ $i -lt 8 ]; do`,
+      `  a=$(${LOCAL_LINE})`,
+      '  [ -n "$a" ] || break',
+      '  sleep 1; i=$((i+1))',
+      'done',
+      'sleep 1',
+      'ok=0',
+      'for t in 1 2 3; do svc data enable && ok=1 && break; sleep 2; done',
+      'echo "ENABLED|$ok"',
+    ].join('\n');
+  }
+
+  const cycleOk = (text) => /^ENABLED\|1\s*$/m.test(String(text || ''));
+
+  // Wording of the result. A changed address is good news; the same one means the carrier handed the old one back.
+  function verdict(before, after) {
+    if (!after) return { kind: 'unknown', text: 'The new public address could not be read (no curl or wget with internet on the device).' };
+    if (!before) return { kind: 'new', text: 'Public IP: ' + after };
+    if (before === after) return { kind: 'same', text: 'Public IP: ' + after + ' (the same as before, try again)' };
+    return { kind: 'changed', text: 'Public IP: ' + before + ' → ' + after };
+  }
+
+  window.MatchiChangeIp = { ipOf, localScript, publicScript, cycleScript, cycleOk, verdict };
+})();
+
+/* @end-include web-src/changeip-core.js */
 /* PLUGIN-API-BEGIN */
 /* @include web-src/plugin-host-api.js */
 /* ===== MatchiTOOL plugin API ===================================================================

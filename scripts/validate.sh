@@ -54,6 +54,7 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_live_stream.js" || exit 1     # Live panel push stream, page side (plan Phase 4)
   node "$(dirname "$0")/test_at_radio.js" || exit 1
   node "$(dirname "$0")/test_memclean.js" || exit 1       # Memory Cleaner logic: scan parsing, what is protected, the stop script
+  node "$(dirname "$0")/test_changeip.js" || exit 1        # Change IP logic: address checks, the data off/on script in a real sh, wording
   node "$(dirname "$0")/test_net_tools.js" || exit 1      # Network window, Phase 1: parsers, password never copied, window is read only
   node "$(dirname "$0")/test_net_tools_ui.js" || exit 1   # the window itself against a fake DOM
   node "$(dirname "$0")/test_sms_seen.js" || exit 1      # SMS new-message count: first message (C6), repeated text after a delete (C7)
