@@ -898,12 +898,106 @@ html body #home .matchi-menu-box>button::before{left:6px}
 <div id="popbg" onclick="closePop()"></div>
 <div id="toasts"></div>
 <script type="text/plain" class="webtool" data-name="AT_Radio.js">
+/* @include web-src/at-console.js */
+/* at-console.js: MatchiTOOL's own logic for the AT & Radio window. No DOM, no network: scripts/test_at_console.js runs this file as it is.
+ *   cleanReply(raw)          modem text -> tidy lines (the closing OK / ERROR on its own line, no blank lines)
+ *   checkCommand(text)       what the person typed -> {ok, cmd} or {ok:false, error}
+ *   makeHistory(max)         sent commands, newest last; prev() / next() walk it like a shell
+ *   SWITCHES                 the two voice switches: how each is read, written and parsed (the AT strings are the modem's own)
+ *   readSwitch(def, raw)     reply to def.read -> true / false / null (null = could not tell)
+ *   judgeSwitch(want, got)   after a write: 'confirmed' | 'differs' | 'unreadable'
+ *   describeCsq / describeCesq / describeReg   one-line meanings for the numbers
+ *   groups                   the quick-read buttons, in the order the window shows them */
+(() => {
+  'use strict';
+
+  const MAX_CMD = 200;
+
+  // The modem's closing word is printed right behind the data ("+CSQ: 99,99OK"): put it on its own line.
+  function cleanReply(raw) {
+    const t = String(raw == null ? '' : raw).replace(/\r/g, '').replace(/\u0000/g, '');
+    return t.replace(/([^\n])(OK|ERROR|\+CM[ES] ERROR:[^\n]*)[ \t]*$/, '$1\n$2')
+      .split('\n').map((l) => l.replace(/[ \t]+$/, '')).filter((l) => l !== '').join('\n');
+  }
+
+  // Only a single line that starts with AT is ever sent. Control characters are refused, not removed.
+  function checkCommand(text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return { ok: false, error: 'Type an AT command first.' };
+    if (/[\u0000-\u001f\u007f]/.test(s)) return { ok: false, error: 'The command must be one line of plain text.' };
+    if (s.length > MAX_CMD) return { ok: false, error: 'The command is longer than ' + MAX_CMD + ' characters.' };
+    if (!/^at/i.test(s)) return { ok: false, error: 'An AT command starts with AT, for example AT+CSQ.' };
+    return { ok: true, cmd: 'AT' + s.slice(2) };
+  }
+
+  function makeHistory(max) {
+    const cap = max || 30, list = [];
+    let at = 0;
+    return {
+      push(c) { if (!c) return; if (list[list.length - 1] !== c) list.push(c); while (list.length > cap) list.shift(); at = list.length; },
+      prev() { if (!list.length) return ''; at = Math.max(0, at - 1); return list[at]; },
+      next() { if (at >= list.length - 1) { at = list.length; return ''; } at += 1; return list[at]; },
+      all() { return list.slice(); },
+    };
+  }
+
+  // The first number after the colon of the first "+TAG:" line, or of a ',' separated list at an index.
+  const nums = (raw, tag) => {
+    const m = String(raw || '').match(new RegExp('\\' + tag + '\\s*:\\s*([^\\n]*)'));
+    return m ? m[1].split(',').map((x) => parseInt(x.replace(/[^\d-]/g, ''), 10)) : [];
+  };
+
+  const SWITCHES = [
+    { id: 'volte', label: 'VoLTE', note: 'Calls over 4G', read: 'AT+CAVIMS?', write: (on) => 'AT+CAVIMS=' + (on ? 1 : 0),
+      parse: (raw) => { const n = nums(raw, '+CAVIMS')[0]; return n === 1 ? true : n === 0 ? false : null; } },
+    { id: 'vonr', label: 'VoNR', note: 'Calls over 5G', read: 'AT+SP5GCMDS="get nr synch_param",42', write: (on) => 'AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0),
+      // Same reading the window has always used on the F50 (third comma field after the first colon); a "synch_param,42,<n>" pattern is the fallback.
+      parse: (raw) => {
+        const f = String(raw || '').split('OK')[0].split(':').slice(1).join(':').replace(/["\r\n]/g, ' ').split(',').map((x) => x.trim());
+        let n = parseInt(f[2], 10);
+        if (!Number.isFinite(n)) { const m = String(raw || '').match(/synch_param[^,]*,\s*\d+\s*,\s*(\d+)/); n = m ? parseInt(m[1], 10) : NaN; }
+        return n === 1 ? true : n === 0 ? false : null;
+      } },
+  ];
+  const readSwitch = (def, raw) => def.parse(raw);
+  const judgeSwitch = (want, got) => (got === null || got === undefined ? 'unreadable' : got === want ? 'confirmed' : 'differs');
+
+  function describeCsq(raw) {
+    const n = nums(raw, '+CSQ')[0];
+    if (!Number.isFinite(n)) return '';
+    if (n === 99) return 'CSQ 99 means unknown. That is normal on 5G, where CSQ only measures 2G/3G/4G.';
+    return 'Signal strength about ' + (-113 + 2 * Math.min(n, 31)) + ' dBm';
+  }
+  function describeCesq(raw) {
+    const a = nums(raw, '+CESQ');
+    if (a.length < 6 || !a.every(Number.isFinite)) return '';
+    const rsrq = a[4], rsrp = a[5];
+    return 'LTE RSRP ' + (rsrp <= 97 ? (-140 + rsrp) + ' dBm' : 'unknown') + ', RSRQ ' + (rsrq <= 34 ? (-19.5 + 0.5 * rsrq) + ' dB' : 'unknown');
+  }
+  const REG = { 0: 'not registered, not searching', 1: 'registered (home)', 2: 'searching', 3: 'registration denied', 4: 'unknown', 5: 'registered (roaming)' };
+  function describeReg(raw) {
+    const m = String(raw || '').match(/\+C(?:5G|E)REG:\s*\d+\s*,\s*(\d+)/);
+    return m ? (REG[m[1]] || 'status ' + m[1]) : '';
+  }
+
+  // Quick reads. A command with "|" is several commands run one after another; "@signal" is the window's own signal read.
+  const groups = [
+    { name: 'This SIM', items: [['IMEI', 'AT+CGSN'], ['IMSI', 'AT+CIMI'], ['ICCID', 'AT+CCID'], ['Modem', 'AT+CGMI|AT+CGMM|AT+CGMR']] },
+    { name: 'Network', items: [['Signal', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'], ['QoS', 'AT+CGEQOSRDP=1'], ['5G bands', '@nrbands']] },
+  ];
+
+  window.MatchiAtConsole = { cleanReply, checkCommand, makeHistory, SWITCHES, readSwitch, judgeSwitch, describeCsq, describeCesq, describeReg, groups };
+})();
+
+/* @end-include web-src/at-console.js */
 /* @include web-src/at-radio-ui.js */
 /*
  * AT & Radio - MatchiTOOL plugin
- * AT command terminal, VoLTE / VoNR switches, NR band list and modem restart (formats: docs/AT_RADIO_FORMATS.md). Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
+ * The window for the AT console, the VoLTE / VoNR switches, the quick reads, Restart modem and the Radio report (formats: docs/AT_RADIO_FORMATS.md).
+ * Network mode, band lock and cell lock are on the dashboard (dash-radio.js, dash-cell.js).
  * AT commands are sent with MatchiTOOL's own sendat binary (tools/sendat).
- * This file is only the window. Everything that talks to the modem or router is in web-src/radio-core.js (window.MatchiRadio).
+ * The window logic (reply cleaning, command check, history, switch read-back, number meanings) is web-src/at-console.js (window.MatchiAtConsole).
+ * Everything that talks to the modem or router for settings is web-src/radio-core.js (window.MatchiRadio). This file is only the window.
  */
 (() => {
   'use strict';
@@ -911,16 +1005,13 @@ html body #home .matchi-menu-box>button::before{left:6px}
   if (document.getElementById(BTN_ID)) return;
 
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const slot = () => parseInt(document.getElementById('matchi_at_slot')?.value || '0', 10);
-  const R = window.MatchiRadio;
-  const { fields, tidy, zte, sleep, parseNrSupported, sh } = R;
+  const R = window.MatchiRadio, A = window.MatchiAtConsole;
+  const { fields, tidy, zte, sleep, sh } = R;
+  const hist = A.makeHistory(30);
+  let slotNo = 0;
+  const slot = () => slotNo;
   const at = (command) => R.at(command, slot());
   const atSlot = (command, sl) => R.at(command, sl);
-  const getVoLTE = async () => parseInt(fields(await at('AT+CAVIMS?'))[0], 10) === 1;
-  const getVoNR = async () => parseInt(fields(await at('AT+SP5GCMDS="get nr synch_param",42'))[2], 10) === 1;
-  // The setters return the modem's raw reply: the caller tells "modem said no" from "modem said nothing" (sendat silent).
-  const setVoLTE = async (on) => await at('AT+CAVIMS=' + (on ? 1 : 0));
-  const setVoNR = async (on) => await at('AT+SP5GCMDS="set nr param",45,' + (on ? 1 : 0));
 
   // ---- IMEI ---------------------------------------------------------------------------------------------
   // Unisoc modems write the IMEI with AT+SPIMEI=<slot>,"<imei>". Safety rules built into this flow:
@@ -1041,69 +1132,101 @@ html body #home .matchi-menu-box>button::before{left:6px}
     return true;
   }
 
-  const PRESETS = [
-    ['Signal quality', '@signal'], ['Operator', 'AT+COPS?'], ['Registration', 'AT+CEREG?'],
-    ['IMEI', 'AT+CGSN'], ['IMSI', 'AT+CIMI'], ['SIM ICCID', 'AT+CCID'], ['Modem info', 'AT+CGMI|AT+CGMM|AT+CGMR'],
-    ['QoS', 'AT+CGEQOSRDP=1'],
-  ];
 
-  // ---- Router radio settings. Read on open and after a change only, never polled. Formats: docs/AT_RADIO_FORMATS.md. ----
-  let radioBusy = false;
 
-  const num = (v) => { const n = parseFloat(v); return isFinite(n) ? n : null; };
-  // "Signal quality": AT+CSQ only covers 2G/3G/4G and answers 99,99 ("unknown") while the modem is on 5G. So also ask AT+CESQ
-  // (LTE RSRP/RSRQ) and the router's own 5G values, and say in words what a 99 means.
-  async function signal() {
-    log('> Signal quality (AT+CSQ, AT+CESQ, router)');
-    let csq = '', cesq = '';
-    try { csq = tidy(await at('AT+CSQ')); } catch (e) { log('AT+CSQ: ' + e.message); }
-    if (csq) {
-      log(csq);
-      const m = csq.match(/\+CSQ:\s*(\d+)/);
-      if (m) log(+m[1] === 99 ? '  -> CSQ 99 = unknown. Normal on 5G: CSQ only measures 2G/3G/4G. The 5G values are below.'
-        : '  -> signal strength ' + (-113 + 2 * Math.min(+m[1], 31)) + ' dBm');
-    }
-    try { cesq = tidy(await at('AT+CESQ')); } catch (e) { log('AT+CESQ: ' + e.message); }
-    if (cesq) {
-      log(cesq);
-      const m = cesq.match(/\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)/);
-      if (m) {
-        const rsrq = +m[5], rsrp = +m[6];
-        log('  -> LTE RSRP ' + (rsrp <= 97 ? (-140 + rsrp) + ' dBm' : 'unknown') + ', RSRQ ' + (rsrq <= 34 ? (-19.5 + 0.5 * rsrq) + ' dB' : 'unknown'));
-      }
-    }
+  // ---- console ------------------------------------------------------------------------------------------
+  const out = () => document.getElementById('at_out');
+  function log(line) { const o = out(); if (!o) return; o.textContent += line + '\n'; o.scrollTop = o.scrollHeight; }
+  async function sendOne(cmd) {
+    log('> ' + cmd);
+    try { const raw = await at(cmd); log(A.cleanReply(raw) || '(no output)'); return String(raw || ''); }
+    catch (e) { log('Error: ' + e.message); return ''; }
+  }
+  async function nrBands() {
     try {
-      const keys = ['network_type', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr5g_pci', 'nr5g_action_band', 'nr5g_action_channel', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'lte_pci', 'wan_active_band'];
-      const r = await api('/api/zte', { method: 'POST', body: JSON.stringify({ op: 'get', params: { multi_data: '1', cmd: keys.join(',') } }) });
-      const d = (r && r.data) || {}, v = (k) => (d[k] === undefined || d[k] === null || String(d[k]).trim() === '' ? null : String(d[k]).trim());
-      const row = (label, k, unit) => v(k) !== null && num(v(k)) !== null ? label + ' ' + v(k) + unit : (v(k) !== null && !unit ? label + ' ' + v(k) : null);
-      const lines = [v('network_type') && 'Network ' + v('network_type'),
-        row('5G RSRP', 'Z5g_rsrp', ' dBm'), row('5G RSRQ', 'Z5g_rsrq', ' dB'), row('5G SINR', 'Z5g_SINR', ' dB'),
-        row('5G PCI', 'nr5g_pci', ''), v('nr5g_action_band') && '5G band ' + v('nr5g_action_band'), row('5G channel', 'nr5g_action_channel', ''),
-        row('LTE RSRP', 'lte_rsrp', ' dBm'), row('LTE RSRQ', 'lte_rsrq', ' dB'), row('LTE SINR', 'lte_snr', ' dB'),
-        row('LTE PCI', 'lte_pci', ''), v('wan_active_band') && 'LTE band ' + v('wan_active_band')].filter(Boolean);
-      log(lines.length ? 'Router:\n  ' + lines.join('\n  ') : 'Router answered but has no signal values for this firmware.');
+      const f = R.parseNrSupported(await at('AT+SP5GCMDS="get nr support_band"'));
+      log('> 5G bands this modem supports\n' + (f.length ? f.map((b) => 'n' + b).join(' ') : '(none parsed)'));
+    } catch (e) { log('Error: ' + e.message); }
+  }
+  // AT+CSQ only covers 2G/3G/4G and says 99 on 5G, so the LTE values (AT+CESQ) and the router's own 5G values are read too.
+  async function signal() {
+    log('> Signal (AT+CSQ, AT+CESQ, router)');
+    for (const c of ['AT+CSQ', 'AT+CESQ']) {
+      try {
+        const raw = await at(c);
+        log(A.cleanReply(raw) || '(no output)');
+        const why = c === 'AT+CSQ' ? A.describeCsq(raw) : A.describeCesq(raw);
+        if (why) log('  -> ' + why);
+      } catch (e) { log(c + ': ' + e.message); }
+    }
+    const rows = [['Network', 'network_type', ''], ['5G RSRP', 'Z5g_rsrp', ' dBm'], ['5G RSRQ', 'Z5g_rsrq', ' dB'], ['5G SINR', 'Z5g_SINR', ' dB'], ['5G PCI', 'nr5g_pci', ''],
+      ['5G band', 'nr5g_action_band', ''], ['5G channel', 'nr5g_action_channel', ''], ['LTE RSRP', 'lte_rsrp', ' dBm'], ['LTE RSRQ', 'lte_rsrq', ' dB'],
+      ['LTE SINR', 'lte_snr', ' dB'], ['LTE PCI', 'lte_pci', ''], ['LTE band', 'wan_active_band', '']];
+    try {
+      const d = (await zte('get', { multi_data: '1', cmd: rows.map((r) => r[1]).join(',') })) || {};
+      const lines = rows.map(([label, key, unit]) => { const v = d[key] == null ? '' : String(d[key]).trim(); return v ? label + ' ' + v + unit : ''; }).filter(Boolean);
+      log(lines.length ? 'Router:\n  ' + lines.join('\n  ') : 'The router has no signal values for this firmware.');
     } catch (e) { log('Router values not available: ' + e.message + '. Live Status shows the signal from Android telephony instead.'); }
   }
-
-  function log(line) {
-    const o = document.getElementById('matchi_at_out'); if (!o) return;
-    o.textContent += line + '\n'; o.scrollTop = o.scrollHeight;
-  }
   async function run(cmd) {
-    cmd = (cmd || '').trim(); if (!cmd) return;
     if (cmd === '@signal') return signal();
-    if (cmd.includes('|')) {   // preset made of several commands: run each, keep going when one is not supported
-      for (const c of cmd.split('|')) { log('> ' + c); try { log(tidy(await at(c)) || '(no output)'); } catch (e) { log('Error: ' + e.message); } }
-      return;
-    }
-    log('> ' + cmd);
-    try { log(tidy(await at(cmd)) || '(no output)'); } catch (e) { log('Error: ' + e.message); }
+    if (cmd === '@nrbands') return nrBands();
+    // a quick read made of several commands: run each in turn, keep going when one is not supported
+    for (const c of String(cmd).split('|')) await sendOne(c);
+  }
+  function sendTyped() {
+    const box = document.getElementById('at_in'); if (!box) return;
+    const chk = A.checkCommand(box.value);
+    if (!chk.ok) { if (box.value.trim()) log(chk.error); box.focus(); return; }
+    if (/AT\+SPIMEI\s*=\s*\d+\s*,\s*"NEW"/i.test(chk.cmd)) { log('Replace NEW with the 15-digit IMEI first, then press Send.'); box.focus(); return; }   // never send the placeholder
+    hist.push(chk.cmd); box.value = '';
+    run(chk.cmd);
   }
 
+  // ---- voice switches ------------------------------------------------------------------------------------
+  const swEl = (id) => document.getElementById('at_sw_' + id), stEl = (id) => document.getElementById('at_st_' + id);
+  const lockSwitches = (on) => { for (const d of A.SWITCHES) { const e = swEl(d.id); if (e) e.disabled = on; } };
+  let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM cannot paint over it
+  async function refreshSwitches() {
+    const gen = ++swGen;
+    lockSwitches(true);
+    for (const d of A.SWITCHES) { const s = stEl(d.id); if (s) s.textContent = 'reading…'; }
+    for (const d of A.SWITCHES) {
+      const el = swEl(d.id), st = stEl(d.id); if (!el) continue;
+      try {
+        const v = A.readSwitch(d, await at(d.read));
+        if (gen !== swGen) return;
+        if (v === null) { st.textContent = 'unknown'; continue; }
+        el.checked = v; el.disabled = false; st.textContent = v ? 'on' : 'off';
+      } catch (e) { if (gen !== swGen) return; st.textContent = 'not available'; log(d.label + ': ' + e.message); }
+    }
+  }
+  async function toggle(d, on) {
+    lockSwitches(true);   // one modem write at a time
+    try {
+      const raw = String(await at(d.write(on)) || '');
+      if (!raw.includes('OK')) {
+        const why = raw.trim() ? ' (modem said: ' + raw.replace(/\s+/g, ' ').trim().slice(0, 80) + ')' : ': the modem did not answer AT (sendat printed nothing). Run Full diagnose';
+        createToast(d.label + ' change failed' + why, 'red');
+      } else {
+        // OK only means the modem took the command: read it back after a short wait and say so when it did not stick.
+        await sleep(1500);
+        let rawBack = '', got = null;
+        try { rawBack = String(await at(d.read)); got = A.readSwitch(d, rawBack); } catch (e) { rawBack = 'read failed: ' + e.message; }
+        log('> ' + d.label + ' ' + (on ? 'on' : 'off') + ': modem said ' + raw.replace(/\s+/g, ' ').trim() + '; read back (' + d.read + '): ' + (rawBack.replace(/\s+/g, ' ').trim() || '(no output)'));
+        const v = A.judgeSwitch(on, got);
+        if (v === 'unreadable') createToast(d.label + ': the modem said OK but the state could not be read back', 'red');
+        else if (v === 'differs') createToast(d.label + ': the modem said OK but still reads ' + (got ? 'on' : 'off') + '. It may need a modem restart. Details are in the output.', 'red');
+        else createToast(d.label + (on ? ' on' : ' off') + ' (confirmed by read-back)', 'green');
+      }
+    } catch (err) { createToast(err.message, 'red'); }
+    refreshSwitches();
+  }
+
+  let radioBusy = false;
   function setRadioBusy(on) {
     radioBusy = on;
-    const el = document.getElementById('matchi_reboot'); if (el) el.disabled = on;
+    const el = document.getElementById('at_restart'); if (el) el.disabled = on;
   }
 
   // Radio restart: R.radioCycle in radio-core.js (order, meaning of 5/4 and the on-device script are explained there).
@@ -1135,99 +1258,78 @@ html body #home .matchi-menu-box>button::before{left:6px}
     try { await radioCycle(); } finally { setRadioBusy(false); }
   }
 
-  let swGen = 0;   // a newer refresh (slot change, after a switch) retires an older one, so a slow read of the other SIM slot cannot paint over it
-  async function refreshSwitches() {
-    const gen = ++swGen, items = [['matchi_volte', getVoLTE], ['matchi_vonr', getVoNR]];
-    for (const [id] of items) { const e0 = document.getElementById(id); if (e0) e0.disabled = true; }
-    for (const [id, getter] of items) {
-      const el = document.getElementById(id); if (!el) continue;
-      try { const v = await getter(); if (gen !== swGen) return; el.checked = v; el.disabled = false; }
-      catch (e) { if (gen !== swGen) return; el.disabled = true; log(id + ': ' + e.message); }
-    }
-  }
 
-  // Compact look for this window only: small switches in one row, smaller buttons / inputs / output box.
+  // ---- window --------------------------------------------------------------------------------------------
   function atStyle() {
-    if (document.getElementById('matchi_at_css')) return;
-    const st = document.createElement('style'); st.id = 'matchi_at_css';
+    if (document.getElementById('at_css')) return;
+    const st = document.createElement('style'); st.id = 'at_css';
     st.textContent = `
-#matchi_at_modal .modal{padding:12px}
-#matchi_at_modal .at-tg{display:flex;gap:14px;align-items:center;margin:0 0 8px}
-#matchi_at_modal .at-tg label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;line-height:1;cursor:pointer}
-#matchi_at_modal input[type=checkbox]{-webkit-appearance:none;appearance:none;flex:0 0 auto;width:30px;height:17px;min-height:0;padding:0;margin:0;border:0;border-radius:9px;background-color:rgba(255,255,255,.22);background-image:radial-gradient(circle,#fff 6px,transparent 6.5px);background-size:17px 17px;background-repeat:no-repeat;background-position:0 50%;transition:background-position .18s,background-color .18s;cursor:pointer}
-#matchi_at_modal input[type=checkbox]:checked{background-color:rgba(100,230,164,.75);background-position:100% 50%}
-#matchi_at_modal input[type=checkbox]:disabled{opacity:.45;cursor:default}
-#matchi_at_modal select{min-height:28px;padding:2px 6px;font-size:12px;border-radius:7px}
-#matchi_at_modal button{min-height:28px;padding:3px 9px;font-size:12px;border-radius:7px}
-#matchi_at_modal input[type=text],#matchi_at_modal input:not([type]),#matchi_at_modal input[inputmode]{min-height:30px;padding:4px 9px;font-size:12.5px}
-#matchi_at_out{height:150px!important;padding:8px!important;font-size:11px;line-height:1.45;margin-top:8px!important}`;
+#matchi_at_modal .modal{padding:14px}
+#matchi_at_modal .at-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+#matchi_at_modal .at-seg{display:inline-flex;border:1px solid var(--bd);border-radius:9px;overflow:hidden}
+#matchi_at_modal .at-seg button{border:0;border-radius:0;min-height:28px;padding:3px 12px;font-size:12px;background:transparent}
+#matchi_at_modal .at-seg button[aria-pressed=true]{background:rgba(85,182,255,.22);font-weight:700}
+#matchi_at_modal .at-sec{border:1px solid var(--bd);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+#matchi_at_modal .at-h{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin:0 0 6px}
+#matchi_at_modal .at-sw{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:3px 0}
+#matchi_at_modal .at-sw small{display:block;font-size:11px;color:var(--mut)}
+#matchi_at_modal .at-st{font-size:11.5px;color:var(--mut);min-width:64px;text-align:right}
+#matchi_at_modal .at-sw input{-webkit-appearance:none;appearance:none;width:32px;height:18px;margin:0;padding:0;border:0;border-radius:9px;background:rgba(255,255,255,.22);position:relative;cursor:pointer}
+#matchi_at_modal .at-sw input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s}
+#matchi_at_modal .at-sw input:checked{background:rgba(100,230,164,.75)}
+#matchi_at_modal .at-sw input:checked::after{transform:translateX(14px)}
+#matchi_at_modal .at-sw input:disabled{opacity:.45;cursor:default}
+#matchi_at_modal .at-chips{display:flex;flex-wrap:wrap;gap:6px}
+#matchi_at_modal .at-chips button,#matchi_at_modal .at-bar button{min-height:28px;padding:3px 10px;font-size:12px;border-radius:7px}
+#matchi_at_modal .at-bar{display:flex;gap:6px;align-items:center;margin:8px 0 6px}
+#matchi_at_modal .at-bar input{flex:1;min-width:0;min-height:30px;padding:4px 9px;font-size:12.5px}
+#matchi_at_modal .at-tools{display:flex;justify-content:space-between;align-items:center}
+#matchi_at_modal #at_out{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;height:150px;overflow:auto;white-space:pre-wrap;margin:4px 0 0;font-size:11px;line-height:1.45}`;
     document.head.appendChild(st);
   }
+  const chip = (label, attr, val) => `<button type="button" ${attr}="${esc(val)}">${esc(label)}</button>`;
   function open() {
     atStyle();
+    const groups = A.groups.map((g) => `<div class="at-sec"><div class="at-h">${esc(g.name)}</div><div class="at-chips">${g.items.map((i) => chip(i[0], 'data-run', i[1])).join('')}</div></div>`).join('');
+    const switches = A.SWITCHES.map((d) => `<div class="at-sw"><div><b>${esc(d.label)}</b><small>${esc(d.note)}</small></div><span class="at-st" id="at_st_${d.id}">reading…</span><input type="checkbox" id="at_sw_${d.id}" disabled aria-label="${esc(d.label)}"></div>`).join('');
     createModal({
       name: MODAL, title: 'AT & Radio', maxWidth: '560px', showConfirm: false, onClose: () => true,
       content:
-        '<div style="display:flex;gap:8px;margin-bottom:8px"><select id="matchi_at_slot"><option value="0">SIM slot 0</option><option value="1">SIM slot 1</option></select></div>' +
-        '<div class="at-tg">' +
-        '<label><input type="checkbox" id="matchi_volte" disabled> VoLTE</label>' +
-        '<label><input type="checkbox" id="matchi_vonr" disabled> VoNR</label></div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' +
-        PRESETS.map((p) => `<button type="button" data-at="${esc(p[1])}">${esc(p[0])}</button>`).join('') +
-        '<button type="button" id="matchi_bands">NR bands</button><button type="button" id="matchi_reboot">Restart modem</button><button type="button" id="matchi_report">Radio report</button><button type="button" id="matchi_chg">Change IMEI</button></div>' +
-        '<div style="display:flex;gap:6px"><input id="matchi_at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false" style="flex:1;min-width:0"><button type="button" id="matchi_apply">Apply</button></div>' +
-        '<pre id="matchi_at_out" style="background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;height:200px;overflow:auto;white-space:pre-wrap;margin:10px 0 0"></pre>',
+        '<div class="at-top"><div class="at-seg" role="group" aria-label="SIM slot"><button type="button" data-slot="0" aria-pressed="true">SIM 0</button><button type="button" data-slot="1" aria-pressed="false">SIM 1</button></div></div>' +
+        `<div class="at-sec"><div class="at-h">Voice</div>${switches}</div>` + groups +
+        '<div class="at-sec"><div class="at-h">Actions</div><div class="at-chips"><button type="button" id="at_restart">Restart modem</button><button type="button" id="at_report">Radio report</button><button type="button" id="at_imei">Change IMEI…</button></div></div>' +
+        '<div class="at-bar"><input id="at_in" placeholder="AT command, e.g. AT+CSQ" autocomplete="off" autocapitalize="characters" spellcheck="false"><button type="button" id="at_send">Send</button></div>' +
+        '<div class="at-tools"><span class="at-h" style="margin:0">Output</span><span class="at-chips"><button type="button" id="at_copy">Copy</button><button type="button" id="at_clear">Clear</button></span></div>' +
+        '<pre id="at_out"></pre>',
     });
     showModal(MODAL);
+    slotNo = 0;
     const root = document.getElementById(MODAL);
-    root.querySelectorAll('[data-at]').forEach((b) => (b.onclick = () => run(b.dataset.at)));
-    // Enter and the Apply button do the same thing: send what is in the box.
-    const applyBox = () => {
-      const i = document.getElementById('matchi_at_in'); if (!i) return;
-      const v = i.value.trim(); if (!v) return;
-      if (/AT\+SPIMEI\s*=\s*\d+\s*,\s*"NEW"/i.test(v)) { log('Replace NEW with the 15-digit IMEI first, then press Apply.'); i.focus(); return; }   // never send the placeholder
-      i.value = ''; run(v);
+    root.querySelectorAll('[data-run]').forEach((b) => (b.onclick = () => run(b.dataset.run)));
+    root.querySelectorAll('[data-slot]').forEach((b) => (b.onclick = () => {
+      slotNo = b.dataset.slot === '1' ? 1 : 0;
+      root.querySelectorAll('[data-slot]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      refreshSwitches();
+    }));
+    for (const d of A.SWITCHES) swEl(d.id).onchange = (e) => toggle(d, e.target.checked);
+    const box = document.getElementById('at_in');
+    box.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendTyped(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); box.value = hist.prev(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); box.value = hist.next(); }
     };
-    document.getElementById('matchi_at_in').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); applyBox(); } };
-    document.getElementById('matchi_apply').onclick = applyBox;
-    document.getElementById('matchi_chg').onclick = () => {   // only shows the command in the box; nothing is sent until you press Enter
-      const i = document.getElementById('matchi_at_in'); if (!i) return;
-      i.value = 'AT+SPIMEI=' + slot() + ',"NEW"'; i.focus();
-      const p = i.value.indexOf('NEW'); try { i.setSelectionRange(p, p + 3); } catch (_) { /* not fatal */ }
+    document.getElementById('at_send').onclick = sendTyped;
+    document.getElementById('at_clear').onclick = () => { const o = out(); if (o) o.textContent = ''; };
+    document.getElementById('at_copy').onclick = async () => {
+      const t = (out() && out().textContent) || '';
+      try { await navigator.clipboard.writeText(t); createToast('Output copied', 'green'); } catch (_) { createToast('Select the output and copy it by hand', 'red'); }
     };
-    document.getElementById('matchi_bands').onclick = async () => {
-      try {
-        const f = parseNrSupported(await at('AT+SP5GCMDS="get nr support_band"'));
-        log('> NR supported bands\n' + (f.length ? f.map((b) => 'n' + b).join(' ') : '(none parsed)'));
-      } catch (e) { log('Error: ' + e.message); }
+    document.getElementById('at_imei').onclick = () => {   // only puts the command in the box; nothing is sent until Send
+      box.value = 'AT+SPIMEI=' + slot() + ',"NEW"'; box.focus();
+      const p = box.value.indexOf('NEW'); try { box.setSelectionRange(p, p + 3); } catch (_) { /* not fatal */ }
     };
-    for (const [id, setter, name] of [['matchi_volte', setVoLTE, 'VoLTE'], ['matchi_vonr', setVoNR, 'VoNR']]) {
-      document.getElementById(id).onchange = async (e) => {
-        const on = e.target.checked;
-        for (const x of ['matchi_volte', 'matchi_vonr']) { const c = document.getElementById(x); if (c) c.disabled = true; }   // one modem write at a time
-        try {
-          const raw = String(await setter(on) || ''), ok = raw.includes('OK');
-          const why = raw.trim() ? ' (modem said: ' + raw.replace(/\s+/g, ' ').trim().slice(0, 80) + ')' : ': the modem did not answer AT (sendat printed nothing). Run Full diagnose';
-          if (ok) {
-            // "OK" only means the modem took the command. Read the switch back (after a short wait) and say so if it did not stick,
-            // instead of a green toast followed by the switch quietly jumping back.
-            await sleep(1500);
-            const getter = name === 'VoLTE' ? getVoLTE : getVoNR, readCmd = name === 'VoLTE' ? 'AT+CAVIMS?' : 'AT+SP5GCMDS="get nr synch_param",42';
-            let now = null, rawBack = '';
-            try { rawBack = String(await at(readCmd)); now = await getter(); } catch (e) { rawBack = 'read failed: ' + e.message; }
-            log('> ' + name + ' set ' + (on ? 'on' : 'off') + ' -> modem: ' + raw.replace(/\s+/g, ' ').trim() + '\n> read back (' + readCmd + '): ' + (rawBack.replace(/\s+/g, ' ').trim() || '(no output)'));
-            if (now === null) createToast(name + ': the modem said OK but the state could not be read back', 'red');
-            else if (now !== on) createToast(name + ': the modem said OK but still reads ' + (now ? 'on' : 'off') + '. The change may need a modem restart, or this firmware reads a different value. Details in the output box.', 'red');
-            else createToast(name + (on ? ' on' : ' off') + ' (confirmed by read-back)', 'green');
-          } else createToast(name + ' change failed' + why, 'red');
-        }
-        catch (err) { createToast(err.message, 'red'); }
-        refreshSwitches();
-      };
-    }
-    document.getElementById('matchi_report').onclick = radioReport;
-    document.getElementById('matchi_reboot').onclick = rebootModem;
-    document.getElementById('matchi_at_slot').onchange = () => { refreshSwitches(); };
+    document.getElementById('at_report').onclick = radioReport;
+    document.getElementById('at_restart').onclick = rebootModem;
     refreshSwitches();
   }
 
@@ -1235,7 +1337,6 @@ html body #home .matchi-menu-box>button::before{left:6px}
   const b = document.createElement('button');
   b.id = BTN_ID; b.textContent = 'AT & Radio'; b.onclick = open; host.appendChild(b);
 })();
-
 
 /* @end-include web-src/at-radio-ui.js */
 </script>
