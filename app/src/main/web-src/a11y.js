@@ -24,7 +24,7 @@
   try{new MutationObserver(later).observe(document.body,{childList:true,subtree:true})}catch(_){}
 })();
 
-/* Accessibility pass 2 (review item 19): dialog focus, Escape, keyboard for click-only elements, live regions and tab semantics.
+/* Accessibility pass 2: dialog focus, Escape, keyboard for click-only elements, live regions and tab semantics.
    Like pass 1 it only adds behaviour and attributes; what is shown does not change. Dialogs it knows: the page's own popups (.card.pop.open,
    closed with closePop()) and plugin modals (.modal-bg.show, closed through their own .mclose button). */
 (function(){

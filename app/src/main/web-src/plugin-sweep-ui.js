@@ -1,11 +1,11 @@
-/* Delete dialog, process sweep (Phase 2 / Step 6). Pure text and decision helpers for the "Delete plugin" dialog; the dialog itself stays in the delete handler.
+/* Delete dialog, process sweep. Pure text and decision helpers for the "Delete plugin" dialog; the dialog itself stays in the delete handler.
    The host (/api/plugins/data) sends "sweep": {rootOk, candidates:[{pid,start,how,args}], notStopped, notes, found, overCap, complete, sweepHash}.
    Rules the page keeps:
    - What is listed is what is ended: the page sends back the sweepHash it was shown whenever it sends stop:true (the host scans again and answers 409
      "plan-changed" when the list is different).
    - "Delete without stopping" sends no sweepHash and the host never scans for it.
    - No list is ever guessed: when the check did not run, the dialog says so and lists nothing.
-   Phase 2 / Step 7 (the stop hook of a SANDBOXED plugin, D5 = b): the page runs the hook before the request (sbxHookRun, 15 s). The hook's answer is never
+   The stop hook of a SANDBOXED plugin: the page runs the hook before the request (sbxHookRun, 15 s). The hook's answer is never
    believed. A hook that fails or times out keeps the plugin (the request is not sent). After a hook that finished, the page scans again (hookAfterScan):
    the scan must have run completely, and may only show processes that were listed before. Only then is the request sent, with the NEW sweepHash. */
 function sweepNorm(info){
@@ -23,9 +23,9 @@ function sweepNorm(info){
 }
 function sweepHowText(how){return how==='tag'?'found by tag':how==='pidfile'?'found by its pid file':how==='cmdline'?'found by command line, weakest match':'found'}
 function sweepProcLine(c){return 'PID '+c.pid+(c.args?' '+c.args:'')+' ('+sweepHowText(c.how)+')'}
-/* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = Phase 1;
+/* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = the plugin declared its own stop commands (see docs/PLUGIN_STOP.md);
    toomany = more than 50 processes found, the host refuses to end them automatically.
-   Phase 3: [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
+   [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
 function pluginDeleteMode(sp,sw,hasHook,un){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   if(refused.length)return 'cannot';

@@ -1,4 +1,4 @@
-/* Safe HTML helper (review item 20). Builds markup where every interpolated value is escaped unless it is marked as already-safe markup.
+/* Safe HTML helper. Builds markup where every interpolated value is escaped unless it is marked as already-safe markup.
      const { html, raw, esc, setHtml } = window.MT_html;
      setHtml(box, html`<div class="row">${name}</div>`);                 // name is escaped
      setHtml(box, html`<ul>${items.map((i) => html`<li>${i}</li>`)}</ul>`); // nested html`` and arrays are kept as markup

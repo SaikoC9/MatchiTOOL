@@ -1,4 +1,4 @@
-/* Language switch (review item 21). English is the text written in the page; a language is a dictionary English text -> translated text.
+/* Language switch. English is the text written in the page; a language is a dictionary English text -> translated text.
    The page's fixed labels (header, sign-in, the home buttons, the popup titles, buttons and placeholders listed in TARGETS) follow the switch.
    Also translated (exact DICT texts only): the built-in tools' windows and the fixed toasts. Not translated: messages with a changing value built while it runs (results, errors), log / terminal output and plugins. They stay English.
    To add a language: add its code to LANGS and a dictionary to DICT with the same English keys as 'fil' (scripts/test_i18n.js lists what is missing).

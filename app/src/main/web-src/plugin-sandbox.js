@@ -1,4 +1,4 @@
-/* ===== Sandboxed plugins (Phase 4) ================================================================================================
+/* ===== Sandboxed plugins ================================================================================================
  * A plugin the person switched to "sandbox" does not run in this page. It runs in an <iframe sandbox="allow-scripts"> (no allow-same-origin), so
  * it has an opaque origin: it cannot read this page or its DOM, has no cookie and no storage of its own, and a request it sends to this host
  * carries "Origin: null" (refused by the host) and no session. Its only way out is a MessageChannel bridge whose other end is here.
@@ -10,7 +10,7 @@
  *   router: a,b  router.get(['a','b'])  only these router fields, read-only
  *   shell: CMD   shell(command)         only this exact command, nothing added to it
  *   net: host    (no call)              the frame's own Content-Security-Policy lets it contact https://host
- *   always:      onUninstall(fn)        (Phase 2 / Step 7) registers a stop hook. The page runs it, 15 s at most, when the person chooses "Delete and stop".
+ *   always:      onUninstall(fn)        registers a stop hook. The page runs it, 15 s at most, when the person chooses "Delete and stop".
  *                                       It can use only what was approved for the plugin (the same checks as any other call). Its result is never believed:
  *                                       a scan afterwards decides, and a hook that fails or does not finish keeps the plugin.
  * Every bridge call is checked here against the grant first (early, clear errors), then relayed to the host, which checks the stored approval again
@@ -59,7 +59,7 @@ function sbxPreludeMain(){
     port=ev.ports[0];
     port.onmessage=function(e){
       var d=e.data;
-      if(d&&d.run==='uninstall'&&typeof d.token==='string'){runHook(d.token);return}   /* the page asks the stop hook to run (Phase 2 / Step 7) */
+      if(d&&d.run==='uninstall'&&typeof d.token==='string'){runHook(d.token);return}   /* the page asks the stop hook to run */
       if(!d||typeof d.id!=='number')return;
       var p=pending.get(d.id);if(!p)return;pending.delete(d.id);
       if(d.ok)p.resolve(d.value);else p.reject(new Error(String(d.error||'failed')));
@@ -171,7 +171,7 @@ function sbxRateOk(entry,now){
 const sbxEntries=new Map();
 function sbxHide(entry){try{closeModal('#'+entry.modalId,300)}catch(_){}}
 /* Run an authorized call. Device calls (at, router.get, shell) are only RELAYED, to POST /api/plugins/call: the host looks up the plugin's approved record
-   on every call and decides again (Phase 5), and keeps the ledger of what the plugin wrote (so Delete can erase it). */
+   on every call and decides again, and keeps the ledger of what the plugin wrote (so Delete can erase it). */
 async function sbxRun(entry,a){
   const hostCall=(op,args)=>api('/api/plugins/call',{method:'POST',body:JSON.stringify({name:entry.name,op,args})});
   switch(a.op){
@@ -214,7 +214,7 @@ function sbxOnMessage(entry,m){
   if(!a.ok)return reply(false,a.error);
   sbxRun(entry,a).then((v)=>reply(true,v),(e)=>reply(false,(e&&e.message)||'failed'));
 }
-/* Phase 2 / Step 7: run the stop hook a sandboxed plugin registered with matchi.onUninstall. Resolves, never rejects, with {status, ran, error?}:
+/* Run the stop hook a sandboxed plugin registered with matchi.onUninstall. Resolves, never rejects, with {status, ran, error?}:
      none     no hook registered (or the plugin is not mounted in this session: a disabled plugin never ran, so it has no hook)
      ok       the hook finished without an error      failed   the hook threw or rejected      timeout  no answer within [ms]
      dead     the bridge is closed (the frame left its page)

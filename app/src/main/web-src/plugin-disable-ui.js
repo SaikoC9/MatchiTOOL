@@ -1,4 +1,4 @@
-/* "Turn off and stop" (Phase 3 / Step 5). Switching a plugin OFF can also stop what it started and undo what it left in the system, WITHOUT deleting it or its data.
+/* "Turn off and stop". Switching a plugin OFF can also stop what it started and undo what it left in the system, WITHOUT deleting it or its data.
    It is the same host stop as Delete: POST /api/plugins/delete with stop:true and keep:true (no erase). The host runs declared commands, the process sweep and the undo,
    re-checks, and only when everything is clean switches the plugin off. A stop that does not finish keeps the plugin ON and answers {ok:false,kept:true,stop:{...}}.
    Rules the page keeps (same as Delete):

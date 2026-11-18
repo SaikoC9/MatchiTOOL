@@ -1,15 +1,17 @@
 /*
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
- * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
- * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
- * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
- * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Phase 7: the MTU / MSS tab changes both values with the router's own call (confirm, backup copy by root, send, wait for the restart, re-read, root checks).
- * Phase 6a: the LAN / DHCP tab changes the DHCP pool and the lease (same steps: confirm, backup copy by root, send, wait for the restart, re-read).
- * Phase 6b: the same tab changes the router IP (pool moved into the new subnet, pending note written by root, host told the new address, host checks the router after the restart and
- * puts the old values back if needed) and puts DHCP back On when it was switched Off elsewhere. The mask is not changed and DHCP is never switched Off here.
- * Phase 3: the Wi-Fi tab switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices (confirm, backup copy by root, send, wait for Wi-Fi to restart, re-read).
- * Everything else is still read only; the one root call (MTU / MSS tab) is a
- * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
+ * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
+ *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
+ *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports).
+ *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
+ *    writes only in Manual mode, plus one guarded way in from Auto).
+ *  - MTU / MSS: changes both values with the router's own call (backup copy by root, send, wait for the restart, re-read, root checks).
+ *  - LAN / DHCP: changes the DHCP pool and the lease (backup copy by root, send, wait for the restart, re-read). It also changes the router IP
+ *    (pool moved into the new subnet, pending note written by root, host told the new address, host checks the router after the restart and
+ *    puts the old values back if needed) and puts DHCP back On when it was switched Off elsewhere. The mask is not changed and DHCP is never switched Off here.
+ *  - Wi-Fi: switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices
+ *    (backup copy by root, send, wait for Wi-Fi to restart, re-read).
+ * The one root call (MTU / MSS tab) only reads; the user starts it with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
  *  - While the window is open Live Status is paused (MatchiRadio.beginBusy), and it reads once again after the window closes.
@@ -60,7 +62,7 @@ function mountNetTools() {
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
       note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
-  // Phase 3: a band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
+  // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
   function viewWifi(d) {
     const w = N.parseWifi(d);
@@ -218,7 +220,7 @@ function mountNetTools() {
       note('The subnet mask is not changed in this window, and DHCP is not switched Off here (only back On, when it was switched Off elsewhere).', 'net-mut'));
   }
   const lanBusy = () => st.lanAct || st.act || st.devAct || st.apnAct || st.mtuAct || st.wifiAct;
-  // Phase 6b: change the router IP (the pool moves into the new subnet in the same call). Checks are in net-core.js (lanIpCheck).
+  // Change the router IP (the pool moves into the new subnet in the same call). Checks are in net-core.js (lanIpCheck).
   function lanIpForm(p) {
     const busy = lanBusy();
     const e = h('input', { type: 'text', id: 'matchi_lan_ip', maxlength: '15', autocomplete: 'off', placeholder: 'for example 192.168.1.1' }); e.value = st.lanIp || ''; e.oninput = () => { st.lanIp = e.value; }; if (busy) e.disabled = true;
@@ -378,7 +380,7 @@ function mountNetTools() {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
     }
   }
-  // ---- devices: rename, block, unblock (Phase 4) ----------------------------------------------------------------------------
+  // ---- devices: rename, block, unblock ----------------------------------------------------------------------------
   // The Devices tab = the station lists (multi_data) + the block list + the names (two single commands). The block list is never guessed: when
   // its read fails the keys stay absent and parseAcl gives null, so Block / Unblock are hidden. Names that fail to read leave the station names.
   async function readDevicesRaw() {
@@ -442,7 +444,7 @@ function mountNetTools() {
     await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && !a.black.some((x) => x.mac === b.mac); },
       'Unblocked ' + b.mac + '.', 'The router still lists this device as blocked.');
   }
-  // ---- APN (Phase 5) ---------------------------------------------------------------------------------------------------------
+  // ---- APN ---------------------------------------------------------------------------------------------------------
   // Every APN change: send the step(s), re-read the profile list (up to 5 reads, 2 s apart) until `check(parsed)` holds, and for changes that move
   // the data connection ("data" true) read ppp_status for up to 20 s more. Nothing is claimed without the re-read. `rollback`: if a LATER step of a
   // multi-step change is refused, the Auto call is sent so the router is not left in Manual mode on the wrong profile.
@@ -534,7 +536,7 @@ function mountNetTools() {
     if (f.mode === 'copy') await apnApply(steps, (x) => saved(x) && x.mode === 'manual' && N.sameProfile(x.inUse, form.name, form.apn), 'Saved and now using "' + form.name + '".', 'The router does not report "' + form.name + '" as the profile in use.', { data: true, rollback: true });
     else await apnApply(steps, saved, (f.mode === 'edit' ? 'Saved "' : 'Added "') + form.name + '".', 'The router does not list "' + form.name + '" in slot ' + f.slot + ' yet.', { data: inUse });
   }
-  // ---- MTU / MSS (Phase 7, Path A) -----------------------------------------------------------------------------------------------
+  // ---- MTU / MSS -----------------------------------------------------------------------------------------------
   // Steps: fresh read -> confirm naming old -> new -> backup copy written by root and read back (no backup, no change) -> SET_DEVICE_MTU -> the router restarts ->
   // wait for the console (up to about 3 minutes, a failed read just means "not back yet") -> re-read -> data state -> root read of the real interface -> one ping.
   // The wait stops by itself if the console asks for a new sign-in. Nothing is claimed that the re-read did not show. There is no automatic revert after the restart
@@ -673,14 +675,14 @@ function mountNetTools() {
     catch (e) { st.mtuMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('mtu');
   }
-  // ---- LAN / DHCP pool and lease (Phase 6a) ---------------------------------------------------------------------------------------
+  // ---- LAN / DHCP pool and lease ---------------------------------------------------------------------------------------
   // Same steps as the MTU / MSS change: fresh read -> confirm naming old -> new -> backup copy by root, read back (no backup, no change) -> DHCP_SETTING with the whole
   // set (IP and mask unchanged) -> the router restarts -> wait for the console -> re-read -> data state. The router IP does not change, so the console stays on the
   // same address. No automatic revert (the way back is "Restore"); the router IP and DHCP on / off are not part of this step.
   const lanReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.lan });
   const lanRead = async () => N.parseLan(await lanReadRaw());
   const consoleUrl = (ip) => { const l = (window && window.location) || {}; return (l.protocol || 'http:') + '//' + ip + (l.port ? ':' + l.port : ''); };
-  // kinds (opt.kind): 'pool' (default: pool / lease, IP unchanged), 'ip' (Phase 6b: new router IP, pool moved into the new subnet, mac_ip_reset=1), 'ipback' (restore while the
+  // kinds (opt.kind): 'pool' (default: pool / lease, IP unchanged), 'ip' (new router IP, pool moved into the new subnet, mac_ip_reset=1), 'ipback' (restore while the
   // router is at the saved NEW address: the old IP, pool and lease go back), 'dhcpon' (Restore DHCP after the server was switched Off). For the two IP kinds a pending note is
   // written by root before the send, and after the send the host is told the new address (/api/net/lan-applied); Kotlin (LanRevert) checks the router after the restart.
   async function lanApply(want, why, restore, opt) {
@@ -819,7 +821,7 @@ function mountNetTools() {
     catch (e) { st.lanMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('lan');
   }
-  // ---- Wi-Fi: band switch and settings (Phase 3) ----------------------------------------------------------------------------------
+  // ---- Wi-Fi: band switch and settings ----------------------------------------------------------------------------------
   // Both restart Wi-Fi. A device on Wi-Fi (maybe the one showing this page) is disconnected, so the wait loop treats a failed read as "not back yet" and
   // keeps asking for about 90 s. Nothing is claimed that the re-read did not show. The settings change saves the old values by root first (no backup, no write);
   // a band switch needs no file: the way back is to choose the old band.

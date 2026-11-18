@@ -1520,7 +1520,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   };
   const TELE_MS = [30000, 60000, 180000];   // telephony re-read interval by heat level (cool / warm / hot); the dumpsys is the costly part, so it is slower than the slow loop itself
 
-  // Instant open (Phase 4): the last router radio values are kept in sessionStorage (this tab only, gone when the tab closes) so a reload paints at once.
+  // Instant open: the last router radio values are kept in sessionStorage (this tab only, gone when the tab closes) so a reload paints at once.
   // Signal numbers only: no operator name, PCI, speeds, device count, data used, IP or IDs. Values older than 10 minutes are ignored.
   const CACHE_KEY = 'liv_cache_v1', CACHE_MAX_MS = 10 * 60 * 1000;
   const CACHE_FIELDS = ['network_type', 'signalbar', 'rssi', 'lte_rsrp', 'lte_rsrq', 'lte_snr', 'wan_active_band', 'wan_active_channel', 'Z5g_rsrp', 'Z5g_rsrq', 'Z5g_SINR', 'nr_rsrq', 'Nr_snr', 'nr5g_action_band', 'nr5g_action_channel'];
@@ -1924,7 +1924,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     for (const root of [inl, modalRoot()]) {
       if (!root) continue;
       const w = root.querySelector('.liv-when'), p = root.querySelector('.liv-pulse');
-      if (w) w.textContent = (rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t) + (heatLevel() >= 2 && !rb ? ' · cooling' : '') + (liveFresh() && !rb && !paused && LS.rxAt ? ' · device ' + (Math.max(0, Date.now() - LS.rxAt) / 1000).toFixed(1) + ' s ago' : '');   // Phase 4: how old the pushed CPU / temperature numbers are
+      if (w) w.textContent = (rb || paused || cs >= 0 ? t : stale && s >= 0 ? 'Stale · ' + s + ' s ago' : t) + (heatLevel() >= 2 && !rb ? ' · cooling' : '') + (liveFresh() && !rb && !paused && LS.rxAt ? ' · device ' + (Math.max(0, Date.now() - LS.rxAt) / 1000).toFixed(1) + ' s ago' : '');   // how old the pushed CPU / temperature numbers are
       if (p) p.classList.toggle('off', stale || cs >= 0 || !!rb);
       const old = !!(last && last.cpuAt && Date.now() - last.cpuAt > 45000);   // no real per-core read for 45 s (the slowest normal loop is 45 s in Eco, and the CPU loop is faster): the numbers are old, so dim them
       for (const cc of root.querySelectorAll('.liv-cards')) cc.classList.toggle('stale', old);
@@ -1942,7 +1942,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     return Math.max(base, failC > 0 ? Math.min(30000, 2000 * Math.pow(2, Math.min(failC - 1, 4))) : 0);
   };
   async function tickCpu() {
-    if (busyC || busyS || !sysPart || !visible() || batLow() || radioBusy() || liveFresh()) return 'skip';   // the slow loop's own read already carries the CPU numbers; the push stream carries them every second (Phase 4)
+    if (busyC || busyS || !sysPart || !visible() || batLow() || radioBusy() || liveFresh()) return 'skip';   // the slow loop's own read already carries the CPU numbers; the push stream carries them every second
     busyC = true;
     try {
       const r = await api('/api/shell', { method: 'POST', quiet: true, body: JSON.stringify({ timeout: 6000, cmd: CPU_LIVE_CMD }) });
@@ -1955,15 +1955,15 @@ rm -f $P.g $P.4 $P.6 $P.d
     finally { busyC = false; }
   }
   /* LIVE-STREAM-BEGIN */
-  // LIVE STREAM (real-time plan, Phase 4): CPU %, per-core speed, temperatures, memory, load and uptime are PUSHED by the host once a second
+  // LIVE STREAM: CPU %, per-core speed, temperatures, memory, load and uptime are PUSHED by the host once a second
   // (GET /api/live/stream, one root reader on the phone shared by every browser) instead of being polled with a root shell per read.
   // The router read (signal, speed) and the slow root read (battery, telephony fallback) are unchanged and keep their own loops.
-  // The stream is used only in Normal and Fast and the battery is not paused (it stays on when the phone is warm or hot: Phase 5 only slows the repaint). Eco, a paused battery, a radio restart,
+  // The stream is used only in Normal and Fast and the battery is not paused (it stays on when the phone is warm or hot: the heat guard only slows the repaint). Eco, a paused battery, a radio restart,
   // plain HTTP and "Live refresh: Off" use the old polling, which also takes over by itself when the stream drops or goes quiet (liveFresh() false),
   // so the card never goes blank. A hidden tab tells the host (POST /api/live/view) so the root reader can stop.
   const LS = { ctl: null, stop: false, id: '', on: false, stale: false, rxAt: 0, waitUntil: 0, retryAt: 0, fails: 0, sentVis: null, paintAt: 0, err: '', st: { cpu: undefined, pc: {}, fq: {}, tz: {}, sys: null } };
   const LS_QUIET_MS = 6000;
-  // Phase 5 (heat guard): the root reader and the stream keep running at every heat level, because the temperatures come through them and the card must see the
+  // Heat guard: the root reader and the stream keep running at every heat level, because the temperatures come through them and the card must see the
   // phone cool down. What the guard changes is how often the page repaints from the pushed frames: Live (Fast chip) every frame (1 s), Balanced (Normal chip) every 3 s,
   // warm (60 C and up) at least every 2 s, hot (70 C and up) at least every 5 s. The slowest of mode and heat wins. Frames are always applied, so nothing is lost between paints.
   const MODE_PUSH = { fast: 0, normal: 3000, eco: 0 }, GUARD_PUSH = [0, 2000, 5000], PAINT_SLACK_MS = 250;
@@ -2087,7 +2087,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const DELAY = { fast: [3000, 6000, 15000], slow: [15000, 30000, 90000] };
   // The level used for the delays. localStorage 'liv_thermal_test' = 0..3 forces a level so the slow-down can be tried on a cool phone
   // (it only changes the polling speed, not the temperatures shown); remove the key to go back to the measured level.
-  // Phase 5 heat guard: the level comes from the kernel thermal zones (SoC and the modem zone), NOT from the battery sensor (some F50 builds report a fixed 25.0 C
+  // Heat guard: the level comes from the kernel thermal zones (SoC and the modem zone), NOT from the battery sensor (some F50 builds report a fixed 25.0 C
   // there; the battery temperature is still shown and the banner above still uses it). Level 1 from 60 C, level 2 from 70 C; the modem zone is read 10 C higher
   // (same offset as the banner's 70 / 80). Back down only 3 C under the limit (57 / 67), so a phone sitting on the limit does not flap between levels.
   // With no zone reading the last level is kept. Level 3 exists only through liv_thermal_test.
@@ -2100,7 +2100,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (t !== undefined) { while (guardLv < 2 && t >= GUARD_UP[guardLv]) guardLv++; while (guardLv > 0 && t < GUARD_DOWN[guardLv - 1]) guardLv--; }
     return guardLv;
   };
-  // Phase 5 options (saved in this browser). Refresh speed: Fast 0 s / 1 s (the next read starts as soon as the last one ends), Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
+  // Options (saved in this browser). Refresh speed: Fast 0 s / 1 s (the next read starts as soon as the last one ends), Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
   // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
   const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
   const BATPAUSE = [0, 10, 15, 20, 30];   // "pause when battery below X %" choices, 0 = off
@@ -2141,7 +2141,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (auto) { tickFast(); tickSlow(); }
       createToast(auto ? 'Auto refresh on' : 'Auto refresh off', auto ? 'green' : 'blue');
     };
-    // Phase 5 options: refresh speed chips and the battery pause choice
+    // Options: refresh speed chips and the battery pause choice
     const chips = inl.querySelector('.liv-chips'), bp = inl.querySelector('.liv-bp');
     const CHIP_LABEL = { fast: 'Live', normal: 'Balanced', eco: 'Eco' }, CHIP_TIP = { fast: 'Live: 1 s while the phone is cool', normal: 'Balanced: 3 s (the default for people who leave the panel open)', eco: 'Eco: 9 s, no live stream' };
     chips.innerHTML = Object.keys(MODES).map((k) => `<button type="button" class="liv-chip" data-mode="${k}" title="${CHIP_TIP[k]}">${CHIP_LABEL[k]}</button>`).join('');
@@ -2160,7 +2160,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       if (auto && !batLow()) { tickFast(); } paint();
     };
   }
-  syncLive();   // Phase 4: open the push stream at once (its first frame is the host's last reading)
+  syncLive();   // open the push stream at once (its first frame is the host's last reading)
   if (loadCache()) paint();   // cached reading on screen straight away (labelled "Last reading"), then the first live read replaces it
   wasVis = !!visible();
   tickFast().then(() => tickSlow());
@@ -4174,7 +4174,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 </script>
 <script>
 /* @include web-src/safe-html.js */
-/* Safe HTML helper (review item 20). Builds markup where every interpolated value is escaped unless it is marked as already-safe markup.
+/* Safe HTML helper. Builds markup where every interpolated value is escaped unless it is marked as already-safe markup.
      const { html, raw, esc, setHtml } = window.MT_html;
      setHtml(box, html`<div class="row">${name}</div>`);                 // name is escaped
      setHtml(box, html`<ul>${items.map((i) => html`<li>${i}</li>`)}</ul>`); // nested html`` and arrays are kept as markup
@@ -4232,7 +4232,7 @@ function askDialog(o){
     const foot=document.createElement('div');foot.className='btn mfoot';
     let cancel=null;
     if(!o.noCancel){cancel=document.createElement('button');cancel.type='button';cancel.className='mclose ccancel';cancel.textContent='Cancel';foot.appendChild(cancel)}
-    /* o.extra: more buttons between Cancel and OK, [{text,value,danger}]; a click resolves with that value (Phase 1: "Delete without stopping", "Restart device"). */
+    /* o.extra: more buttons between Cancel and OK, [{text,value,danger}]; a click resolves with that value (e.g. "Delete without stopping", "Restart device"). */
     if(o.extra)for(const x of o.extra){const b=document.createElement('button');b.type='button';b.className='mclose ccancel';b.textContent=x.text;
       if(x.danger)b.style.cssText='background:rgba(255,100,124,.16)!important;border:1px solid rgba(255,100,124,.5)!important;color:#ffd5dc!important';
       b.onclick=()=>done(x.value);foot.appendChild(b)}
@@ -5345,12 +5345,12 @@ function mountPerfMode() {
 /*
  * MatchiNetCore - the pure part of the Network window (web-src/net-tools.js): which router keys to read, how to turn the router's
  * answers into plain objects, and the small text helpers. No document, no api(), no router call in here, so node can test it
- * without a router (scripts/test_net_tools.js). Plan and the values seen on the F50: MatchiTOOL_Network_Tools_PLAN.txt (Phase 0).
+ * without a router (scripts/test_net_tools.js). The values seen on the F50 are written down in docs/NETWORK_FORMATS.md.
  *
  * Rules kept here:
  *  - A key the router leaves EMPTY means "not reported": every parser gives null for it, never 0 / "off" (the tab then says so).
  *  - The Wi-Fi password and APN passwords are NEVER copied into a parsed object (the router's reply holds them in clear text).
- *  - Reads need no gate. The write calls built here: mobile data off / on (Phase 2, dataCall) and device rename / block / unblock (Phase 4); more come with later phases.
+ *  - Reads need no gate. The write calls are built further down: mobile data off / on (dataCall), devices, APN, Wi-Fi, LAN / DHCP and MTU / MSS.
  */
 (function (root, factory) {
   const api = factory();
@@ -5432,7 +5432,7 @@ function mountPerfMode() {
   }
   const modeLabel = (v) => { const t = clean(v); return t === null ? null : t === 'auto_dial' ? 'Automatic' : t === 'manual_dial' || t === 'manual' ? 'Manual' : t; };
   const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
-  // Mobile data off / on (Phase 2). Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
+  // Mobile data off / on. Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
   //   isTest=false&notCallback=true&goformId=DISCONNECT_NETWORK      isTest=false&notCallback=true&goformId=CONNECT_NETWORK
   // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt: every set call not in OPEN_SET does).
   const DATA_CALLS = {
@@ -5456,7 +5456,7 @@ function mountPerfMode() {
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
   // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
   // while the stock page says 5.0GHz Only, and the captured band switch agrees (ChipEnum=chip1 is "2.4GHz Only", chip2 is "5.0GHz Only", part M of the plan).
-  // Phase 3 still checks it after every band switch: the re-read must show the wanted chip on.
+  // The Wi-Fi tab still checks it after every band switch: the re-read must show the wanted chip on.
   const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (2.4 GHz)' : chip === 1 ? 'Chip 1 (5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
   const authLabel = (v) => {
     const t = clean(v); if (t === null) return null;
@@ -5529,7 +5529,7 @@ function mountPerfMode() {
     return { rows, wifi: rows.filter((r) => r.type === 'Wi-Fi').length, cable: rows.filter((r) => r.type === 'Cable').length, routerCount: num(d.wifi_access_sta_num), wifiReported: hasW, cableReported: hasC };
   }
 
-  // ---- Devices: rename, block, unblock (Phase 4) ------------------------------------------------------------------------------
+  // ---- Devices: rename, block, unblock ------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-15), AD added by the host:
   //   rename:  isTest=false&goformId=EDIT_HOSTNAME&mac=28%3A56%3A5a%3A3a%3Aef%3A6f&hostname=ako
   //   block:   goformId=setDeviceAccessControlList&isTest=false&AclMode=2&WhiteMacList=&BlackMacList=52%3Ae3...%3B&WhiteNameList=&BlackNameList=POCO-F6%3B
@@ -5592,7 +5592,7 @@ function mountPerfMode() {
     const r = {}; for (const k of Object.keys(o)) { if (!isPassKey(k)) r[k] = stripPass(o[k]); }
     return r;
   }
-  // ---- APN (Phase 5) ----------------------------------------------------------------------------------------------------------
+  // ---- APN ----------------------------------------------------------------------------------------------------------
   // Read (F50, 2026-11-15, router in Auto mode): the profiles are in APN_config0..19, one string per slot, fields joined by "($)":
   //   "default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)"
   //   position 0 name, 1 APN, 2 select, 3 dial, 4 auth, 5 and 6 = user name / password (order NOT confirmed: never shown, never copied), 7 PDP type, 8-11 unknown.
@@ -5739,7 +5739,7 @@ function mountPerfMode() {
     };
   }
 
-  // ---- LAN / DHCP: pool and lease (Phase 6a) ----------------------------------------------------------------------------------
+  // ---- LAN / DHCP: pool and lease ----------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-14, part C): the stock page sends the WHOLE set every time and THE ROUTER RESTARTS after it:
   //   isTest=false&goformId=DHCP_SETTING&lanIp=192.168.0.1&lanNetmask=255.255.255.0&lanDhcpType=SERVER&dhcpStart=192.168.0.2&dhcpEnd=192.168.0.253
   //   &dhcpLease=24&dhcp_reboot_flag=1&mac_ip_reset=0&AD=<token>          reply {"result":"success"} (before the restart)
@@ -5806,7 +5806,7 @@ function mountPerfMode() {
     return { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: o.start, dhcpEnd: o.end, dhcpLease: String(o.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' };
   }
   const LAN_BACKUP_PATH = '/data/local/matchitool/lan_backup.json';
-  // The "pending change" note of a router IP change (Phase 6b): same JSON as the backup, a different file. Kotlin (LanRevert) reads it after the restart.
+  // The "pending change" note of a router IP change: same JSON as the backup, a different file. Kotlin (LanRevert) reads it after the restart.
   const LAN_PENDING_PATH = '/data/local/matchitool/lan_pending.json';
   function lanNoteSh(path, oldV, newV, at) {
     const o = lanSnapOk(oldV), n = lanSnapOk(newV);
@@ -5831,7 +5831,7 @@ function mountPerfMode() {
   // After the restart: does the router report the wanted pool and lease (and the same IP, mask, DHCP On)?
   const lanReached = (lan, want) => !!lan && lan.dhcp === 'On' && lan.start === want.start && lan.end === want.end && lan.leaseHours === want.lease;
 
-  // ---- LAN / DHCP: router IP change (Phase 6b) ---------------------------------------------------------------------------------
+  // ---- LAN / DHCP: router IP change ---------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-15, part N): an IP change is the SAME DHCP_SETTING call, with the pool moved into the new subnet in the same Apply and
   // mac_ip_reset=1 (pool / lease only sends 0). After it the OLD address answers nothing, only the new one. The mask is never changed here (only
   // 255.255.255.0 was captured), DHCP stays On (the "off" value was never captured).
@@ -5941,7 +5941,7 @@ function mountPerfMode() {
     return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
   }
 
-  // ---- Wi-Fi: change (Phase 3) -------------------------------------------------------------------------------------------------
+  // ---- Wi-Fi: change -------------------------------------------------------------------------------------------------
   // Formats captured on the F50 stock page (2026-11-15, part M of the plan, AD token added by the host):
   //   band:  switchWiFiChip   isTest=false&goformId=switchWiFiChip&ChipEnum=chip1&GuestEnable=0      (chip1 = "2.4GHz Only", chip2 = "5.0GHz Only"; also turns Wi-Fi on from Off)
   //          switchWiFiModule isTest=false&goformId=switchWiFiModule&SwitchOption=0                  (Wi-Fi OFF)
@@ -6112,8 +6112,8 @@ function mountPerfMode() {
     return { old: o, new: n, at: Number.isInteger(j.at) ? j.at : 0 };
   }
 
-  // ---- MTU / MSS: change (Phase 7, Path A: the router's own call) ----------------------------------------------------------------
-  // Captured on the F50 (2026-11-14, part C2) and confirmed in the stock script service.js (2026-11-15):
+  // ---- MTU / MSS: change (the router's own call) ----------------------------------------------------------------
+  // Captured on the F50 (2026-11-14) and confirmed in the stock script service.js (2026-11-15):
   //   isTest=false&goformId=SET_DEVICE_MTU&mtu=1500&tcp_mss=1459&AD=<token>      reply {"result":"success"}, then THE ROUTER REBOOTS.
   // Both values are always sent together. Effect seen in the root checks (parts E and G): the property persist.sys.tetherconfig.sMss / sMtu follows, and the
   // INPUT / OUTPUT TCPMSS --set-mss rules are rebuilt at boot, so MSS acts on the router's own SYN packets, NOT on connected devices. The allowed ranges
@@ -6183,16 +6183,18 @@ function mountPerfMode() {
 /* @include web-src/net-tools.js */
 /*
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
- * Phase 1: every tab reads. Phase 2: the Data tab also switches mobile data off / on (confirm, send, re-read ppp_status every 2 s for at
- * most 30 s, never claim success without the re-read). Phase 4: the Devices tab renames, blocks and unblocks devices (confirm, send, re-read
- * the lists, say what the router reports). Phase 5: the APN tab reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles
- * (confirm, send, re-read, then check that mobile data is connected; writes only in Manual mode, plus one guarded way in from Auto). Phase 7: the MTU / MSS tab changes both values with the router's own call (confirm, backup copy by root, send, wait for the restart, re-read, root checks).
- * Phase 6a: the LAN / DHCP tab changes the DHCP pool and the lease (same steps: confirm, backup copy by root, send, wait for the restart, re-read).
- * Phase 6b: the same tab changes the router IP (pool moved into the new subnet, pending note written by root, host told the new address, host checks the router after the restart and
- * puts the old values back if needed) and puts DHCP back On when it was switched Off elsewhere. The mask is not changed and DHCP is never switched Off here.
- * Phase 3: the Wi-Fi tab switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices (confirm, backup copy by root, send, wait for Wi-Fi to restart, re-read).
- * Everything else is still read only; the one root call (MTU / MSS tab) is a
- * read-only command that the user starts with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
+ * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
+ *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
+ *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports).
+ *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
+ *    writes only in Manual mode, plus one guarded way in from Auto).
+ *  - MTU / MSS: changes both values with the router's own call (backup copy by root, send, wait for the restart, re-read, root checks).
+ *  - LAN / DHCP: changes the DHCP pool and the lease (backup copy by root, send, wait for the restart, re-read). It also changes the router IP
+ *    (pool moved into the new subnet, pending note written by root, host told the new address, host checks the router after the restart and
+ *    puts the old values back if needed) and puts DHCP back On when it was switched Off elsewhere. The mask is not changed and DHCP is never switched Off here.
+ *  - Wi-Fi: switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices
+ *    (backup copy by root, send, wait for Wi-Fi to restart, re-read).
+ * The one root call (MTU / MSS tab) only reads; the user starts it with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
  *  - While the window is open Live Status is paused (MatchiRadio.beginBusy), and it reads once again after the window closes.
@@ -6243,7 +6245,7 @@ function mountNetTools() {
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
       note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
-  // Phase 3: a band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
+  // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
   function viewWifi(d) {
     const w = N.parseWifi(d);
@@ -6401,7 +6403,7 @@ function mountNetTools() {
       note('The subnet mask is not changed in this window, and DHCP is not switched Off here (only back On, when it was switched Off elsewhere).', 'net-mut'));
   }
   const lanBusy = () => st.lanAct || st.act || st.devAct || st.apnAct || st.mtuAct || st.wifiAct;
-  // Phase 6b: change the router IP (the pool moves into the new subnet in the same call). Checks are in net-core.js (lanIpCheck).
+  // Change the router IP (the pool moves into the new subnet in the same call). Checks are in net-core.js (lanIpCheck).
   function lanIpForm(p) {
     const busy = lanBusy();
     const e = h('input', { type: 'text', id: 'matchi_lan_ip', maxlength: '15', autocomplete: 'off', placeholder: 'for example 192.168.1.1' }); e.value = st.lanIp || ''; e.oninput = () => { st.lanIp = e.value; }; if (busy) e.disabled = true;
@@ -6561,7 +6563,7 @@ function mountNetTools() {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
     }
   }
-  // ---- devices: rename, block, unblock (Phase 4) ----------------------------------------------------------------------------
+  // ---- devices: rename, block, unblock ----------------------------------------------------------------------------
   // The Devices tab = the station lists (multi_data) + the block list + the names (two single commands). The block list is never guessed: when
   // its read fails the keys stay absent and parseAcl gives null, so Block / Unblock are hidden. Names that fail to read leave the station names.
   async function readDevicesRaw() {
@@ -6625,7 +6627,7 @@ function mountNetTools() {
     await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && !a.black.some((x) => x.mac === b.mac); },
       'Unblocked ' + b.mac + '.', 'The router still lists this device as blocked.');
   }
-  // ---- APN (Phase 5) ---------------------------------------------------------------------------------------------------------
+  // ---- APN ---------------------------------------------------------------------------------------------------------
   // Every APN change: send the step(s), re-read the profile list (up to 5 reads, 2 s apart) until `check(parsed)` holds, and for changes that move
   // the data connection ("data" true) read ppp_status for up to 20 s more. Nothing is claimed without the re-read. `rollback`: if a LATER step of a
   // multi-step change is refused, the Auto call is sent so the router is not left in Manual mode on the wrong profile.
@@ -6717,7 +6719,7 @@ function mountNetTools() {
     if (f.mode === 'copy') await apnApply(steps, (x) => saved(x) && x.mode === 'manual' && N.sameProfile(x.inUse, form.name, form.apn), 'Saved and now using "' + form.name + '".', 'The router does not report "' + form.name + '" as the profile in use.', { data: true, rollback: true });
     else await apnApply(steps, saved, (f.mode === 'edit' ? 'Saved "' : 'Added "') + form.name + '".', 'The router does not list "' + form.name + '" in slot ' + f.slot + ' yet.', { data: inUse });
   }
-  // ---- MTU / MSS (Phase 7, Path A) -----------------------------------------------------------------------------------------------
+  // ---- MTU / MSS -----------------------------------------------------------------------------------------------
   // Steps: fresh read -> confirm naming old -> new -> backup copy written by root and read back (no backup, no change) -> SET_DEVICE_MTU -> the router restarts ->
   // wait for the console (up to about 3 minutes, a failed read just means "not back yet") -> re-read -> data state -> root read of the real interface -> one ping.
   // The wait stops by itself if the console asks for a new sign-in. Nothing is claimed that the re-read did not show. There is no automatic revert after the restart
@@ -6856,14 +6858,14 @@ function mountNetTools() {
     catch (e) { st.mtuMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('mtu');
   }
-  // ---- LAN / DHCP pool and lease (Phase 6a) ---------------------------------------------------------------------------------------
+  // ---- LAN / DHCP pool and lease ---------------------------------------------------------------------------------------
   // Same steps as the MTU / MSS change: fresh read -> confirm naming old -> new -> backup copy by root, read back (no backup, no change) -> DHCP_SETTING with the whole
   // set (IP and mask unchanged) -> the router restarts -> wait for the console -> re-read -> data state. The router IP does not change, so the console stays on the
   // same address. No automatic revert (the way back is "Restore"); the router IP and DHCP on / off are not part of this step.
   const lanReadRaw = () => R.zte('get', { multi_data: '1', cmd: N.READ.lan });
   const lanRead = async () => N.parseLan(await lanReadRaw());
   const consoleUrl = (ip) => { const l = (window && window.location) || {}; return (l.protocol || 'http:') + '//' + ip + (l.port ? ':' + l.port : ''); };
-  // kinds (opt.kind): 'pool' (default: pool / lease, IP unchanged), 'ip' (Phase 6b: new router IP, pool moved into the new subnet, mac_ip_reset=1), 'ipback' (restore while the
+  // kinds (opt.kind): 'pool' (default: pool / lease, IP unchanged), 'ip' (new router IP, pool moved into the new subnet, mac_ip_reset=1), 'ipback' (restore while the
   // router is at the saved NEW address: the old IP, pool and lease go back), 'dhcpon' (Restore DHCP after the server was switched Off). For the two IP kinds a pending note is
   // written by root before the send, and after the send the host is told the new address (/api/net/lan-applied); Kotlin (LanRevert) checks the router after the restart.
   async function lanApply(want, why, restore, opt) {
@@ -7002,7 +7004,7 @@ function mountNetTools() {
     catch (e) { st.lanMsg = { bad: true, lines: ['Could not delete the saved copy (' + N.maskSecrets(e.message) + ').'] }; }
     paint('lan');
   }
-  // ---- Wi-Fi: band switch and settings (Phase 3) ----------------------------------------------------------------------------------
+  // ---- Wi-Fi: band switch and settings ----------------------------------------------------------------------------------
   // Both restart Wi-Fi. A device on Wi-Fi (maybe the one showing this page) is disconnected, so the wait loop treats a failed read as "not back yet" and
   // keeps asking for about 90 s. Nothing is claimed that the re-read did not show. The settings change saves the old values by root first (no backup, no write);
   // a band switch needs no file: the way back is to choose the old band.
@@ -7936,7 +7938,7 @@ function plugSummary(name,scan,replaces,stop){
 
 /* @end-include web-src/plugin-meta.js */
 /* @include web-src/plugin-sandbox.js */
-/* ===== Sandboxed plugins (Phase 4) ================================================================================================
+/* ===== Sandboxed plugins ================================================================================================
  * A plugin the person switched to "sandbox" does not run in this page. It runs in an <iframe sandbox="allow-scripts"> (no allow-same-origin), so
  * it has an opaque origin: it cannot read this page or its DOM, has no cookie and no storage of its own, and a request it sends to this host
  * carries "Origin: null" (refused by the host) and no session. Its only way out is a MessageChannel bridge whose other end is here.
@@ -7948,7 +7950,7 @@ function plugSummary(name,scan,replaces,stop){
  *   router: a,b  router.get(['a','b'])  only these router fields, read-only
  *   shell: CMD   shell(command)         only this exact command, nothing added to it
  *   net: host    (no call)              the frame's own Content-Security-Policy lets it contact https://host
- *   always:      onUninstall(fn)        (Phase 2 / Step 7) registers a stop hook. The page runs it, 15 s at most, when the person chooses "Delete and stop".
+ *   always:      onUninstall(fn)        registers a stop hook. The page runs it, 15 s at most, when the person chooses "Delete and stop".
  *                                       It can use only what was approved for the plugin (the same checks as any other call). Its result is never believed:
  *                                       a scan afterwards decides, and a hook that fails or does not finish keeps the plugin.
  * Every bridge call is checked here against the grant first (early, clear errors), then relayed to the host, which checks the stored approval again
@@ -7997,7 +7999,7 @@ function sbxPreludeMain(){
     port=ev.ports[0];
     port.onmessage=function(e){
       var d=e.data;
-      if(d&&d.run==='uninstall'&&typeof d.token==='string'){runHook(d.token);return}   /* the page asks the stop hook to run (Phase 2 / Step 7) */
+      if(d&&d.run==='uninstall'&&typeof d.token==='string'){runHook(d.token);return}   /* the page asks the stop hook to run */
       if(!d||typeof d.id!=='number')return;
       var p=pending.get(d.id);if(!p)return;pending.delete(d.id);
       if(d.ok)p.resolve(d.value);else p.reject(new Error(String(d.error||'failed')));
@@ -8109,7 +8111,7 @@ function sbxRateOk(entry,now){
 const sbxEntries=new Map();
 function sbxHide(entry){try{closeModal('#'+entry.modalId,300)}catch(_){}}
 /* Run an authorized call. Device calls (at, router.get, shell) are only RELAYED, to POST /api/plugins/call: the host looks up the plugin's approved record
-   on every call and decides again (Phase 5), and keeps the ledger of what the plugin wrote (so Delete can erase it). */
+   on every call and decides again, and keeps the ledger of what the plugin wrote (so Delete can erase it). */
 async function sbxRun(entry,a){
   const hostCall=(op,args)=>api('/api/plugins/call',{method:'POST',body:JSON.stringify({name:entry.name,op,args})});
   switch(a.op){
@@ -8152,7 +8154,7 @@ function sbxOnMessage(entry,m){
   if(!a.ok)return reply(false,a.error);
   sbxRun(entry,a).then((v)=>reply(true,v),(e)=>reply(false,(e&&e.message)||'failed'));
 }
-/* Phase 2 / Step 7: run the stop hook a sandboxed plugin registered with matchi.onUninstall. Resolves, never rejects, with {status, ran, error?}:
+/* Run the stop hook a sandboxed plugin registered with matchi.onUninstall. Resolves, never rejects, with {status, ran, error?}:
      none     no hook registered (or the plugin is not mounted in this session: a disabled plugin never ran, so it has no hook)
      ok       the hook finished without an error      failed   the hook threw or rejected      timeout  no answer within [ms]
      dead     the bridge is closed (the frame left its page)
@@ -8230,14 +8232,14 @@ function downloadText(name,text,type='application/json'){
   a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 /* @include web-src/plugin-sweep-ui.js */
-/* Delete dialog, process sweep (Phase 2 / Step 6). Pure text and decision helpers for the "Delete plugin" dialog; the dialog itself stays in the delete handler.
+/* Delete dialog, process sweep. Pure text and decision helpers for the "Delete plugin" dialog; the dialog itself stays in the delete handler.
    The host (/api/plugins/data) sends "sweep": {rootOk, candidates:[{pid,start,how,args}], notStopped, notes, found, overCap, complete, sweepHash}.
    Rules the page keeps:
    - What is listed is what is ended: the page sends back the sweepHash it was shown whenever it sends stop:true (the host scans again and answers 409
      "plan-changed" when the list is different).
    - "Delete without stopping" sends no sweepHash and the host never scans for it.
    - No list is ever guessed: when the check did not run, the dialog says so and lists nothing.
-   Phase 2 / Step 7 (the stop hook of a SANDBOXED plugin, D5 = b): the page runs the hook before the request (sbxHookRun, 15 s). The hook's answer is never
+   The stop hook of a SANDBOXED plugin: the page runs the hook before the request (sbxHookRun, 15 s). The hook's answer is never
    believed. A hook that fails or times out keeps the plugin (the request is not sent). After a hook that finished, the page scans again (hookAfterScan):
    the scan must have run completely, and may only show processes that were listed before. Only then is the request sent, with the NEW sweepHash. */
 function sweepNorm(info){
@@ -8255,9 +8257,9 @@ function sweepNorm(info){
 }
 function sweepHowText(how){return how==='tag'?'found by tag':how==='pidfile'?'found by its pid file':how==='cmdline'?'found by command line, weakest match':'found'}
 function sweepProcLine(c){return 'PID '+c.pid+(c.args?' '+c.args:'')+' ('+sweepHowText(c.how)+')'}
-/* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = Phase 1;
+/* plain = nothing to stop (as before); hook = nothing declared and nothing found, but a sandboxed plugin registered a stop hook; sweep = no declared commands, but running processes were found; stop / shared / cannot = the plugin declared its own stop commands (see docs/PLUGIN_STOP.md);
    toomany = more than 50 processes found, the host refuses to end them automatically.
-   Phase 3: [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
+   [un] (plugin-undo-ui.js undoNorm) with items also makes a headerless plugin "sweep" (the stop runs the undo even when nothing is running). A refused declared command wins over everything. */
 function pluginDeleteMode(sp,sw,hasHook,un){
   const cmds=(sp&&sp.commands)||[],refused=(sp&&sp.refused)||[],shared=(sp&&sp.shared)||[];
   if(refused.length)return 'cannot';
@@ -8338,7 +8340,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports={sweepNorm,sweepHo
 
 /* @end-include web-src/plugin-sweep-ui.js */
 /* @include web-src/plugin-undo-ui.js */
-/* Delete dialog, what the plugin left in the system (Phase 3 / Step 4). Pure text and decision helpers; the dialog itself stays in the delete handler.
+/* Delete dialog, what the plugin left in the system. Pure text and decision helpers; the dialog itself stays in the delete handler.
    The host (/api/plugins/data) sends "undo": {items:[{kind,label}], notUndone:[...], hash}. The items are firewall chains and boot scripts the host SAW the
    plugin create (ledger), after its shared-use guard. Rules the page keeps:
    - What is listed is what is undone: the page sends back the undo hash it was shown whenever it sends stop:true (even "" when nothing is listed); the host
@@ -8397,7 +8399,7 @@ if(typeof module!=='undefined'&&module.exports)module.exports={undoNorm,undoMode
 
 /* @end-include web-src/plugin-undo-ui.js */
 /* @include web-src/plugin-disable-ui.js */
-/* "Turn off and stop" (Phase 3 / Step 5). Switching a plugin OFF can also stop what it started and undo what it left in the system, WITHOUT deleting it or its data.
+/* "Turn off and stop". Switching a plugin OFF can also stop what it started and undo what it left in the system, WITHOUT deleting it or its data.
    It is the same host stop as Delete: POST /api/plugins/delete with stop:true and keep:true (no erase). The host runs declared commands, the process sweep and the undo,
    re-checks, and only when everything is clean switches the plugin off. A stop that does not finish keeps the plugin ON and answers {ok:false,kept:true,stop:{...}}.
    Rules the page keeps (same as Delete):
@@ -8449,7 +8451,7 @@ function disableToast(name,r,un){
 if(typeof module!=='undefined'&&module.exports)module.exports={disableDialog,disableWantsStop,disableFailureDialog,disableRequestBody,disableToast};
 
 /* @end-include web-src/plugin-disable-ui.js */
-/* Switch a plugin OFF, and stop what it started when there is something to stop (Phase 3 / Step 5, see web-src/plugin-disable-ui.js).
+/* Switch a plugin OFF, and stop what it started when there is something to stop (see web-src/plugin-disable-ui.js).
    Returns 'plain' (nothing to stop, or the person chose to turn it off without stopping: the caller sends the old toggle request), 'done' (the host stopped it and switched it off)
    or 'cancel'. A failed stop keeps the plugin ON and opens the dialog again with the report. */
 async function pluginTurnOff(p){
@@ -8493,10 +8495,10 @@ function renderPlugins(list){
     const acts=document.createElement('div');acts.className='pm-acts';
     const ex=document.createElement('button');ex.type='button';ex.innerHTML=pmIcon('<path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/>')+'<span class="pm-t">Export</span>';ex.title='Export';ex.setAttribute('aria-label','Export '+p.name);ex.onclick=()=>downloadText(p.name,p.code||'',p.kind==='html'?'text/html':'text/javascript');
     const d=document.createElement('button');d.type='button';d.className='pm-del';d.innerHTML=pmIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>')+'<span class="pm-t">Delete</span>';d.title='Delete';d.setAttribute('aria-label','Delete '+p.name);
-    /* Delete (Phase 1): the dialog lists what is erased and what the plugin's own uninstall commands will stop (stopPlan from /api/plugins/data).
+    /* Delete: the dialog lists what is erased and what the plugin's own uninstall commands will stop (stopPlan from /api/plugins/data).
        A stop that does not finish keeps the plugin: the host answers {ok:false,kept:true,stop:{...}} and this dialog opens again with the report
        (try again, delete without stopping, restart the device). A plugin that declares no stop commands is deleted as before.
-       Phase 2 (Step 6): the same data also holds "sweep", the running processes found for the plugin (tag, pid file, command line). They are listed
+       The same data also holds "sweep", the running processes found for the plugin (tag, pid file, command line). They are listed
        before anything is ended, and the page sends the sweepHash it was shown with every request that stops; the host answers 409 when the list changed. */
     d.onclick=async()=>{
       let failure=null,lastHook=null;
@@ -8505,7 +8507,7 @@ function renderPlugins(list){
         const lsKeys=pluginLsKeys(p),ssKeys=pluginSsKeys(p);const items=(info&&info.items)||[];const present=items.filter(it=>it.exists!==false);
         const ups=(info&&info.uploads)||[],fx=(info&&info.effects)||[];
         const sp=(info&&info.stopPlan)||{},cmds=sp.commands||[],refused=sp.refused||[],shared=sp.shared||[];
-        const sw=sweepNorm(info),un=undoNorm(info),ent=p.mode==='sandbox'?sbxEntries.get(p.name):null,hk=!!(ent&&ent.hook&&!ent.dead),mode=pluginDeleteMode(sp,sw,hk,un);   /* a hook exists only for a sandboxed plugin that is loaded now (D5 = b, D7) */
+        const sw=sweepNorm(info),un=undoNorm(info),ent=p.mode==='sandbox'?sbxEntries.get(p.name):null,hk=!!(ent&&ent.hook&&!ent.dead),mode=pluginDeleteMode(sp,sw,hk,un);   /* a hook exists only for a sandboxed plugin that is loaded now */
         let msg,okText='Delete',extra=[],title='Confirm';
         if(failure){
           title='Stop did not finish';okText='Try again';
@@ -8546,7 +8548,7 @@ function renderPlugins(list){
         const body={name:p.name,erase:true};
         if(stop){body.stop=true;body.planHash=sp.planHash||'';Object.assign(body,sweepRequestFields(sw,true),undoRequestFields(un,true))}
         else if(skip){body.stop=true;body.skipStop=true}
-        /* Step 7: the stop hook of a sandboxed plugin runs BEFORE the request. Its answer is not believed: it only decides whether to go on at all
+        /* The stop hook of a sandboxed plugin runs BEFORE the request. Its answer is not believed: it only decides whether to go on at all
            (a hook that failed or did not finish keeps the plugin), and a scan afterwards gives the sweepHash that is sent. */
         let hookDone=false;
         if(stop&&ent&&ent.hook){
@@ -8594,7 +8596,7 @@ function renderPlugins(list){
         try{await api('/api/plugins/approve',{method:'POST',body:JSON.stringify({name:p.name})});createToast('Approved '+p.name);await refreshPluginList()}
         catch(e){ap.disabled=false;createToast(e.message,'red')}
       };apv.push(ap)}
-    /* Phase 4: switch a .js plugin between the page (trusted, the default) and the sandbox. Both directions ask for the sign-in password. */
+    /* Switch a .js plugin between the page (trusted, the default) and the sandbox. Both directions ask for the sign-in password. */
     const sbb=[];
     if(p.kind==='js'){
       const isSb=p.mode==='sandbox',bt=document.createElement('button');bt.type='button';
@@ -9553,7 +9555,7 @@ document.getElementById('updurl').value=(()=>{const D='https://github.com/SaikoC
 document.getElementById('updurl').placeholder='https://github.com/OWNER/REPO/releases/latest/download/MatchiTOOL.apk';
 const otaLink=()=>{let u=document.getElementById('updurl').value.trim();const m=u.match(/^(https:\/\/github\.com\/[^\/]+\/[^\/]+)\/releases\/tag\/[^\/?#]+\/?(?:[?#].*)?$/i);if(m){u=m[1]+'/releases/latest/download/MatchiTOOL.apk';document.getElementById('updurl').value=u}return u};
 const otaOk=(u,out)=>{if(/^https:\/\//i.test(u))return true;out.style.display='block';out.textContent='Enter an https:// link to the APK';return false};
-// Step 1: ask what is online (downloads nothing).
+// Ask what is online (downloads nothing).
 document.getElementById('updfetch').onclick=async()=>{
   const u=otaLink(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),btn=document.getElementById('updfetch'),on=document.getElementById('updonline');
   out.style.display='block';inst.style.display='none';inst.dataset.sha='';on.style.display='none';
@@ -9570,7 +9572,7 @@ document.getElementById('updfetch').onclick=async()=>{
   }catch(e){out.textContent='Check failed: '+e.message}
   finally{btn.disabled=false}
 };
-// Step 2 (online install): the device downloads and verifies the file, then the normal confirm-and-install dialog opens.
+// Online install: the device downloads and verifies the file, then the normal confirm-and-install dialog opens.
 document.getElementById('updonline').onclick=async()=>{
   const u=otaLink(),out=document.getElementById('updout'),inst=document.getElementById('updinstall'),on=document.getElementById('updonline');
   if(!otaOk(u,out))return;
@@ -10352,7 +10354,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
   try{new MutationObserver(later).observe(document.body,{childList:true,subtree:true})}catch(_){}
 })();
 
-/* Accessibility pass 2 (review item 19): dialog focus, Escape, keyboard for click-only elements, live regions and tab semantics.
+/* Accessibility pass 2: dialog focus, Escape, keyboard for click-only elements, live regions and tab semantics.
    Like pass 1 it only adds behaviour and attributes; what is shown does not change. Dialogs it knows: the page's own popups (.card.pop.open,
    closed with closePop()) and plugin modals (.modal-bg.show, closed through their own .mclose button). */
 (function(){
@@ -10434,7 +10436,7 @@ if(doc.readyState==='loading')doc.addEventListener('DOMContentLoaded',init);else
 </script>
 <script>
 /* @include web-src/i18n.js */
-/* Language switch (review item 21). English is the text written in the page; a language is a dictionary English text -> translated text.
+/* Language switch. English is the text written in the page; a language is a dictionary English text -> translated text.
    The page's fixed labels (header, sign-in, the home buttons, the popup titles, buttons and placeholders listed in TARGETS) follow the switch.
    Also translated (exact DICT texts only): the built-in tools' windows and the fixed toasts. Not translated: messages with a changing value built while it runs (results, errors), log / terminal output and plugins. They stay English.
    To add a language: add its code to LANGS and a dictionary to DICT with the same English keys as 'fil' (scripts/test_i18n.js lists what is missing).

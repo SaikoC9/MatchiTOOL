@@ -1,12 +1,12 @@
 /*
  * MatchiNetCore - the pure part of the Network window (web-src/net-tools.js): which router keys to read, how to turn the router's
  * answers into plain objects, and the small text helpers. No document, no api(), no router call in here, so node can test it
- * without a router (scripts/test_net_tools.js). Plan and the values seen on the F50: MatchiTOOL_Network_Tools_PLAN.txt (Phase 0).
+ * without a router (scripts/test_net_tools.js). The values seen on the F50 are written down in docs/NETWORK_FORMATS.md.
  *
  * Rules kept here:
  *  - A key the router leaves EMPTY means "not reported": every parser gives null for it, never 0 / "off" (the tab then says so).
  *  - The Wi-Fi password and APN passwords are NEVER copied into a parsed object (the router's reply holds them in clear text).
- *  - Reads need no gate. The write calls built here: mobile data off / on (Phase 2, dataCall) and device rename / block / unblock (Phase 4); more come with later phases.
+ *  - Reads need no gate. The write calls are built further down: mobile data off / on (dataCall), devices, APN, Wi-Fi, LAN / DHCP and MTU / MSS.
  */
 (function (root, factory) {
   const api = factory();
@@ -88,7 +88,7 @@
   }
   const modeLabel = (v) => { const t = clean(v); return t === null ? null : t === 'auto_dial' ? 'Automatic' : t === 'manual_dial' || t === 'manual' ? 'Manual' : t; };
   const onOff = (v) => { const t = clean(v); return t === null ? null : t === '1' || t.toLowerCase() === 'on' || t.toLowerCase() === 'true' ? 'On' : t === '0' || t.toLowerCase() === 'off' || t.toLowerCase() === 'false' ? 'Off' : t; };
-  // Mobile data off / on (Phase 2). Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
+  // Mobile data off / on. Request bodies captured from the stock page on the F50 (2026-11-14, AD token added by the host):
   //   isTest=false&notCallback=true&goformId=DISCONNECT_NETWORK      isTest=false&notCallback=true&goformId=CONNECT_NETWORK
   // Off reads ppp_disconnected afterwards. Both goformIds need the fresh sign-in (NetGoform.kt: every set call not in OPEN_SET does).
   const DATA_CALLS = {
@@ -112,7 +112,7 @@
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
   // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
   // while the stock page says 5.0GHz Only, and the captured band switch agrees (ChipEnum=chip1 is "2.4GHz Only", chip2 is "5.0GHz Only", part M of the plan).
-  // Phase 3 still checks it after every band switch: the re-read must show the wanted chip on.
+  // The Wi-Fi tab still checks it after every band switch: the re-read must show the wanted chip on.
   const chipLabel = (chip) => (chip === 0 ? 'Chip 0 (2.4 GHz)' : chip === 1 ? 'Chip 1 (5 GHz)' : chip === null ? 'Unknown band' : 'Chip ' + chip);
   const authLabel = (v) => {
     const t = clean(v); if (t === null) return null;
@@ -185,7 +185,7 @@
     return { rows, wifi: rows.filter((r) => r.type === 'Wi-Fi').length, cable: rows.filter((r) => r.type === 'Cable').length, routerCount: num(d.wifi_access_sta_num), wifiReported: hasW, cableReported: hasC };
   }
 
-  // ---- Devices: rename, block, unblock (Phase 4) ------------------------------------------------------------------------------
+  // ---- Devices: rename, block, unblock ------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-15), AD added by the host:
   //   rename:  isTest=false&goformId=EDIT_HOSTNAME&mac=28%3A56%3A5a%3A3a%3Aef%3A6f&hostname=ako
   //   block:   goformId=setDeviceAccessControlList&isTest=false&AclMode=2&WhiteMacList=&BlackMacList=52%3Ae3...%3B&WhiteNameList=&BlackNameList=POCO-F6%3B
@@ -248,7 +248,7 @@
     const r = {}; for (const k of Object.keys(o)) { if (!isPassKey(k)) r[k] = stripPass(o[k]); }
     return r;
   }
-  // ---- APN (Phase 5) ----------------------------------------------------------------------------------------------------------
+  // ---- APN ----------------------------------------------------------------------------------------------------------
   // Read (F50, 2026-11-15, router in Auto mode): the profiles are in APN_config0..19, one string per slot, fields joined by "($)":
   //   "default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)"
   //   position 0 name, 1 APN, 2 select, 3 dial, 4 auth, 5 and 6 = user name / password (order NOT confirmed: never shown, never copied), 7 PDP type, 8-11 unknown.
@@ -395,7 +395,7 @@
     };
   }
 
-  // ---- LAN / DHCP: pool and lease (Phase 6a) ----------------------------------------------------------------------------------
+  // ---- LAN / DHCP: pool and lease ----------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-14, part C): the stock page sends the WHOLE set every time and THE ROUTER RESTARTS after it:
   //   isTest=false&goformId=DHCP_SETTING&lanIp=192.168.0.1&lanNetmask=255.255.255.0&lanDhcpType=SERVER&dhcpStart=192.168.0.2&dhcpEnd=192.168.0.253
   //   &dhcpLease=24&dhcp_reboot_flag=1&mac_ip_reset=0&AD=<token>          reply {"result":"success"} (before the restart)
@@ -462,7 +462,7 @@
     return { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: o.start, dhcpEnd: o.end, dhcpLease: String(o.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' };
   }
   const LAN_BACKUP_PATH = '/data/local/matchitool/lan_backup.json';
-  // The "pending change" note of a router IP change (Phase 6b): same JSON as the backup, a different file. Kotlin (LanRevert) reads it after the restart.
+  // The "pending change" note of a router IP change: same JSON as the backup, a different file. Kotlin (LanRevert) reads it after the restart.
   const LAN_PENDING_PATH = '/data/local/matchitool/lan_pending.json';
   function lanNoteSh(path, oldV, newV, at) {
     const o = lanSnapOk(oldV), n = lanSnapOk(newV);
@@ -487,7 +487,7 @@
   // After the restart: does the router report the wanted pool and lease (and the same IP, mask, DHCP On)?
   const lanReached = (lan, want) => !!lan && lan.dhcp === 'On' && lan.start === want.start && lan.end === want.end && lan.leaseHours === want.lease;
 
-  // ---- LAN / DHCP: router IP change (Phase 6b) ---------------------------------------------------------------------------------
+  // ---- LAN / DHCP: router IP change ---------------------------------------------------------------------------------
   // Captured on the F50 (2026-11-15, part N): an IP change is the SAME DHCP_SETTING call, with the pool moved into the new subnet in the same Apply and
   // mac_ip_reset=1 (pool / lease only sends 0). After it the OLD address answers nothing, only the new one. The mask is never changed here (only
   // 255.255.255.0 was captured), DHCP stays On (the "off" value was never captured).
@@ -597,7 +597,7 @@
     return { wanDev: dev, wanSrc: src, wanMtu, wanState, rules: list, noRoute: !dev };
   }
 
-  // ---- Wi-Fi: change (Phase 3) -------------------------------------------------------------------------------------------------
+  // ---- Wi-Fi: change -------------------------------------------------------------------------------------------------
   // Formats captured on the F50 stock page (2026-11-15, part M of the plan, AD token added by the host):
   //   band:  switchWiFiChip   isTest=false&goformId=switchWiFiChip&ChipEnum=chip1&GuestEnable=0      (chip1 = "2.4GHz Only", chip2 = "5.0GHz Only"; also turns Wi-Fi on from Off)
   //          switchWiFiModule isTest=false&goformId=switchWiFiModule&SwitchOption=0                  (Wi-Fi OFF)
@@ -768,8 +768,8 @@
     return { old: o, new: n, at: Number.isInteger(j.at) ? j.at : 0 };
   }
 
-  // ---- MTU / MSS: change (Phase 7, Path A: the router's own call) ----------------------------------------------------------------
-  // Captured on the F50 (2026-11-14, part C2) and confirmed in the stock script service.js (2026-11-15):
+  // ---- MTU / MSS: change (the router's own call) ----------------------------------------------------------------
+  // Captured on the F50 (2026-11-14) and confirmed in the stock script service.js (2026-11-15):
   //   isTest=false&goformId=SET_DEVICE_MTU&mtu=1500&tcp_mss=1459&AD=<token>      reply {"result":"success"}, then THE ROUTER REBOOTS.
   // Both values are always sent together. Effect seen in the root checks (parts E and G): the property persist.sys.tetherconfig.sMss / sMtu follows, and the
   // INPUT / OUTPUT TCPMSS --set-mss rules are rebuilt at boot, so MSS acts on the router's own SYN packets, NOT on connected devices. The allowed ranges

@@ -1,4 +1,4 @@
-/* Delete dialog, what the plugin left in the system (Phase 3 / Step 4). Pure text and decision helpers; the dialog itself stays in the delete handler.
+/* Delete dialog, what the plugin left in the system. Pure text and decision helpers; the dialog itself stays in the delete handler.
    The host (/api/plugins/data) sends "undo": {items:[{kind,label}], notUndone:[...], hash}. The items are firewall chains and boot scripts the host SAW the
    plugin create (ledger), after its shared-use guard. Rules the page keeps:
    - What is listed is what is undone: the page sends back the undo hash it was shown whenever it sends stop:true (even "" when nothing is listed); the host
