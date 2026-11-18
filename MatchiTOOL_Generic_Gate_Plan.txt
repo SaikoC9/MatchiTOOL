@@ -9,7 +9,8 @@ STATUS (update this block after every phase)
 - Phase 3  CODE WRITTEN (not compiled, not run on a device): GateDecl.kt (header parser + port table, plain JVM, GateDeclTest), WebGate.kt (replaces AghGate.kt),
            WebRoutesGate.kt (POST /api/gate/open + old /api/agh/gate alias), hooks in AghDoor / delete + toggle routes, Prefs gate_ports,
            route table updated, cookie name per gate (matchi_gate_PORT), WebGateProxy.isIdle(). Build in CI first.
-- Phase 4  TODO   plugin header line + m.gate.open + upload check.
+- Phase 4  CODE WRITTEN (JS tests pass in Node; Kotlin not compiled): header line (parser from Phase 3), matchi.gate.open in plugin-host-api.js, upload refusal gateUploadProblem,
+           docs/PLUGIN_GATE.md + row in PLUGIN_HEADERS.md. Sandboxed plugins cannot use it (not part of the sandbox API).
 - Phase 5  TODO   migrate AdGuard plugin, then remove iptables door and "Web UI on LAN".
 - Phase 6  TODO   real device test on the F50 (nothing was run on a device yet; Android parts never compiled).
 - Phase 7  TODO   rollout in three releases.

@@ -67,6 +67,18 @@ internal fun parseGateDecl(code: String, consolePort: Int): GateParse {
 }
 
 /**
+ * Upload check (Phase 4): null when the plugin file [fileName] with text [code] may be installed as far as @matchi-gate goes, otherwise the reason.
+ * A plugin without the line is fine. A broken line (bad port, unknown field, second line) is refused at upload, so the author sees it at once and
+ * not only when Open is pressed. Only .js plugins can declare a gate; the same line in an .html plugin would do nothing, so it is refused too.
+ */
+internal fun gateUploadProblem(fileName: String, code: String, consolePort: Int): String? {
+    val r = parseGateDecl(code, consolePort)
+    if (r.error != null) return "invalid @matchi-gate line: ${r.error}"
+    if (r.decl != null && !fileName.endsWith(".js")) return "@matchi-gate works only in .js plugins"
+    return null
+}
+
+/**
  * Which listen port each gate name gets: the lowest free port of 3100-3199, remembered per name so the address stays the same between
  * runs. [saved] is the stored name -> port map (the caller persists [encode] after a change). Not thread safe: the caller locks.
  */

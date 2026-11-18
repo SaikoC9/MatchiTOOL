@@ -7804,6 +7804,26 @@ const matchiRouter={
     return r&&r.data;
   }
 };
+/* matchi.gate.open(name): opens a plugin's protected web page (the plugin declares it with a "@matchi-gate" header line) in a new tab.
+   Call it straight from the click handler, before any await: the tab has to be opened inside the click or the browser blocks it as a popup.
+   Resolves to '' when the tab was pointed at the page, otherwise to a short error text (nothing is thrown). The ticket in the link works once,
+   for this device only, for 60 seconds; the page's own login cookie never reaches the browser (see WebGateProxy). The gate speaks plain HTTP. */
+const matchiGate=Object.freeze({
+  open:async(name)=>{
+    let w=null;
+    try{w=window.open('','_blank');if(w)w.opener=null}catch(_){w=null}
+    const fail=(msg)=>{try{if(w)w.close()}catch(_){}return msg};
+    name=String(name==null?'':name);
+    if(!/^[a-z0-9-]{1,32}$/.test(name))return fail('The web page name must use a-z, 0-9 and - (1 to 32 characters).');
+    if(!w)return 'The browser blocked the new tab. Allow pop-ups for this page and press Open again.';
+    try{
+      const r=await api('/api/gate/open',{method:'POST',body:JSON.stringify({name})});
+      if(!r||!r.ticket||!(r.port>0))return fail('The host did not return an entry link.');
+      w.location.replace('http://'+location.hostname+':'+r.port+'/__matchi/enter?t='+encodeURIComponent(r.ticket));
+      return '';
+    }catch(e){return fail(String((e&&e.message)||e||'Could not open the page'))}
+  }
+});
 /* The one object a plugin needs. Every member calls the page's helper when it is used, so the order of the code does not matter. */
 window.matchi=Object.freeze({
   toast:(msg,color,ms,fn)=>createToast(msg,color,ms,fn),
@@ -7816,6 +7836,7 @@ window.matchi=Object.freeze({
   status:(el,on)=>matchiStatus(el,on),
   router:matchiRouter,
   sh:matchiSh,
+  gate:matchiGate,
   escapeHtml,formatBytes,wait,debounce,
   interval:requestInterval,base64:encodeBase64,
   panel:createFixedToast,switch:createSwitch,loading:setBtnLoading,form:createFormToast

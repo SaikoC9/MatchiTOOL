@@ -35,7 +35,7 @@ const calls = [];
 const state = { insecure: false, ask: async () => true, api: null, real: false };
 const realSetTimeout = setTimeout;
 const env = {
-  document, CSS: { escape: (s) => s }, window: {}, setTimeout: (f) => { if (state.real) return realSetTimeout(f, 0); timers.push(f); return timers.length; }, clearTimeout: () => {},
+  location: { hostname: '192.168.0.1' }, document, CSS: { escape: (s) => s }, window: {}, setTimeout: (f) => { if (state.real) return realSetTimeout(f, 0); timers.push(f); return timers.length; }, clearTimeout: () => {},
   console, URL, Headers, location: { href: 'http://192.168.0.1:2334/', origin: 'http://192.168.0.1:2334', hostname: '192.168.0.1', protocol: 'http:' },
   TOKEN: 'tok123', insecurePage: () => state.insecure, insecureOk: () => state.ask(),
   api: (p, o) => state.api(p, o),
@@ -160,7 +160,7 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
 
   // ---- window.matchi ----
   const X = win.matchi;
-  eq(['base64','copy','debounce','escapeHtml','form','formatBytes','hasRoot','interval','loading','menu','modal','panel','root','router','sh','status','switch','toast','user','wait'].sort(), Object.keys(X).sort(), 'matchi members');
+  eq(['base64','copy','debounce','escapeHtml','form','formatBytes','gate','hasRoot','interval','loading','menu','modal','panel','root','router','sh','status','switch','toast','user','wait'].sort(), Object.keys(X).sort(), 'matchi members');
   ok(Object.isFrozen(X) && Object.isFrozen(X.modal), 'matchi is frozen (a plugin cannot replace the API)');
   X.toast('hello', 'red'); eq(['hello', 'red', undefined, undefined], tmp.toasts[0], 'matchi.toast calls the page toast');
   await X.copy('abc'); eq(['abc'], tmp.copied, 'matchi.copy calls the page copy');
@@ -194,6 +194,30 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
       fs.writeFileSync(f, m[1] + '\n');
       const r = cp.spawnSync('sh', ['-n', f], { encoding: 'utf8' });
       ok(r.status === 0, 'curl wrapper parses in sh: ' + (r.stderr || '').trim()); fs.unlinkSync(f); } }
+  // ---- matchi.gate.open: opens the tab inside the click, then points it at the gate with the one-time ticket ----
+  { const G = win.matchi.gate;
+    ok(G && typeof G.open === 'function' && Object.isFrozen(G), 'matchi.gate.open exists and is frozen');
+    const mkTab = () => { const t = { closed: false, opener: 'x', loc: null, location: { replace: (u) => { t.loc = u; } }, close: () => { t.closed = true; } }; return t; };
+    let tab = mkTab(), opened = 0, calls = [];
+    win.open = (u, tgt) => { opened++; return tab; };
+    state.api = async (p, o) => { calls.push([p, o && o.body]); return { ok: true, ticket: 'a'.repeat(64), port: 3101 }; };
+    eq('', await G.open('adguard'), 'gate.open: success resolves to an empty text');
+    eq(1, opened, 'gate.open: one tab'); eq(null, tab.opener, 'gate.open: opener cut');
+    eq([['/api/gate/open', JSON.stringify({ name: 'adguard' })]], calls, 'gate.open: asks the host with the name only');
+    eq('http://192.168.0.1:3101/__matchi/enter?t=' + 'a'.repeat(64), tab.loc, 'gate.open: tab goes to the gate port with the ticket');
+    // a bad name never reaches the host and the empty tab is closed
+    tab = mkTab(); calls = [];
+    ok(/a-z/.test(await G.open('Bad Name!')), 'gate.open: bad name gives an error text'); eq(0, calls.length, 'gate.open: bad name sends nothing'); ok(tab.closed, 'gate.open: bad name closes the tab');
+    // the host refuses: the error text comes back, the tab is closed, nothing is thrown
+    tab = mkTab(); state.api = async () => { throw new Error('Session too old for root commands - sign in again'); };
+    eq('Session too old for root commands - sign in again', await G.open('adguard'), 'gate.open: host error returned as text'); ok(tab.closed, 'gate.open: host error closes the tab');
+    // reply without a ticket
+    tab = mkTab(); state.api = async () => ({ ok: true });
+    ok(/entry link/.test(await G.open('adguard')) && tab.closed, 'gate.open: reply without ticket is an error');
+    // popup blocked
+    win.open = () => null; state.api = async () => { throw new Error('must not be called'); };
+    ok(/blocked/.test(await G.open('adguard')), 'gate.open: popup blocker gives an error text');
+  }
   if (bad) { console.error(bad + ' failure(s)'); process.exit(1); }
   console.log('plugin API test passed');
 })().catch((e) => { console.error('test crashed', e); process.exit(1); });

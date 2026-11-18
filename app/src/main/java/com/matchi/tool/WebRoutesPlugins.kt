@@ -220,6 +220,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val reserved = setOf("AT_Radio.js", "Network_Diagnostics.js",
             "Live_Status.js", "Memory_Cleaner.js", "Change_IP.js", "SMS.js", "Screen_Control.js")
         if (name in reserved) throw IllegalArgumentException("built-in tool names are reserved")
+        gateUploadProblem(name, code, Prefs.PORT)?.let { throw IllegalArgumentException(it) }   // a broken web gate line is refused at upload, not at the first Open
         val files = pluginDir.listFiles { f -> f.isFile && (f.name.endsWith(".js") || f.name.endsWith(".html")) }?.toList().orEmpty()
         if (files.none { it.name == name } && files.size >= 50) throw IllegalArgumentException("maximum of 50 custom plugins reached")
         val total = files.filter { it.name != name }.sumOf { it.length() } + codeBytes

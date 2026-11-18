@@ -113,4 +113,13 @@ class GateDeclTest {
         assertNull(gateTargetProblem(3000, 2334)); assertNull(gateTargetProblem(1024, 2334)); assertNull(gateTargetProblem(65535, 2334))
         assertNotNull(gateTargetProblem(1023, 2334)); assertNotNull(gateTargetProblem(2334, 2334)); assertNotNull(gateTargetProblem(3150, 2334))
     }
+
+    @Test fun uploadCheck() {
+        assertNull(gateUploadProblem("a.js", "var x=1;", 2334))                                            // no line: fine
+        assertNull(gateUploadProblem("a.js", "// @matchi-gate name=a port=8080\n", 2334))
+        assertNull(gateUploadProblem("a.html", "<p>no gate</p>", 2334))
+        assertTrue(gateUploadProblem("a.js", "// @matchi-gate name=a port=3100\n", 2334)!!.startsWith("invalid @matchi-gate line"))
+        assertTrue(gateUploadProblem("a.js", "// @matchi-gate name=a port=8080 skipauth=1\n", 2334)!!.contains("unknown field"))
+        assertNotNull(gateUploadProblem("a.html", "// @matchi-gate name=a port=8080\n", 2334))              // .html cannot declare a gate
+    }
 }
