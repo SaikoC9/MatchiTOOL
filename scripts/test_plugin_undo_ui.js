@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 3 / Step 4: the delete dialog's undo text and decisions (web-src/plugin-undo-ui.js), and that the delete handler in the page uses them.
+// The delete dialog's undo text and decisions (web-src/plugin-undo-ui.js), and that the delete handler in the page uses them.
 'use strict';
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const ui = require('../app/src/main/web-src/plugin-undo-ui.js');
@@ -25,7 +25,7 @@ t('mode: a headerless plugin with only undo items becomes \"sweep\" (the stop mu
   assert.strictEqual(sweep.pluginDeleteMode({}, noSw, false, full()), 'sweep');
   assert.strictEqual(sweep.pluginDeleteMode({}, noSw, true, full()), 'sweep');
 });
-t('mode: no undo items = Phase 2 results; undo changes nothing when commands are declared or the stop cannot run', () => {
+t('mode: no undo items = the results without the undo; undo changes nothing when commands are declared or the stop cannot run', () => {
   const none = un({});
   assert.strictEqual(sweep.pluginDeleteMode({}, noSw, false, none), 'plain');
   assert.strictEqual(sweep.pluginDeleteMode({}, noSw, true, none), 'hook');

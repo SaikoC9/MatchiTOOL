@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 2 / Step 6: the delete dialog's process-sweep text and decisions (web-src/plugin-sweep-ui.js), and that the delete handler in the page uses them.
+// The delete dialog's process-sweep text and decisions (web-src/plugin-sweep-ui.js), and that the delete handler in the page uses them.
 'use strict';
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const ui = require('../app/src/main/web-src/plugin-sweep-ui.js');
@@ -29,7 +29,7 @@ t('proc line names PID, args and how', () => {
   assert.ok(ui.sweepProcLine(cand(6, 'cmdline', 'x')).includes('weakest'));
   assert.strictEqual(ui.sweepProcLine({ pid: 9, how: 'tag', args: '' }), 'PID 9 (found by tag)');
 });
-t('mode: Phase 1 cases unchanged without a sweep', () => {
+t('mode: plain stop cases unchanged without a sweep', () => {
   const none = sw({});
   assert.strictEqual(ui.pluginDeleteMode({}, none), 'plain');
   assert.strictEqual(ui.pluginDeleteMode({ commands: ['a'] }, none), 'stop');
@@ -38,7 +38,7 @@ t('mode: Phase 1 cases unchanged without a sweep', () => {
   assert.strictEqual(ui.pluginDeleteMode({ refused: [{ command: 'x' }] }, none), 'cannot');
   assert.strictEqual(ui.pluginDeleteMode({ shared: ['B'] }, none), 'plain');   // as before: shared only matters with commands
 });
-t('mode: a headerless plugin with processes found becomes "sweep" (D2)', () => {
+t('mode: a headerless plugin with processes found becomes "sweep"', () => {
   assert.strictEqual(ui.pluginDeleteMode({}, sw({ candidates: [cand(1, 'tag', 'a')] })), 'sweep');
 });
 t('mode: declared commands + processes stay stop / shared; refused wins; over the cap = toomany', () => {
@@ -61,7 +61,7 @@ t('text sweep: lists every process, says "and everything they started"', () => {
   assert.ok(m.includes('PID 1234 beat.sh (found by tag)')); assert.ok(m.includes('PID 1300 beat.sh --loop (found by its pid file)'));
   assert.ok(m.includes('everything they started')); assert.ok(m.includes('as root'));
 });
-t('text plain: nothing found says so (D2); the old sentence stays in the handler', () => {
+t('text plain: nothing found says so; the old sentence stays in the handler', () => {
   const m = ui.sweepDialogText(sw({}), 'plain', false);
   assert.ok(m.includes('No running process was found for it.'));
   assert.ok(page.includes('This plugin declares no stop commands. Anything it started may keep running.'));

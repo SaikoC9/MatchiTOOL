@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 3 / Step 2: runs the REAL undo script of PluginUndo.kt in a real sh, against a fake iptables / ip6tables (a state file) and a fake stat.
+"""Runs the REAL undo script of PluginUndo.kt in a real sh, against a fake iptables / ip6tables (a state file) and a fake stat.
 The script text is read out of the Kotlin file (the raw string "template" in undoScript), so this tests what the app would send, not a copy.
 Needs sh and awk. The Kotlin unit tests (PluginUndoRunTest.kt) check the same things through the app code; this one runs without the Android build."""
 import re,os,subprocess,tempfile,shutil,sys
@@ -113,7 +113,7 @@ rc,out=w.run([C,B%'20-bypass-ttl.sh']); check('both, END marker',out.strip().end
 w=W(); marker=w.d+'/PWNED'
 w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN",f'mangle|-A POSTROUTING -m comment --comment "$(touch {marker})" -j MY_CHAIN')
 rc,out=w.run([C]); check('rule text never executed',not os.path.exists(marker) and '|removed' in out,(out,w.rules()))
-# 12 re-check (Step 3): read-only, sees what is left, never takes an unreadable table for gone
+# 12 re-check: read-only, sees what is left, never takes an unreadable table for gone
 CK="chk_chain 'mangle' 'MY_CHAIN' 'iptables'"; BK="chk_boot '/data/local/matchitool/boot.d/20-bypass-ttl.sh'"
 w=W(); w.v4("mangle|-P POSTROUTING ACCEPT","mangle|-N MY_CHAIN","nat|-N OTHER"); open(w.boot()+'/20-bypass-ttl.sh','w').write('x'); b=w.rules()
 rc,out=w.run([CK,BK],v=True); check('re-check: both present','MTCHK|chain|mangle|MY_CHAIN|iptables|present' in out and '20-bypass-ttl.sh|present' in out and w.rules()==b and os.path.exists(w.boot()+'/20-bypass-ttl.sh'),out)

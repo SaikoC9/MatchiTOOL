@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# zreq on the F50 (item 4 of MatchiTOOL_Binaries_test_todo.txt). Run as root on the device, paste the whole output.
+# zreq on the F50 (see MatchiTOOL_Binaries_test_todo.txt). Run as root on the device, paste the whole output.
 #   sh zreq_f50_test.sh                 -> part 1 only: version, router web port (no password is sent)
 #   ZPW='the-admin-password' sh zreq_f50_test.sh   -> part 1 + part 2: ONE sign-in attempt (never retried)
 # Part 2 stops after one try on purpose: a wrong password can lock the router login.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser test (Chromium via Playwright) for review items 19, 21 (dialogs, language switch) and 22, 24, 25 (cell lock fallback, no-service warning, PCI source label)
+"""Browser test (Chromium via Playwright) for dialogs, the language switch, the cell lock fallback, the no-service warning and the PCI source label
 against a fake router.   usage: python3 test_round5_browser.py INDEX_HTML     (needs playwright + chromium; not part of validate.sh)"""
 import json, sys, re
 from pathlib import Path
@@ -116,7 +116,7 @@ with sync_playwright() as p:
     ok(bool(snap) and snap['lte']['src'] == 'router' and snap['lte']['pci'] == '55', 'router values win and are labelled router')
     ok('router' in page.inner_text('#liv_inline .liv-kv'), 'the 4G box says router'); b.close()
 
-    # ---- item 24: band lock active + no service -----------------------------------------------------------------
+    # ---- band lock active + no service -----------------------------------------------------------------
     b, page, log, errors = run(p, {'network_type': 'LTE', 'lte_band_lock': '1,3'}, '', 'warn')
     page.evaluate("window.MatchiLive = { snapshot: () => ({ ageMs: 1000, noService: false }) }; document.dispatchEvent(new CustomEvent('matchi:live'))"); page.wait_for_timeout(200)
     ok(page.locator('#dash_radio .dr-warn').count() == 0, 'lock active, service fine: no warning')

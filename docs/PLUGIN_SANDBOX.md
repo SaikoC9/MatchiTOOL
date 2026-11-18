@@ -1,6 +1,6 @@
-# Sandboxed plugins (Phases 4 and 5)
+# Sandboxed plugins
 
-Current for MatchiTOOL 1.4.1 (the sandbox is unchanged in 1.4.2). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); nothing of the sandbox is recorded as run on the F50.
+Current for MatchiTOOL 1.4.4 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); the stop hook was run on the F50 (14 Nov 2026), and the rest of the sandbox is not recorded as run on the F50.
 
 A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; legacy `.html` blocks are not loaded.
 
@@ -8,14 +8,14 @@ A plugin normally runs **in the console page**, with the signed-in session, and 
 
 - An `<iframe sandbox="allow-scripts">` without `allow-same-origin`: the plugin has an opaque origin. It cannot read the page, its variables or DOM, has no cookie, no `localStorage` and no `/api` access (its requests are refused by the frame's own policy, and the host refuses `Origin: null` anyway).
 - The frame has its own Content-Security-Policy on top of the page's: no `eval`, no frames, no forms, no workers, and connections only to the `net:` hosts you approved over https.
-- Its only way out is a message bridge, `window.matchi`. The page checks every call against what you approved, then relays device calls to the host (`POST /api/plugins/call`), which checks the stored approval **again on every call** (Phase 5).
+- Its only way out is a message bridge, `window.matchi`. The page checks every call against what you approved, then relays device calls to the host (`POST /api/plugins/call`), which checks the stored approval **again on every call**.
 - It runs in the background from page load; its window opens from the **Plugin actions** menu and **Close** only hides it.
 
 ## What a plugin can call
 
 Always: `matchi.toast(text, color?)` (shown as `[Plugin name] text`), `matchi.info()`, `matchi.close()`, `matchi.storage.get/set/remove/keys` (its own private area, 256 KB, 100 keys).
 
-`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Written and unit-tested; the hook was never run on the F50 (Phase 2 test L).
+`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Unit-tested, and run on the F50 on 14 Nov 2026: a working hook ended its job and the plugin was deleted; a hook that never finished kept the plugin after 15 s.
 
 **Turn off and stop does not run the hook.** The hook belongs to uninstalling, so it runs only for "Delete and stop". Switching a sandboxed plugin off with "Turn off and stop" runs its declared `@matchi-uninstall` commands (each also granted with `@matchi-needs shell:`), the process sweep and the undo of firewall chains and boot scripts, but not `fn`. A plugin with a hook still gets the sweep and the undo on "Delete and stop", and the hook's own result is never believed: the scan afterwards decides.
 
@@ -36,7 +36,7 @@ Switching the mode (either direction) needs a fresh sign-in and the **password a
 
 Switching to Trusted gives the plugin the whole page again, like any ordinary plugin.
 
-## Who decides (Phase 5)
+## Who decides
 
 The page checks first, so a bad call gets a quick, clear error. Anything that gets past it goes to `POST /api/plugins/call` with the plugin's name, the operation and its arguments. The host then requires that the plugin runs sandboxed, that its file is **still** the approved one, and that the call is inside the approved list (`sandboxCallError`, `PluginSandbox.kt`); it runs the AT read, router read or exact shell command itself. A file edited on the device after the page loaded is therefore refused on its next call, even though the page still holds the old list. `shell` also needs the usual root gate (sign-in younger than 4 h, HTTP rules). Refusals are written to the app log.
 

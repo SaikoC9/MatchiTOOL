@@ -113,7 +113,7 @@ eq([api.sbxDescribe('sbx:at.read'), api.sbxDescribe('sbx:router:x'), api.sbxDesc
 for (const t of [api.sbxSandboxMsg({ name: 'X.js', declared: ['sbx:shell:id'], sbxProblems: ['bad line'] }), api.sbxTrustMsg({ name: 'X.js' })]) yes(t.includes('X.js') && t.includes('password'), 'confirm text names the plugin and the password');
 yes(api.sbxSandboxMsg({ name: 'X.js', declared: [] }).includes('nothing beyond'), 'a plugin that asks for nothing says so');
 
-// ---- Phase 5: the page relays device calls to the host route, and the host knows the same operations
+// ---- The page relays device calls to the host route, and the host knows the same operations
 yes(html.includes("/api/plugins/call") && !/sbxRun[\s\S]*?api\('\/api\/shell'/.test(html.slice(a, b)), 'the bridge relays device calls to /api/plugins/call');
 const ops = [...kt.matchAll(/^    "([a-z.]+)" ->/gm)].map((m) => m[1]);
 eq(ops.sort(), ['at', 'router.get', 'shell'], 'sandboxCallError handles the same three device operations');

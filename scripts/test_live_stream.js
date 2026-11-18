@@ -1,4 +1,4 @@
-// Live panel push stream, page side (real-time plan Phase 4). Cuts the REAL block between LIVE-STREAM-BEGIN / LIVE-STREAM-END out of index.html
+// Live panel push stream, page side. Cuts the REAL block between LIVE-STREAM-BEGIN / LIVE-STREAM-END out of index.html
 // and runs it with a fake clock, a fake fetch (a scripted event stream) and stubbed page state, so a change to the page code is what gets tested.
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const html = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/web/index.html'), 'utf8');
@@ -98,7 +98,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     e.set({ insecure: false, heat: 1 }); ok(e.streamWanted(), 'warm phone: the stream stays (it carries the temperatures)');
     e.set({ heat: 2 }); ok(e.streamWanted(), 'hot phone: the stream stays');
   }
-  // 5. Heat guard (Phase 5): the stream is never closed for heat; the repaint rate follows mode and heat (slowest wins), frames are always applied.
+  // 5. Heat guard: the stream is never closed for heat; the repaint rate follows mode and heat (slowest wins), frames are always applied.
   {
     const e = make();
     e.queue.push({ chunks: [FULL], hang: true });

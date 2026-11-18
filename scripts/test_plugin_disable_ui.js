@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 3 / Step 5: "Turn off and stop" (web-src/plugin-disable-ui.js), the page function pluginTurnOff run against scripted stubs, and the host route's keep branch (source order).
+// "Turn off and stop" (web-src/plugin-disable-ui.js), the page function pluginTurnOff run against scripted stubs, and the host route's keep branch (source order).
 'use strict';
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const sweepUi = require('../app/src/main/web-src/plugin-sweep-ui.js'), undoUi = require('../app/src/main/web-src/plugin-undo-ui.js');

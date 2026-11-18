@@ -1,4 +1,4 @@
-// Live Status polling intervals (plan Phase 6). Cuts the REAL interval code out of index.html (DELAY table, modes, heat level,
+// Live Status polling intervals. Cuts the REAL interval code out of index.html (DELAY table, modes, heat level,
 // battery pause, fast/slow back-off) and runs it with controlled state, so a change to the page code is what gets tested.
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const html = fs.readFileSync(path.join(__dirname, '..', 'app/src/main/assets/web/index.html'), 'utf8');
@@ -20,7 +20,7 @@ function make(store) {
 const at = (o, store = {}) => { const e = make(store); e.set({ mode: 'normal', ...o }); return [e.fastDelay(), e.slowDelay()]; };
 const atRaw = (o, store = {}) => { const e = make(store); e.set(o); return [e.fastDelay(), e.slowDelay()]; };
 const eq = (got, want, n) => ok(got[0] === want[0] && got[1] === want[1], n + ' (got ' + got + ', want ' + want + ')');
-// Phase 5: the level comes from the kernel thermal zones (sysMax / modem zone), not from thermalLevel or the battery sensor.
+// The level comes from the kernel thermal zones (sysMax / modem zone), not from thermalLevel or the battery sensor.
 const heat = (l) => ({ last: { sysMax: [50, 65, 75, 85][l], thermalLevel: 0 } });
 
 // Modes while the phone is cool: the speeds from the plan
@@ -72,7 +72,7 @@ eq(at({}, { liv_thermal_test: '9' }), [3000, 15000], 'liv_thermal_test junk igno
 { const e = make({ liv_batpause: '20' }); e.set({ last: { bat: 5, charging: false } }); ok(e.batLow(), 'saved battery pause 20 read'); }
 { const e = make({ liv_batpause: '17' }); e.set({ last: { bat: 5, charging: false } }); ok(!e.batLow(), 'saved battery pause 17 (not a choice) ignored'); }
 
-// Phase 5 heat guard: levels from the zones, hysteresis, modem offset, battery ignored, last level kept without readings
+// Heat guard: levels from the zones, hysteresis, modem offset, battery ignored, last level kept without readings
 {
   const lv = (e) => e.fastDelay();   // Normal: 3000 cool, 6000 warm, 15000 hot
   const e = make({}); e.set({ mode: 'normal', last: { sysMax: 59.9 } }); ok(lv(e) === 3000, 'below 60 C: cool');

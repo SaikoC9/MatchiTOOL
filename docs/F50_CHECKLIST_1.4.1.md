@@ -1,8 +1,8 @@
-# F50 check list for 1.4.1 (review item 26)
+# F50 check list for 1.4.1
 
-**Result (2026-11-15, reported by the owner): every line below was run on the F50 and passed.** The lines were ticked from that report, not from a line-by-line log, so no per-line notes exist.
+**Result (2026-11-15): every line below was run on the F50 and passed.** The lines were ticked from the test report, not from a line-by-line log, so no per-line notes exist.
 
-Nothing below was run on a real F50 by the person who wrote the code. Run it before calling 1.4.1 done. Tick each line, and for a FAIL copy the text of
+This is the list to run on the F50 before calling a 1.4.1 build done. Tick each line, and for a FAIL copy the text of
 **Radio report** (AT & Radio window) and the Live status "raw output" (Live device status, raw) so the cause can be found.
 Everything marked "unchanged" was checked on the F50 on 11 Nov 2026 (see the CHANGELOG) and only needs a quick look after the update.
 
@@ -21,19 +21,19 @@ Everything marked "unchanged" was checked on the F50 on 11 Nov 2026 (see the CHA
 - [x] After a device reboot the CPU cores 4 to 7 are online (Live status "CPU frequency"), and Turn off + reboot brings the old state back.
 - [x] If the router does not report `performance_mode`, the window says so and offers nothing.
 
-## C. Items 22 to 25 of the review (new in the patched5 build)
-- [x] **Source label (25):** in Live device status, the 4G and 5G boxes end with `router` or `Android`. On the F50 expect `Android` for PCI / Ch (the router keys are empty). Hover shows the explanation.
-- [x] **Cell lock fallback (22):** with Live device status showing a 4G or 5G PCI, open **Cell lock**. "This phone is on" now lists the cell with "(Android telephony)" and a **Lock this cell** button.
+## C. Radio dashboard: telephony cell, source label, no-service warning, radio state
+- [x] **Source label:** in Live device status, the 4G and 5G boxes end with `router` or `Android`. On the F50 expect `Android` for PCI / Ch (the router keys are empty). Hover shows the explanation.
+- [x] **Cell lock fallback:** with Live device status showing a 4G or 5G PCI, open **Cell lock**. "This phone is on" now lists the cell with "(Android telephony)" and a **Lock this cell** button.
   Compare its PCI and EARFCN with the Live status box. Compare also with a row in "Neighbours" if the same cell is listed there.
 - [x] Press **Lock this cell**: the confirm says the cell comes from Android telephony. Cancel once (nothing is sent). Then lock it: after 60 s the modem is registered, the lock stays.
   If the PCI or channel differs from what the router really uses, the modem will not register: auto-unlock removes the lock after 60 s. Write the difference down.
 - [x] With Live device status closed or older than 2 minutes, "This phone is on" says no serving cell (the fallback is not used on old data).
 - [x] **Unlock all cells** still works.
-- [x] **No-service warning (24):** lock one band (for example LTE B1 only) where B1 is not available. When Live status shows no service, a red line appears on **Radio settings**: "A band lock is active and Live Status shows no service ... Unlock all".
+- [x] **No-service warning:** lock one band (for example LTE B1 only) where B1 is not available. When Live status shows no service, a red line appears on **Radio settings**: "A band lock is active and Live Status shows no service ... Unlock all".
   **Unlock all** -> the line disappears once service is back. With every band allowed and no service there must be NO such line.
-- [x] **Radio state (23):** nowhere does the page claim the radio is on or off as a fact. Full diagnose, step "SIM and radio state", says the radio on/off state cannot be read.
+- [x] **Radio state:** nowhere does the page claim the radio is on or off as a fact. Full diagnose, step "SIM and radio state", says the radio on/off state cannot be read.
 
-## D. Web page (items 18 to 21, patched4)
+## D. Web page: editable sources, accessibility, safe HTML, language switch
 - [x] Open any popup (Terminal, Plugins ...): Tab and Shift+Tab stay inside it, **Escape** closes it, focus returns to the button that opened it.
 - [x] Language selector in the header: Filipino changes the header, sign-in, home buttons and popup titles; reload keeps the choice; English changes it back.
 - [x] Sign out and sign in again in Filipino: the sign-in text is translated, the password box still works with the keyboard (Enter).
@@ -42,7 +42,7 @@ Everything marked "unchanged" was checked on the F50 on 11 Nov 2026 (see the CHA
 - [x] Band lock and Unlock all, radio restart, auto-unlock of a wrong cell (PCI 999), unlock all cells (checked 11 Nov 2026).
 - [x] Console starts after install, HTTPS or the "not encrypted" bar as before, sign-in speed with the new 310,000-iteration hash (patched2).
 
-## F. Found on 11 Nov 2026 (patched8)
+## F. Found on 11 Nov 2026
 - [x] Press **Sign out**: the sign-in card keeps the same width as before sign-out. Reload the tab right after: the sign-in page loads (no "BAD REQUEST ... HTTP verb {}GET unhandled").
 - [x] Language Filipino: the dashboard (Live device status, Radio settings, Cell lock) and the tool buttons are in Filipino and stay so after a few refreshes; English restores them. Messages made at run time and the tool windows stay English.
 - [x] Cell lock: "This phone is on" PCI can differ from the PCI in the Live status box if the phone changed cell in between; press Refresh on both and compare (write down both PCIs if they still differ).

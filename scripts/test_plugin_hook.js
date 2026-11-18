@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Phase 2 / Step 7: the stop hook of a SANDBOXED plugin (matchi.onUninstall). Runs the real bridge text (SBX_PRELUDE) against a fake port, the page-side
+// The stop hook of a SANDBOXED plugin (matchi.onUninstall). Runs the real bridge text (SBX_PRELUDE) against a fake port, the page-side
 // runner sbxHookRun with fake timers, the authorization of the two new bridge operations, the dialog helpers, and checks the delete handler's order:
 // hook first, a failed hook keeps the plugin, the scan afterwards decides, the host is only told for its audit line.
 'use strict';
@@ -304,7 +304,7 @@ test('handler: with declared commands the hook line comes with them, and a refus
   assert.strictEqual(r2.deletes[0].skipStop, true); assert.ok(!('hookRan' in r2.deletes[0])); assert.ok(!r2.dlgs[0].message.includes('own stop code'));
 });
 
-// Phase 3 / Step 4: the undo list in the same handler.
+// The undo list in the same handler.
 const UNDO = { items: [{ kind: 'chain', label: 'firewall chain MY_CHAIN (iptables, table mangle)' }, { kind: 'boot', label: 'boot script 20-bypass-ttl.sh' }], notUndone: [], hash: 'U1' };
 const trustedP = { name: 'T.js', mode: 'trusted' };
 test('handler: a headerless plugin with only undo items gets \"Delete and stop\", lists them, and sends undoHash with stop', async () => {
@@ -327,7 +327,7 @@ test('handler: refused commands -> skipStop, no undoHash, the items are listed a
 test('handler: shared copy -> default sends no stop (no undoHash); \"Delete and stop anyway\" sends it', async () => {
   const shared = mkInfo([], '', { undo: UNDO, stopPlan: { commands: ['pkill -f x'], refused: [], shared: ['Other.js'], planHash: 'P3' } });
   const a = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [shared], dialogs: [true] });
-  assert.ok(!a.deletes[0].stop && !('undoHash' in a.deletes[0]) && !('sweepHash' in a.deletes[0]));   // the default button sends no stop at all (Phase 1 behaviour) assert.ok(a.dlgs[0].message.includes('If the stop runs'));
+  assert.ok(!a.deletes[0].stop && !('undoHash' in a.deletes[0]) && !('sweepHash' in a.deletes[0]));   // the default button sends no stop at all (a plain delete) assert.ok(a.dlgs[0].message.includes('If the stop runs'));
   const b = await drive({ plugin: trustedP, entries: {}, hookResults: [], datas: [shared], dialogs: ['stop'] });
   assert.strictEqual(b.deletes[0].stop, true); assert.strictEqual(b.deletes[0].undoHash, 'U1'); assert.ok(!b.deletes[0].skipStop);
 });

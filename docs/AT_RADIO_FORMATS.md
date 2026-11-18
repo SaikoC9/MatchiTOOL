@@ -1,7 +1,7 @@
-# AT & Radio: router command formats (Phase 0)
+# AT & Radio: router command formats
 
 Formats of the router web API (goform) and of the modem's AT commands, as `radio-core.js` uses them.
-Where a format is not confirmed it says **CAPTURE ON F50**, and Phase 0 is not finished for that line until it is filled in.
+Where a format is not confirmed it says **CAPTURE ON F50**, and that line is not final until it is filled in.
 
 ## How the router is called
 
@@ -92,7 +92,7 @@ Use `PERFORMANCE_MODE_SETTING` only (not `PERFORMANCE_MODE`).
 
 Through the existing AT path: IMSI `AT+CIMI` · QoS `AT+CGEQOSRDP=1` (do not poll it) · modem restart `AT+SFUN=5` (off) then `AT+SFUN=4` (on), slots 0 and 1.
 
-Not in scope: `SET_SIM_SLOT` (removed from the plan).
+Not in scope: `SET_SIM_SLOT`.
 
 ## Read keys not yet confirmed (CAPTURE ON F50)
 
@@ -100,7 +100,7 @@ Not in scope: `SET_SIM_SLOT` (removed from the plan).
 them is not confirmed (see the checklist below). `lte_band_lock`, `nr_band_lock`,
 `neighbor_cell_info`, `locked_cell_info` are read straight from the router, as shown above.
 
-## Phase 0 on-device checklist (only the F50 can finish this)
+## On-device checklist (only the F50 can finish this)
 
 Do this with MatchiTOOL's own `/api/zte` get or the router page, change nothing.
 Paste the raw JSON in the Result column.
@@ -116,5 +116,5 @@ Paste the raw JSON in the Result column.
 | 7 | Find what "Unlock bands" sends on the router page | probably every supported band | |
 | 8 | Note the value of the unlocked state in step 3 after step 7 | this is what "restore" must reproduce | |
 
-Done when lines 1 to 8 are filled in. Until 1, 2, 3 and 7 are known, Phase 1 and 2 must
-hide or disable the matching control instead of guessing.
+Done when lines 1 to 8 are filled in. Until 1, 2, 3 and 7 are known, the matching control must
+be hidden or disabled instead of guessing.

@@ -82,9 +82,9 @@ TABLE = {
   ('POST', '/api/zte/page'): ('OPEN', ''),
   ('GET',  '/api/zte/config'): ('OPEN', ''),
   ('POST', '/api/zte/config'): ('GATE', 'a changed address or password also needs the current password again (counts toward the login lockout); changing the password ends the other sessions'),
-  ('POST', '/api/update/stage'): ('GATE', 'C11: writes up to ApkUpdater.MAX_BYTES to disk'),
-  ('POST', '/api/update/check'): ('GATE', 'C11: the device contacts the https address in the request'),
-  ('POST', '/api/update/fetch'): ('GATE', 'C11: downloads from any https address and stores the file'),
+  ('POST', '/api/update/stage'): ('GATE', 'writes up to ApkUpdater.MAX_BYTES to disk'),
+  ('POST', '/api/update/check'): ('GATE', 'the device contacts the https address in the request'),
+  ('POST', '/api/update/fetch'): ('GATE', 'downloads from any https address and stores the file'),
   ('POST', '/api/update/install'): ('GATE', ''),
   ('GET',  '/api/update/status'): ('OPEN', ''),
 }

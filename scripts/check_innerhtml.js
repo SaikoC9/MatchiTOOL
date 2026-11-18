@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// innerHTML lint (review item 20). Finds every place the page writes markup (innerHTML / outerHTML / insertAdjacentHTML / document.write) and sorts it:
+// innerHTML lint. Finds every place the page writes markup (innerHTML / outerHTML / insertAdjacentHTML / document.write) and sorts it:
 //   static   - the right-hand side is only literal text, nothing is interpolated            -> always fine
 //   escaped  - the statement interpolates values and also calls esc( / escapeHtml( / MT_html -> fine (the call is not proven to cover every value)
 //   reviewed - interpolates values without an escape call on that statement; listed in scripts/innerhtml-reviewed.json with the reason a person gave

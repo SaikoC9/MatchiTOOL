@@ -89,7 +89,7 @@ function env() {
   ok(e.calls.some(c => c[0] === '/api/logs/basket'), 'list reloads after a snapshot so the new export row shows');
   ok(e.toasts.some(m => /Snapshot saved: matchitool_snapshot_before/.test(m)), 'snapshot toast names the file');
 
-  // Step 5: the live panel is reached from inside the basket, not from the main screen.
+  // The live panel is reached from inside the basket, not from the main screen.
   const mainBar = html.slice(html.indexOf('class="actions-buttons"'), html.indexOf('</div>', html.indexOf('class="actions-buttons"')));
   ok(!/openPop\('logcatcher'\)/.test(mainBar) && /openPop\('logbasket'\)/.test(mainBar), 'main screen has the Log Basket button and no direct Log Catcher button');
   ok(/id="lblive" onclick="openPop\('logcatcher'\)"/.test(html), 'basket has the Live view button');

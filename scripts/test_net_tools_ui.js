@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Network window (web-src/net-tools.js), Phase 1: the real file run against a tiny fake DOM and a scripted MatchiRadio, so a typo or a bad
+// Network window (web-src/net-tools.js): the real file run against a tiny fake DOM and a scripted MatchiRadio, so a typo or a bad
 // render path shows up without a router or a browser. Checks: the button, one read per tab (always "get"), what each tab shows, that the
 // Wi-Fi password never reaches the page, the root button, the error path, and that closing the window releases the Live Status pause.
 'use strict';
@@ -195,7 +195,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // a read that fails on a tab with no cache does not leave stale data behind
   await click(doc.getElementById('matchi_net_refresh')); assert(/Connected/.test(bodyText()));
 
-  // ---- Phase 2: mobile data off / on ----
+  // ---- Mobile data off / on ----
   await click(tabBtn('data'));
   const dbtn = () => doc.getElementById('matchi_net_data_btn');
   assert.strictEqual(dbtn().textContent, 'Turn mobile data off'); assert.strictEqual(dbtn().disabled, false);
@@ -219,7 +219,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // closing the window while a switch is waiting stops the wait quietly
   pppNow = 'ipv4_ipv6_connected';
 
-  // ---- Phase 4: devices ----
+  // ---- Devices ----
   sets.length = 0; confirms.length = 0; pppNow = 'ipv4_ipv6_connected';
   await click(tabBtn('devices')); await click(doc.getElementById('matchi_net_refresh'));
   const btns = (label) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'button' && n.textContent === label);
@@ -257,7 +257,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   stuck = false; black = ''; blackNames = ''; hostOverride = null;
   await click(tabBtn('data'));
 
-  // ---- Phase 5: APN ----
+  // ---- APN ----
   sets.length = 0; confirms.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
   await click(tabBtn('apn')); await click(doc.getElementById('matchi_net_refresh'));
   const ab = (label) => doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'button' && n.textContent === label);
@@ -325,7 +325,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   noSecrets();
   await click(tabBtn('data'));
 
-  // ---- Phase 7: MTU / MSS ----
+  // ---- MTU / MSS ----
   sets.length = 0; confirms.length = 0; shells.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
   await click(tabBtn('mtu')); await click(doc.getElementById('matchi_net_refresh'));
   const mt = () => doc.getElementById('matchi_net_body').textContent;
@@ -400,7 +400,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await click(mb('matchi_mtu_restore')); assert(/No saved values found/.test(mt()), 'restore without backup: ' + mt());
   await click(tabBtn('data'));
 
-  // ---- Phase 6a: LAN / DHCP pool and lease ----
+  // ---- LAN / DHCP pool and lease ----
   sets.length = 0; confirms.length = 0; shells.length = 0; calls.length = 0; confirmAnswer = true; pppNow = 'ipv4_ipv6_connected';
   await click(tabBtn('lan')); await click(doc.getElementById('matchi_net_refresh'));
   const lb = (id) => doc.getElementById(id), lt = () => bodyText();
@@ -449,7 +449,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // refused write (old sign-in): nothing claimed
   lanDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await lanTry('192.168.0.40', '192.168.0.100', '6');
   assert(/Not sent: Session too old/.test(lt()) && /Nothing was changed/.test(lt()), 'refused: ' + lt());
-  // ---- Phase 6b: router IP change ----
+  // ---- Router IP change ----
   const ipb = () => lb('matchi_lan_ip_apply'), ipTry = async (v) => { lb('matchi_lan_ip').value = v; await click(ipb()); };
   lanState.start = '192.168.0.10'; lanState.end = '192.168.0.200'; lanState.lease = 12; await click(lb('matchi_net_refresh'));   // known starting point (the tests above left other values)
   sets.length = 0; confirms.length = 0; shells.length = 0; applied.length = 0; confirmAnswer = true;
@@ -509,7 +509,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // one change at a time: the MTU form cannot start while a LAN change runs (flags checked in the source guard); the data tab still works after
   await click(tabBtn('data'));
 
-  // ---- Phase 3: Wi-Fi band and settings ----
+  // ---- Wi-Fi band and settings ----
   sets.length = 0; confirms.length = 0; shells.length = 0; calls.length = 0; confirmAnswer = true; wifiDown = 0; wifiReadErr = null; stuckWifi = false;
   await click(tabBtn('wifi')); await click(doc.getElementById('matchi_net_refresh'));
   const wb = (id) => doc.getElementById(id), wt = () => bodyText();

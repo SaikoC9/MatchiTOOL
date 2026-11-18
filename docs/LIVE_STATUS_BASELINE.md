@@ -1,26 +1,26 @@
-# Live status - Phase 0 baseline (before any behaviour change)
+# Live status - baseline (before the real-time work)
 
 Written from the code in `app/src/main/assets/web/index.html` (Live device status block, version 1.4.0).
 The "Measure on the phone" section is empty on purpose: it needs the real F50.
 
 ## 1. Which code is the baseline
 
-The zip you attached (1.4.0) is the OLD poll:
+Version 1.4.0 has the OLD poll:
 one `collect()` (router GET plus root shell together), one `tick()`, `arm(3000)`, then `nextDelay()` of 60 s cool, 120 s warm, 180 s hot.
-That is the Phase 0 reference for "before": first read at 3 s, one update per minute when cool.
+That is the reference for "before": first read at 3 s, one update per minute when cool.
 
-The working folder this session started from was already ahead of that zip: it had the Phase 1 split (`collectFast()` / `collectSlow()`, two loops, 3 s / 15 s) and a matching `validate.sh` check. Sections 2 and 3 below describe that split code, because it is what the next phases build on.
-Phase 1 was then verified and fixed (hidden tab, early second root read); see CHANGELOG.
+The source after 1.4.0 had already split the poll (`collectFast()` / `collectSlow()`, two loops, 3 s / 15 s), with a matching `validate.sh` check. Sections 2 and 3 below describe that split code, because the later work builds on it.
+The split was then verified and fixed (hidden tab, early second root read); see CHANGELOG.
 
-| Plan item | Old zip | Working folder after Phase 1 |
+| Item | 1.4.0 | After the split |
 |---|---|---|
 | Split into fast (router) and slow (root) loops | no | yes |
 | Fast 3 s, slow 15 s | no (one poll, 60 s) | yes |
 | Back-off 3, 6 ... 60 s on router failure | no | yes |
-| Never poll while the tab is hidden | no | yes (fixed in Phase 1) |
-| Heat-aware delays (Phase 3) | 60/120/180 s | partly: fast 3 s / 15 s hot, slow 15 s / 120 s warm / 180 s hot |
-| Instant open, cache (Phase 4) | no | no |
-| Speed / devices / monthly rows (Phase 2) | no | no |
+| Never poll while the tab is hidden | no | yes (fixed after the split) |
+| Heat-aware delays | 60/120/180 s | partly: fast 3 s / 15 s hot, slow 15 s / 120 s warm / 180 s hot |
+| Instant open, cache | no | no |
+| Speed / devices / monthly rows | no | no |
 
 ## 2. What the card shows now
 
@@ -48,12 +48,12 @@ The router client serialises calls behind one lock (ZteClient), so a 3 s fast po
 
 ## 4. Router key notes
 
-- MatchiTOOL asks the router for `signalbar`; some firmware answers `network_signalbar` instead. Which one your F50 answers is a Phase 0 measurement (see section 5).
+- MatchiTOOL asks the router for `signalbar`; some firmware answers `network_signalbar` instead. Which one your F50 answers has to be measured (see section 5).
 - MatchiTOOL has no `/baseDeviceInfo` route in `WebServer.kt` or `ZteClient.kt`, so the slow loop's root shell stays the source for CPU and memory.
 
 ## 5. Measure on the phone (still to do)
 
-A temporary timing log is in the page (marked `PHASE0-TIMING`, 2 lines, remove in Phase 6). Open the page, open the browser console, filter on `live-phase0`. Each line is:
+The temporary timing log that used to be in the page (`[live-phase0]` lines in the browser console) has been removed, so measuring needs a temporary log of the same kind. Each line looked like this:
 
     [live-phase0] fast 140 ms ok=true failF=0 delay=3000 ms
     [live-phase0] slow 620 ms ok=true failS=0 delay=15000 ms thermal=0 bat=34.0 sys=52.3 modem=48.1
@@ -70,6 +70,6 @@ Fill in after 10 minutes idle on the page:
 | thermal level reached | |
 | first values on screen after opening the page | |
 
-Raw router output: open Live Status, pick the raw output view, save it. Check which keys are non-empty on your firmware, especially `signalbar` vs `network_signalbar`, `Z5g_rsrp`, `pm_sensor_mdm`, `pm_modem_5g`, and (for Phase 2) `realtime_rx_thrpt`, `realtime_tx_thrpt`, `wifi_access_sta_num`, `monthly_rx_bytes`, `monthly_tx_bytes`, `ppp_status`.
+Raw router output: open Live Status, pick the raw output view, save it. Check which keys are non-empty on your firmware, especially `signalbar` vs `network_signalbar`, `Z5g_rsrp`, `pm_sensor_mdm`, `pm_modem_5g`, and (for the speed, devices and monthly row) `realtime_rx_thrpt`, `realtime_tx_thrpt`, `wifi_access_sta_num`, `monthly_rx_bytes`, `monthly_tx_bytes`, `ppp_status`.
 
-Phase 0 is done when sections 5's table is filled in.
+The baseline is complete when the table in section 5 is filled in.

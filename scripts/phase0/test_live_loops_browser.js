@@ -1,4 +1,4 @@
-// Browser test, Live status Phase 1: the router (fast) loop and the root-shell (slow) loop run on their own timers.
+// Browser test, Live status: the router (fast) loop and the root-shell (slow) loop run on their own timers.
 // usage: node test_live_loops_browser.js INDEX_HTML     (needs Playwright; not part of validate.sh)
 const { chromium } = require('playwright'); const fs = require('fs');
 const html = fs.readFileSync(process.argv[2], 'utf8');
@@ -11,7 +11,7 @@ const SHELL = 'BATTERY\nlevel: 50\ntemperature: 300\nstatus: 3\nTHERMAL\nZ:soc-t
 
 async function scenario(name, run, opts = {}) {
   const b = await chromium.launch(); const ctx = await b.newContext();
-  // opts.seed = { ageMs, d } writes a Phase 4 sessionStorage cache entry (ageMs old) before the page starts
+  // opts.seed = { ageMs, d } writes a sessionStorage cache entry (ageMs old) before the page starts
   await ctx.addInitScript((seed) => { try { sessionStorage.setItem('matchi_token', 'cookie'); localStorage.removeItem('liv_auto'); if (seed) sessionStorage.setItem('liv_cache_v1', JSON.stringify({ t: Date.now() - seed.ageMs, d: seed.d })); } catch (_) {} }, opts.seed || null);
   const page = await ctx.newPage(); const st = { extra0: opts.extra || {}, zteDelay: opts.zteDelay || 0, tele: 0, zte: 0, shell: 0, at: 0, rsrp: '-95', zteFail: false, extra: opts.extra || {}, zone: 45000 }, errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -72,7 +72,7 @@ async function scenario(name, run, opts = {}) {
     await run1(2); ok(st.zte > z, 'coming back to the tab polls again');
   });
 
-  // Phase 2: speed and totals rows (speed in bytes/s, monthly totals in bytes, device count); hidden when the router gives nothing.
+  // Speed and totals rows (speed in bytes/s, monthly totals in bytes, device count); hidden when the router gives nothing.
   await scenario('Speed and totals rows', async ({ page, st, run1 }) => {
     const tiles = async () => page.locator('#liv_inline .liv-tn .liv-tile').allInnerTexts().then((a) => a.map((t) => t.replace(/\s+/g, ' ').trim()));
     await run1(1);
@@ -94,7 +94,7 @@ async function scenario(name, run, opts = {}) {
     ok((await tiles()).length === 0, 'junk or negative values are hidden');
   });
 
-  // Phase 3: heat-aware cadence. cool fast 3 s / slow 15 s; warm 6 s / 30 s; hot 15 s / 90 s. The mocked root shell reports the system temperature.
+  // Heat-aware cadence. cool fast 3 s / slow 15 s; warm 6 s / 30 s; hot 15 s / 90 s. The mocked root shell reports the system temperature.
   await scenario('heat levels', async ({ page, st, run1 }) => {
     const rate = async (sec) => { const z = st.zte, s = st.shell; await run1(sec); return { f: st.zte - z, s: st.shell - s }; };
     const near = (v, want, tol) => Math.abs(v - want) <= tol;
@@ -135,7 +135,7 @@ async function scenario(name, run, opts = {}) {
     ok(await page.locator('#liv_inline .liv-dbm').first().innerText().then((t) => /-95/.test(t)), 'card recovers once the router answers again');
   });
 
-  // Phase 4: instant open. The router answer is held back 1.5 s (real time) so the card can only show what is cached.
+  // Instant open. The router answer is held back 1.5 s (real time) so the card can only show what is cached.
   const SEED = { ageMs: 5000, d: { network_type: 'LTE', signalbar: '3', lte_rsrp: '-88', wan_active_band: 'B3' } };
   await scenario('cached values on open', async ({ page, st, run1 }) => {
     await page.waitForTimeout(100);
@@ -210,7 +210,7 @@ async function scenario(name, run, opts = {}) {
     ok(st.tele - t0 <= 3, `hot: telephony about every 3 minutes at most: ${st.tele - t0} reads in 360 s`);
   }, { extra: { network_type: 'ENDC', Z5g_rsrp: '-106' } });
 
-  // ---- Phase 5: refresh speed, battery pause, speed graph -------------------------------------------------------
+  // ---- Refresh speed, battery pause, speed graph -------------------------------------------------------
   await scenario('phase 5: Fast and Eco cadence, saved choice', async ({ page, st, run1 }) => {
     await run1(3);
     await page.locator('#liv_inline .liv-chip[data-mode="fast"]').click(); await page.waitForTimeout(100);

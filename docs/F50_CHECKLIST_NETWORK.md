@@ -1,4 +1,4 @@
-# F50 check: Network tools (Phase 8)
+# F50 check: Network tools
 
 Run on the F50 with a PC on the cable, adb ready, and the router password saved in MatchiTOOL. Write the result next to each line. Finish on the stock values: IP 192.168.0.1, pool .0.2 to .0.253, lease 24 h, MTU 1500, MSS 1460, mobile data on.
 

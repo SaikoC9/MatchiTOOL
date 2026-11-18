@@ -1,4 +1,4 @@
-// Browser test for Phase 3 (HttpOnly session cookie). usage: node test_session_cookie_browser.js INDEX_HTML   (needs Playwright; not part of validate.sh)
+// Browser test for the HttpOnly session cookie. usage: node test_session_cookie_browser.js INDEX_HTML   (needs Playwright; not part of validate.sh)
 //
 // It drives the REAL page in Chromium against a tiny Node server that follows the rules of SessionCookie.kt / WebServer.kt: login sets the cookie and
 // returns no token, every other /api route needs cookie + marker header (x-token), a foreign Origin is refused, logout clears the cookie. The cookie name,

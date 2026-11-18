@@ -28,6 +28,6 @@ for(let i=0;i<3;i++) t.noteMsgs([],false);
 t.noteMsgs([m('X')],false); eq(t.unread,0,'3 empties then back: no badge');
 for(let i=0;i<4;i++) t.noteMsgs([],false);
 t.noteMsgs([m('X')],false); eq(t.unread,1,'4 empties = really empty; X is new');
-// fresh SIM first message (C6) still works
+// fresh SIM first message still works
 t=make(); t.noteMsgs([],false); t.noteMsgs([],false); t.noteMsgs([m('Hello')],false); eq(t.unread,1,'C6 first message counts');
 console.log('c7 simulation ok ('+ok+' checks)');

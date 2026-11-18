@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Network window, Phase 1 (read only): the pure parsers in web-src/net-core.js, fed with the shapes the F50 gave in Phase 0 of
-// MatchiTOOL_Network_Tools_PLAN.txt, plus a guard that web-src/net-tools.js (the window) cannot write anything.
+// Network window: the pure parsers in web-src/net-core.js, fed with the shapes the F50 gave (docs/NETWORK_FORMATS.md),
+// plus guards on what web-src/net-tools.js (the window) may write.
 // No router, no browser.
 'use strict';
 const fs = require('fs'), path = require('path'), assert = require('assert');
@@ -30,7 +30,7 @@ const data = N.parseData({ ppp_status: 'ipv4_ipv6_connected', dial_mode: 'auto_d
 eq(data, { ppp: 'ipv4_ipv6_connected', state: 'connected', mode: 'auto_dial', modeLabel: 'Automatic', roaming: 'Off' });
 eq(N.parseData({}), { ppp: null, state: null, mode: null, modeLabel: null, roaming: null });   // empty = not reported, never "off" or "disconnected"
 eq(N.parseData('junk'), null);
-// Phase 2: mobile data off / on (bodies captured on the F50)
+// Mobile data off / on (bodies captured on the F50)
 eq(N.dataCall('off'), { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' });
 eq(N.dataCall('on'), { goformId: 'CONNECT_NETWORK', notCallback: 'true' });
 assert.throws(() => N.dataCall('toggle')); assert.throws(() => N.dataCall('__proto__')); assert.throws(() => N.dataCall(undefined));
@@ -84,7 +84,7 @@ eq(N.parseDevices({ station_list: '', lan_station_list: '' }).rows, []);        
 eq(N.parseDevices({}), null);                                                           // neither key came back
 eq(N.parseDevices({ station_list: [] }).cableReported, false);
 
-// ---- APN (Phase 5): the real F50 reply (Auto mode, 2026-11-15), the numbered slots, the checks and the captured bodies -----------------------------------
+// ---- APN: the real F50 reply (Auto mode, 2026-11-15), the numbered slots, the checks and the captured bodies -----------------------------------
 const DEF = 'default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', DITO = 'DITO($)internet.dito.ph($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)';
 assert(N.READ.apn.startsWith('apn_interface_version,APN_config0,APN_config1,') && N.READ.apn.includes('APN_config19') && N.READ.apn.includes('ipv6_APN_config19') && N.READ.apn.includes('apn_auto_config') && N.READ.apn.includes('Current_index'));
 const apnAuto = N.parseApn({ apn_mode: 'auto', apn_interface_version: '', APN_config0: DEF, APN_config1: '', APN_config19: '', profile_name: 'DITO', wan_apn: 'internet.dito.ph', apn_auto_config: DITO, index: '', Current_index: '', ppp_passwd: 'pw1', ppp_username: 'user1' });
@@ -184,7 +184,7 @@ eq(N.parseRootNet('##route\n1.1.1.1 dev sipa_eth0\n##link\n14: sipa_eth0: <UP> m
 eq(N.parseRootNet(''), null); eq(N.parseRootNet('nothing useful'), null);
 eq(N.sections('##a\nx\n\ny\n##b\n'), { a: ['x', 'y'], b: [] });
 
-// ---- Phase 4: devices rename / block / unblock (bodies captured on the F50) ----
+// ---- Devices: rename / block / unblock (bodies captured on the F50) ----
 assert(N.READ_ACL === 'queryDeviceAccessControlList' && N.READ_NAMES === 'hostNameList' && !N.READ.devices.includes('BlackMacList'));
 eq(N.parseAcl({ station_list: [] }), null); eq(N.parseAcl({}), null);   // block list not read -> null (Block / Unblock hidden, never guess)
 assert(N.aclRefusal(N.parseAcl({ station_list: [] })));
@@ -216,7 +216,7 @@ for (const good of ['my-pc', 'My Phone 2', 'Test-Router', 'a.b_c-d', 'x'.repeat(
 assert.throws(() => N.renameCall('nope', 'x')); assert.throws(() => N.renameCall('02:00:00:00:00:a3', 'a;b'));
 assert(N.isSelf('192.168.0.179', '::ffff:192.168.0.179') && !N.isSelf('192.168.0.2', '192.168.0.179') && !N.isSelf('192.168.0.2', '') && !N.isSelf('', ''));
 
-// ---- MTU / MSS change (Phase 7): checks, the captured call, the backup copy, the helpers -------------------------------------------------------------------
+// ---- MTU / MSS change: checks, the captured call, the backup copy, the helpers -------------------------------------------------------------------
 eq(N.mtuCheck(1500, 1460), { mtu: 1500, mss: 1460 }); eq(N.mtuCheck(' 1280 ', '1240'), { mtu: 1280, mss: 1240 }); eq(N.mtuCheck('1500', '1459'), { mtu: 1500, mss: 1459 });
 for (const [a, b] of [['', '1460'], ['1500', ''], ['abc', '1460'], ['15e2', '1460'], ['-1500', '1460'], ['1500.5', '1460'], ['1279', '1240'], ['1501', '1460'], ['1500', '1461'], ['1280', '1241'], ['1500', '535'], ['99999', '1460'], [null, null]])
   assert(N.mtuCheck(a, b).error, 'bad MTU / MSS: ' + a + '/' + b);
@@ -236,7 +236,7 @@ eq(N.parsePing('MATCHI_PING_OK\n'), true); eq(N.parsePing('MATCHI_PING_FAIL'), f
 for (const m of ['HTTP 401', 'sign in required', 'Unauthorized', 'Session expired', 'please log in', '403 Forbidden']) assert(N.isAuthError(m), m);
 for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resource', 'timeout', '', null]) assert(!N.isAuthError(m), String(m));
 
-// ---- LAN / DHCP pool and lease (Phase 6a) -----------------------------------------------------------------------------------
+// ---- LAN / DHCP pool and lease -----------------------------------------------------------------------------------
 {
   const L = N.parseLan({ lan_ipaddr: '192.168.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease_hour: '24h', mac_address: 'AA:BB' });
   eq(N.ipv4Int('192.168.0.1'), 3232235521); eq(N.ipv4Int('0.0.0.0'), 0); eq(N.ipv4Int('256.1.1.1'), null); eq(N.ipv4Int('1.2.3'), null); eq(N.ipv4Int('192.168.00.1'), null); eq(N.ipv4Int('192.168.0.1 '), 3232235521); eq(N.ipv4Int(''), null); eq(N.ipv4Int('a.b.c.d'), null);
@@ -297,7 +297,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), true); eq(N.lanReached(L, { start: '192.168.0.2', end: '192.168.0.253', lease: 12 }), false);
   eq(N.lanReached(Object.assign({}, L, { dhcp: 'Off' }), { start: '192.168.0.2', end: '192.168.0.253', lease: 24 }), false); eq(N.lanReached(null, {}), false);
 
-  // ---- Phase 6b: router IP change ----
+  // ---- Router IP change ----
   const lanOf = (ip, a, b, extra) => Object.assign(N.parseLan({ lan_ipaddr: ip, lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: a, dhcpEnd: b, dhcpLease_hour: '24h' }), extra || {});
   const La = lanOf('192.168.0.1', '192.168.0.2', '192.168.0.253'), Lb = lanOf('192.168.1.1', '192.168.1.2', '192.168.1.253');
   eq(N.lanIpCheck(La, '192.168.1.1'), { ip: '192.168.1.1', start: '192.168.1.2', end: '192.168.1.253', lease: 24 });
@@ -340,7 +340,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
 }
 
 
-// ---- Wi-Fi: band switch and settings (Phase 3; formats captured on the F50, part M of the plan) --------------------------------------------------------------
+// ---- Wi-Fi: band switch and settings (formats captured on the F50) --------------------------------------------------------------
 {
   const cp = require('child_process'), os = require('os');
   // base64 matches the platform's, and the decoder is strict
@@ -429,7 +429,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(N.parseWifiBackup('{"old":{"ssid":"a","auth":"WEP","hidden":false,"max":3},"new":{"ssid":"a","auth":"OPEN","hidden":false,"max":3}}'), null);
 }
 
-// ---- The window writes only mobile data off / on (Phase 2); everything else is read only ------------------------------------------------------------------------
+// ---- The window writes only through its guarded router calls; everything else is read only ------------------------------------------------------------------------
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
@@ -449,7 +449,7 @@ assert(!/localStorage|sessionStorage|document\.cookie/.test(ui), 'net-tools.js s
 assert(!/setInterval|setTimeout/.test(ui), 'no timers: no polling (plan rule 6); the 30 s wait loop is bounded and starts only after a confirmed switch');
 const zteCalls = ui.match(/R\.zte\(([^)]*)\)/g) || [];
 assert(zteCalls.length >= 1 && zteCalls.every((c) => /^R\.zte\(\s*'get'/.test(c)), 'every router call in net-tools.js must be a get: ' + zteCalls.join(' | '));
-// Root commands: the read-only check, the ping, the backup files of the MTU / LAN / Wi-Fi changes and the LAN pending note (Phase 6b). Every one is a fixed command built in net-core.js (only validated integers go in).
+// Root commands: the read-only check, the ping, the backup files of the MTU / LAN / Wi-Fi changes and the LAN pending note. Every one is a fixed command built in net-core.js (only validated integers go in).
 const shCalls = ui.match(/R\.sh\(([^,)]*)/g) || [];
 assert(shCalls.length === 19 && shCalls.every((c) => /^R\.sh\((N\.(ROOT_READ_SH|PING_SH|MTU_BACKUP_READ_SH|MTU_BACKUP_DELETE_SH|LAN_BACKUP_READ_SH|LAN_BACKUP_DELETE_SH|LAN_PENDING_READ_SH|LAN_PENDING_DELETE_SH|WIFI_BACKUP_READ_SH|WIFI_BACKUP_DELETE_SH)|N\.(mtu|lan|wifi)BackupWriteSh\(|N\.lanPendingWriteSh\()/.test(c)), 'root calls must all be fixed commands from net-core.js: ' + shCalls.join(' | '));
 assert(!/R\.sh\(\s*['"`]/.test(ui) && !/R\.sh\([^)]*\+/.test(ui), 'no root command is built from strings in net-tools.js');

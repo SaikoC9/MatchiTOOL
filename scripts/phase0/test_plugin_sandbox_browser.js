@@ -4,7 +4,7 @@
 // one from PluginGuard.kt), the session cookie plus marker header, and the Origin check. Plugins come from a fake GET /api/plugins, shaped like the
 // real reply (mode, grant, integrity). A probe plugin runs INSIDE the sandbox and tries to reach the page, the session, the network, new windows and
 // frames, and to call the bridge for things it was not given; it reports what happened. The server log shows what actually arrived at the host.
-// Phase 5: device calls from the bridge go to POST /api/plugins/call, where this mock applies a port of sandboxCallError (Kotlin) to the CURRENT approval; a
+// Device calls from the bridge go to POST /api/plugins/call, where this mock applies a port of sandboxCallError (Kotlin) to the CURRENT approval; a
 // plugin whose file changes after the page loaded is refused by the host even though the page still holds the old grant.
 // What it proves: what a real browser does with sandbox="allow-scripts", the frame's own policy and the MessageChannel bridge. What it does not test:
 // the Kotlin (PluginSandboxTest.kt does, when gradle runs), a real F50, or other browsers (Firefox and Safari may differ).
@@ -223,7 +223,7 @@ const other = http.createServer((req, res) => { otherLog.push(req.url); res.writ
   ok(typeof chg.shell === 'string' && chg.shell.includes('not approved'), 'a plugin whose file changed since approval (empty grant) gets nothing, even for what it declares: ' + chg.shell);
   ok(!calls.some((x) => x.call.name === 'Sbx_Changed.js' || x.call.name === 'Sbx_Bare.js'), 'and no call was made to the host for it or for the plugin that declared nothing');
 
-  // ---- Phase 5: the host decides from the CURRENT approval, not the grant the page loaded
+  // ---- The host decides from the CURRENT approval, not the grant the page loaded
   const setKey = (k) => page.evaluate((key) => localStorage.setItem(key, '1'), 'matchi_sbx:Sbx_Later.js/' + k);
   const getKey = async (k) => { const t0 = Date.now(); while (Date.now() - t0 < 8000) { const v = await page.evaluate((key) => localStorage.getItem(key), 'matchi_sbx:Sbx_Later.js/' + k); if (v !== null) return JSON.parse(v); await page.waitForTimeout(150); } return null; };
   await setKey('go1'); const r1 = await getKey('r1');

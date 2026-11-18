@@ -180,7 +180,7 @@ for f in (root / 'app/src/main/java').rglob('*.kt'):
     silent += n
 SILENT_CATCH_BASELINE = 0   # every swallowed exception goes through Quiet.note / Quiet.attempt / Quiet.orElse
 assert silent <= SILENT_CATCH_BASELINE, f'{silent} silent catch blocks (baseline {SILENT_CATCH_BASELINE}): log the exception (LogCatcher.log) instead of "catch (_: ...) {{ }}"'
-# Phase 2 viewer: parsed columns, per-source counters, one session list, and the quiet-failure helper.
+# Viewer: parsed columns, per-source counters, one session list, and the quiet-failure helper.
 pj = root / 'app/src/main/java/com/matchi/tool'
 assert (pj / 'Quiet.kt').exists() and 'Quiet.sink' in logger, 'Quiet helper must be wired to the app log'
 assert (pj / 'LogLineParser.kt').exists() and 'LogLineParser.parse' in bl, 'boot pages must carry parsed time/PID/thread/tag rows'
@@ -199,7 +199,7 @@ assert 'ProcessBuilder("sh", "-c", command)' in (root / 'app/src/main/java/com/m
 zc = (root / 'app/src/main/java/com/matchi/tool/ZteClient.kt').read_text()
 assert 'fun proxy(' not in zc and 'fun sessionCookie(' not in zc and 'fun setSessionCookie(' not in zc and 'GatewayProxy' not in zc, 'ZteClient must not expose a free-path proxy or the router session cookie'
 assert 'resolveHost(ctx)' in zc and zc.count('URL(if (method == "GET")') == 1, 'only the saved-host request builder may open router connections'
-# Phase 3: the session is an HttpOnly cookie. No route reads the token header itself, and the login reply carries no token.
+# The session is an HttpOnly cookie. No route reads the token header itself, and the login reply carries no token.
 assert 'headers["x-token"]' not in server.replace('requestToken(s.headers["cookie"], s.headers["x-token"])', ''), 'read the session through sessionToken(s), not the x-token header'
 assert '.put("token"' not in server, 'the login reply must not hand the session token to the page'
 assert 'sessionCookieHeader(Sessions.issue(ctx), Tls.active)' in server and 'clearSessionCookieHeader(Tls.active)' in server, 'login must set the session cookie and sign-out must clear it'
