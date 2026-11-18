@@ -47,12 +47,19 @@ const tmp = { toasts: [], copied: [], asked: 0, askAnswer: true };
 env.createToast = (...a) => { tmp.toasts.push(a); };
 env.copyText = async (x) => { tmp.copied.push(x); return true; };
 env.askConfirm = async () => { tmp.asked++; return tmp.askAnswer; };
-const names = ['wait', 'debounce', 'escapeHtml', 'formatBytes', 'runShellWithRoot', 'runShellWithUser', 'createModal', 'showModal', 'closeModal', 'createFixedToast', 'createSwitch', 'setBtnLoading', 'requestInterval', 'checkRoot', 'encodeBase64'];
+const names = ['wait', 'debounce', 'escapeHtml', 'formatBytes', 'runShellWithRoot', 'runShellWithUser', 'createModal', 'showModal', 'closeModal', 'createFixedToast', 'createSwitch', 'setBtnLoading', 'requestInterval', 'checkRoot', 'encodeBase64', 'matchiRunState'];
 const body = Object.keys(env).map((k) => `const ${k} = __env.${k};`).join('\n') + '\n' + src + `\nreturn {${names.join(',')}, win: window};`;
 // the block uses "window.fetch.bind(window)": give it the same window object
 const lib = new Function('__env', body.replace(/\bconst window = __env\.window;/, 'const window = __env.window;'))(env);
 const { win } = lib;
 
+// ---- running light: what the process scan means ----
+eq(null, lib.matchiRunState(null), 'run state: no info');
+eq(null, lib.matchiRunState({ sweep: { rootOk: false } }), 'run state: no root');
+eq(true, lib.matchiRunState({ sweep: { rootOk: true, complete: true, candidates: [{ pid: 1 }] } }), 'run state: found');
+eq(false, lib.matchiRunState({ sweep: { rootOk: true, complete: true, candidates: [], found: 0 } }), 'run state: nothing');
+eq(null, lib.matchiRunState({ sweep: { rootOk: true, complete: false, candidates: [] } }), 'run state: incomplete scan');
+eq(true, lib.matchiRunState({ sweep: { rootOk: true, complete: true, candidates: [], found: 60 } }), 'run state: over the cap still running');
 // ---- small helpers ----
 ok(win.t === undefined && win.UFI_DATA === undefined && win.__matchiCompat === undefined && win.login === undefined, 'no UFI names are put on window');
 eq('a&lt;b&gt;&amp;&quot;&#39;', lib.escapeHtml('a<b>&"\''), 'escapeHtml');

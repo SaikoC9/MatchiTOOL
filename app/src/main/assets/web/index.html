@@ -7592,20 +7592,50 @@ function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));
 /* Running light for a button in the Plugin actions box: true = green, false = red, null/undefined = no light. Only a data attribute and a tooltip; the page CSS draws it. */
 function matchiStatus(el,on){
   if(!el||typeof el.setAttribute!=='function')return false;
-  if(on===true){el.setAttribute('data-status','on');el.setAttribute('title','Running')}
-  else if(on===false){el.setAttribute('data-status','off');el.setAttribute('title','Not running')}
-  else{el.removeAttribute('data-status');el.removeAttribute('title')}
+  if(on===true){el.setAttribute('data-status','on');el.setAttribute('data-status-src','plugin');el.setAttribute('title','Running')}
+  else if(on===false){el.setAttribute('data-status','off');el.setAttribute('data-status-src','plugin');el.setAttribute('title','Not running')}
+  else{el.removeAttribute('data-status');el.removeAttribute('data-status-src');el.removeAttribute('title')}
   return true;
 }
-/* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box. */
+/* What the host's own process scan (/api/plugins/data -> sweep) says about one plugin: true = something it started is running, false = scan finished and found nothing, null = unknown (no root, or the scan was incomplete). */
+function matchiRunState(info){
+  const w=info&&info.sweep;if(!w||w.rootOk===false)return null;
+  const n=Array.isArray(w.candidates)?w.candidates.length:0;
+  if(n>0||Number(w.found)>0)return true;
+  return w.complete===false?null:false;
+}
+/* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box.
+   Every button a plugin adds is tagged with that plugin's file name (from the script's stack frame, or data-sbx for a sandboxed one). While the box is open the page asks the host
+   every 30 s whether that plugin has a running process (the same scan as the Delete dialog) and lights the button: green = running, red = nothing running.
+   A plugin that calls matchi.status() itself wins over this. No root or an incomplete scan = no light. */
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
   if(!btn||!box)return;
-  const cnt=document.getElementById('matchi_menu_n');let seen=false;
-  const open=(v)=>{wrap.hidden=!v;btn.setAttribute('aria-expanded',v?'true':'false')};
-  const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}};
+  const cnt=document.getElementById('matchi_menu_n');let seen=false,busy=false;
+  const tag=(args)=>{let n=null;try{n=pluginFromStack(new Error().stack)}catch(_){}
+    if(!n)return;for(const a of args)if(a&&a.nodeType===1&&a.dataset&&!a.dataset.plugin)a.dataset.plugin=n};
+  for(const m of ['appendChild','append','prepend','insertBefore']){const o=box[m];if(typeof o!=='function')continue;box[m]=function(...a){tag(a);return o.apply(this,a)}}
+  const paint=(b,st)=>{
+    if(b.getAttribute('data-status-src')==='plugin')return;
+    if(st===true||st===false){b.setAttribute('data-status',st?'on':'off');b.setAttribute('data-status-src','auto');b.setAttribute('title',st?'Running':'Not running')}
+    else if(b.getAttribute('data-status-src')==='auto'){b.removeAttribute('data-status');b.removeAttribute('data-status-src');b.removeAttribute('title')}
+  };
+  const autoRefresh=async()=>{
+    if(busy||document.hidden||wrap.hidden||btn.style.display==='none')return;busy=true;
+    try{
+      const by=new Map();
+      for(const b of box.children){const n=b.dataset&&(b.dataset.plugin||b.dataset.sbx);if(!n)continue;if(!by.has(n))by.set(n,[]);by.get(n).push(b)}
+      for(const [n,list] of by){
+        let st=null;try{st=matchiRunState(await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:n})}))}catch(_){}
+        for(const b of list)paint(b,st);
+      }
+    }catch(_){}finally{busy=false}
+  };
+  const open=(v)=>{wrap.hidden=!v;btn.setAttribute('aria-expanded',v?'true':'false');if(v)setTimeout(autoRefresh,300)};
+  const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}else if(!wrap.hidden)setTimeout(autoRefresh,300)};
   btn.onclick=()=>open(wrap.hidden);
   new MutationObserver(sync).observe(box,{childList:true});sync();
+  setInterval(autoRefresh,30000);
 })();
 /* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM
    (ENABLE_PIN: a wrong PIN counts as an attempt) asks once per page load. The host decides which writes also need the fresh sign-in. */
