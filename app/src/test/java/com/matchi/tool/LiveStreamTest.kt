@@ -242,7 +242,7 @@ class LiveStreamTest {
         assertEquals(0, h.viewers())
     }
 
-    // ---- Phase 3: run only while watched ----
+    // ---- run only while watched ----
 
     /** A timer the test fires by hand, so the 10 s grace time does not have to be waited for. */
     private class ManualTimer {

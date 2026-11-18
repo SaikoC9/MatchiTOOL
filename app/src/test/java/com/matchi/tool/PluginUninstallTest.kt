@@ -85,7 +85,7 @@ class PluginUninstallTest {
     }
 }
 
-/** Step 2: uninstall commands in the capability list, and the rules for which of them may run. */
+/** Uninstall commands in the capability list, and the rules for which of them may run. */
 class PluginUninstallRulesTest {
     private val none: (String) -> String? = { null }
     private val filter: (String) -> String? = { if (it.contains("wipe")) "wipes everything" else null }
@@ -337,7 +337,7 @@ class PluginStopRunTest {
     @Test fun successNeedsEveryCommandAndAPassedCheck() {
         val p = plan(three)
         assertTrue(stopReport(p, ok("one", "two", "three"), StopVerify(true, true, emptyList())).success)
-        // never "stopped" when no check ran (Step 5 not in yet)
+        // never "stopped" when no check ran (no verification yet)
         val noCheck = stopReport(p, ok("one", "two", "three"), StopVerify.NOT_RUN)
         assertTrue(!noCheck.success); assertTrue(noCheck.notChecked.contains("check command did not run"))
         assertTrue(!stopReport(p, ok("one", "two", "three"), StopVerify(true, false, emptyList())).success)

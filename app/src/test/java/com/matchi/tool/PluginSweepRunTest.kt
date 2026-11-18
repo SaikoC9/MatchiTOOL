@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Phase 2 / Step 5: the kill script, the sweep step of a stop (runSweepStop), and how it folds into verify and the report. Pure; the shell is faked. */
+/** The kill script, the sweep step of a stop (runSweepStop), and how it folds into verify and the report. Pure; the shell is faked. */
 private const val SR_PL = "beat.js"
 private val SR_LEDGER = listOf("/data/local/x", "/data/local/x/beat.sh", "/data/local/x/beat.pid")
 
@@ -43,7 +43,7 @@ class PluginSweepKillScriptTest {
         assertEquals(6_000L, SWEEP_MIN_MS)
         assertEquals(20_000L, SWEEP_KILL_TIMEOUT_MS)
         assertTrue(SWEEP_MIN_MS > SWEEP_TERM_WAIT_MS)            // the wait must fit in the time the step needs
-        assertTrue(SWEEP_KILL_TIMEOUT_MS <= 30_000L)             // stays out of the \"long\" root slots (F9 of Phase 1)
+        assertTrue(SWEEP_KILL_TIMEOUT_MS <= 30_000L)             // stays out of the \"long\" root slots
     }
 
     @Test fun noScriptForNothingOrForAnUnsafeEntry() {
@@ -317,7 +317,7 @@ class PluginSweepVerifyAndReportTest {
         val p = plan()
         assertEquals(StopMode.NONE, stopMode(true, false, p))                  // nothing declared, nothing found: as before
         assertEquals(StopMode.NONE, stopMode(true, false, p, 0))
-        assertEquals(StopMode.RUN, stopMode(true, false, p, 1))                // D2: found processes make it a stop
+        assertEquals(StopMode.RUN, stopMode(true, false, p, 1))                // found processes make it a stop
         assertEquals(StopMode.NONE, stopMode(false, false, p, 3))              // no "stop" flag: never
         assertEquals(StopMode.SKIP, stopMode(true, true, p, 3))                // "Delete without stopping": never
     }
@@ -333,7 +333,7 @@ class PluginSweepVerifyAndReportTest {
     @Test fun aCleanRescanIsTheCheckForAPluginThatDeclaredNone() {
         val p = plan(withCmd); val v = withSweepVerify(base(p), sweep())
         assertTrue(v.checkRan); assertTrue(v.checkPassed); assertTrue(v.leftovers.isEmpty()); assertEquals(1, v.declared)
-        // without the sweep, the Phase 1 rule is unchanged: nothing verified = never success
+        // without the sweep the rule is unchanged: nothing verified = never success
         assertFalse(base(p).checkRan); assertFalse(base(p).checkPassed)
     }
 
@@ -366,7 +366,7 @@ class PluginSweepVerifyAndReportTest {
         val r = stopReport(p, emptyList(), withSweepVerify(base(p), s), null, s)
         assertTrue(r.success); assertTrue(r.leftovers.isEmpty())
         assertTrue(r.log.contains("sweep: needed SIGKILL: PID 2001 (tag) sleep 99"))
-        assertTrue(r.notChecked.contains("no check command declared")); assertTrue(r.notChecked.contains("no boot file declared"))   // D6: still said
+        assertTrue(r.notChecked.contains("no check command declared")); assertTrue(r.notChecked.contains("no boot file declared"))   // still said
     }
 
     @Test fun reportKeepsThePluginWhenSomethingIsStillRunning() {
@@ -412,7 +412,7 @@ class PluginSweepVerifyAndReportTest {
         val r = stopReport(p, ok(p), base(p))
         assertTrue(r.success); assertEquals("ok: echo one", r.log)
         val noCheck = plan(withCmd)
-        assertFalse(stopReport(noCheck, ok(noCheck), base(noCheck)).success)        // Phase 1 rule: commands but nothing verified is never success
+        assertFalse(stopReport(noCheck, ok(noCheck), base(noCheck)).success)        // commands but nothing verified is never success
     }
 
     @Test fun rootMissingReportKeepsTheShownProcessesAsNotStopped() {

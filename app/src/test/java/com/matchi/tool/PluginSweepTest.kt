@@ -9,15 +9,15 @@ import org.junit.Test
 class PluginSweepTest {
     @Test fun fixedNumbersMatchTheOwnersDecisions() {
         assertEquals("MATCHI_PLUGIN", SWEEP_TAG_VAR)
-        assertEquals(2_000L, SWEEP_TERM_WAIT_MS)          // D4: wait 2 s between SIGTERM and SIGKILL
-        assertEquals(50, SWEEP_MAX_CANDIDATES)            // Step 3: cap
-        assertEquals(15_000L, SWEEP_PROBE_TIMEOUT_MS)     // Step 4: probe limit
+        assertEquals(2_000L, SWEEP_TERM_WAIT_MS)          // wait 2 s between SIGTERM and SIGKILL
+        assertEquals(50, SWEEP_MAX_CANDIDATES)            // cap
+        assertEquals(15_000L, SWEEP_PROBE_TIMEOUT_MS)     // probe limit
         assertTrue(SWEEP_PROBE_TIMEOUT_MS < STOP_TOTAL_MS) // the probe is separate from, and shorter than, the 60 s stop clock
         assertTrue(SWEEP_TERM_WAIT_MS < STOP_TOTAL_MS)
     }
 
     @Test fun theNeverKillListIsFixed() {
-        assertEquals(1, SWEEP_INIT_PID)                   // D8
+        assertEquals(1, SWEEP_INIT_PID)                   // PID 1 is never touched
         assertEquals("com.matchi.tool", SWEEP_APP_PACKAGE)
         assertEquals(listOf("/system", "/vendor", "/apex", "/proc", "/dev"), SWEEP_SYSTEM_PREFIXES)
     }
@@ -34,7 +34,7 @@ class PluginSweepTest {
         assertEquals(1234, c.pid); assertEquals("tag", c.how)
     }
 
-    // ---- Step 1: the tag ----
+    // ---- the tag ----
     @Test fun goodNamesGetTheTagPrefix() {
         assertEquals("export MATCHI_PLUGIN='Bypass_v65_17.js'; ", tagPrefix("Bypass_v65_17.js"))
         assertEquals("export MATCHI_PLUGIN='my-plugin.v2.html'; ", tagPrefix("  my-plugin.v2.html "))   // tracePluginName trims
@@ -63,7 +63,7 @@ class PluginSweepTest {
         assertEquals(cmd, tagCommand("bad name", cmd))
     }
 
-    // ---- Step 2: the probe and its parser ----
+    // ---- the probe and its parser ----
     private fun probeOut(vararg lines: String) = lines.joinToString("\n") + "\n"
 
     @Test fun theProbeScriptOnlyReads() {
@@ -152,7 +152,7 @@ class PluginSweepTest {
         assertTrue(r.complete); assertEquals("a.js", r.procs[0].tagged); assertEquals("sh x", r.procs[0].args)
     }
 
-    // ---- Step 3: candidate rules ----
+    // ---- candidate rules ----
     private fun pr(pid: Int, ppid: Int, args: String, tag: String? = null, start: String = "100") = SweepProc(pid, ppid, start, 0, args, tag)
     private fun probeOf(vararg ps: SweepProc, self: Int? = 900, complete: Boolean = true) = SweepProbe(ps.toList(), self, complete, 0)
 
@@ -414,7 +414,7 @@ class PluginSweepTest {
         assertTrue(r.candidates.isEmpty()); assertTrue(r.complete); assertEquals(0, r.found); assertTrue(r.notes.isEmpty())
     }
 
-    // ---- Step 4: the data for the dialog ----
+    // ---- the data for the dialog ----
     @Test fun probeWithoutPidfilesIsUnchanged() {
         assertEquals(sweepProbeScript(), sweepProbeScript(emptyList()))
         assertFalse(sweepProbeScript().contains("MTSWEEP-PID"))

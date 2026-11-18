@@ -80,7 +80,7 @@ class PluginTraceTest {
         assertEquals(listOf("/data/local/matchitool/plugin_data/foo"), prunableParents("/data/local/matchitool/plugin_data/foo/a", "foo.js"))
     }
 
-    // ---- Phase 3, step 0: chains and boot scripts the plugin created ----
+    // ---- chains and boot scripts the plugin created ----
 
     @Test fun chainsCreatedWithDashN() {
         assertEquals(listOf("mangle MY_CHAIN iptables"), pluginChains("iptables -t mangle -N MY_CHAIN"))

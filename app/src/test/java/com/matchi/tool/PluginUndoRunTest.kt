@@ -10,9 +10,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase 3 / Step 2: the undo script (undoScript), what it says (parseUndoRun), the undo step of a stop (runUndoStop) and how it folds into the report (withUndo).
+ * The undo script (undoScript), what it says (parseUndoRun), the undo step of a stop (runUndoStop) and how it folds into the report (withUndo).
  * The script runs in a REAL sh here, against a fake iptables / ip6tables (a state file) and a fake stat, so what it does to rules, chains and files is checked,
- * not only its text. Needs sh and awk (Linux, like the Phase 2 kill script tests).
+ * not only its text. Needs sh and awk (Linux, like the kill script tests).
  */
 private const val UR_BOOT = "/data/local/matchitool/boot.d/20-bypass-ttl.sh"
 

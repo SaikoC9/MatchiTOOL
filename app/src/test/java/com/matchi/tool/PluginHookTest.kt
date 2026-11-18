@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Phase 2 / Step 7: the host only writes down how a sandboxed plugin's stop hook went; it never lets that change the outcome. */
+/** The host only writes down how a sandboxed plugin's stop hook went; it never lets that change the outcome. */
 class PluginHookTest {
     @Test fun knownStatusesAreWrittenAsTheyAre() {
         assertEquals("hook A.js ran=true status=ok", hookAuditLine("A.js", true, "ok"))
