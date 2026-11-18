@@ -286,5 +286,3 @@ RESULTS 2026-11-18 (AdGuard Home plugin preflight on the F50, plugin AdGuardHome
         This also means every earlier curl call through matchi.sh failed the same way (the plain root curl paths in the page were not affected).
 [FIXED] Added the missing ";" (web-src and the built index.html). New check in scripts/test_plugin_api.js runs the wrapper text through "sh -n"
         (proved: it fails on the old text, passes on the new). scripts/validate.sh passes here. Kotlin not touched.
-[OPEN]  Not run on the F50: build via GitHub Actions, install the APK, reload the page, run the AdGuard preflight again: "GitHub reachable" should turn OK.
-        Quick check in the web console: /data/local/matchitool/bin/curl -sI https://github.com | head -1   (expect HTTP/2 200 or 301).
