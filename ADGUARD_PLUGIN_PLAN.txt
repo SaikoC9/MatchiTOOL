@@ -225,3 +225,6 @@ Step 8 - Uninstall behaviour
 2026-11-18  Step 3 written (plugin 0.3-step3): Install / Update + Install from file, checksum required, backup + rollback. Tested only in a sandbox shell with
             fake downloads (8 cases pass), not on the F50. Release names confirmed: AdGuardHome_linux_arm64.tar.gz / _armv7.tar.gz / checksums.txt.
             Needs the MatchiTOOL curl wrapper fix on the device first. Details and F50 tests: MatchiTOOL_AdGuard_todo.txt.
+2026-11-18  Step 4 written (plugin 0.4-step4): Set up (login via /control/install/configure, no open wizard, no pre-written yaml), Start/Stop, Web UI on LAN toggle.
+            Sandbox tests only (fake AdGuard Home server); not on the F50; Step 3 still to be confirmed on the device. Open: DNS bind 0.0.0.0:5353 exposure, IPv6 DNS.
+            Details and F50 tests: MatchiTOOL_AdGuard_todo.txt.

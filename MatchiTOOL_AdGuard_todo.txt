@@ -45,3 +45,40 @@ MatchiTOOL - AdGuard Home plugin: progress (plan: ADGUARD_PLUGIN_PLAN.txt, plugi
     T3d  Press Install / Update again: dialog says "already the latest", confirm: a backup folder appears.
     T3e  Install from file with the real arm64 .tar.gz from the release page (offline path), paste the official sha256.
   Next: Step 4 (config + yaml). Decision still open from Step 2: IPv6 DNS (accept / block v6 DNS / v4 DNS only).
+
+2026-11-18  Result (screenshot, F50, App v1.4.2 / Web v1.4.2): the 0.3-step3 plugin loads. Window shows Install / Update and Install from file, Start/Stop/Redirect/Uninstall
+  greyed, Open UI enabled, preflight "Ready to install, with 2 warnings", CPU aarch64, 19172 MB free.
+  [OPEN] "Latest stable version: Could not check (no internet or GitHub unreachable)". Web is still v1.4.2, so the curl wrapper fix is NOT on the device yet; the old
+         wrapper still has the missing ";" and fails the same way. Not yet proven that it is only that (no output of the wrapper or of curl seen).
+  Next: run the diagnosis commands (wrapper line, sh -n, curl to github), optionally patch the wrapper by hand to prove the cause, then build + install the new APK.
+         Do not press Install / Update before "Latest stable version" shows a version.
+
+2026-11-18  Step 4 (first configuration) written: AdGuardHome_MatchiTOOL.js 0.4-step4 (replaces 0.3-step3). Step 3 is still NOT confirmed on the F50 (install not run yet); Step 4 needs it.
+  Change to the plan order (Step 4 items 1-4): AdGuard Home only accepts /control/install/configure while NO AdGuardHome.yaml exists, so the plugin does NOT write a
+    minimal yaml first. It starts the program in setup mode with --web-addr 127.0.0.1:3000 (fallback -h 127.0.0.1 -p 3000 for old builds), POSTs the login and ports
+    to /control/install/configure (AdGuard Home makes the bcrypt hash and writes the yaml itself), then sets the rest over the local API with that login.
+  What was added
+    - Set up: login name + password (typed, or "Generate" = 16 random characters from an unambiguous set); password 8-64 characters, no spaces. Web 127.0.0.1:3000, DNS port 5353 on
+      0.0.0.0, upstreams https://dns.quad9.net/dns-query + https://cloudflare-dns.com/dns-query, bootstrap 9.9.9.9 + 1.1.1.1, router address as local PTR server,
+      query log 24 h, statistics 7 d (new API PUT .../config/update first, old POST ..._config as fallback; a failure there is only a WARN). Password goes in as base64 text in the
+      root job, into 0600 files for the local requests, deleted at once; the job file removes itself; shown once in the log area after success; never saved by the plugin.
+    - Start / Stop buttons (agh.sh start | start-install | stop | status, written by the plugin). Step 5 will add rules-on/off, watch and boot to agh.sh.
+    - Web UI on LAN: turn on/off (changes the one "  address:" line under http: in the yaml, refuses when no login exists, checks with --check-config, restores the yaml and
+      restarts on any failure; does not start AdGuard Home when it was stopped).
+    - Status rows: "Set up (web login)", Web UI row says "(this device only...)" until LAN is on; Open UI only enabled when LAN is on and it runs.
+    - NOT built (Step 5): DNS redirect, watchdog, boot start. No hotspot client uses AdGuard Home yet.
+  Tested here (sandbox, fake AdGuard Home server in Python, real curl on localhost, not on the F50): setup (ok), setup again (refused), setup refused by the server (AdGuard Home
+    stopped, no yaml, no leftover files), stop, start, LAN on (restart), LAN off, LAN on while stopped (no start), yaml without login (refused), yaml that fails --check-config (restored).
+    No password in any file except the fake server's own request log. UI flow with a fake page: validation of name and password, the command carries only base64, login shown once, button
+    states. MatchiTOOL scanner rules and shell filter: no hits.
+  NOT tested: the real AdGuard Home binary: whether --web-addr is accepted, the real answers of /control/install/configure and /control/dns_config, the two log/stat endpoint forms,
+    start on the F50 (SELinux, Go on Android), 127.0.0.1:3000 reachability, the yaml address line format, --check-config.
+  Open decision: DNS listens on 0.0.0.0:5353 (needed for the redirect later). Reachable from the hotspot LAN, and possibly from the mobile network side if the F50 firewall allows
+    inbound on it. Step 5 should either bind to the LAN address only or add an iptables drop for 5353 on the upstream interface. Still open: IPv6 DNS (Step 2).
+  F50 test list
+    T4a  Needs Step 3 done (Installed version shows a version). Open AdGuard Home, "Set up": press Generate, copy the password, press Set up. Expect log: "login and ports saved",
+         "DNS servers set", "query log kept 24 hours", "statistics kept 7 days", "RESULT ok version=v0.107.x dns_port=5353", and a LOGIN line. Rows: Running Yes, Set up Yes.
+    T4b  Commands below (on the device).
+    T4c  Stop, then Start. Running No then Yes.
+    T4d  Web UI on LAN: turn on, then open the Open UI link from a phone on the hotspot, log in with the password. Turn it off again.
+    T4e  Close and reopen the window and press Refresh status: the state is read back correctly.
