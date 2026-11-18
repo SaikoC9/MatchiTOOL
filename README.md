@@ -33,7 +33,7 @@ Don't run several tools that manage the same modem or firewall rules at the same
 
 ## Install and use
 
-1. Install the APK on an Android device that already has a supported root manager.
+1. Install the APK on an ZTE F50 postable device that already has a supported root manager.
 2. Open MatchiTOOL and press **Request / check root access**. Approve the prompt in your root manager.
 3. Connect with the LAN URL the app shows. The host always listens on the LAN, and that can't be switched off.
 4. Open the web page and sign in. The built-in tools load by themselves. Use the Plugins card only for your own scripts.
