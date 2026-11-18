@@ -14,7 +14,7 @@ import org.json.JSONObject
 
 /**
  * The paths every OTHER installed plugin uses: what it declares with "@matchi-data", what its ledger recorded, and the absolute paths in its uninstall
- * commands. The same-folder guard (test C) for erasing data, and the shared guard of the process sweep (Phase 2, P8), both read this.
+ * commands. The same-folder guard for erasing data, and the shared guard of the process sweep, both read this.
  */
 internal fun WebServer.pluginOtherPaths(name: String): Map<String, List<String>> {
     val others = HashMap<String, List<String>>()
@@ -27,7 +27,7 @@ internal fun WebServer.pluginOtherPaths(name: String): Map<String, List<String>>
 }
 
 /**
- * Phase 3 / Step 1: what "Delete and stop" would undo outside the plugin's own files (firewall chains and boot scripts the ledger saw it create), from the
+ * What "Delete and stop" would undo outside the plugin's own files (firewall chains and boot scripts the ledger saw it create), from the
  * ledger alone. Nothing is run and no root is needed here. What another installed plugin records, declares or names in its uninstall commands is kept.
  */
 internal fun WebServer.pluginUndo(name: String): UndoPlan {
@@ -49,7 +49,7 @@ internal fun UndoPlan.toJson(): JSONObject {
 }
 
 /**
- * Phase 2 / Step 4: the processes the sweep would end for plugin [name] (read-only; nothing is killed here). One root probe of up to
+ * The processes the sweep would end for plugin [name] (read-only; nothing is killed here). One root probe of up to
  * SWEEP_PROBE_TIMEOUT_MS, separate from the 60 s stop clock. Ledger paths are what the plugin sent, and the process command lines hold the same text. Without root the answer is "cannot be checked", never a guessed list.
  */
 internal fun WebServer.pluginSweepInputs(name: String): Pair<List<String>, Map<String, List<String>>> {
@@ -81,7 +81,7 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
     val bad = ArrayList<Pair<String, String>>()
     ok.add(pluginDataDir(name))
     // A folder that another installed plugin declares or recorded in its ledger is NOT erased: deleting an old copy of a plugin must not take what a newer
-    // copy under another name still needs (test C on the F50 showed the folder gone). It is listed as "not erased" with the reason.
+    // copy under another name still needs (this happened on the F50: the folder was gone). It is listed as "not erased" with the reason.
     val others = pluginOtherPaths(name)
     fun shareNote(d: String): String? = pluginsUsingPath(d, others).takeIf { it.isNotEmpty() }?.let { "also used by " + it.joinToString(", ") + ", so it is kept" }
     // Folders named after the plugin are erased too, without a header line. They pass the same strict check and are listed in the dialog (only when they exist).
@@ -103,7 +103,7 @@ internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pai
 }
 
 /**
- * Step 3: the stop plan for plugin [name], read from the file as it is NOW (the delete route reads it before the file is removed, Step 4).
+ * The stop plan for plugin [name], read from the file as it is NOW (the delete route reads it before the file is removed).
  * Collects what the pure stopPlan() needs: the integrity state, the sandbox mode and grant, the other installed plugins (for the same-folder guard),
  * and the command filter. Runs nothing. A missing file gives an empty plan.
  */
@@ -166,7 +166,7 @@ internal fun <T> WebServer.withUploadSlot(len: Long, block: () -> T): T {
 }
 
 /**
- * Password check for changes to plugins (Phase 1): installing, replacing, deleting or approving a plugin needs the sign-in password again,
+ * Password check for changes to plugins: installing, replacing, deleting or approving a plugin needs the sign-in password again,
  * with the same lockout as /api/login and /api/security/net, so a plugin that holds the session token cannot rewrite plugins silently.
  * Returns a response to send back (password missing, or locked out), or null when the password is right. A wrong password throws.
  * Limit, stated plainly: a plugin that wraps window.fetch can still read the password while YOU type it. This stops silent changes only.
@@ -194,7 +194,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
             val sc = scanPlugin(src, netExtra)
             val sha = sha256Hex(bytes)
             val integrity = integrityState(records[n]?.sha, sha)   // ok | changed | untracked
-            // Sandbox (Phase 4): only .js plugins can run sandboxed. "declared" is what the file asks for now; "grant" is what the person approved,
+            // Sandbox: only .js plugins can run sandboxed. "declared" is what the file asks for now; "grant" is what the person approved,
             // and it is empty while the file differs from the approved one. The page enforces "grant" in its bridge.
             val needs = if (pluginKind(n) == "js") sandboxNeeds(src) { shellDanger(it, true) } else null
             val sandboxed = needs != null && modes[n] == "sandbox"
@@ -284,7 +284,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val name = body(s).optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val (paths, rejected) = pluginDataPlan(name)
-        // 1.4.2 (F10): the two root calls (existence probe, process scan) run only when rootGate would let a root route through. A refused request is NOT an error:
+        // Since 1.4.2 the two root calls (existence probe, process scan) run only when rootGate would let a root route through. A refused request is NOT an error:
         // the page treats an error as "nothing to show" and would silently fall back to a plain delete, so it gets the same answer as "root not available" instead
         // (items without "exists", sweep.rootOk=false) and still receives the stop plan, the undo list, the uploads and the effects, which come from files and the ledger.
         val gated = rootGate(s) != null
@@ -306,17 +306,17 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
             .put("uploads", ups).put("effects", JSONArray(led.effects)).put("stopPlan", pluginStopPlan(name).toJson()).put("sweep", (if (gated) refusedSweep() else pluginSweep(name)).toJson()).put("undo", pluginUndo(name).toJson()))
     }
     // Delete a plugin: {"name":"My_Plugin.js","erase":true}. With erase, the data from /api/plugins/data is removed too.
-    // Phase 1 / Step 4: {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).
+    // {"stop":true,"planHash":"..."} first runs the plugin's own uninstall commands (the plan from /api/plugins/data).
     // If the stop does not fully succeed the plugin is NOT deleted and nothing is erased: the answer is {"ok":false,"kept":true,"stop":{...}} and the
     // person can try again or send {"stop":true,"skipStop":true} ("Delete without stopping"). A request without "stop" never runs a stop.
     uri == "/api/plugins/delete" && s.method == Method.POST -> run {
         val req = body(s)
         val wantStop = req.optBoolean("stop", false)
-        val keep = req.optBoolean("keep", false) // Phase 3 / Step 5: "Disable and stop": the same stop, but the plugin and its data stay and it is switched off
+        val keep = req.optBoolean("keep", false) // "Disable and stop": the same stop, but the plugin and its data stay and it is switched off
         // Erasing plugin data and stopping both run root scripts; a plain delete of the plugin file does not.
         if (req.optBoolean("erase", false) || wantStop) rootGate(s)?.let { return@run it }
         // Deleting needs the password too: delete, then install under the same name, would otherwise skip the check on replacing.
-        if (!keep) pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it } // Step 5 (owner): "Turn off and stop" asks no password, like a plain toggle; the root gate above still applies
+        if (!keep) pluginPasswordCheck(s, req, "delete a plugin")?.let { return@run it } // "Turn off and stop" asks no password, like a plain toggle; the root gate above still applies
         val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val ip = s.remoteIpAddress ?: "?"
@@ -325,15 +325,15 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         // keep only makes sense with a real stop: never with skipStop (then the page just toggles) and never with erase (the data stays).
         if (keep && (!wantStop || skipStop || req.optBoolean("erase", false))) throw IllegalArgumentException("keep needs stop, and no skipStop or erase")
         if (keep && !File(pluginDir, name).isFile) throw IllegalArgumentException("no such plugin")
-        if (req.has("hookRan")) auditShell(ip, hookAuditLine(name, req.optBoolean("hookRan", false), req.optString("hookStatus")), "plugin-hook") // Step 7: audit only; never read for the outcome
-        // Phase 2 / Step 5: the process sweep is part of the request only when the page sends "sweepHash" (even an empty one). A page that does not
-        // (Phase 1 behaviour) never gets a sweep, so it can not be refused for a hash it never had.
+        if (req.has("hookRan")) auditShell(ip, hookAuditLine(name, req.optBoolean("hookRan", false), req.optString("hookStatus")), "plugin-hook") // audit only; never read for the outcome
+        // The process sweep is part of the request only when the page sends "sweepHash" (even an empty one). A page that does not
+        // send it never gets a sweep, so it can not be refused for a hash it never had.
         val sweepNow = if (stopPlanNow != null && !skipStop && req.has("sweepHash")) pluginSweep(name) else null // BEFORE anything runs
         var stopOut: JSONObject? = null
-        // D3: what the person saw is what runs. A different process list now (a new match, or one that ended) keeps everything and opens the dialog again.
+        // What the person saw is what runs. A different process list now (a new match, or one that ended) keeps everything and opens the dialog again.
         if (sweepNow != null && !sweepHashMatches(req.optString("sweepHash"), sweepNow))
             return@run json(Response.Status.CONFLICT, JSONObject().put("code", "plan-changed").put("error", "The processes it started changed since you reviewed it; open the delete dialog again"))
-        // Phase 3 / Step 2: the undo (firewall chains and boot scripts the ledger saw the plugin create) is part of the request only when the page sends
+        // The undo (firewall chains and boot scripts the ledger saw the plugin create) is part of the request only when the page sends
         // "undoHash" (even an empty one); a page that does not never gets an undo. The same hash rule as the sweep: what the person saw is what runs.
         val undoNow = if (stopPlanNow != null && !skipStop && req.has("undoHash")) pluginUndo(name) else null // BEFORE anything runs
         if (undoNow != null && req.optString("undoHash") != undoNow.hash)
@@ -353,20 +353,20 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
                 val exec = { cmd: String, ms: Long -> RootShell.run(ctx, cmd, ms) }
                 val audit = { cmd: String -> auditShell(ip, cmd, "plugin-uninstall") }
                 val outcomes = runStopCommands(stopPlanNow.commands, STOP_TOTAL_MS, System::currentTimeMillis, exec, audit, t0)
-                // Phase 2 / Step 5 (D4): after the declared commands, end the processes that were shown, then scan again. Same 60 s clock. A stop that is
+                // After the declared commands, end the processes that were shown, then scan again. Same 60 s clock. A stop that is
                 // blocked or has refused commands cannot succeed and runs nothing of the sweep either (the file is not the one the person approved).
                 val sweepRes = if (sweepNow != null && stopPlanNow.blocked == null && stopPlanNow.refused.isEmpty()) {
                     val (ledgerPaths, others) = pluginSweepInputs(name)
                     val auditSweep = { line: String -> auditShell(ip, line, "plugin-sweep") }
                     runSweepStop(name, sweepNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, ledgerPaths, others, auditSweep, auditSweep)
                 } else null
-                // Phase 3 / Step 2: after the sweep (no watcher left to add the rules again), undo what the ledger saw it create: jump rules, then the chain, then the
+                // After the sweep (no watcher left to add the rules again), undo what the ledger saw it create: jump rules, then the chain, then the
                 // boot script. Same 60 s clock, one "plugin-undo" audit line per item. A stop that is blocked or has refused commands runs none of it, like the sweep.
                 val undoRes = if (undoNow != null && stopPlanNow.blocked == null && stopPlanNow.refused.isEmpty()) {
                     runUndoStop(undoNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, onRun = { line -> auditShell(ip, line, "plugin-undo") })
                 } else undoNow?.let { UndoStopResult.notRun(it, "the stop was blocked or has refused commands") }
-                // Step 5 of Phase 1: the check command and the boot file test share what is left of the same 60 s. D6: a clean re-scan counts as a check.
-                // Phase 3 / Step 3: a separate read-only look at every undo item; "undone" needs it. A clean look counts as the check for those items (D7).
+                // The check command and the boot file test share what is left of the same 60 s. A clean re-scan counts as a check.
+                // A separate read-only look at every undo item; "undone" needs it. A clean look counts as the check for those items.
                 val undoVer = if (undoNow != null && undoNow.items.isNotEmpty()) {
                     if (undoRes != null && undoRes.ran) verifyUndo(undoNow, STOP_TOTAL_MS, t0, System::currentTimeMillis, exec, onRun = { line -> auditShell(ip, line, "plugin-undo") })
                     else UndoVerify.notRun(undoNow, "the undo did not run")
@@ -377,7 +377,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
             stopOut = report.toJson()
             if (!report.success) return@run json(Response.Status.OK, JSONObject().put("ok", false).put("kept", true).put("stop", stopOut))
         }
-        // Phase 3 / Step 5: a stop that did not fully succeed returned above and kept the plugin ON. Only now is it switched off; its file, data and ledger stay.
+        // A stop that did not fully succeed returned above and kept the plugin ON. Only now is it switched off; its file, data and ledger stay.
         if (keep) {
             Prefs.setEnabled(ctx, name, false)
             gateNamesOfPlugin(name).forEach { WebGate.stop(ctx, it) }   // its protected web page closes with it
@@ -435,7 +435,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         auditShell(s.remoteIpAddress ?: "?", "approve " + name, "plugin-approve")
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
-    // Switch a plugin between "sandbox" and "trusted": {"name":"My_Plugin.js","mode":"sandbox","password":"..."} (Phase 4). Both directions need the gate and the
+    // Switch a plugin between "sandbox" and "trusted": {"name":"My_Plugin.js","mode":"sandbox","password":"..."}. Both directions need the gate and the
     // password: sandbox approves the permissions the file declares (@matchi-needs) as it is now; trusted gives it the whole page again. Either way the
     // file is approved as it is now (SHA-256 and capability list), like /api/plugins/approve, and the page reloads to apply it. Only .js plugins.
     uri == "/api/plugins/mode" && s.method == Method.POST -> rootGate(s) ?: run {
@@ -456,7 +456,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         auditShell(s.remoteIpAddress ?: "?", "mode " + name + " " + mode, "plugin-mode")
         json(Response.Status.OK, JSONObject().put("ok", true).put("mode", mode))
     }
-    // A call a SANDBOXED plugin made through the page's bridge (Phase 5): {"name":"X.js","op":"at"|"router.get"|"shell","args":["..."]}. The host decides, on every
+    // A call a SANDBOXED plugin made through the page's bridge: {"name":"X.js","op":"at"|"router.get"|"shell","args":["..."]}. The host decides, on every
     // call, from the stored record: the plugin must run sandboxed, its file must still be the approved one, and the call must be inside what it declared and
     // you approved (sandboxCallError). The page only relays; its own check is a first line. Reply shapes match /api/at, the router get and /api/shell.
     // Limit: the host cannot tell WHICH page code relays, so a trusted plugin (already root) could name a sandboxed one and get that plugin's narrow list.

@@ -1,53 +1,52 @@
 package com.matchi.tool
 
 /*
- * Plugin process sweep (Phase 2 of MatchiTOOL_Phase2_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
+ * Plugin process sweep. Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
  * scripts/kotlin_pure_tests.sh compiles it and its unit tests run without the Android SDK. WebRoutesPlugins.kt and WebRoutesRoot.kt
  * only call into this file; every rule that can be tested without a device (the tag prefix, the probe script and its parser, the
  * candidate rules, the never-kill list, the shared-path guard, the cap, the kill plan and the report text) is meant to live here.
  *
- * Step 0 (this commit) only creates the file: the fixed numbers from the owner's decisions and the two data types the later steps
- * share. Steps 1-5 of the to-do add their functions below. This file must not import anything from the project except through plain
+ * The fixed numbers and the data types the sweep functions share are at the top. This file must not import anything from the project except through plain
  * parameters, like PluginUninstall.kt does (shellDanger is passed in; this file needs no other file).
  *
- * The sweep is best effort. It protects the person from a forgetful plugin, not from a hostile one (the plugin names itself, P1).
+ * The sweep is best effort. It protects the person from a forgetful plugin, not from a hostile one (the plugin names itself).
  */
 
-/** Step 1: the name of the environment variable the host adds to a plugin's own commands ("export MATCHI_PLUGIN='NAME'; "). */
+/** The name of the environment variable the host adds to a plugin's own commands ("export MATCHI_PLUGIN='NAME'; "). */
 internal const val SWEEP_TAG_VAR = "MATCHI_PLUGIN"
 
-/** Step 2: the probe prints at most this many characters of a process's command line (ARGS). */
+/** The probe prints at most this many characters of a process's command line (ARGS). */
 internal const val SWEEP_ARGS_MAX = 200
 
-/** Step 3 (D1): how a candidate was found. "cmdline" is the weakest and is only ever killed when it was shown in the dialog. */
+/** How a candidate was found. "cmdline" is the weakest and is only ever killed when it was shown in the dialog. */
 internal const val SWEEP_HOW_TAG = "tag"
 internal const val SWEEP_HOW_PIDFILE = "pidfile"
 internal const val SWEEP_HOW_CMDLINE = "cmdline"
 
-/** Step 3: a command-line match needs a FILE path with at least this many segments (/data/local/x/beat.sh = 4). */
+/** A command-line match needs a FILE path with at least this many segments (/data/local/x/beat.sh = 4). */
 internal const val SWEEP_CMDLINE_MIN_SEGMENTS = 3
 
-/** Step 3: a command-line match never counts for a path under these folders (system files are not a plugin's own files). */
+/** A command-line match never counts for a path under these folders (system files are not a plugin's own files). */
 internal val SWEEP_SYSTEM_PREFIXES: List<String> = listOf("/system", "/vendor", "/apex", "/proc", "/dev")
 
-/** Step 3: more candidates than this -> the sweep refuses to stop automatically and says so. */
+/** More candidates than this -> the sweep refuses to stop automatically and says so. */
 internal const val SWEEP_MAX_CANDIDATES = 50
 
-/** Step 4: the read-only probe may take this long. It is NOT part of the 60 s stop clock (STOP_TOTAL_MS in PluginUninstall.kt). */
+/** The read-only probe may take this long. It is NOT part of the 60 s stop clock (STOP_TOTAL_MS in PluginUninstall.kt). */
 internal const val SWEEP_PROBE_TIMEOUT_MS = 15_000L
 
-/** Step 5 (D4): after SIGSTOP and SIGTERM the sweep waits this long, then sends SIGKILL. All of it stays inside STOP_TOTAL_MS. */
+/** After SIGSTOP and SIGTERM the sweep waits this long, then sends SIGKILL. All of it stays inside STOP_TOTAL_MS. */
 internal const val SWEEP_TERM_WAIT_MS = 2_000L
 
-/** D8: the never-kill list is fixed in code. This is the app's own package name; the app process and its root session pool are never touched. */
+/** The never-kill list is fixed in code. This is the app's own package name; the app process and its root session pool are never touched. */
 internal const val SWEEP_APP_PACKAGE = "com.matchi.tool"
 
-/** D8: PID 1 is never touched (kernel threads and the sweep's own PID chain are excluded by the Step 3 rules). */
+/** PID 1 is never touched (kernel threads and the sweep's own PID chain are excluded by the candidate rules). */
 internal const val SWEEP_INIT_PID = 1
 
 /**
- * Step 2: one running process as the probe saw it. [start] is the process start time exactly as the probe printed it; together with
- * [pid] and [args] it identifies the process, so a reused PID is not mistaken for the old one (D3). [tagged] is the plugin name found
+ * One running process as the probe saw it. [start] is the process start time exactly as the probe printed it; together with
+ * [pid] and [args] it identifies the process, so a reused PID is not mistaken for the old one. [tagged] is the plugin name found
  * in the MATCHI_PLUGIN variable of /proc/PID/environ, or null when there is none or it could not be read.
  */
 internal class SweepProc(
@@ -60,8 +59,8 @@ internal class SweepProc(
 )
 
 /**
- * Step 3: a process the sweep would end for one plugin. [how] is one of SWEEP_HOW_TAG, SWEEP_HOW_PIDFILE, SWEEP_HOW_CMDLINE.
- * The dialog shows these (Step 4) and only these may be killed (D3).
+ * A process the sweep would end for one plugin. [how] is one of SWEEP_HOW_TAG, SWEEP_HOW_PIDFILE, SWEEP_HOW_CMDLINE.
+ * The delete dialog shows these, and only these may be killed.
  */
 internal class SweepCandidate(
     val pid: Int,
@@ -71,12 +70,12 @@ internal class SweepCandidate(
 )
 
 /**
- * Step 1 (the tag): the text the host puts in front of a command that is attributed to a plugin, so every process that command
- * starts inherits MATCHI_PLUGIN=NAME in its environment (the probe in Step 2 reads it from /proc/PID/environ). Only a name that
+ * The text the host puts in front of a command that is attributed to a plugin, so every process that command
+ * starts inherits MATCHI_PLUGIN=NAME in its environment (the probe reads it from /proc/PID/environ). Only a name that
  * passes tracePluginName (letters, digits, dot, dash, underscore, ending in .js or .html) gets a tag; those characters cannot end
  * the single quotes, and a second check below refuses anything else. A bad, empty or missing name gives "" (no tag, no error).
  * The tag is added AFTER shellDanger, traceCommand and the sandbox exact match, which keep seeing the original text, and never
- * on the Phase 1 stop commands (they must not tag themselves).
+ * on the plugin's own stop commands (they must not tag themselves).
  */
 internal fun tagPrefix(plugin: String?): String {
     val name = tracePluginName(plugin) ?: return ""
@@ -84,15 +83,15 @@ internal fun tagPrefix(plugin: String?): String {
     return "export $SWEEP_TAG_VAR='$name'; "
 }
 
-/** Step 1: [command] with the tag in front for [plugin]; the command itself is not changed, so it is returned as is when there is no valid name. */
+/** [command] with the tag in front for [plugin]; the command itself is not changed, so it is returned as is when there is no valid name. */
 internal fun tagCommand(plugin: String?, command: String): String = tagPrefix(plugin) + command
 
-/** Step 2: every probe line starts with this word; the last line is "MTSWEEP-END <count>", the first "MTSWEEP-SELF <pid>". */
+/** Every probe line starts with this word; the last line is "MTSWEEP-END <count>", the first "MTSWEEP-SELF <pid>". */
 internal const val SWEEP_LINE_PREFIX = "MTSWEEP"
 
 /**
- * Step 2: what the probe saw. [procs] are the lines that parsed; [selfPid] is the PID of the probe's own shell (Step 3 walks the PPID
- * chain from it, P5); [skipped] counts probe lines that were cut or malformed; [complete] is true only when the closing END line
+ * What the probe saw. [procs] are the lines that parsed; [selfPid] is the PID of the probe's own shell (the candidate rules walk the PPID
+ * chain from it); [skipped] counts probe lines that were cut or malformed; [complete] is true only when the closing END line
  * arrived AND its count equals procs + skipped, so an output cut short by a timeout or a size limit is never trusted as "nothing else runs".
  */
 internal class SweepProbe(
@@ -103,10 +102,10 @@ internal class SweepProbe(
 )
 
 /**
- * Step 2: the READ-ONLY probe script. It lists the processes that have a command line and prints one line per process:
+ * The READ-ONLY probe script. It lists the processes that have a command line and prints one line per process:
  *   MTSWEEP|PID|PPID|START|UID|TAG|ARGS
  * START is field 22 of /proc/PID/stat (start time in clock ticks since boot): one token, and with PID it tells a reused PID from the
- * old process (D3). TAG is the value of MATCHI_PLUGIN in /proc/PID/environ ("" when there is none or it cannot be read). ARGS is the
+ * old process. TAG is the value of MATCHI_PLUGIN in /proc/PID/environ ("" when there is none or it cannot be read). ARGS is the
  * command line with NUL and tab turned into spaces, the lines of a multi-line command joined with one space; the script keeps about
  * SWEEP_ARGS_MAX + 60 characters per line and parseSweepProbe cuts ARGS at [SWEEP_ARGS_MAX], so a line is always one line.
  * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have no command line and are NOT listed (they are never candidates).
@@ -118,9 +117,9 @@ internal class SweepProbe(
  * Never search a big string once per process in this loop. The first-line match of environ needs a name
  * boundary in front of MATCHI_PLUGIN= so a longer variable name does not count.
  * It writes nothing and kills nothing: the only redirects are inputs and 2>/dev/null. Needs root to read other users' environ.
- * Step 4: [pidfiles] (paths from sweepPidfilePaths) are read too, before the END line, one line each: MTSWEEP-PID|PATH|DIGITS. Only a REGULAR file that
+ * [pidfiles] (paths from sweepPidfilePaths) are read too, before the END line, one line each: MTSWEEP-PID|PATH|DIGITS. Only a REGULAR file that
  * is not a symlink is read (a FIFO would block the probe), only its first line, only digits, at most 9. parseSweepProbe ignores these lines.
- * [UNVERIFIED] on the F50: the whole script as one after this change (before it: bulk part 0.06 s, loop 28 s; the variant without the UID lookup ran in 0.5 s).
+ * [UNVERIFIED] on the F50: the whole script in its current form (before the change: bulk part 0.06 s, loop 28 s; the variant without the UID lookup ran in 0.5 s).
  */
 internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (listOf(
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
@@ -157,7 +156,7 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
 ) + sweepPidfileLines(pidfiles) + "echo \"$SWEEP_LINE_PREFIX-END \$n\"").joinToString("\n")
 
 /**
- * Step 2: pure parser for the probe's output. Lines that are not ours (shell noise, su banners) are ignored. A line of ours that is cut or has a
+ * Pure parser for the probe's output. Lines that are not ours (shell noise, su banners) are ignored. A line of ours that is cut or has a
  * non-numeric PID, PPID or START is skipped and counted. An unreadable UID becomes -1. A TAG that is not a valid plugin name becomes null
  * (a process can put anything in its own environment). Never throws.
  */
@@ -186,13 +185,13 @@ internal fun parseSweepProbe(output: String): SweepProbe {
 }
 
 
-// ---- Step 3: candidate rules ----
+// ---- candidate rules ----
 
 /**
- * Step 3: what the rules found for ONE plugin. [candidates] are the processes that may be ended, strongest way first, then by PID (at most
- * SWEEP_MAX_CANDIDATES are listed). [notStopped] are processes that matched but are left alone on purpose (the shared guard, P8), each
+ * What the rules found for ONE plugin. [candidates] are the processes that may be ended, strongest way first, then by PID (at most
+ * SWEEP_MAX_CANDIDATES are listed). [notStopped] are processes that matched but are left alone on purpose (the shared guard), each
  * as one line for the dialog. [found] is the number of candidates before the cap; [overCap] is true when it was above SWEEP_MAX_CANDIDATES:
- * then the sweep must NOT stop anything automatically (Step 5 checks this). [complete] is the probe's flag: when false, "nothing found" must
+ * then the sweep must NOT stop anything automatically (the stop step checks this). [complete] is the probe's flag: when false, "nothing found" must
  * never be read as "nothing runs". [notes] are short lines for the dialog.
  */
 internal class SweepResult(
@@ -211,7 +210,7 @@ private val SWEEP_SHELLS = setOf("sh", "ash", "bash", "mksh", "dash")
 private fun isSweepPathChar(c: Char) = c.isLetterOrDigit() || c == '.' || c == '_' || c == '-' || c == '/'
 
 /**
- * Step 3: true when [path] appears in [args] as a whole path, not as a piece of a longer one ("/x/beat.sh" is not in "/x/beat.sh.bak" or
+ * True when [path] appears in [args] as a whole path, not as a piece of a longer one ("/x/beat.sh" is not in "/x/beat.sh.bak" or
  * "/y/x/beat.sh"). The characters before and after must not be path characters; "=", ":", quotes, spaces and ";" are fine.
  */
 internal fun argsMentionsPath(args: String, path: String): Boolean {
@@ -233,12 +232,12 @@ private fun sweepSegments(p: String) = p.split('/').count { it.isNotEmpty() }
 /** True for a path at or under /system /vendor /apex /proc /dev (SWEEP_SYSTEM_PREFIXES). */
 internal fun isSweepSystemPath(p: String): Boolean = SWEEP_SYSTEM_PREFIXES.any { p == it || p.startsWith("$it/") }
 
-/** Step 3: a path with ".." or "." segments, or no leading "/", is never trusted. */
+/** A path with ".." or "." segments, or no leading "/", is never trusted. */
 private fun isPlainAbsolute(p: String): Boolean =
     p.startsWith("/") && p.split('/').drop(1).none { it == "." || it == ".." }
 
 /**
- * Step 3 (D1, cmdline): the ledger paths of this plugin that may be matched against a command line. The ledger holds write targets, folders
+ * The ledger paths of this plugin that may be matched against a command line. The ledger holds write targets, folders
  * included (mkdir), so a path counts only when it looks like a FILE: its last segment has an extension (a dot that is not the first or last
  * character) and no other ledger path lies inside it. It needs [SWEEP_CMDLINE_MIN_SEGMENTS] segments, must not be under a system folder,
  * and must not be used by another installed plugin ([others], pluginsUsingPath). A renamed binary without an extension is missed on purpose.
@@ -257,13 +256,13 @@ internal fun sweepCmdlinePaths(ledgerPaths: List<String>, others: Map<String, Li
     }
 }
 
-/** Step 3 (pidfile): the ledger paths that may be read as a pidfile: absolute, plain, ending in ".pid", not under a system folder. */
+/** The ledger paths that may be read as a pidfile: absolute, plain, ending in ".pid", not under a system folder. */
 internal fun sweepPidfilePaths(ledgerPaths: List<String>): List<String> =
     ledgerPaths.map { it.trim().trimEnd('/') }
         .filter { it.length > 4 && isPlainAbsolute(it) && it.endsWith(".pid") && !isSweepSystemPath(it) }
         .distinct()
 
-/** Step 3: "bare" = a shell with no script or -c text (an interactive session shell), or any "su". It is the shape of a root session. */
+/** "bare" = a shell with no script or -c text (an interactive session shell), or any "su". It is the shape of a root session. */
 internal fun isSweepSessionShell(args: String): Boolean {
     val t = args.trim().split(SWEEP_WS).filter { it.isNotEmpty() }
     if (t.isEmpty()) return false
@@ -272,14 +271,14 @@ internal fun isSweepSessionShell(args: String): Boolean {
     return base in SWEEP_SHELLS && t.drop(1).all { it.startsWith("-") && it != "-c" }
 }
 
-/** Step 3: the app's own process is named by its first word only ("com.matchi.tool", or "com.matchi.tool:service"). A later word proves nothing. */
+/** The app's own process is named by its first word only ("com.matchi.tool", or "com.matchi.tool:service"). A later word proves nothing. */
 internal fun isSweepAppProcess(args: String): Boolean {
     val first = args.trim().split(SWEEP_WS).firstOrNull() ?: return false
     return first == SWEEP_APP_PACKAGE || first.startsWith("$SWEEP_APP_PACKAGE:")
 }
 
 /**
- * Step 3 (P5, D8): every process the sweep must never touch, as PID -> reason. It does not matter how the process matched or what its tag says.
+ * Every process the sweep must never touch, as PID -> reason. It does not matter how the process matched or what its tag says.
  *  - the sweep's own shell ([selfPid]), every PARENT of it (the su session, the shell, the app) and every CHILD it started;
  *  - PID 1 and any PID <= 0;
  *  - kernel threads (empty command line, PID 2, or a child of PID 2);
@@ -312,18 +311,18 @@ internal fun sweepNeverKill(procs: List<SweepProc>, selfPid: Int): Map<Int, Stri
     return out
 }
 
-/** F1: a process this plugin claims (how it was found) and the names of the other plugins that also use its files (empty = not guarded). */
+/** A process this plugin claims (how it was found) and the names of the other plugins that also use its files (empty = not guarded). */
 private class SweepClaim(val proc: SweepProc, val how: String, val used: List<String>)
 
 private val SWEEP_HOW_RANK = mapOf(SWEEP_HOW_TAG to 0, SWEEP_HOW_PIDFILE to 1, SWEEP_HOW_CMDLINE to 2)
 
 /**
- * Step 3: the candidate rules for plugin [plugin]. Pure; it reads nothing and kills nothing.
+ * The candidate rules for plugin [plugin]. Pure; it reads nothing and kills nothing.
  *  - [probe] is parseSweepProbe(...) of the read-only probe. Without the sweep's own PID the sweep cannot tell itself from a plugin's
- *    process (P5), so it lists nothing and says so.
- *  - [ledgerPaths] are the plugin's ledger "P" paths. [pidfilePids] is "pidfile path -> the PID it holds", read by the caller (Step 4);
+ *    process, so it lists nothing and says so.
+ *  - [ledgerPaths] are the plugin's ledger "P" paths. [pidfilePids] is "pidfile path -> the PID it holds", read by the caller;
  *    only paths that sweepPidfilePaths accepts are used.
- *  - [others] maps every OTHER installed plugin to the paths it uses (ledger, "@matchi-data", commandPaths): the shared guard (P8).
+ *  - [others] maps every OTHER installed plugin to the paths it uses (ledger, "@matchi-data", commandPaths): the shared guard.
  * Ways, strongest first (a process gets only the strongest):
  *  tag      the process carries this plugin's MATCHI_PLUGIN marker.
  *  pidfile  a pidfile holds its PID AND it still fits the plugin (PID reuse!): the command line names one of the plugin's file paths.
@@ -331,7 +330,7 @@ private val SWEEP_HOW_RANK = mapOf(SWEEP_HOW_TAG to 0, SWEEP_HOW_PIDFILE to 1, S
  * A process tagged with ANOTHER plugin is never claimed by pidfile or cmdline: it belongs to that plugin.
  * After the rules: never-kill list (sweepNeverKill), then the shared guard for every way (a command line that names a path another
  * installed plugin uses is left alone and listed in [SweepResult.notStopped]), then the cap.
- * F1 (device test D, F50, 2026-11-13): what a guarded process started is covered by the guard. A process with a GUARDED ancestor (a process
+ * Found in a device test on the F50 (2026-11-13): what a guarded process started is covered by the guard. A process with a GUARDED ancestor (a process
  * this plugin claims and the shared guard leaves running on purpose) is neither a candidate nor a notStopped line of its own: it is not ended
  * (it belongs to a process that must keep running), it is not counted by the re-scan after the stop, and the person sees one line for the
  * parent. Before this, the loop "while :; do ...; sleep 30; done" of a guarded parent started a NEW tagged "sleep 30" after the listed one
@@ -355,7 +354,7 @@ internal fun classifySweep(
     val pidfiles = sweepPidfilePaths(ledgerPaths).toSet()
     val pidfilePidSet = pidfilePids.filter { (path, pid) -> path.trimEnd('/') in pidfiles && pid > SWEEP_INIT_PID }.values.toSet()
 
-    // Pass 1: every process this plugin claims (a way matched), with the plugins that also use its files (the shared guard, P8).
+    // Pass 1: every process this plugin claims (a way matched), with the plugins that also use its files (the shared guard).
     val claims = ArrayList<SweepClaim>()
     for (p in probe.procs.sortedBy { it.pid }) {
         if (p.pid in never) continue
@@ -371,7 +370,7 @@ internal fun classifySweep(
             .flatMap { pluginsUsingPath(it, others) }.distinct().sorted()
         claims.add(SweepClaim(p, how, used))
     }
-    // F1: a claimed process that the guard leaves running covers everything below it.
+    // A claimed process that the guard leaves running covers everything below it.
     val guardedPids = claims.filter { it.used.isNotEmpty() }.map { it.proc.pid }.toSet()
     val ppidOf = probe.procs.associate { it.pid to it.ppid }
     fun underGuarded(pid: Int): Boolean {
@@ -409,11 +408,11 @@ internal fun classifySweep(
     return SweepResult(found.take(SWEEP_MAX_CANDIDATES), notStopped, found.size, over, probe.complete, notes)
 }
 
-// ---- Step 4: the data for the delete dialog ----
+// ---- the data for the delete dialog ----
 
 private val SWEEP_PIDFILE_SAFE = Regex("^/[A-Za-z0-9._/-]{1,199}$")
 
-/** Step 4: the shell lines that read each pidfile (read-only). Only plain, quote-safe paths are put in; the rest are dropped. */
+/** The shell lines that read each pidfile (read-only). Only plain, quote-safe paths are put in; the rest are dropped. */
 internal fun sweepPidfileLines(paths: List<String>): List<String> {
     val safe = sweepPidfilePaths(paths).filter { SWEEP_PIDFILE_SAFE.matches(it) }.take(SWEEP_MAX_CANDIDATES)
     if (safe.isEmpty()) return emptyList()
@@ -426,7 +425,7 @@ internal fun sweepPidfileLines(paths: List<String>): List<String> {
     )
 }
 
-/** Step 4: "pidfile path -> PID" from the probe output. Only paths in [asked] count; an empty, non-numeric or zero value is dropped. Never throws. */
+/** "pidfile path -> PID" from the probe output. Only paths in [asked] count; an empty, non-numeric or zero value is dropped. Never throws. */
 internal fun parseSweepPidfiles(output: String, asked: List<String>): Map<String, Int> {
     val ok = asked.toSet()
     val out = LinkedHashMap<String, Int>()
@@ -442,8 +441,8 @@ internal fun parseSweepPidfiles(output: String, asked: List<String>): Map<String
 }
 
 /**
- * Step 4 (D3): sha256 over the shown candidates (PID, start time, way, command line), one labelled line each, in the order they are shown.
- * "" when nothing would be stopped. Step 5 computes it again and refuses ("plan-changed") when it differs from what the person saw.
+ * Sha256 over the shown candidates (PID, start time, way, command line), one labelled line each, in the order they are shown.
+ * "" when nothing would be stopped. The stop step computes it again and refuses ("plan-changed") when it differs from what the person saw.
  */
 internal fun sweepHash(candidates: List<SweepCandidate>): String {
     if (candidates.isEmpty()) return ""
@@ -453,7 +452,7 @@ internal fun sweepHash(candidates: List<SweepCandidate>): String {
 }
 
 /**
- * Step 4: what the dialog gets. [checked] is false when the probe could not run (no root, timeout, failure): then there is NO list, not a guessed
+ * What the dialog gets. [checked] is false when the probe could not run (no root, timeout, failure): then there is NO list, not a guessed
  * one, and [result] only carries the reason in its notes. [hash] is sweepHash of the shown candidates, "" when unchecked, empty or over the cap
  * (an over-cap list is never stopped automatically).
  */
@@ -462,13 +461,13 @@ internal class SweepView(val checked: Boolean, val result: SweepResult, val hash
 private fun uncheckedSweep(why: String) = SweepView(false, SweepResult(emptyList(), emptyList(), 0, false, false, listOf(why)), "")
 
 /**
- * 1.4.2 (F10): the process list for a request the root gate refuses (session older than 4 h, or a connection that may not run root commands).
+ * Since 1.4.2: the process list for a request the root gate refuses (session older than 4 h, or a connection that may not run root commands).
  * No probe is run; the answer is "cannot be checked", never a list. The text is the one the page shows after "It could not be checked...".
  */
 internal fun refusedSweep(): SweepView = uncheckedSweep("cannot be checked: this sign-in or connection may not run root commands now")
 
 /**
- * Step 4: turns the probe's run into [SweepView]. Pure: the caller runs the probe ([run], null when it did not run) and passes [rootGranted],
+ * Turns the probe's run into [SweepView]. Pure: the caller runs the probe ([run], null when it did not run) and passes [rootGranted],
  * the plugin's ledger paths (the text the plugin sent, which is what the process command lines hold) and [others] (the shared guard).
  */
 internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResult?, ledgerPaths: List<String>, others: Map<String, List<String>>): SweepView {
@@ -485,22 +484,22 @@ internal fun buildSweepView(plugin: String, rootGranted: Boolean, run: ShellResu
     return SweepView(true, r, if (r.overCap) "" else sweepHash(r.candidates))
 }
 
-// ---- Step 5: ending the processes and checking again ----
+// ---- ending the processes and checking again ----
 
-/** Step 5: the sweep step is not started with less than this left of the 60 s (its own wait is [SWEEP_TERM_WAIT_MS], plus the work around it). */
+/** The sweep step is not started with less than this left of the 60 s (its own wait is [SWEEP_TERM_WAIT_MS], plus the work around it). */
 internal const val SWEEP_MIN_MS = 6_000L
 
-/** Step 5: the kill script gets at most this long (it needs about 3 s); a shorter limit keeps it out of the "long" root slots (F9 of Phase 1). */
+/** The kill script gets at most this long (it needs about 3 s); a shorter limit keeps it out of the "long" root slots. */
 internal const val SWEEP_KILL_TIMEOUT_MS = 20_000L
 
-/** Step 5: how the kill script may report one process. */
+/** How the kill script may report one process. */
 private val SWEEP_KILL_STATUSES = setOf("ended", "killed", "gone", "changed", "protected")
 
 /**
- * Step 5 (D3, D4): the root script that ends the shown candidates. Only digits go into it (PID and start time, both checked here); the command
+ * The root script that ends the shown candidates. Only digits go into it (PID and start time, both checked here); the command
  * lines are NOT put in, because they come from other processes. The caller has already compared the fresh scan with what the person saw
  * (sweepHash), so "what you saw is what runs"; the script checks PID + start time once more right before it acts.
- * Order (deviation from the wording of D4: SIGCONT is added, because a stopped process never acts on SIGTERM):
+ * Order (SIGCONT follows SIGTERM, because a stopped process never acts on SIGTERM):
  *   1. every root whose PID, start time and state still fit is taken; the sweep's own shell and its parents, PID 1, PID 2 are never taken;
  *   2. the whole tree below the roots is frozen (SIGSTOP; the tree is read again and frozen again, so nothing started in between escapes);
  *   3. SIGTERM to the tree, then SIGCONT, so the processes can end by themselves; wait [SWEEP_TERM_WAIT_MS];
@@ -584,7 +583,7 @@ echo "MTKILL-END"
     return template.replace('^', '$').replace("@PAIRS@", pairs).replace("@WAIT@", (SWEEP_TERM_WAIT_MS / 1000).toString())
 }
 
-/** Step 5: pure parser of the kill script's output: PID -> status. Only the known statuses count; anything else is ignored. Never throws. */
+/** Pure parser of the kill script's output: PID -> status. Only the known statuses count; anything else is ignored. Never throws. */
 internal fun parseSweepKill(output: String): Map<Int, String> {
     val out = LinkedHashMap<Int, String>()
     for (raw in output.split('\n')) {
@@ -608,11 +607,11 @@ private fun sweepKillLine(c: SweepCandidate, status: String?): String {
     }
 }
 
-/** Step 5 (D3): true when the sweep list the person reviewed ([sent]) is the list a fresh scan gives now. An unchecked or empty scan has the hash "". */
+/** True when the sweep list the person reviewed ([sent]) is the list a fresh scan gives now. An unchecked or empty scan has the hash "". */
 internal fun sweepHashMatches(sent: String, view: SweepView): Boolean = sent == view.hash
 
 /**
- * Step 5: what the sweep step did. [counts] is true when the first scan could run: the re-scan is then a required check (D6, for processes
+ * What the sweep step did. [counts] is true when the first scan could run: the re-scan is then a required check (for processes
  * only), so success needs [rescanRan] and no [leftovers]. [killLog] are the lines for the stop log, [notChecked] the lines for "Not checked"
  * (shared processes that were left alone, a step that did not run). [leftovers] are processes still running (or not stopped).
  */
@@ -627,7 +626,7 @@ internal class SweepStopResult(
 }
 
 /**
- * Step 5 (D2-D4, D6): the sweep step of a stop. [view] is the scan made just before anything ran and already compared with what the person saw.
+ * The sweep step of a stop. [view] is the scan made just before anything ran and already compared with what the person saw.
  * Order inside the stop: the declared uninstall commands ran first (the caller), then this: end the shown candidates, then scan again.
  * Shares the 60 s clock ([totalMs], [start], [now]); the kill script is not started with under [SWEEP_MIN_MS] left; the re-scan needs a second.
  * No retry. [onKill] is called once per candidate right before the script starts (the route writes one "plugin-sweep" audit line each);

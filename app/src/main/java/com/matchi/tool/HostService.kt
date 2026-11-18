@@ -116,7 +116,7 @@ class HostService : Service() {
         //   1. Android key store key, TLS 1.3 + 1.2   2. key store, TLS 1.2 only
         //   3. software key (file in the app's private folder), TLS 1.3 + 1.2   4. software key, TLS 1.2 only
         //   5. plain HTTP (last resort).
-        // Step 3 exists because the ZTE F50's key store breaks the handshake ("connection closed") for every protocol version.
+        // Attempt 3 exists because the ZTE F50's key store breaks the handshake ("connection closed") for every protocol version.
         // Never TLS 1.0/1.1; TLS 1.3 only where this device supports it (Android 10+).
         var factory: javax.net.ssl.SSLServerSocketFactory? = null
         var protocolSets: List<Array<String>> = emptyList()
@@ -257,7 +257,7 @@ class HostService : Service() {
             } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "IMEI keeper failed: ${e.message}") }
             finally { finished() }
         }
-        // Phase 6b: a router IP change leaves a pending note; check that the router came back as wanted (own thread: it can wait up to 2 minutes).
+        // A router IP change leaves a pending note; check that the router came back as wanted (own thread: it can wait up to 2 minutes).
         LanRevert.start(this, 0L)
         workers.execute { try { AghDoor.closeAll(this) } catch (e: Exception) { Quiet.note("HostService.aghDoor", e) } }   // no AdGuard Home page door survives a host restart
         workers.execute {

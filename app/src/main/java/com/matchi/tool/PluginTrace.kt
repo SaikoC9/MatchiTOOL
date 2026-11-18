@@ -178,7 +178,7 @@ private fun isSystemChain(chain: String): Boolean = chain.lowercase().let { c ->
 private val CHAIN_NAME = Regex("^[A-Za-z0-9_-]{1,28}$")
 private val BOOT_D_FILE = Regex("^/data/local/matchitool/boot\\.d/[0-9]{2}-[A-Za-z0-9._-]{1,60}\\.sh$")
 
-/** True for a boot script Phase 3 may remove: directly in /data/local/matchitool/boot.d, named like 20-name.sh. */
+/** True for a boot script the undo may remove: directly in /data/local/matchitool/boot.d, named like 20-name.sh. */
 internal fun isSafeBootFile(path: String): Boolean = BOOT_D_FILE.matches(path)
 
 /** One ledger "C" entry: "TABLE CHAIN TOOL" (for example "mangle MY_CHAIN iptables"), or null when it is not a safe, plugin-made chain. */
@@ -242,7 +242,7 @@ internal fun pluginChains(command: String): List<String> {
     return out.toList()
 }
 
-/** Boot scripts a command writes: only a file directly inside MatchiTOOL's boot.d folder with a name like 20-name.sh. Same safe-name rule Phase 3 uses to remove it. */
+/** Boot scripts a command writes: only a file directly inside MatchiTOOL's boot.d folder with a name like 20-name.sh. Same safe-name rule the undo uses to remove it. */
 internal fun pluginBootFiles(command: String): List<String> =
     pluginWriteTargets(command).filter { BOOT_D_FILE.matches(it) }.distinct()
 

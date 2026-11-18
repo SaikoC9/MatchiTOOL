@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Session cookie (Phase 3 of MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
+ * Session cookie. Plain Kotlin, no Android classes, so it is unit tested.
  *
  * The sign-in token is no longer handed to the page. The host sets it in an HttpOnly cookie: script in the page, plugins included,
  * cannot read or copy it, and the browser attaches it to requests by itself.

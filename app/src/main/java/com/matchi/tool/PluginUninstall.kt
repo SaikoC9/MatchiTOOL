@@ -1,21 +1,21 @@
 package com.matchi.tool
 
 /*
- * Plugin uninstall (Phase 1 of MatchiTOOL_Phase1_todo.txt). Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
+ * Plugin uninstall. Plain Kotlin with NO Android, JSON-library or web-server-library imports, so
  * scripts/kotlin_pure_tests.sh compiles it and its unit tests run without the Android SDK. WebRoutesPlugins.kt only calls into this
  * file; every rule that can be tested without a device (header limits, the stop plan and its hash, the sandbox and integrity
  * checks, the same-folder guard) is meant to live here.
  *
- * Steps 1-5 of the to-do add their functions below. This file may use sha256Hex (PluginIntegrity.kt) and the sandbox constants (PluginSandbox.kt).
+ * This file may use sha256Hex (PluginIntegrity.kt) and the sandbox constants (PluginSandbox.kt).
  * shellDanger (PluginGuard.kt) is passed in as a parameter, like sandboxNeeds does, so this file needs no other file for it.
  */
 
-/** D2: the whole stop (every uninstall command together) may take at most 60 seconds; each command gets what is left. */
+/** The whole stop (every uninstall command together) may take at most 60 seconds; each command gets what is left. */
 internal const val STOP_TOTAL_MS = 60_000L
 
 /**
- * Step 2: may the stop run at all, given the plugin file's integrity state (integrityState in PluginIntegrity.kt)? null = yes.
- * "ok" (the approved file) and "untracked" (installed before records existed; the owner allowed these, D1) may stop; "changed" may not
+ * May the stop run at all, given the plugin file's integrity state (integrityState in PluginIntegrity.kt)? null = yes.
+ * "ok" (the approved file) and "untracked" (installed before records existed; these are allowed) may stop; "changed" may not
  * until the person approves the file again; an unknown value is refused.
  */
 internal fun stopBlockedReason(integrity: String): String? = when (integrity) {
@@ -25,7 +25,7 @@ internal fun stopBlockedReason(integrity: String): String? = when (integrity) {
 }
 
 /**
- * Step 2: why one uninstall (or check) command may not run, or null when it may. [shellProblem] is shellDanger(command, true) from the caller.
+ * Why one uninstall (or check) command may not run, or null when it may. [shellProblem] is shellDanger(command, true) from the caller.
  * A sandboxed plugin may run it only when it EXACTLY equals one of its approved "shell:" grants ([grant] is sandboxGrant(...), which is
  * empty while the file differs from the approved one).
  */
@@ -39,7 +39,7 @@ internal fun refuseUninstallCommand(command: String, sandboxed: Boolean, grant: 
 /** The commands that may run ([run], in order), the check command if it may run ([check]), and every refused command with its reason. */
 internal class StopCommands(val run: List<String>, val check: String?, val refused: List<Pair<String, String>>)
 
-/** Step 2: sorts a plugin's declared commands into those that may run and those that are refused. Runs nothing. */
+/** Sorts a plugin's declared commands into those that may run and those that are refused. Runs nothing. */
 internal fun checkUninstallCommands(decls: UninstallDecls, sandboxed: Boolean, grant: List<String>, shellProblem: (String) -> String?): StopCommands {
     val run = ArrayList<String>()
     val refused = ArrayList<Pair<String, String>>()
@@ -61,10 +61,10 @@ internal fun checkUninstallCommands(decls: UninstallDecls, sandboxed: Boolean, g
 }
 
 /**
- * Step 3: what deleting one plugin with "Stop" would do. [commands] and [check] are the text that really runs (after [stopPlan]'s mapPath hook, F10),
+ * What deleting one plugin with "Stop" would do. [commands] and [check] are the text that really runs (after [stopPlan]'s mapPath hook),
  * [refused] is every declared command that may not run with its reason, [bootFiles] are the boot files it declared (passed through the same hook),
  * [blocked] is the reason the whole stop is blocked (integrity) or null, and [shared] lists the OTHER installed plugins that declare one of the same
- * commands or boot files. [planHash] is "" when nothing would run; otherwise it covers exactly what runs, so Step 4 can refuse a changed plan.
+ * commands or boot files. [planHash] is "" when nothing would run; otherwise it covers exactly what runs, so the delete route can refuse a changed plan.
  */
 internal class StopPlan(
     val commands: List<String>,
@@ -90,9 +90,9 @@ internal fun stopPlanHash(commands: List<String>, check: String?, bootFiles: Lis
 }
 
 /**
- * Step 3: builds the stop plan for plugin [name] whose file text is [code]. Runs nothing.
+ * Builds the stop plan for plugin [name] whose file text is [code]. Runs nothing.
  *  - [integrity] is integrityState(...) of the file; "changed" (or unknown) blocks the stop: nothing runs, every declared command is listed as refused.
- *  - [sandboxed] and [grant] are the sandbox mode and sandboxGrant(...) for it (Step 2 rules).
+ *  - [sandboxed] and [grant] are the sandbox mode and sandboxGrant(...) for it (the sandbox rules).
  *  - [shellProblem] is shellDanger(cmd, true); it is asked about the MAPPED text, because that is what runs.
  *  - [mapPath] rewrites a declared path or command into the text that really runs (the host passes the identity function). The sandbox grant is matched against the DECLARED text, as the person approved it.
  *  - [others] are (file name, file text) of every installed plugin; [name] itself is skipped (a plugin is never "shared with itself").
@@ -132,7 +132,7 @@ internal fun stopPlan(
     return StopPlan(commands, check, sorted.refused, bootFiles, null, sharedWith.toList(), stopPlanHash(commands, check, bootFiles))
 }
 
-// ---- Step 4: running the stop ----
+// ---- running the stop ----
 
 /** RootShell.run raises any timeout below this to 1 s, so a command is not started with less than that left. */
 internal const val MIN_STOP_COMMAND_MS = 1_000L
@@ -142,9 +142,9 @@ internal const val STOP_OUTPUT_MAX = 300
 internal class CommandOutcome(val command: String, val status: String, val output: String)
 
 /**
- * Step 4: runs [commands] in order. All of them together may take [totalMs] (D2): each command gets what is left (D4), and a command is not
+ * Runs [commands] in order. All of them together may take [totalMs]: each command gets what is left, and a command is not
  * started when less than a second is left (it is reported "notRun"). A failed or timed-out command does not stop the rest, and nothing is
- * retried (D3). [onRun] is called just before each command that really starts (the route writes one audit line there). [start] is when the 60 s began, so verifyStop can share the same clock. Pure: the clock
+ * retried. [onRun] is called just before each command that really starts (the route writes one audit line there). [start] is when the 60 s began, so verifyStop can share the same clock. Pure: the clock
  * and the shell are passed in, so the tests use fakes.
  */
 internal fun runStopCommands(
@@ -175,20 +175,20 @@ internal fun runStopCommands(
 internal enum class StopMode { NONE, SKIP, RUN }
 
 /**
- * Step 4: which of the three the delete request is. A request without "stop", and a plan with nothing declared (no command and nothing refused)
- * and no process found by the sweep ([sweepFound], Phase 2) and nothing for the undo ([undoCount], Phase 3), behave as today. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept (D3).
+ * Which of the three the delete request is. A request without "stop", and a plan with nothing declared (no command and nothing refused)
+ * and no process found by the sweep ([sweepFound]) and nothing for the undo ([undoCount]), behave like a plain delete. A plan whose every command was refused is still RUN: it cannot succeed, so the plugin is kept.
  */
 internal fun stopMode(stop: Boolean, skipStop: Boolean, plan: StopPlan, sweepFound: Int = 0, undoCount: Int = 0): StopMode = when {
     !stop -> StopMode.NONE
     skipStop -> StopMode.SKIP
-    plan.isEmpty && plan.refused.isEmpty() && sweepFound == 0 && undoCount == 0 -> StopMode.NONE   // Phase 2 / Step 5 (D2): running processes found by the sweep also mean RUN; Phase 3 / Step 2: so does something the undo would remove
+    plan.isEmpty && plan.refused.isEmpty() && sweepFound == 0 && undoCount == 0 -> StopMode.NONE   // running processes found by the sweep also mean RUN, and so does something the undo would remove
     else -> StopMode.RUN
 }
 
 /**
- * Phase 2 / Step 7: the audit line for the stop hook of a sandboxed plugin. The page runs the hook in the browser BEFORE the delete request and only tells
+ * The audit line for the stop hook of a sandboxed plugin. The page runs the hook in the browser BEFORE the delete request and only tells
  * the host how it went ([ran], [status]). The host never believes it: this line goes to the audit log and nothing else reads it, so a hook can not make a
- * failed stop look successful (the re-scan decides, D6). [status] is cut down to the five words the page uses, so nothing else can be written into the log.
+ * failed stop look successful (the re-scan decides). [status] is cut down to the five words the page uses, so nothing else can be written into the log.
  * [name] has passed the plugin name check before this is called.
  */
 internal val HOOK_STATUSES = setOf("ok", "failed", "timeout", "dead", "none")
@@ -200,9 +200,9 @@ internal fun hookAuditLine(name: String, ran: Boolean, status: String): String =
 internal fun stopHashMatches(sent: String, plan: StopPlan): Boolean = sent == plan.planHash
 
 /**
- * Step 5: what the verification found. [checkRan]: at least one check (the check command or the boot file test) ran. [checkPassed]: every check ran
+ * What the verification found. [checkRan]: at least one check (the check command or the boot file test) ran. [checkPassed]: every check ran
  * and passed, and none that the plugin declared was left out. [leftovers] is what is still there. [notes] says why a declared check did not run.
- * [NOT_RUN] = nothing was verified. [declared] (Phase 2) is how many checks the plugin declared (0 = none): withSweepVerify needs it to tell "nothing declared"
+ * [NOT_RUN] = nothing was verified. [declared] is how many checks the plugin declared (0 = none): withSweepVerify needs it to tell "nothing declared"
  * from "declared but failed".
  */
 internal class StopVerify(val checkRan: Boolean, val checkPassed: Boolean, val leftovers: List<String>, val notes: List<String> = emptyList(), val declared: Int = 0) {
@@ -211,18 +211,18 @@ internal class StopVerify(val checkRan: Boolean, val checkPassed: Boolean, val l
 
 private val BOOT_PROBE_PATH = Regex("^/[A-Za-z0-9._/-]{1,199}$")
 
-/** Step 5: a read-only script that prints "EXISTS <path>" for each path that exists (also a dangling symlink). Only plain paths are put in; the caller drops the others first. */
+/** A read-only script that prints "EXISTS <path>" for each path that exists (also a dangling symlink). Only plain paths are put in; the caller drops the others first. */
 internal fun bootProbeScript(paths: List<String>): String =
     "for p in " + paths.joinToString(" ") { "'$it'" } + "; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then echo \"EXISTS \$p\"; fi; done; true"
 
-/** Step 5: the paths from [asked] that the probe output reports as existing, in the order asked. */
+/** The paths from [asked] that the probe output reports as existing, in the order asked. */
 internal fun parseBootLeftovers(output: String, asked: List<String>): List<String> {
     val found = output.lineSequence().map { it.trim() }.filter { it.startsWith("EXISTS ") }.map { it.removePrefix("EXISTS ") }.toSet()
     return asked.filter { it in found }
 }
 
 /**
- * Step 5: verifies the stop after the commands ran. Two checks, both optional in the plugin:
+ * Verifies the stop after the commands ran. Two checks, both optional in the plugin:
  *  1. the plugin's check command (must exit 0);
  *  2. a read-only test that every declared boot file is gone.
  * They share the 60 s clock of the commands ([start], [totalMs]); a check is not started with under 1 s left. Nothing is retried. A check that
@@ -275,9 +275,9 @@ internal fun verifyStop(
 }
 
 /**
- * Phase 2 / Step 5 (D6): folds the sweep step into the verification. When the first scan could run ([SweepStopResult.counts]) the re-scan is one more
+ * Folds the sweep step into the verification. When the first scan could run ([SweepStopResult.counts]) the re-scan is one more
  * required check, for processes only: success needs every check the plugin declared to pass (if it declared any) AND the re-scan to have run complete and
- * found nothing. A clean re-scan also counts as "a check ran" for a plugin that declared no check and no boot file (D6). When the first scan could not
+ * found nothing. A clean re-scan also counts as "a check ran" for a plugin that declared no check and no boot file. When the first scan could not
  * run, or there was no sweep step, [base] is returned unchanged (the reason is in [SweepStopResult.notChecked]).
  */
 internal fun withSweepVerify(base: StopVerify, sweep: SweepStopResult?): StopVerify {
@@ -295,7 +295,7 @@ internal fun withSweepVerify(base: StopVerify, sweep: SweepStopResult?): StopVer
 /** The result shown to the person. [success] never says "stopped" unless every command ran and exited 0 AND a check ran and passed. */
 internal class StopReport(val success: Boolean, val log: String, val leftovers: List<String>, val notChecked: List<String>, val outcomes: List<CommandOutcome>)
 
-/** Step 4: builds the report from the plan, what happened and the verification. [headline] goes first in the log (for example "Could not stop: root not available"). [sweep] (Phase 2) adds its log lines and its "not checked" lines. */
+/** Builds the report from the plan, what happened and the verification. [headline] goes first in the log (for example "Could not stop: root not available"). [sweep] adds its log lines and its "not checked" lines. */
 internal fun stopReport(plan: StopPlan, outcomes: List<CommandOutcome>, verify: StopVerify, headline: String? = null, sweep: SweepStopResult? = null): StopReport {
     val notChecked = ArrayList<String>()
     for ((c, why) in plan.refused) notChecked.add("refused: $c ($why)")

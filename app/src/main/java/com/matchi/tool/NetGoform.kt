@@ -4,7 +4,7 @@ package com.matchi.tool
  * Which router "set" calls need the fresh sign-in (RootGate) before the host forwards them. /api/zte (op "set") is otherwise open to any console session, and a set call can cut the person off, break the data connection, reset the router
  * or change its admin password.
  *
- * Since 1.4.3 (review item C10) this is a POSITIVE list: only the goformIds in [OPEN_SET] skip the gate, every other set call needs it.
+ * Since 1.4.3 this is a POSITIVE list: only the goformIds in [OPEN_SET] skip the gate, every other set call needs it.
  * The old design listed the dangerous names, so a dangerous name that was not on the list (a factory reset, a router password change;
  * the exact names differ between ZTE firmwares) went through unchecked. Reads (op "get" / GET) never come here.
  *

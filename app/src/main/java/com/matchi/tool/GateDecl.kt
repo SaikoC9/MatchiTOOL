@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Generic web gate, Phase 3: what a plugin may declare and which port MatchiTOOL gives it. Plain Kotlin with NO Android, JSON-library or
+ * Generic web gate: what a plugin may declare and which port MatchiTOOL gives it. Plain Kotlin with NO Android, JSON-library or
  * web-server-library imports, so scripts/kotlin_pure_tests.sh compiles it and GateDeclTest runs without the Android SDK.
  *
  * The declaration is read from the INSTALLED plugin file, never from a request, so a page cannot ask for an arbitrary port.
@@ -67,7 +67,7 @@ internal fun parseGateDecl(code: String, consolePort: Int): GateParse {
 }
 
 /**
- * Upload check (Phase 4): null when the plugin file [fileName] with text [code] may be installed as far as @matchi-gate goes, otherwise the reason.
+ * Upload check: null when the plugin file [fileName] with text [code] may be installed as far as @matchi-gate goes, otherwise the reason.
  * A plugin without the line is fine. A broken line (bad port, unknown field, second line) is refused at upload, so the author sees it at once and
  * not only when Open is pressed. Only .js plugins can declare a gate; the same line in an .html plugin would do nothing, so it is refused too.
  */

@@ -19,7 +19,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
         val po = req.optJSONObject("params") ?: JSONObject()
         val p = LinkedHashMap<String, String>()
         for (k in po.keys()) p[k] = po.optString(k)
-        // Positive list (C10): a set call needs the fresh sign-in unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS). Reads stay open.
+        // Positive list: a set call needs the fresh sign-in unless its goformId is in NetGoform.OPEN_SET (band lock, cell lock, network mode, performance mode, SMS). Reads stay open.
         if (op == "set" && NetGoform.needsGate(p)) rootGate(s)?.let { return@run it }
         val raw = ZteClient.call(ctx, op, p, req.optInt("retry", 0).coerceIn(0, 2))
         val parsed: Any = try { JSONObject(raw) } catch (_: Exception) { raw }
@@ -27,7 +27,7 @@ internal fun WebServer.routeRouter(s: IHTTPSession, uri: String): Response? = wh
     }
     // Network tools: the address this request comes from, so the Devices tab can hide "Block" on the row of the device being used. Read only.
     uri == "/api/net/whoami" && s.method == Method.GET -> json(Response.Status.OK, JSONObject().put("ip", s.remoteIpAddress ?: ""))
-    // Phase 6b: after a router IP change the page tells the host the new address. Only the address named in the pending note (written by the
+    // After a router IP change the page tells the host the new address. Only the address named in the pending note (written by the
     // page's root shell just before the change) is accepted; the host then points the router client at it and checks the router after the restart.
     uri == "/api/net/lan-applied" && s.method == Method.POST -> rootGate(s) ?: run {
         val ip = body(s).optString("ip").trim()

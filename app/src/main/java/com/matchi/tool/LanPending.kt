@@ -3,7 +3,7 @@ package com.matchi.tool
 import org.json.JSONObject
 
 /**
- * Phase 6b (router IP change): the "pending change" note and the decision made about it after the router restarted. Pure Kotlin
+ * Router IP change: the "pending change" note and the decision made about it after the router restarted. Pure Kotlin
  * (org.json only), no Android classes, unit tested (LanPendingTest). The note is written by the page through the root shell BEFORE the
  * DHCP_SETTING call is sent (same JSON as lan_backup.json) and read by [LanRevert] after the restart, because the restart ends the
  * running app, so the revert cannot be a timer in the page or in the app.

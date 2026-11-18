@@ -205,8 +205,8 @@ interface LiveShell {
 /**
  * ONE long-lived root shell that prints a line per second, instead of a new `su` for every read.
  *
- * Phase 1: this class only produces snapshots ([latest], [listen]). Nothing starts it yet; the route that pushes snapshots to the
- * page (Phase 2) and the "only while someone is watching" lifecycle (Phase 3) build on it. It uses no Android classes so it is unit tested.
+ * This class only produces snapshots ([latest], [listen]). LiveHub (LiveStream.kt) starts and stops it and pushes the snapshots to the
+ * page. It uses no Android classes so it is unit tested.
  *
  * If the shell ends or fails it is started again, after 1, 2, 4, 8, 16 and then at most 30 seconds when it keeps failing ([backoff]);
  * a shell that delivered readings starts again after 1 s. It never restarts in a tight loop. When root was refused it does not ask again
@@ -225,7 +225,7 @@ class LiveSampler(
 
         /**
          * The real reader: `su -c sh` with [LiveScript.launch] on its stdin. Pass RootShell.isDenied / RootShell.noteDenied so that a refused
-         * su is remembered once for the whole app (Phase 3 does the wiring).
+         * su is remembered once for the whole app.
          */
         fun forRoot(isDenied: () -> Boolean, onDenied: () -> Unit): LiveSampler = LiveSampler({ RootLiveShell.start() }, isDenied, onDenied)
     }

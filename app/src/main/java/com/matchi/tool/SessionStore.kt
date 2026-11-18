@@ -50,7 +50,7 @@ class SessionStore(
         val now = clock()
         synchronized(map) {
             map.values.removeAll { expired(it.created, it.lastSeen, now) }
-            // At the limit the session that was used LEAST recently goes (C12). It used to be the first one in creation order, which could be a
+            // At the limit the session that was used LEAST recently goes. It used to be the first one in creation order, which could be a
             // session in constant use. [lastSeen] only moves on a real request (a background poll does not touch it), and a tie (never used since
             // login) goes to the older login because the map keeps creation order.
             while (map.size >= maxSessions) {

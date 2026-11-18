@@ -10,14 +10,14 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /*
- * Live panel real-time plan, Phase 2: the push side. Plain Kotlin (no Android classes, no org.json) so it is unit tested.
+ * The push side of the Live panel. Plain Kotlin (no Android classes, no org.json) so it is unit tested.
  *
- * LiveSampler (Phase 1) produces one snapshot a second. This file turns snapshots into server-sent events for the page:
+ * LiveSampler produces one snapshot a second. This file turns snapshots into server-sent events for the page:
  *   - [LiveFrameEncoder]  snapshot -> one JSON line, only what changed since the last frame this viewer got
  *   - [LiveStream]        the InputStream the web server sends as a chunked "text/event-stream" answer (one per browser)
  *   - [LiveHub]           counts viewers; the first one starts the sampler, the last one to leave stops it
  *
- * Nothing in the page uses the route yet (Phase 4). Phase 3 (run only while watched) is in here too:
+ * It also makes the sampler run only while the page is watched:
  *   - the last viewer leaving does not stop the root reader at once but after [LiveTiming.graceMs] (a page reload or a quick tab switch
  *     does not restart `su`);
  *   - a viewer can say its tab is hidden ([LiveHub.setVisible]); with no visible viewer left the reader stops after the same grace time;
@@ -189,7 +189,7 @@ class LiveStream internal constructor(
     }
 
     /**
-     * Phase 3: sends the sampler's last reading right away, as a full frame with its real sample time, so a page that opens (or comes back)
+     * Sends the sampler's last reading right away, as a full frame with its real sample time, so a page that opens (or comes back)
      * shows values at once instead of waiting for the next round. Nothing is sent when there is none or it is older than [LiveTiming.cacheMaxMs].
      */
     internal fun replay(last: LiveSnapshot?, forceFull: Boolean = false) {
@@ -198,7 +198,7 @@ class LiveStream internal constructor(
         push(last)
     }
 
-    /** Phase 3: the page says its tab is hidden or visible again. Only while visible does a silent reader count as "stale". */
+    /** The page says its tab is hidden or visible again. Only while visible does a silent reader count as "stale". */
     internal fun setVisible(v: Boolean, last: LiveSnapshot?) {
         val was = visible
         visible = v
@@ -274,7 +274,7 @@ internal fun liveHubSchedule(ms: Long, task: () -> Unit): () -> Unit {
 }
 
 /**
- * Shares ONE [LiveSampler] between all browsers. It runs only while at least one open stream is visible (Phase 3): the first viewer starts
+ * Shares ONE [LiveSampler] between all browsers. It runs only while at least one open stream is visible: the first viewer starts
  * it, and when the last visible viewer leaves or hides its tab it keeps running for [LiveTiming.graceMs] and then stops, unless someone
  * came back in between. At most [maxViewers] streams at once. Every change happens under one lock, so a viewer who arrives while the
  * last one is leaving can never be left with a stopped sampler.

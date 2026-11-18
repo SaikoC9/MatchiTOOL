@@ -1,7 +1,7 @@
 package com.matchi.tool
 
 /*
- * Sandboxed plugins (Phase 4 of MatchiTOOL_plugin_security_plan.txt). Plain Kotlin, no Android classes, so it is unit tested.
+ * Sandboxed plugins. Plain Kotlin, no Android classes, so it is unit tested.
  *
  * A plugin switched to "sandbox" does not run in the console page. The page puts it in an iframe without allow-same-origin, so it has no
  * session, no page DOM and no /api access, and talks to the page only through a message bridge (web-src/plugin-sandbox.js). The bridge
@@ -15,7 +15,7 @@ package com.matchi.tool
  * and the person approved them (switching the mode asks for the password). The approved list is stored with the plugin's SHA-256
  * (PluginRecord.caps, entries start with "sbx:"). If the file later differs from the approved bytes the plugin still runs, with none of these.
  *
- * Limits, stated plainly: the bridge is enforced by the page, not by the host (that is Phase 5);
+ * Limits, stated plainly: the page's bridge makes the first check and the host repeats it for every call (sandboxCallError);
  * the frame's own policy only allows the approved https hosts, and the page's policy keeps the frame from navigating to another site (frame-src
  * falls back to default-src 'self'; seen in Chromium, other browsers may differ), but it can still load a page of this host, which gets no bridge;
  * a permitted host (net:) is a place data can go; the permission lines are read from the source text and an unknown or refused line grants nothing.
@@ -111,7 +111,7 @@ internal fun describeSandboxCap(cap: String): String = when {
 }
 
 /**
- * Phase 5: the host's own decision about one call a sandboxed plugin made through the page's bridge (POST /api/plugins/call). [grant] is
+ * The host's own decision about one call a sandboxed plugin made through the page's bridge (POST /api/plugins/call). [grant] is
  * sandboxGrant(...) computed from the stored record AT THE TIME OF THE CALL, so a file that changed after the page loaded gets nothing.
  * Returns null when the call may run, otherwise the reason. [args] are the call's string arguments (at: one command, router.get: field
  * names, shell: one command). The page makes the same check first (plugin-sandbox.js, sbxAuthorize) so a refusal usually comes back early;

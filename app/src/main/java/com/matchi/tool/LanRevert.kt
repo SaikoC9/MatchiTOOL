@@ -4,7 +4,7 @@ import android.content.Context
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Phase 6b glue: after a router IP change, make sure the console still points at an address that answers, and put the old values
+ * Glue for a router IP change: make sure the console still points at an address that answers, and put the old values
  * back when the router came up with something else. The decision itself is [LanPending.decide] (unit tested); this file only reads the
  * note (root shell), probes the two addresses, reads the router and writes. Runs at boot (HostService) and, for a restart that does not
  * restart the app, started by the page's /api/net/lan-applied call. One check at a time; the note is deleted when the check is over.

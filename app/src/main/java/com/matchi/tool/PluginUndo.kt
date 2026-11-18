@@ -1,13 +1,13 @@
 package com.matchi.tool
 
 /*
- * Plugin undo (Phase 3 of MatchiTOOL_Phase3_todo.txt). Plain Kotlin, NO Android / JSON / web-server imports, so scripts/kotlin_pure_tests.sh compiles it.
+ * Plugin undo. Plain Kotlin, NO Android / JSON / web-server imports, so scripts/kotlin_pure_tests.sh compiles it.
  *
- * Step 1 (undoPlan): what "Delete and stop" WOULD undo outside the plugin's own files, worked out from the ledger alone (PluginTrace.kt: "C" firewall chains and
+ * What "Delete and stop" WOULD undo outside the plugin's own files, worked out from the ledger alone (PluginTrace.kt: "C" firewall chains and
  * "B" boot scripts the host saw the plugin create). Nothing is run here. The Delete dialog shows the list, and a hash of it goes back with the
  * request so that what the person saw is what runs, the same idea as stopPlanHash and sweepHash.
- * Step 2 (undoScript, parseUndoRun, runUndoStop, withUndo): the root script that does it, run after the process sweep, on the same 60 s clock.
- * Step 3 (undoVerifyScript, parseUndoVerify, verifyUndo, withUndoVerify): a separate read-only look afterwards; "undone" is only said when that look ran.
+ * The root script that does it, run after the process sweep, on the same 60 s clock.
+ * A separate read-only look afterwards; "undone" is only said when that look ran.
  *
  * Rules: only a chain the plugin created itself (a "C" entry), only a boot script with a safe name directly in boot.d (isSafeBootFile). Anything another
  * installed plugin also records, declares or names in its uninstall commands is kept and listed under "not undone" (the old-copy / new-copy guard).
@@ -72,12 +72,12 @@ internal fun undoPlan(chains: List<String>, bootFiles: List<String>, others: Map
     return UndoPlan(items, notUndone, undoHash(items))
 }
 
-// ---- Step 2: running the undo ----
+// ---- running the undo ----
 
 /** The undo step is not started with less than this left of the 60 s (the script needs about a second; the rest is margin). */
 internal const val UNDO_MIN_MS = 5_000L
 
-/** The undo script gets at most this long; a shorter limit keeps it out of the "long" root slots (F9 of Phase 1). */
+/** The undo script gets at most this long; a shorter limit keeps it out of the "long" root slots. */
 internal const val UNDO_TIMEOUT_MS = 20_000L
 
 /** Most jump rules removed per chain (a safety stop for the loop; a real plugin adds one or two). */
@@ -87,7 +87,7 @@ private val UNDO_CHAIN_STATUSES = setOf("removed", "absent", "failed", "notool")
 private val UNDO_BOOT_STATUSES = setOf("removed", "absent", "failed", "refused-symlink", "refused-notfile", "refused-owner", "refused-dir")
 
 /**
- * Step 2 (B, C of the plan): the root script that undoes the items of [plan]. NOTHING from a plugin is put in as text except names that were checked
+ * The root script that undoes the items of [plan]. NOTHING from a plugin is put in as text except names that were checked
  * here again: a chain by chainEntry (table, chain and tool from a fixed list, chain name letters / digits / _ / -), a boot script by isSafeBootFile.
  * One bad item and the function returns null (the caller then runs nothing), like sweepKillScript.
  *
@@ -210,7 +210,7 @@ internal fun parseUndoRun(output: String): UndoAnswers {
 /**
  * What the undo step did. [counts] is true when there was something to undo (so a step that did not run keeps the plugin). [log] are lines for the stop log,
  * [leftovers] what is still there or was not undone, [notChecked] why a part did not run. [clean]: nothing to undo, or every item came back "removed" or "absent".
- * This is the script's OWN answer. Step 3 adds an independent re-check after it.
+ * This is the script's OWN answer. The stop route adds an independent re-check after it.
  */
 internal class UndoStopResult(val counts: Boolean, val ran: Boolean, val log: List<String>, val leftovers: List<String>, val notChecked: List<String>) {
     val clean: Boolean get() = !counts || (ran && leftovers.isEmpty())
@@ -227,7 +227,7 @@ internal class UndoStopResult(val counts: Boolean, val ran: Boolean, val log: Li
 private fun undoKey(i: UndoItem) = if (i.kind == "chain") "chain ${i.table} ${i.chain} ${i.tool}" else "boot ${i.path}"
 
 /**
- * Step 2: the undo step of a stop. Order inside the stop: declared commands, the sweep, THIS, then the verification (the caller).
+ * The undo step of a stop. Order inside the stop: declared commands, the sweep, THIS, then the verification (the caller).
  * Shares the 60 s clock ([totalMs], [start], [now]); the script is not started with under [UNDO_MIN_MS] left. No retry. [onRun] is called once per item right
  * before the script starts (the route writes one "plugin-undo" audit line each). Pure: the shell is passed in, so the tests use fakes or a real sh.
  */
@@ -265,20 +265,20 @@ internal fun runUndoStop(
     return UndoStopResult(true, true, log, left, emptyList())
 }
 
-/** Step 2: adds the undo step to a finished stop report. The stop succeeds only when the undo step is [UndoStopResult.clean] too. */
+/** Adds the undo step to a finished stop report. The stop succeeds only when the undo step is [UndoStopResult.clean] too. */
 internal fun withUndo(base: StopReport, undo: UndoStopResult?): StopReport {
     if (undo == null || !undo.counts) return base
     val log = (base.log.lines() + undo.log).filter { it.isNotEmpty() }.joinToString("\n").take(2000)
     return StopReport(base.success && undo.clean, log, (base.leftovers + undo.leftovers).distinct(), base.notChecked + undo.notChecked, base.outcomes)
 }
 
-// ---- Step 3: the independent re-check ----
+// ---- the independent re-check ----
 
 private val VERIFY_CHAIN_STATUSES = setOf("present", "absent", "notool", "error")
 private val VERIFY_BOOT_STATUSES = setOf("present", "absent")
 
 /**
- * Step 3: a READ-ONLY script that looks again, after the undo script, whether each item is still there. It does not trust the undo script's own answer.
+ * A READ-ONLY script that looks again, after the undo script, whether each item is still there. It does not trust the undo script's own answer.
  * Chain: the whole table is listed ("iptables -t T -S"); only a list that was really read and has no "-N CHAIN" line counts as "absent". A tool that is missing
  * is "notool" and a list that could not be read is "error" (except "Table does not exist" / "can't initialize": that table is not in the kernel, so it is "absent"): neither is ever taken for "gone" (the undo script's "chain not found" would also be the answer of a
  * failing iptables). Boot script: "present" when the path exists or is a (dangling) symlink, else "absent".
@@ -329,7 +329,7 @@ echo "MTCHK-END"
     return verifyTemplate.replace('^', '$').replace("@PFX@", pathPrefix).replace("@CALLS@", calls.joinToString("\n"))
 }
 
-/** Step 3: pure parser of the re-check: "chain TABLE CHAIN TOOL" or "boot PATH" -> status. Only known statuses for valid names count; never throws. */
+/** Pure parser of the re-check: "chain TABLE CHAIN TOOL" or "boot PATH" -> status. Only known statuses for valid names count; never throws. */
 internal fun parseUndoVerify(output: String): Map<String, String> {
     val out = LinkedHashMap<String, String>()
     for (raw in output.split('\n')) {
@@ -354,7 +354,7 @@ internal class UndoVerify(val counts: Boolean, val ran: Boolean, val leftovers: 
 }
 
 /**
- * Step 3: the re-check of a stop. Runs after the undo script and before the plugin's own check, on the same 60 s clock; not started with under a second left
+ * The re-check of a stop. Runs after the undo script and before the plugin's own check, on the same 60 s clock; not started with under a second left
  * ([MIN_STOP_COMMAND_MS]). No retry. [onRun] is called once before the script starts (one audit line). A missing answer, a missing tool or an unreadable table
  * is a note and [UndoVerify.ran] stays false: "undone" is never said for something that was not looked at.
  */
@@ -390,7 +390,7 @@ internal fun verifyUndo(
 }
 
 /**
- * Step 3 (D7): folds the re-check into the verification, like withSweepVerify does for processes. When there were items the re-check is one more required
+ * Folds the re-check into the verification, like withSweepVerify does for processes. When there were items the re-check is one more required
  * check, for those items only: success needs every check the plugin declared to pass (if it declared any) AND the re-check to have run for every item and
  * found nothing. A clean re-check also counts as "a check ran" for a plugin that declared no check, no boot file and has no sweep. No items: [base] unchanged.
  */

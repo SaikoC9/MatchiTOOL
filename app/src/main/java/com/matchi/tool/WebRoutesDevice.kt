@@ -287,7 +287,7 @@ internal fun WebServer.liveStream(s: IHTTPSession): Response {
 }
 
 /**
- * POST /api/live/view {"id":"<X-Live-Id>","visible":true|false}: the page says its tab is hidden or visible again (Phase 3). With no visible
+ * POST /api/live/view {"id":"<X-Live-Id>","visible":true|false}: the page says its tab is hidden or visible again. With no visible
  * stream left the root reader stops after the grace time. The caller has passed rootGate; only the session that opened the stream may
  * change it (404 for an unknown stream and for somebody else's, so ids cannot be probed).
  */
@@ -312,7 +312,7 @@ internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = wh
     // allowed it, and only with a sign-in younger than 4 h. The page's Screen tool answers the "insecure" / "reauth" replies (see fetchFrame in index.html).
     uri == "/api/screen/frame" && s.method == Method.GET -> rootGate(s) ?: screenFrame(s)
     uri == "/api/screen/input" && s.method == Method.POST -> rootGate(s) ?: run { auditBusy(s.remoteIpAddress ?: "?", "screen-input"); screenInput(body(s)) }
-    // Live panel push stream (Phase 2): one persistent root reader shared by all viewers. It starts root, so it has the same gate as /api/shell.
+    // Live panel push stream: one persistent root reader shared by all viewers. It starts root, so it has the same gate as /api/shell.
     uri == "/api/live/stream" && s.method == Method.GET -> rootGate(s) ?: liveStream(s)
     uri == "/api/live/view" && s.method == Method.POST -> rootGate(s) ?: liveView(s)
     uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()

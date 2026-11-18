@@ -40,7 +40,7 @@ object Prefs {
         if (rec == null) m.remove(name) else m[name] = rec
         sp(c).edit().putString("plugin_records", encodePluginRecords(m)).apply()
     }
-    /** Which plugins run sandboxed (Phase 4, see PluginSandbox). A plugin not in the map is trusted: it runs in the page, as before. */
+    /** Which plugins run sandboxed (see PluginSandbox). A plugin not in the map is trusted: it runs in the page, as before. */
     internal fun pluginModes(c: Context): Map<String, String> = parsePluginModes(sp(c).getString("plugin_modes", null))
     @Synchronized internal fun setPluginSandboxed(c: Context, name: String, sandboxed: Boolean) {
         val m = pluginModes(c).toMutableMap()
