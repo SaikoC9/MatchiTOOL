@@ -690,6 +690,24 @@ html body #pluginmgr.card.pop.open:not(#_):not(#__)>.pm-head:first-child{positio
 /* One Close button size everywhere: 88x30, 12.5px, same look in built-in windows, Plugins, Plugin store and plugin popups. */
 html body .card.pop .popfoot .popx:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .popx:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .mfoot .mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .st-foot .ccancel:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal .ccancel:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6),html body .modal-bg .modal button.mclose:not(#c1):not(#c2):not(#c3):not(#c4):not(#c5):not(#c6){box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:88px!important;min-width:88px!important;max-width:88px!important;flex:0 0 88px!important;height:30px!important;min-height:30px!important;max-height:30px!important;padding:0 8px!important;margin:0 0 0 auto!important;font-size:12.5px!important;font-weight:650!important;line-height:1!important;border-radius:8px!important;border:1px solid rgba(255,255,255,.14)!important;background:rgba(255,255,255,.08)!important;color:var(--fg)!important;box-shadow:none!important;white-space:nowrap}
 html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not(#d5):not(#d6){padding:0!important}
+
+/* Plugin actions: a quiet section label (like "Live device status") with a count and chevron, then the plugin buttons as tiles in the same 3-column grid as the home buttons. One layout for desktop and phone; only the type size and padding step down. */
+html body #home button.mm-head{display:flex;align-items:center;gap:8px;width:100%;min-height:0!important;padding:3px 2px 5px!important;margin:8px 0 6px!important;background:none!important;border:0!important;border-bottom:1px solid var(--bd)!important;border-radius:0!important;box-shadow:none!important;transform:none!important;color:var(--mut)!important;text-align:left;cursor:pointer}
+html body #home button.mm-head:focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
+@media(hover:hover){html body #home button.mm-head:hover{color:var(--fg)!important;background:none!important}}
+#home .mm-t{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;line-height:1.2}
+#home .mm-n{font-size:10.5px;font-weight:700;line-height:1;padding:2px 7px;border-radius:999px;background:rgba(139,170,211,.14);color:var(--fg)}
+#home .mm-chev{margin-left:auto;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);transition:transform .16s;margin-right:4px;margin-top:-3px}
+#home .mm-head[aria-expanded="true"] .mm-chev{transform:rotate(-135deg);margin-top:3px}
+html body #home .matchi-menu-box{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px!important;margin:0 0 4px!important}
+html body #home .matchi-menu-box>button{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;width:100%;min-height:34px!important;padding:5px 7px 5px 20px!important;border-radius:9px!important;border:1px solid var(--bd)!important;background:var(--panel2)!important;color:var(--fg);font-size:clamp(10.5px,.85vw,12px)!important;line-height:1.15!important;text-align:center;white-space:normal;overflow-wrap:anywhere}
+html body #home .matchi-menu-box>button::before{content:"";position:absolute;left:8px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:2px;background:var(--acc2)}
+@media(hover:hover){html body #home .matchi-menu-box>button:hover{border-color:var(--acc)!important;background:#17365c!important}}
+@media(max-width:760px){
+html body #home .matchi-menu-box{gap:4px!important}
+html body #home .matchi-menu-box>button{min-height:32px!important;padding:4px 5px 4px 17px!important;border-radius:8px!important;font-size:clamp(9.5px,2.9vw,12px)!important}
+html body #home .matchi-menu-box>button::before{left:6px}
+}
 </style>
 </head>
 <body>
@@ -706,8 +724,8 @@ html body .modal-bg .modal:has(.st-foot):not(#d1):not(#d2):not(#d3):not(#d4):not
   <div class="card" id="home" style="display:none">
     <div class="actions-buttons"><button onclick="openPop('diagnostics')">Diagnostics</button><button onclick="openPop('logbasket');window.lbOpen&&window.lbOpen()">Log Basket</button><button onclick="openPop('selftest')">Full diagnose</button><button onclick="openPop('usbtools')">USB</button><button onclick="openPop('firmware')">Firmware</button><button onclick="openPop('appupdate')">Update</button><button onclick="openPop('terminal')">Terminal</button><button onclick="openPop('pluginmgr')">Plugins</button><button onclick="openPop('conpw')">Password</button></div>
     <!-- Plugin menu: #matchi_menu_btn, the next element wraps .matchi-menu-box (matchi.menu() returns it). -->
-    <button id="matchi_menu_btn" type="button" aria-expanded="false" style="display:none;margin-top:9px">Plugin actions</button>
-    <div class="matchi-menu-wrap" hidden><div class="matchi-menu-box btnrow" style="margin-top:8px"></div></div>
+    <button id="matchi_menu_btn" class="mm-head" type="button" aria-expanded="false" style="display:none"><span class="mm-t">Plugin actions</span><span class="mm-n" id="matchi_menu_n">0</span><span class="mm-chev" aria-hidden="true"></span></button>
+    <div class="matchi-menu-wrap" hidden><div class="matchi-menu-box btnrow"></div></div>
   </div>
   <div class="card pop" id="logcatcher">
     <div class="mut" style="margin-bottom:8px">Log Catcher · Web dashboard</div>
@@ -7569,8 +7587,10 @@ function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
   if(!btn||!box)return;
-  const sync=()=>{btn.style.display=box.children.length?'':'none';if(!box.children.length)wrap.hidden=true};
-  btn.onclick=()=>{wrap.hidden=!wrap.hidden;btn.setAttribute('aria-expanded',wrap.hidden?'false':'true')};
+  const cnt=document.getElementById('matchi_menu_n');let seen=false;
+  const open=(v)=>{wrap.hidden=!v;btn.setAttribute('aria-expanded',v?'true':'false')};
+  const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}};
+  btn.onclick=()=>open(wrap.hidden);
   new MutationObserver(sync).observe(box,{childList:true});sync();
 })();
 /* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM

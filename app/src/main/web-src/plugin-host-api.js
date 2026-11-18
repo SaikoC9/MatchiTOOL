@@ -316,8 +316,10 @@ function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
   if(!btn||!box)return;
-  const sync=()=>{btn.style.display=box.children.length?'':'none';if(!box.children.length)wrap.hidden=true};
-  btn.onclick=()=>{wrap.hidden=!wrap.hidden;btn.setAttribute('aria-expanded',wrap.hidden?'false':'true')};
+  const cnt=document.getElementById('matchi_menu_n');let seen=false;
+  const open=(v)=>{wrap.hidden=!v;btn.setAttribute('aria-expanded',v?'true':'false')};
+  const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}};
+  btn.onclick=()=>open(wrap.hidden);
   new MutationObserver(sync).observe(box,{childList:true});sync();
 })();
 /* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM
