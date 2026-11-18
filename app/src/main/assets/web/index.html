@@ -3777,11 +3777,11 @@ rm -f $P.g $P.4 $P.6 $P.d
     if (btnEl) {
       if (unread > 0 && !badgeEl) {
         badgeEl = document.createElement('span');
-        badgeEl.style.cssText = 'position:absolute;top:50%;right:8px;transform:translateY(-50%);box-sizing:border-box;min-width:18px;padding:0 6px;border-radius:999px;background:#168cff;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;pointer-events:none';
-        btnEl.style.position = 'relative';
+        badgeEl.style.cssText = 'position:absolute;top:0;bottom:0;right:0;box-sizing:border-box;min-width:30px;padding:0 10px;display:flex;align-items:center;justify-content:center;background:rgba(85,168,255,.22);color:#9fd0ff;font-size:12px;font-weight:700;pointer-events:none';   // split button: the count is a soft blue block on the right edge
+        btnEl.style.position = 'relative'; btnEl.style.overflow = 'hidden';
         btnEl.appendChild(badgeEl);
       }
-      if (badgeEl) { badgeEl.style.display = unread > 0 ? '' : 'none'; badgeEl.textContent = label(); }
+      if (badgeEl) { badgeEl.style.display = unread > 0 ? 'flex' : 'none'; badgeEl.textContent = label(); btnEl.style.paddingRight = unread > 0 ? '38px' : ''; }
       btnEl.title = paused ? 'New-message check paused: sign in again to resume' : '';
       btnEl.setAttribute('aria-label', unread > 0 ? 'SMS, ' + unread + ' new message' + (unread === 1 ? '' : 's') : 'SMS');
     }
