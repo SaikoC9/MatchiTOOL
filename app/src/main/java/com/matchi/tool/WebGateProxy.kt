@@ -353,8 +353,12 @@ class WebGateProxy(
             val lc = v.lowercase()
             val cleared = value.isEmpty() || Regex("max-age=\\s*(0|-)").containsMatchIn(lc) || lc.contains("expires=thu, 01 jan 1970")
             synchronized(lock) {
-                if (cleared) gate.jar.remove(name)
-                else if (value.length <= 4096 && (gate.jar.containsKey(name) || gate.jar.size < MAX_JAR)) gate.jar[name] = pair
+                if (cleared) {
+                    gate.jar.remove(name)
+                } else if (value.length <= 4096 && (gate.jar.containsKey(name) || gate.jar.size < MAX_JAR)) {
+                    gate.jar[name] = pair
+                }
+                Unit
             }
         }
         val ctype = rh.firstOrNull { it.first.equals("content-type", true) }?.second ?: ""
