@@ -7,3 +7,41 @@ MatchiTOOL - AdGuard Home plugin: progress (plan: ADGUARD_PLUGIN_PLAN.txt, plugi
          Fix is in MatchiTOOL-changes-curl-wrapper.zip. Needs: GitHub Actions build, new APK on the F50, reload the page, run the preflight again.
   Plan items settled by this run: SELinux permissive (risk 1 lower), RAM 712 MB free (risk 4 still to measure with AGH running).
   Next: after the curl fix is on the device, T1 again (GitHub reachable OK), then T2 (download + sha256 + --version).
+
+2026-11-18  Question: should the curl syntax error be fixed on the AdGuard side?
+  [DECIDED] No. The failing file is /data/local/matchitool/bin/curl, written by MatchiTOOL (plugin-host-api.js, SETUP text). The AdGuard plugin only
+            runs it (const CURL = m.sh.P.curl). Reproduced here: the same wrapper text gives 'Syntax error: "if" unexpected (expecting "do")' on line 3
+            with the ";" missing and parses with it. Any other plugin using m.sh.P.curl would fail the same way, so the fix belongs in MatchiTOOL core.
+  [OPTION, not built] Temporary fallback inside the plugin if the app is not rebuilt yet: call the bundled binary directly
+            (/data/data/com.matchi.tool/files/curl) and set CURL_CA_BUNDLE=/data/local/matchitool/bin/cacert.pem itself. Not recommended: it copies the
+            wrapper's logic into the plugin. Build only if asked.
+  [OPEN] Same as before: GitHub Actions build, new APK, reload the page, then
+         /data/local/matchitool/bin/curl -sI https://github.com | head -1   (expect HTTP/2 200 or 301), then run the preflight again.
+
+2026-11-18  Step 3 (download + install) written: AdGuardHome_MatchiTOOL.js 0.3-step3 (replaces 0.2-step2; same file name as the plugin you already load).
+  What it does
+    - "Install / Update": preflight must be fresh (under 5 min) and have no FAIL; asks a yes; downloads AdGuardHome_linux_arm64.tar.gz + checksums.txt from
+      github.com/AdguardTeam/AdGuardHome/releases/download/<latest tag>/; REFUSES unless the SHA-256 matches checksums.txt; unpacks into /data/local/adguardhome/dl;
+      runs the new program once with --version; copies old program + AdGuardHome.yaml to /data/local/adguardhome/backup/<time> (keeps the newest 3);
+      swaps it in; runs --version again; puts the old one back if that fails. Never starts AdGuard Home, never writes the yaml, never touches iptables.
+    - "Install from file" (offline path 3f): pick the .tar.gz (1 to 40 MB); it is sent to /data/local/matchitool/uploads, its SHA-256 is shown, an official
+      SHA-256 can be pasted (install stops if different); the uploaded file is deleted after a good install.
+    - If AdGuard Home is running it is stopped first (agh.sh stop when it exists); if it still runs the install stops.
+  Fixed in Step 2 code: CPU armv8l (32-bit userland on a 64-bit CPU) now picks the armv7 build with a WARN (it used to say arm64, which cannot run there). Your F50 is aarch64, unaffected.
+  Plan [VERIFY] answered: release file names are AdGuardHome_linux_arm64.tar.gz, AdGuardHome_linux_armv7.tar.gz and checksums.txt (official releases, checked on the
+    release file lists of v0.107.60 and v0.107.67). Whether checksums.txt lines start with "./" is not certain, the script accepts both.
+  Tested here (not on the F50): the install script run in a sandbox shell with a fake curl and fake packages, 8 cases, all as expected:
+    T1 fresh install, T2 update with backup of binary + yaml, T3 checksum mismatch (old program untouched), T4 no checksum line, T5 new program does not run
+    (stopped before the swap), T6 program breaks after the swap (old one put back), T7 file mode with wrong sha, T8 file mode with right sha (upload removed).
+    Button flow checked with a fake page (install -> confirm -> job started with the arm64 file and the latest tag -> result note and toast).
+    MatchiTOOL scanner rules and shell filter: no hits. JS syntax ok.
+  NOT tested: the real page on the F50, the real download from GitHub, the real checksums.txt format, the real "--version" output of the arm64 build,
+    the file upload on the F50, root shell file-size limit (ulimit -f) for a 10 MB write.
+  Dependency: needs the curl wrapper fix in MatchiTOOL (zip from this chat) on the device first, otherwise the download fails with the same syntax error.
+  F50 test list (T = test)
+    T3a  Reload the page, open AdGuard Home, Run preflight: "GitHub reachable" should be OK now.
+    T3b  Install / Update -> confirm. Expect in the log: "checksum ok", "new program: AdGuard Home, version v0.107.x", "RESULT ok". Installed version row shows it.
+    T3c  Check on the device (commands below).
+    T3d  Press Install / Update again: dialog says "already the latest", confirm: a backup folder appears.
+    T3e  Install from file with the real arm64 .tar.gz from the release page (offline path), paste the official sha256.
+  Next: Step 4 (config + yaml). Decision still open from Step 2: IPv6 DNS (accept / block v6 DNS / v4 DNS only).
