@@ -63,4 +63,5 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 # IMEI keeper: pure sh, runs against a fake sendat.
+sh "$(dirname "$0")/test_sha256_tool.sh" </dev/null || exit 1
 sh "$(dirname "$0")/test_imei_apply.sh" </dev/null || exit 1
