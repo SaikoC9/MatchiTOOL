@@ -257,6 +257,18 @@ class WebGateProxy(
         return tok to g
     }
 
+    /** Short reason for the 403 page, so a failed Open can be diagnosed from the browser. Same checks as [gateOf], in the same order. */
+    private fun whyNoGate(req: Req, ip: String): String {
+        val cookie = req.header("cookie") ?: return "no cookie sent"
+        val tok = cookie.split(";").map { it.trim() }.firstOrNull { it.startsWith("${cfg.cookieName}=") }?.substringAfter('=')
+            ?: return "no ${cfg.cookieName} cookie"
+        if (!HEX_RX.matches(tok)) return "cookie has a bad form, length ${tok.length}"
+        val g = synchronized(lock) { gates[tok] } ?: return "gate session unknown or already ended"
+        if (g.ip != ip) return "address changed: gate ${g.ip}, now $ip"
+        if (!consoleValid(g.consoleToken)) return "MatchiTOOL console session ended"
+        return "unknown"
+    }
+
     private fun handle(sock: Socket) {
         sock.soTimeout = 20_000
         val inp = BufferedInputStream(sock.getInputStream())
@@ -287,7 +299,7 @@ class WebGateProxy(
             }
         }
         val (_, gate) = gateOf(req, ip) ?: run {
-            text(out, 403, "Forbidden", "Not signed in. Press Open in the plugin in MatchiTOOL."); return
+            text(out, 403, "Forbidden", "Not signed in (" + whyNoGate(req, ip) + "). Press Open in the plugin in MatchiTOOL."); return
         }
         if (req.path == "/__matchi/hb" || req.path == "/__matchi/bye") {
             val tab = req.query.split("&").firstOrNull { it.startsWith("t=") }?.substringAfter('=') ?: ""
