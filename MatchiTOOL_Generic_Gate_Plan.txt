@@ -11,7 +11,8 @@ STATUS (update this block after every phase)
            route table updated, cookie name per gate (matchi_gate_PORT), WebGateProxy.isIdle(). Build in CI first.
 - Phase 4  CODE WRITTEN (JS tests pass in Node; Kotlin not compiled): header line (parser from Phase 3), matchi.gate.open in plugin-host-api.js, upload refusal gateUploadProblem,
            docs/PLUGIN_GATE.md + row in PLUGIN_HEADERS.md. Sandboxed plugins cannot use it (not part of the sandbox API).
-- Phase 5  TODO   migrate AdGuard plugin, then remove iptables door and "Web UI on LAN".
+- Phase 5  PLUGIN WRITTEN as Release 2 only (AdGuardHome_MatchiTOOL.js 0.10.0): header line + matchi.gate.open('adguard'), fallback to the 0.9.7 call on an app without matchi.gate.
+           Step 2 (remove "Web UI on LAN" and the AGH_UI door) NOT done on purpose: it is Release 3, after Phase 6 on the F50 and one release of field use. Step 3 kept (session_ttl 1h, sessions.db wipe).
 - Phase 6  TODO   real device test on the F50 (nothing was run on a device yet; Android parts never compiled).
 - Phase 7  TODO   rollout in three releases.
 Files today: WebGateProxy.kt, WebGateProxyTest.kt, GateDecl.kt, GateDeclTest.kt, WebGate.kt, WebRoutesGate.kt (new); AghDoor.kt, WebRoutesAgh.kt, WebServer.kt, WebRoutesPlugins.kt, Prefs.kt, scripts/test_route_gates.py, CHANGELOG.md (changed).
