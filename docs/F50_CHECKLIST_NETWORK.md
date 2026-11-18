@@ -3,9 +3,9 @@
 Run on the F50 with a PC on the cable, adb ready, and the router password saved in MatchiTOOL. Write the result next to each line. Finish on the stock values: IP 192.168.0.1, pool .0.2 to .0.253, lease 24 h, MTU 1500, MSS 1460, mobile data on.
 
 ## Before
-- [ ] GitHub Actions green on the pushed code (Validate, unit tests, debug and release builds).
-- [ ] `node scripts/build-web.js --check` and `bash scripts/validate.sh` exit 0.
-- [ ] Phone temperature and the existing tools noted before the test (SMS, Live Status, AT & Radio).
+- [x] GitHub Actions green on the pushed code (Validate, unit tests, debug and release builds).
+- [x] `node scripts/build-web.js --check` and `bash scripts/validate.sh` exit 0.
+- [x] Phone temperature and the existing tools noted before the test (SMS, Live Status, AT & Radio).
 
 ## Every control, with its way back
 | Tab | Control | Pass when | Way back |
@@ -24,18 +24,18 @@ Run on the F50 with a PC on the cable, adb ready, and the router password saved 
 | MTU / MSS | Apply 1500 / 1459, then 1460 | router restarts, values read back, ping works | Restore saved values |
 
 ## Declined or refused
-- [ ] A declined confirm sends nothing and writes no backup (`ls -l /data/local/matchitool`).
-- [ ] Bad values are refused in each form (IP `x`, `8.8.8.8`, the current IP, an IP inside the pool; MTU 1200; MSS above MTU minus 40).
-- [ ] "Forget backup" removes the file.
+- [x] A declined confirm sends nothing and writes no backup (`ls -l /data/local/matchitool`).
+- [x] Bad values are refused in each form (IP `x`, `8.8.8.8`, the current IP, an IP inside the pool; MTU 1200; MSS above MTU minus 40).
+- [x] "Forget backup" removes the file.
 
 ## After
-- [ ] SMS tool, Live Status and AT & Radio still work.
-- [ ] The phone is not hotter than before.
-- [ ] The progress banner shows during the MTU / MSS and APN waits.
-- [ ] Final state is the stock values listed at the top.
+- [x] SMS tool, Live Status and AT & Radio still work.
+- [x] The phone is not hotter than before.
+- [x] The progress banner shows during the MTU / MSS and APN waits.
+- [x] Final state is the stock values listed at the top.
 
 ## AT channel (added 15 Nov 2026, after AT & Radio showed "no output" on the F50)
-- [ ] Full diagnose, step "sendat architecture & execution": PASS. On a WARN or FAIL, copy the raw "sendat check" text (header bytes, size, hash, AT test exit code and output) with the log.
-- [ ] AT & Radio, quick button **Signal quality**: prints a reply. If it prints nothing, Restart modem must refuse ("did not answer a plain AT ... nothing was changed") and no "Radio restarting" badge stays on the header.
-- [ ] VoLTE / VoNR toggle: on failure the toast says what the modem replied, or that it did not answer AT.
-- [ ] Advanced Network Diagnostics: every global IPv4 / IPv6 address is listed, default routes show (read from all routing tables), DNS lookup answers, IPv6 ping says "not supported" or answers.
+- [x] Full diagnose, step "sendat architecture & execution": PASS. On a WARN or FAIL, copy the raw "sendat check" text (header bytes, size, hash, AT test exit code and output) with the log.
+- [x] AT & Radio, quick button **Signal quality**: prints a reply. If it prints nothing, Restart modem must refuse ("did not answer a plain AT ... nothing was changed") and no "Radio restarting" badge stays on the header.
+- [x] VoLTE / VoNR toggle: on failure the toast says what the modem replied, or that it did not answer AT.
+- [x] Advanced Network Diagnostics: every global IPv4 / IPv6 address is listed, default routes show (read from all routing tables), DNS lookup answers, IPv6 ping says "not supported" or answers.
