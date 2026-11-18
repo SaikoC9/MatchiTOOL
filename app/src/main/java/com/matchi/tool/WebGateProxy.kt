@@ -294,7 +294,7 @@ class WebGateProxy(
                     gates[gt] = Gate(ip, tk.consoleToken, now)
                 }
                 oldCookies.forEach { logoutUpstream(it) }
-                reply(out, 302, "Found", "text/plain; charset=utf-8", ByteArray(0), listOf("Location: /", "Set-Cookie: ${cfg.cookieName}=$gt; Path=/; HttpOnly; SameSite=Strict"))
+                reply(out, 302, "Found", "text/plain; charset=utf-8", ByteArray(0), listOf("Location: /", "Set-Cookie: ${cfg.cookieName}=$gt; Path=/; HttpOnly; SameSite=Lax"))
                 return
             }
         }
