@@ -379,6 +379,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         // Phase 3 / Step 5: a stop that did not fully succeed returned above and kept the plugin ON. Only now is it switched off; its file, data and ledger stay.
         if (keep) {
             Prefs.setEnabled(ctx, name, false)
+            gateNamesOfPlugin(name).forEach { WebGate.stop(ctx, it) }   // its protected web page closes with it
             auditShell(ip, "disable " + name, "plugin-disable")
             val outKeep = JSONObject().put("ok", true).put("disabled", true)
             if (stopOut != null) outKeep.put("stop", stopOut)
@@ -386,7 +387,9 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         }
         val plan = if (req.optBoolean("erase", false)) pluginDataPlan(name) else null // read the source BEFORE it is deleted
         val ledger = if (plan != null) traceStore.read(name) else null
+        val gateNames = gateNamesOfPlugin(name)   // read BEFORE the file is removed
         val deleted = File(pluginDir, name).delete()
+        if (deleted) gateNames.forEach { WebGate.stop(ctx, it) }   // log out of its web page, close the gate port, forget the port number
         Prefs.setEnabled(ctx, name, true)
         if (deleted) Prefs.forgetPlugin(ctx, name)
         val out = JSONObject().put("ok", deleted)
@@ -412,6 +415,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val req = body(s); val name = req.optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         Prefs.setEnabled(ctx, name, req.optBoolean("enabled", true))
+        if (!req.optBoolean("enabled", true)) gateNamesOfPlugin(name).forEach { WebGate.stop(ctx, it) }   // a switched-off plugin keeps no web page open
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
     // Approve the plugin file as it is now: stores its SHA-256 and capability list. For a plugin shown as "changed" (after you reviewed it)

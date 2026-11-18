@@ -253,4 +253,25 @@ class WebGateProxyTest {
         assertEquals("1.2.3.4", WebGateProxy.normIp("::ffff:1.2.3.4")); assertEquals("fe80::1", WebGateProxy.normIp("FE80::1%wlan0")); assertEquals("1.2.3.4", WebGateProxy.normIp("/1.2.3.4"))
         assertNotNull(WebGateProxy.GATE_JS)
     }
+
+    @Test fun ownCookieNameKeepsTwoGatesApart() {
+        val p = WebGateProxy(WebGateConfig(0, upSrv!!.localPort, "/logout", 3_600_000L, false, "matchi_gate_3123"), { valid.contains(it) }, { now.get() })
+        assertNull(p.start()); proxy = p
+        val c = enter(p)
+        assertTrue(c.startsWith("matchi_gate_3123="))
+        assertEquals(200, http("GET", "/", c).code)
+        // a cookie with the default name (the one of another gate on the same host) opens nothing here
+        assertEquals(403, http("GET", "/", "matchi_gate=" + c.substringAfter('=')).code)
+    }
+
+    @Test fun idleOnlyWithoutLoginsAndTickets() {
+        val p = gate()
+        assertTrue(p.isIdle())
+        val t = p.newTicket("127.0.0.1", "tok")!!
+        assertFalse(p.isIdle())                       // a ticket is waiting
+        assertEquals(302, http("GET", "/__matchi/enter?t=$t").code)
+        assertFalse(p.isIdle())                       // someone is logged in
+        valid.remove("tok"); p.sweep()
+        assertTrue(p.isIdle())                        // console session gone, gate dropped
+    }
 }

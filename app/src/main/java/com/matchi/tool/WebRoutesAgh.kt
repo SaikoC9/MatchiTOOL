@@ -23,13 +23,5 @@ internal fun WebServer.routeAgh(s: IHTTPSession, uri: String): Response? = when 
         if (why != null) json(Response.Status.CONFLICT, JSONObject().put("ok", false).put("error", why))
         else json(Response.Status.OK, JSONObject().put("ok", true).put("minutes", (AghDoor.DOOR_MS / 60000).toInt()))
     }
-    // One-time entry ticket for the AdGuard Home front door (AghGate, port 3001). Same fresh sign-in rule as the door.
-    uri == "/api/agh/gate" && s.method == Method.POST -> rootGate(s) ?: run {
-        val ip = s.remoteIpAddress ?: "?"
-        val (ticket, why) = AghGate.open(ctx, ip, sessionToken(s))
-        auditShell(ip, "agh-gate open " + (why ?: "ok"), "agh-gate")
-        if (ticket == null) json(Response.Status.CONFLICT, JSONObject().put("ok", false).put("error", why ?: "failed"))
-        else json(Response.Status.OK, JSONObject().put("ok", true).put("ticket", ticket).put("port", AghGate.PORT))
-    }
     else -> null
 }

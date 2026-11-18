@@ -1,0 +1,170 @@
+MATCHITOOL GENERIC WEB GATE - IMPLEMENTATION PHASES
+====================================================
+
+STATUS (update this block after every phase)
+- Phase 0  DONE   decisions recorded below.
+- Phase 1  DONE   WebGateProxy.kt (generic: config, cookie jar, logout path, idle, optional tab-close, 501 on Upgrade, HEAD/204/304 rules).
+- Phase 2  DONE   WebGateProxyTest.kt, 28 tests, plain JVM, fake page + fake clock, all passing (JUnit 4.13.2).
+           Not covered yet (add later, low risk): 24 MB response cap, 304 answer, cookie jar cap (20), gate port range clash (Phase 3).
+- Phase 3  CODE WRITTEN (not compiled, not run on a device): GateDecl.kt (header parser + port table, plain JVM, GateDeclTest), WebGate.kt (replaces AghGate.kt),
+           WebRoutesGate.kt (POST /api/gate/open + old /api/agh/gate alias), hooks in AghDoor / delete + toggle routes, Prefs gate_ports,
+           route table updated, cookie name per gate (matchi_gate_PORT), WebGateProxy.isIdle(). Build in CI first.
+- Phase 4  TODO   plugin header line + m.gate.open + upload check.
+- Phase 5  TODO   migrate AdGuard plugin, then remove iptables door and "Web UI on LAN".
+- Phase 6  TODO   real device test on the F50 (nothing was run on a device yet; Android parts never compiled).
+- Phase 7  TODO   rollout in three releases.
+Files today: WebGateProxy.kt, WebGateProxyTest.kt, GateDecl.kt, GateDeclTest.kt, WebGate.kt, WebRoutesGate.kt (new); AghDoor.kt, WebRoutesAgh.kt, WebServer.kt, WebRoutesPlugins.kt, Prefs.kt, scripts/test_route_gates.py, CHANGELOG.md (changed).
+Delete from repo: AghGateProxy.kt (only if the first zip was copied), AghGate.kt (replaced by WebGate.kt).
+
+GOAL
+Any plugin that has its own local web page (AdGuard Home, OpenWrt-style panels, others) gets the same protection from MatchiTOOL:
+- The page's own login cookie (often 30 days) never reaches the browser.
+- The browser holds one session-only cookie that works only while the MatchiTOOL console session lives.
+- The page asks for ITS login again after: MatchiTOOL sign-out, session expiry, password change, host restart, idle timeout.
+- Optional (off by default): also after the last page of the tab closes.
+Written once in MatchiTOOL. A plugin only declares what it needs.
+
+WHAT EXISTS TODAY (starting point, from the AdGuard work)
+- AghGateProxy.kt : plain-JVM proxy (no Android classes). Ticket entry, gate cookie, cookie stripping, html script injection,
+  hb/bye tab logic, sweep, upstream logout. Tested by hand against a fake upstream.
+- AghGate.kt      : Android wrapper (lazy start, tickets, sweep hooks).
+- /api/agh/gate   : route that returns a one-time ticket.
+- AghDoor.kt      : hooks sweepAsync / closeAll.
+- Plugin 0.9.7    : Open button uses the ticket.
+
+PRINCIPLES
+1. Keep the proxy core free of Android classes so it runs in plain JVM unit tests.
+2. Fail closed: no valid gate, wrong address, dead console session = 403, never a pass-through.
+3. Off by default. Nothing listens on any gate port until a plugin asks for it (first Open).
+4. The plugin declares, MatchiTOOL enforces. A plugin cannot weaken the rules (no "skip auth" option).
+5. Plain HTTP pages first. Anything that cannot work behind the proxy must say so clearly, not break silently.
+
+----------------------------------------------------------------------
+PHASE 0 - Decisions (half a day, no code)
+----------------------------------------------------------------------
+Decide and write down:
+a) Declaration format in the plugin header, for example:
+     // @matchi-gate name=adguard port=3000 logout=/control/logout idle=3600 tabclose=off
+   Fields: name (id, [a-z0-9-]), port (target on 127.0.0.1), logout (path to call with the target cookie, optional),
+   idle (seconds, default 3600, min 300, max 43200), tabclose (on/off, default off).
+b) Gate port rule: target port + 1? Fixed range 3100-3199 chosen by MatchiTOOL and stored per gate name? (Recommended: MatchiTOOL
+   picks from a fixed range, stores name->port, returns it in the ticket reply. Plugin never hardcodes it.)
+c) Which cookies to hold server-side: all Set-Cookie from the target (recommended), not only one name. Cleared when the target
+   clears one (Max-Age<=0 or Expires in the past).
+d) Max gates at once (suggest 4) and max sessions per gate (suggest 16, already in code).
+DECIDED (by the user, 2026-11-18):
+a) Full header line: @matchi-gate name=adguard port=3000 logout=/control/logout idle=3600 tabclose=off  (only name and port required).
+b) MatchiTOOL picks the gate port from 3100-3199, remembers it per gate name, returns it with the ticket.
+c) The proxy keeps ALL cookies of the target on the router (dropped when the target clears them).
+d) Defaults: tabclose=off, idle=3600 s, at most 4 gates open at once.
+Phase 0 is closed; start with Phase 1 and 2 together.
+
+----------------------------------------------------------------------
+PHASE 1 - Generalize the proxy core (JVM only)
+----------------------------------------------------------------------
+Files: AghGateProxy.kt -> WebGateProxy.kt (rename), AghGate.kt -> WebGate.kt.
+Changes:
+1. Constructor takes a config: listenPort, upstreamPort, logoutPath?, idleMs, tabClose (bool), consoleValid.
+2. Cookie jar instead of one agh_session: Map<name, "name=value"> per gate; send all as Cookie header upstream; update/clear from
+   every upstream Set-Cookie; never forward Set-Cookie to the browser.
+3. Logout call uses config.logoutPath (GET). If null, skip the call (the browser still loses access because the jar is dropped).
+4. tabClose false: do not inject the script, no hb/bye, no tab map. tabClose true: current behavior.
+5. Idle = no proxied request for idleMs (replaces the fixed 1 h constant).
+6. Location rewrite uses the configured upstream port (already does).
+7. Handle HEAD and 304 correctly; keep the 24 MB response cap and the 2 MB request cap; add a clear 502 text.
+8. Chunked REQUEST bodies: reply 411 with a clear message (already). Document it.
+Done when: all Phase 1 tests (below) pass on plain JVM.
+
+----------------------------------------------------------------------
+PHASE 2 - Tests (do this together with Phase 1, not after)
+----------------------------------------------------------------------
+New file: app/src/test/java/com/matchi/tool/WebGateProxyTest.kt (same style as the other tests; local fake upstream with ServerSocket,
+no Android). Cases:
+- No cookie -> 403. Wrong address with a valid cookie -> 403. Dead console session -> 403 and upstream logout called once.
+- Ticket works once only, expires after 60 s (fake clock), is bound to the address.
+- Upstream Set-Cookie never reaches the browser; the next request carries it upstream; clearing cookie empties the jar.
+- Multiple cookies kept and sent.
+- Idle timeout logs out and drops the jar.
+- tabClose on: bye + grace logs out; a new hb inside the grace does NOT log out; stale tab after 150 s logs out.
+- tabClose off: html is not modified.
+- Redirect Location with the upstream host is rewritten.
+- Request > 2 MB -> 413. Chunked request -> 411. Upstream down -> 502.
+- Concurrent requests (20 threads) do not deadlock.
+Use the injectable clock (already a constructor parameter) so no test sleeps.
+
+----------------------------------------------------------------------
+PHASE 3 - Android side and routes
+----------------------------------------------------------------------
+Files: WebGate.kt, WebRoutesGate.kt (replaces WebRoutesAgh.kt gate route), HostService hook, AghDoor hooks.
+1. WebGate keeps Map<name, WebGateProxy>. open(name, ...) starts that gate lazily and returns (ticket, port).
+2. Route POST /api/gate/open  body {"name":"adguard"}  -> rootGate(s) first (same fresh sign-in rule), then ticket.
+3. The route reads the declaration from the INSTALLED plugin file header (not from the request), so a page cannot ask for
+   arbitrary ports. Validate: port in 1024-65535, not the console port, not another gate's listen port.
+4. Sweep hooks: console sign-out, revoke-all-except, password change, host start (closeAll) already call AghDoor/AghGate -
+   point them at WebGate.sweepAsync()/closeAll().
+5. Plugin uninstall: stop that gate and drop its jar (PluginUninstall.kt).
+6. Keep /api/agh/gate as an alias for one release so plugin 0.9.7 keeps working.
+7. Audit log line per open (already done for the AdGuard route).
+
+----------------------------------------------------------------------
+PHASE 4 - Plugin API (what a plugin author sees)
+----------------------------------------------------------------------
+1. Header: the @matchi-gate line from Phase 0.
+2. JS helper for plugins: m.gate.open(name) -> opens the page in a new tab with the ticket link; returns an error text on failure.
+   (Same code as onOpenUi today: open window first for the click, then set location.)
+3. Plugin guard (PluginGuard.kt): reject a @matchi-gate line with a bad port or an unknown field when the plugin is uploaded.
+4. Docs: one page "How to protect a plugin web page" with the header line and the helper call.
+
+----------------------------------------------------------------------
+PHASE 5 - Migrate AdGuard Home plugin
+----------------------------------------------------------------------
+1. Replace the custom Open code with: header line  @matchi-gate name=adguard port=3000 logout=/control/logout idle=3600 tabclose=off
+   and  m.gate.open('adguard').
+2. Decide with the user: keep or remove the "Web UI on LAN" switch and the AGH_UI iptables door. Recommended: remove both once the gate
+   is proven, so AdGuard Home always listens on 127.0.0.1 only. Do it as a separate release (see rollout).
+3. Keep the session_ttl 1h and sessions.db wipe from 0.9.6 until the door code is removed (defense in depth).
+
+----------------------------------------------------------------------
+PHASE 6 - Real device test (cannot be skipped; nothing here was run on the router yet)
+----------------------------------------------------------------------
+On the F50 with root:
+1. Build the app, install, restart the host.
+2. Press Open: the AdGuard login must appear. Log in. Reload: still logged in.
+3. Sign out of MatchiTOOL in another tab, then reload AdGuard: must ask for the login (or 403 page).
+4. Close the browser fully, reopen the link without a ticket: 403 (needs Open again).
+5. With tabclose=on: close the tab, press Open again: login must be asked.
+6. Check AdGuard still works for DNS the whole time (no restart is needed anymore).
+7. Check phone browser and desktop browser; Chrome and Firefox.
+8. Check the AdGuard pages that load most data (query log, settings) for the 24 MB cap and speed over the hotspot.
+9. Check the host log for errors and that port 3101+ is closed before the first Open (nothing listening).
+Record results in the test todo file (docs/MatchiTOOL_AdGuard_todo.txt).
+
+----------------------------------------------------------------------
+PHASE 7 - Rollout
+----------------------------------------------------------------------
+Release 1: app with the generic gate + alias route + plugin 0.9.7 still working. Changelog entry.
+Release 2: plugin 0.10 using @matchi-gate.
+Release 3: remove the iptables door and "Web UI on LAN" after one release of field use.
+Keep each step revertible: if the gate fails, the plugin can fall back to the old Open (port 3000 door) until Release 3.
+
+----------------------------------------------------------------------
+RISKS AND WHAT TO DO ABOUT THEM
+----------------------------------------------------------------------
+- Pages with WebSockets or server-sent events do not work behind this proxy. First version: plain HTTP only. Detect "Upgrade:" requests
+  and answer 501 with a clear text.
+- Pages that use absolute URLs to the original port break. The Location rewrite covers redirects only. Document it for plugin authors.
+- All requests reach the target from 127.0.0.1, so the target's own brute-force limit becomes global (one wrong-password burst
+  locks everyone). Acceptable; mention it in the docs.
+- Large responses are buffered in memory (cap 24 MB). Fine for admin pages; not for downloads. Streaming can be a later phase.
+- A bug in the proxy must never open a page without a login: tests for "403 when anything is missing" are mandatory (Phase 2).
+- Plain HTTP on the LAN: the password still travels unencrypted, same as before. If the console runs over HTTPS (Tls.active), a later
+  phase can serve the gate port over the same certificate.
+- Android parts were never compiled in this work (only the JVM proxy core was compiled and run). Build in CI first.
+
+----------------------------------------------------------------------
+DEFINITION OF DONE
+----------------------------------------------------------------------
+- One generic gate in MatchiTOOL; AdGuard Home plugin uses it through a single header line.
+- Unit tests green in CI; real device checklist (Phase 6) all passed and written down.
+- Nothing listens on a gate port until Open is pressed; sign-out ends every gate login within 2 seconds.
+- Changelog and one plugin-author doc page written.

@@ -74,7 +74,7 @@ object AghDoor {
 
     /** After a sign-out or a password change: close at once, off the request thread. */
     fun sweepAsync(ctx: Context) {
-        AghGate.sweepAsync()   // the front door (AghGate) ends its logins of dead console sessions too
+        WebGate.sweepAsync()   // every web gate ends its logins of dead console sessions too
         if (synchronized(doors) { doors.isEmpty() }) return
         val c = ctx.applicationContext
         Thread { try { sweep(c) } catch (e: Exception) { Quiet.note("AghDoor.sweepAsync", e) } }.also { it.isDaemon = true }.start()
@@ -82,7 +82,7 @@ object AghDoor {
 
     /** Host start: nothing is open from an earlier run. Only touches an existing chain. */
     fun closeAll(ctx: Context) {
-        AghGate.closeAll()
+        WebGate.closeAll()
         synchronized(doors) { doors.clear() }
         try { RootShell.run(ctx, resetScript(), 10_000) } catch (e: Exception) { Quiet.note("AghDoor.closeAll", e) }
     }

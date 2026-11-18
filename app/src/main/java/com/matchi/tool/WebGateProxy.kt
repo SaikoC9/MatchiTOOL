@@ -17,6 +17,8 @@ class WebGateConfig(
     val logoutPath: String? = null,
     val idleMs: Long = 3_600_000L,
     val tabClose: Boolean = false,
+    /** Name of the browser cookie. Browsers do not separate cookies by port, so two gates on one host need two names (WebGate uses matchi_gate_PORT). */
+    val cookieName: String = WebGateProxy.COOKIE,
 )
 
 /**
@@ -89,23 +91,23 @@ class WebGateProxy(
             server = ss
         } catch (e: Exception) { return "port ${cfg.listenPort} could not be opened (${e.message})" }
         running = true
-        val tf = ThreadFactory { r -> Thread(r, "agh-gate").also { it.isDaemon = true } }
+        val tf = ThreadFactory { r -> Thread(r, "web-gate").also { it.isDaemon = true } }
         pool = Executors.newFixedThreadPool(12, tf)
         val ss = server!!
         Thread {
             while (running) {
                 try {
                     val c = ss.accept()
-                    pool?.execute { try { handle(c) } catch (_: Exception) { } finally { try { c.close() } catch (_: Exception) { } } }
+                    pool?.execute { try { handle(c) } catch (e: Exception) { Quiet.note("WebGateProxy.handle", e) } finally { try { c.close() } catch (e: Exception) { Quiet.note("WebGateProxy.closeClient", e) } } }
                 } catch (_: Exception) { if (!running) break }
             }
-        }.also { it.isDaemon = true; it.name = "agh-gate-accept"; it.start() }
+        }.also { it.isDaemon = true; it.name = "web-gate-accept"; it.start() }
         sweeper = Thread {
             while (running) {
                 try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
-                try { sweep() } catch (_: Exception) { }
+                try { sweep() } catch (e: Exception) { Quiet.note("WebGateProxy.sweep", e) }
             }
-        }.also { it.isDaemon = true; it.name = "agh-gate-sweep"; it.start() }
+        }.also { it.isDaemon = true; it.name = "web-gate-sweep"; it.start() }
         null
     }
 
@@ -113,7 +115,7 @@ class WebGateProxy(
         closeAll()
         synchronized(lock) {
             running = false
-            try { server?.close() } catch (_: Exception) { }
+            try { server?.close() } catch (e: Exception) { Quiet.note("WebGateProxy.stop", e) }
             server = null
             pool?.shutdownNow(); pool = null
             sweeper?.interrupt(); sweeper = null
@@ -174,6 +176,8 @@ class WebGateProxy(
 
     /** Test helper: how many gates exist and whether the first one still holds an AdGuard Home cookie. */
     fun gateCount(): Int = synchronized(lock) { gates.size }
+    /** True when nobody is logged in and no entry ticket is waiting: the listener can be stopped without harming anyone. */
+    fun isIdle(): Boolean = synchronized(lock) { gates.isEmpty() && tickets.isEmpty() }
     fun anyCookie(): Boolean = synchronized(lock) { gates.values.any { it.jar.isNotEmpty() } }
 
     private fun logoutUpstream(cookie: String) {
@@ -185,7 +189,7 @@ class WebGateProxy(
                 s.getOutputStream().flush()
                 val buf = ByteArray(1024); while (s.getInputStream().read(buf) >= 0) { /* drain */ }
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) { Quiet.note("WebGateProxy.logout", e) }
     }
 
     // ---------- one connection ----------
@@ -245,7 +249,7 @@ class WebGateProxy(
 
     private fun gateOf(req: Req, ip: String): Pair<String, Gate>? {
         val cookie = req.header("cookie") ?: return null
-        val tok = cookie.split(";").map { it.trim() }.firstOrNull { it.startsWith("$COOKIE=") }?.substringAfter('=') ?: return null
+        val tok = cookie.split(";").map { it.trim() }.firstOrNull { it.startsWith("${cfg.cookieName}=") }?.substringAfter('=') ?: return null
         if (!HEX_RX.matches(tok)) return null
         val g = synchronized(lock) { gates[tok] } ?: return null
         if (g.ip != ip) return null
@@ -269,7 +273,7 @@ class WebGateProxy(
                 val t = req.query.split("&").firstOrNull { it.startsWith("t=") }?.substringAfter('=') ?: ""
                 val tk = synchronized(lock) { if (HEX_RX.matches(t)) tickets.remove(t) else null }
                 if (tk == null || tk.until < now || tk.ip != ip || !consoleValid(tk.consoleToken)) {
-                    text(out, 403, "Forbidden", "This link is not valid any more. Press Open in the MatchiTOOL AdGuard Home plugin again."); return
+                    text(out, 403, "Forbidden", "This link is not valid any more. Press Open in the plugin in MatchiTOOL again."); return
                 }
                 val gt = token()
                 val oldCookies = ArrayList<String>()
@@ -278,12 +282,12 @@ class WebGateProxy(
                     gates[gt] = Gate(ip, tk.consoleToken, now)
                 }
                 oldCookies.forEach { logoutUpstream(it) }
-                reply(out, 302, "Found", "text/plain; charset=utf-8", ByteArray(0), listOf("Location: /", "Set-Cookie: $COOKIE=$gt; Path=/; HttpOnly; SameSite=Strict"))
+                reply(out, 302, "Found", "text/plain; charset=utf-8", ByteArray(0), listOf("Location: /", "Set-Cookie: ${cfg.cookieName}=$gt; Path=/; HttpOnly; SameSite=Strict"))
                 return
             }
         }
         val (_, gate) = gateOf(req, ip) ?: run {
-            text(out, 403, "Forbidden", "Not signed in. Press Open in the MatchiTOOL AdGuard Home plugin."); return
+            text(out, 403, "Forbidden", "Not signed in. Press Open in the plugin in MatchiTOOL."); return
         }
         if (req.path == "/__matchi/hb" || req.path == "/__matchi/bye") {
             val tab = req.query.split("&").firstOrNull { it.startsWith("t=") }?.substringAfter('=') ?: ""
@@ -326,7 +330,7 @@ class WebGateProxy(
             raw = bo.toByteArray()
         } catch (e: Exception) {
             text(out, 502, "Bad Gateway", "The page does not answer on 127.0.0.1:${cfg.upstreamPort}. Start it in the plugin."); return
-        } finally { try { up.close() } catch (_: Exception) { } }
+        } finally { try { up.close() } catch (e: Exception) { Quiet.note("WebGateProxy.closeUpstream", e) } }
 
         val s = String(raw, Charsets.ISO_8859_1)
         val cut = s.indexOf("\r\n\r\n")
@@ -344,7 +348,7 @@ class WebGateProxy(
         for ((k, v) in rh) if (k.equals("set-cookie", true)) {
             val pair = v.substringBefore(';').trim()
             val name = pair.substringBefore('=').trim()
-            if (!pair.contains('=') || !COOKIE_NAME_RX.matches(name) || name == COOKIE) continue
+            if (!pair.contains('=') || !COOKIE_NAME_RX.matches(name) || name == cfg.cookieName) continue
             val value = pair.substringAfter('=')
             val lc = v.lowercase()
             val cleared = value.isEmpty() || Regex("max-age=\\s*(0|-)").containsMatchIn(lc) || lc.contains("expires=thu, 01 jan 1970")

@@ -462,7 +462,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
 
     private fun route(s: IHTTPSession, uri: String): Response =
         routeDevice(s, uri) ?: routeAuth(s, uri) ?: routeLogs(s, uri) ?: routeRoot(s, uri) ?: routeUpdate(s, uri)
-            ?: routeRouter(s, uri) ?: routePlugins(s, uri) ?: routeAgh(s, uri)
+            ?: routeRouter(s, uri) ?: routePlugins(s, uri) ?: routeAgh(s, uri) ?: routeGate(s, uri)
             ?: json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found"))
 }
 

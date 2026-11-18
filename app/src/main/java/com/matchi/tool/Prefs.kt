@@ -54,6 +54,9 @@ object Prefs {
         setPluginRecord(c, name, null)
         setPluginSandboxed(c, name, false)
     }
+    /** Listen port MatchiTOOL gave each web gate (see GatePortTable): "name=port,name=port". */
+    internal fun gatePorts(c: Context): Map<String, Int> = GatePortTable.decode(sp(c).getString("gate_ports", null))
+    @Synchronized internal fun setGatePorts(c: Context, m: Map<String, Int>) { sp(c).edit().putString("gate_ports", GatePortTable.encode(m)).apply() }
     /** Network rules for plugins (see NetPolicy): strict mode on or off, and the hosts the person added to the allow-list. */
     fun netStrict(c: Context): Boolean = sp(c).getBoolean("net_strict", true)
     fun setNetStrict(c: Context, v: Boolean) { sp(c).edit().putBoolean("net_strict", v).apply() }
