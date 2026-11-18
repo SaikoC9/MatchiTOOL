@@ -82,3 +82,20 @@ MatchiTOOL - AdGuard Home plugin: progress (plan: ADGUARD_PLUGIN_PLAN.txt, plugi
     T4c  Stop, then Start. Running No then Yes.
     T4d  Web UI on LAN: turn on, then open the Open UI link from a phone on the hotspot, log in with the password. Turn it off again.
     T4e  Close and reopen the window and press Refresh status: the state is read back correctly.
+
+2026-11-18  Result (screenshot, F50): deleting AdGuardHome_MatchiTOOL.js (0.7.1-step8) gave "Stop did not finish ... was NOT deleted".
+  Everything it started WAS stopped: boot script removed, agh.sh stop ok, jumps and chain ADGH_DNS removed, program (PID 11813) and the watch-loop (PID 12289) ended,
+  undo lines "already gone" for ip6tables nat, ip6tables filter, iptables nat and the boot script.
+  The only line under "Not checked": "re-check: the ip6tables list of table nat could not be read, so it cannot show that firewall chain ADGH_DNS (ip6tables, table nat) is gone".
+  [CAUSE] The host's ledger holds the chain "nat ADGH_DNS ip6tables". PluginTrace.kt (scanChainGroup) reads a literal "ip6tables ... -t nat -N ADGH_DNS" from the plugin's
+          command text, even though the plugin only runs it where ip6tables nat works. This F50 has no IPv6 nat (preflight: nat6=no), so "ip6tables -t nat -S" fails and
+          the re-check (PluginUndo.kt verifyUndo, status "error") never counts the chain as gone. Not a leftover on the device: a table the kernel does not have cannot hold a chain.
+  [SAFE NOW] "Delete without stopping" (middle button): nothing is left running or in the firewall; /data/local/adguardhome and the boot script were already removed.
+  [OPEN, not built] Host fix: in undoVerifyScript treat "table does not exist / can't initialize" as absent (a real read error such as a lock or permission still stays "error").
+  [OPEN, not built] Plugin-side alternative: reach ip6tables through a variable so the scanner does not record a chain that never exists here (does not clear an entry already in the ledger).
+
+2026-11-18  Fix built (host): PluginUndo.kt undoVerifyScript. When "iptables/ip6tables -t TABLE -S" fails with "Table does not exist" or "can't initialize", the table is not in the
+  kernel, so the chain is reported "absent". Any other failure (xtables lock, permission, no answer) stays "error" and still blocks. Test added in PluginUndoRunTest.kt.
+  Tested here (sandbox shell, fake ip6tables, the real script text from the Kotlin file): no table -> absent, lock error -> error, chain listed -> present, clean list -> absent.
+  NOT tested: Gradle build / unit tests (no Android toolchain here), the real F50.
+  F50 test: GitHub Actions build, new APK, delete the AdGuard Home plugin again (reinstall it first if it was already removed): expect "deleted" with no "Not checked" line.

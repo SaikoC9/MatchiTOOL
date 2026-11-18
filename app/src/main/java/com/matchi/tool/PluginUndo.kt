@@ -280,7 +280,7 @@ private val VERIFY_BOOT_STATUSES = setOf("present", "absent")
 /**
  * Step 3: a READ-ONLY script that looks again, after the undo script, whether each item is still there. It does not trust the undo script's own answer.
  * Chain: the whole table is listed ("iptables -t T -S"); only a list that was really read and has no "-N CHAIN" line counts as "absent". A tool that is missing
- * is "notool" and a list that could not be read is "error": neither is ever taken for "gone" (the undo script's "chain not found" would also be the answer of a
+ * is "notool" and a list that could not be read is "error" (except "Table does not exist" / "can't initialize": that table is not in the kernel, so it is "absent"): neither is ever taken for "gone" (the undo script's "chain not found" would also be the answer of a
  * failing iptables). Boot script: "present" when the path exists or is a (dangling) symlink, else "absent".
  * Output, one line each: MTCHK|chain|TABLE|CHAIN|TOOL|STATUS and MTCHK|boot|PATH|STATUS, then MTCHK-END. Same name checks as [undoScript]; null for an unsafe item.
  */
@@ -303,7 +303,14 @@ chk_chain() {
   T=^1; C=^2; IPT=^3
   if ! command -v "^IPT" >/dev/null 2>&1; then echo "MTCHK|chain|^T|^C|^IPT|notool"; return; fi
   W=; if "^IPT" -w 5 -t "^T" -S >/dev/null 2>&1; then W="-w 5"; fi   # wait for the xtables lock only where iptables knows -w (1.6.2+); "-w 5" is a fixed word, never plugin text
-  all=^("^IPT" ^W -t "^T" -S 2>/dev/null) || { echo "MTCHK|chain|^T|^C|^IPT|error"; return; }
+  all=^("^IPT" ^W -t "^T" -S 2>&1); rc=^?
+  if [ ^rc -ne 0 ]; then
+    # the kernel has no such table (for example no IPv6 nat on this router): it cannot hold the chain, so it is "absent". Any other failure (lock, permission) stays "error".
+    case "^all" in
+      *"Table does not exist"*|*"can't initialize"*) echo "MTCHK|chain|^T|^C|^IPT|absent"; return ;;
+    esac
+    echo "MTCHK|chain|^T|^C|^IPT|error"; return
+  fi
   st=absent
   while IFS= read -r l; do
     if [ "^l" = "-N ^C" ]; then st=present; fi

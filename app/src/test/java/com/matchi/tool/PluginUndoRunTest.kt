@@ -117,6 +117,13 @@ class PluginUndoScriptTest {
         assertTrue(s.contains("undo_boot '$UR_BOOT'"))
     }
 
+    @Test fun aTableTheKernelDoesNotHaveIsAbsentButOtherReadErrorsStayErrors() {
+        val s = undoVerifyScript(urPlan(urChain()))!!
+        assertTrue(s.contains("Table does not exist")); assertTrue(s.contains("can't initialize"))
+        assertTrue(s.contains("|error")); assertTrue(s.contains("|absent"))
+        assertFalse(s.contains("2>/dev/null) || {"))   // a failed list is no longer an unconditional "error"
+    }
+
     @Test fun parserKeepsOnlyKnownAnswers() {
         val a = parseUndoRun(
             "MTUNDO|chain|mangle|MY_CHAIN|iptables|removed\nMTUNDO|jumps|mangle|MY_CHAIN|iptables|2\nMTUNDO|boot|$UR_BOOT|refused-owner\n" +
