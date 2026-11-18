@@ -341,7 +341,8 @@ class WebGateProxy(
             }
             raw = bo.toByteArray()
         } catch (e: Exception) {
-            text(out, 502, "Bad Gateway", "The page does not answer on 127.0.0.1:${cfg.upstreamPort}. Start it in the plugin."); return
+            Quiet.note("WebGateProxy.forward ${req.method} ${req.path}", e)
+            text(out, 502, "Bad Gateway", "The page does not answer on 127.0.0.1:${cfg.upstreamPort}. Start it in the plugin. (${req.method} ${req.path}: ${e.javaClass.simpleName}: ${e.message})"); return
         } finally { try { up.close() } catch (e: Exception) { Quiet.note("WebGateProxy.closeUpstream", e) } }
 
         val s = String(raw, Charsets.ISO_8859_1)
