@@ -82,3 +82,9 @@ STAGE 5 - DONE 2026-11-17 (Kotlin NOT compiled here; CI must build and run Plugi
   PluginPaths.kt LOCAL_PROTECTED and PluginDataTest.kt use the new names; README.md names them. Bypass v65.25 moves an old install over once at load
   (watchers stopped, folders renamed, old path rewritten in the helper scripts and boot entry, boot-file seal renewed only if it was valid, watchers restarted).
   Firewall chain names (UFI_TTL, UFI_DPI, UFI_DPI_NAT, UFI_DPI6, UFI_PROBE) are NOT renamed: a rule from an older version is replaced by the same chain.
+
+STAGE 6 - DONE 2026-11-18 (web side only; validate.sh passes; browser-checked against a fake root shell; NOT tested on the F50)
+  Memory Cleaner rewritten (it still followed the UFI Memory_Cleaner plugin: staged progress bar, packages file, kill-all, swappiness / zram writes).
+  New: web-src/memclean-core.js (window.MatchiMemClean), scripts/test_memclean.js. Tool in index.html: scan -> pick apps -> stop -> before / after. Old progress panel removed
+  (its entry is gone from scripts/innerhtml-reviewed.json). FILES TO DELETE: none.
+  Still to do on the F50: Clean memory button (list shows, stop works, foreground app not stopped), Self-test 'Memory Cleaner' row.

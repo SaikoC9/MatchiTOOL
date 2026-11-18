@@ -2421,532 +2421,165 @@ rm -f $P.g $P.4 $P.6 $P.d
 <script type="text/plain" class="webtool" data-name="Memory_Cleaner.js">
 /*
  * Memory Cleaner - MatchiTOOL built-in tool.
- * Stops background third-party apps (never the foreground app, launcher, keyboard, MatchiTOOL or root/network helpers),
- * then trims and reclaims memory. Needs root.
+ * Opens a window that lists the apps you installed that are running now, with the memory each one holds. You pick which to stop
+ * (the app on screen, the launcher, the keyboard, MatchiTOOL and tunnel / proxy / root apps are never listed), then it stops them
+ * and, if ticked, releases cached memory. It shows the free memory before and after. Needs root.
+ * The logic (scan, what is protected, the stop script) is in web-src/memclean-core.js (window.MatchiMemClean).
  */
 (() => {
-  const TITLE = 'Clean memory';
-  const BTN_ID = 'matchi_memclean_btn';
+  'use strict';
+  const BTN_ID = 'matchi_memclean_btn', MODAL = 'matchi_memclean_modal', LABEL = 'Clean memory';
   if (document.getElementById(BTN_ID)) return;
-  const STYLE_ID = 'matchi_memory_cleaner_style';
-  const PROGRESS_PANEL_ID = 'matchi_memory_clean_progress_panel';
-  const PROGRESS_TEXT_ID = 'matchi_memory_clean_progress_text';
-  const PROGRESS_BAR_ID = 'matchi_memory_clean_progress_bar';
-  const PROGRESS_PERCENT_ID = 'matchi_memory_clean_progress_percent';
-  const DEVICE_TMP_DIR = '/data/local/matchitool/tmp/memory_clean';   // root-only folder, not the shell-writable /data/local/tmp
-  const DEVICE_PKG_FILE = `${DEVICE_TMP_DIR}/packages.txt`;
-
-  const state = {
-    busy: false,
-    progressVisible: false,
-  };
-
-  const WHITELIST_KEYWORDS = [
-    'android.ext.services',
-    'android.process.media',
-    'com.matchi.tool',
-    'easytier',
-    'mihomo',
-    'clash',
-    'magisk',
-    'apatch',
-    'ksu',
-    'sukisu',
-    'networkstack',
-    'tethering',
-    'connectivity',
-    '/data/',
-  ];
-
-  const PROTECTED_PACKAGES = [
-    'android',
-    'android.ext.services',
-    'android.process.media',
-    'com.matchi.tool',
-    'com.android.systemui',
-    'com.android.launcher',
-    'com.google.android.apps.nexuslauncher',
-    'com.google.android.inputmethod',
-    'com.android.inputmethod.latin',
-    'com.android.phone',
-    'com.android.shell',
-    'com.android.bluetooth',
-    'com.android.nfc',
-    'com.android.providers.telephony',
-    'com.android.networkstack',
-    'com.google.android.networkstack',
-    'com.android.tethering',
-    'com.google.android.tethering',
-    'com.android.connectivity.resources',
-    'com.google.android.connectivity.resources',
-    'com.qualcomm.qti.tetherservice',
-    'com.android.server.telecom',
-    'com.android.telephony',
-    'com.android.permissioncontroller',
-    'com.android.externalstorage',
-    'com.android.gallery3d',
-    'com.android.providers.media.module',
-    'com.android.se',
-    'com.android.smspush',
-    'com.android.stk',
-    'com.sprd.fileexplorer',
-    'com.sprd.providers.photos',
-    'com.sprd.simple.launcher',
-  ];
-
-  const KILLABLE_SYSTEM_PACKAGES = [
-    'com.android.settings',
-  ];
-
-  const ensureStyle = () => {
-    if (document.getElementById(STYLE_ID)) return;
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = `
-      .matchi-memory-clean-btn[disabled] {
-        opacity: .65;
-        cursor: not-allowed;
-      }
-      #${PROGRESS_PANEL_ID} {
-        opacity: 0;
-        transform: translateX(-50%) translateY(-10px) scale(.98);
-        transition: opacity .22s ease, transform .22s ease;
-        pointer-events: none;
-      }
-      #${PROGRESS_PANEL_ID}.show {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0) scale(1);
-      }
-    `;
-    document.head.appendChild(style);
-  };
-
-  const ensureProgressUI = () => {
-    let panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
-    if (panel) return panel;
-    const html = `
-<div id="${PROGRESS_PANEL_ID}" style="
-  position:fixed;
-  left:50%;
-  top:20px;
-  transform:translateX(-50%);
-  z-index:999999;
-  min-width:300px;
-  max-width:92vw;
-  background:rgba(30,30,30,0.97);
-  color:#55b6ff;
-  border:1px solid rgba(85,182,255,0.35);
-  border-radius:12px;
-  box-shadow:0 8px 24px rgba(0,0,0,0.28);
-  padding:12px 14px;
-  display:block;
-">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-    <div id="${PROGRESS_TEXT_ID}" style="
-      font-size:13px;
-      line-height:1.4;
-      word-break:break-all;
-      flex:1;
-    ">Preparing...</div>
-    <div id="${PROGRESS_PERCENT_ID}" style="
-      font-size:13px;
-      font-weight:800;
-      color:#ffd36f;
-      white-space:nowrap;
-    ">0%</div>
-  </div>
-  <div style="
-    width:100%;
-    height:8px;
-    background:rgba(255,255,255,0.12);
-    border-radius:999px;
-    overflow:hidden;
-  ">
-    <div id="${PROGRESS_BAR_ID}" style="
-      width:0%;
-      height:100%;
-      background:linear-gradient(90deg,#55b6ff,#ffd36f);
-      border-radius:999px;
-      transition:width .2s ease;
-    "></div>
-  </div>
-</div>`;
-    document.body.insertAdjacentHTML('beforeend', html);
-    return document.querySelector(`#${PROGRESS_PANEL_ID}`);
-  };
-
-  const showProgress = (text, percent) => {
-    ensureProgressUI();
-    const panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
-    const textEl = document.querySelector(`#${PROGRESS_TEXT_ID}`);
-    const bar = document.querySelector(`#${PROGRESS_BAR_ID}`);
-    const percentEl = document.querySelector(`#${PROGRESS_PERCENT_ID}`);
-    const p = Math.max(0, Math.min(100, Number(percent) || 0));
-    if (panel) {
-      panel.classList.add('show');
-      state.progressVisible = true;
-    }
-    if (textEl) textEl.textContent = text || 'Processing...';
-    if (percentEl) percentEl.textContent = `${p}%`;
-    if (bar) bar.style.width = `${p}%`;
-  };
-
-  const hideProgress = () => {
-    const panel = document.querySelector(`#${PROGRESS_PANEL_ID}`);
-    if (!panel || !state.progressVisible) return;
-    panel.classList.remove('show');
-    state.progressVisible = false;
-  };
-
-  const setBusy = (button, busy) => {
-    state.busy = busy;
-    if (!button) return;
-    button.disabled = busy;
-    button.textContent = busy ? 'Cleaning...' : TITLE;
-  };
-
-  const formatMemory = (kb) => {
-    const size = Math.max(0, Number(kb) || 0) * 1024;
-    if (typeof formatBytes === 'function') {
-      return String(formatBytes(size)).replace(/&nbsp;/g, '').trim();
-    }
-    if (size >= 1024 ** 3) return `${(size / 1024 ** 3).toFixed(2)} GB`;
-    if (size >= 1024 ** 2) return `${(size / 1024 ** 2).toFixed(2)} MB`;
-    return `${(size / 1024).toFixed(2)} KB`;
-  };
-
-  const escapeSingleQuotes = (value = '') => String(value).replace(/'/g, `'\\''`);
-
-  const runRoot = async (cmd, timeout = 15000) => {
-    const res = await runShellWithRoot(cmd, timeout);
-    return {
-      ok: !!res?.success,
-      text: String(res?.content || '').trim(),
-    };
-  };
-
-  const buildCollectScript = () => {
-    const whitelistCases = WHITELIST_KEYWORDS
-      .map((item) => `    *${escapeSingleQuotes(item)}*) return 0 ;;`)
-      .join('\n');
-    const protectedCases = PROTECTED_PACKAGES
-      .map((item) => `    ${escapeSingleQuotes(item)}) return 0 ;;`)
-      .join('\n');
-    const killableSystemCases = KILLABLE_SYSTEM_PACKAGES
-      .map((item) => `    ${escapeSingleQuotes(item)}) return 0 ;;`)
-      .join('\n');
-
-    return `
-TMP_DIR="${DEVICE_TMP_DIR}"
-PKG_FILE="${DEVICE_PKG_FILE}"
-mkdir -p "$TMP_DIR"
-for d in /data/local/matchitool/tmp "$TMP_DIR"; do
-  [ -L "$d" ] && exit 1
-  [ "$(stat -c %u "$d" 2>/dev/null)" = 0 ] || exit 1
-done
-chmod 700 /data/local/matchitool/tmp "$TMP_DIR" 2>/dev/null
-: > "$PKG_FILE"
-
-read_mem_available() {
-  awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null
-}
-
-get_first_line() {
-  sh -c "$1" 2>/dev/null | head -n 1 | tr -d '\\r'
-}
-
-normalize_pkg() {
-  raw="$1"
-  raw="\${raw#package:}"
-  raw="\${raw%%:*}"
-  printf '%s' "$raw"
-}
-
-is_whitelisted() {
-  combined="$1"
-  case "$combined" in
-${whitelistCases}
-    *) return 1 ;;
-  esac
-}
-
-is_protected_pkg() {
-  pkg="$1"
-  [ -n "$pkg" ] || return 0
-  case "$pkg" in
-${protectedCases}
-    *) return 1 ;;
-  esac
-}
-
-is_killable_system_pkg() {
-  pkg="$1"
-  [ -n "$pkg" ] || return 1
-  case "$pkg" in
-${killableSystemCases}
-    *) return 1 ;;
-  esac
-}
-
-is_package_name() {
-  value="$1"
-  case "$value" in
-    *.*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-append_unique_line() {
-  value="$1"
-  file="$2"
-  [ -n "$value" ] || return 0
-  grep -Fxq "$value" "$file" 2>/dev/null && return 0
-  printf '%s\n' "$value" >> "$file"
-}
-
-is_running_pkg() {
-  pkg="$1"
-  [ -n "$pkg" ] || return 1
-  pidof "$pkg" >/dev/null 2>&1 && return 0
-  ps 2>/dev/null | awk -v pkg="$pkg" '
-    NR == 1 && $0 ~ /PID/ { next }
-    $NF == pkg || index($NF, pkg ":") == 1 { found = 1; exit }
-    END { exit(found ? 0 : 1) }
-  '
-}
-
-TOP_PKG="$(normalize_pkg "$(get_first_line "dumpsys activity top | grep -m 1 ' ACTIVITY ' | awk '{print \\$2}'")")"
-[ -n "$TOP_PKG" ] || TOP_PKG="$(normalize_pkg "$(get_first_line "dumpsys window windows | grep -m 1 'mCurrentFocus' | sed 's/.* \\([^ ]*\\)\\/[^ ]*.*/\\1/'")")"
-HOME_PKG="$(normalize_pkg "$(get_first_line "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1")")"
-IME_PKG="$(normalize_pkg "$(get_first_line "settings get secure default_input_method")")"
-before_kb="$(read_mem_available)"
-[ -n "$before_kb" ] || before_kb=0
-
-pm list packages -3 2>/dev/null | while IFS= read -r raw_pkg; do
-  pkg="$(normalize_pkg "$raw_pkg")"
-  is_package_name "$pkg" || continue
-  [ "$pkg" = "$TOP_PKG" ] && continue
-  [ "$pkg" = "$HOME_PKG" ] && continue
-  [ "$pkg" = "$IME_PKG" ] && continue
-  is_protected_pkg "$pkg" && continue
-  is_whitelisted "$pkg" && continue
-  is_running_pkg "$pkg" || continue
-  append_unique_line "$pkg" "$PKG_FILE"
-done
-
-pm list packages 2>/dev/null | while IFS= read -r raw_pkg; do
-  pkg="$(normalize_pkg "$raw_pkg")"
-  is_killable_system_pkg "$pkg" || continue
-  [ "$pkg" = "$TOP_PKG" ] && continue
-  is_running_pkg "$pkg" || continue
-  append_unique_line "$pkg" "$PKG_FILE"
-done
-
-sort -u "$PKG_FILE" -o "$PKG_FILE" 2>/dev/null
-pkg_count="$(awk 'NF{c++} END{print c+0}' "$PKG_FILE" 2>/dev/null)"
-printf 'COLLECT|%s|%s\n' "$before_kb" "$pkg_count"
-`;
-  };
-
-  const buildStopScript = () => `
-PKG_FILE="${DEVICE_PKG_FILE}"
-stopped=0
-if [ -s "$PKG_FILE" ]; then
-  while IFS= read -r pkg; do
-    [ -n "$pkg" ] || continue
-    am force-stop "$pkg" >/dev/null 2>&1
-    stopped=$((stopped + 1))
-  done < "$PKG_FILE"
-fi
-printf 'STOP|%s\n' "$stopped"
-`;
-
-  const buildTrimScript = () => `
-trim_ok=0
-if cmd activity idle-maintenance >/dev/null 2>&1; then
-  trim_ok=1
-fi
-if am kill-all >/dev/null 2>&1; then
-  trim_ok=1
-fi
-printf 'TRIM|%s\n' "$trim_ok"
-`;
-
-  const buildReclaimScript = () => `
-read_mem_available() {
-  awk '/MemAvailable:/ {print $2; exit}' /proc/meminfo 2>/dev/null
-}
-
-sync
-[ -w /proc/sys/vm/stat_interval ] && echo 1 > /proc/sys/vm/stat_interval 2>/dev/null
-[ -w /proc/sys/vm/swappiness ] && echo 100 > /proc/sys/vm/swappiness 2>/dev/null
-[ -w /proc/sys/vm/drop_caches ] && echo 3 > /proc/sys/vm/drop_caches
-[ -w /proc/sys/vm/compact_memory ] && echo 1 > /proc/sys/vm/compact_memory
-for cg in /sys/fs/cgroup/memory /dev/memcg /sys/fs/cgroup; do
-  [ -w "$cg/memory.reclaim" ] && echo 64M > "$cg/memory.reclaim" 2>/dev/null
-done
-for zdev in /sys/block/zram*; do
-  [ -e "$zdev" ] || continue
-  [ -w "$zdev/idle" ] && echo all > "$zdev/idle" 2>/dev/null
-  [ -w "$zdev/compact" ] && echo 1 > "$zdev/compact" 2>/dev/null
-  [ -w "$zdev/writeback" ] && echo huge > "$zdev/writeback" 2>/dev/null
-done
-sleep 0.2
-after_kb="$(read_mem_available)"
-[ -n "$after_kb" ] || after_kb=0
-printf 'RECLAIM|%s\n' "$after_kb"
-`;
-
-  const buildCleanupScript = () => `
-rm -rf "${DEVICE_TMP_DIR}"
-`;
-
-  const parseTaggedLine = (text, tag) =>
-    String(text || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .reverse()
-      .find((line) => line.startsWith(`${tag}|`));
-
-  const collectTargets = async () => {
-    const res = await runRoot(buildCollectScript(), 30000);
-    if (!res.ok) return { ok: false, message: 'Failed to scan cleanup targets' };
-    const line = parseTaggedLine(res.text, 'COLLECT');
-    if (!line) return { ok: false, message: 'Failed to scan cleanup targets' };
-    const [, beforeRaw, countRaw] = line.split('|');
-    return {
-      ok: true,
-      beforeKb: Number(beforeRaw) || 0,
-      pkgCount: Number(countRaw) || 0,
-    };
-  };
-
-  const stopTargets = async (count) => {
-    const res = await runRoot(buildStopScript(), Math.min(100000, Math.max(10000, 5000 + 1500 * (Number(count) || 0))));
-    if (!res.ok) return { ok: false, message: 'Failed to stop apps' };
-    const line = parseTaggedLine(res.text, 'STOP');
-    if (!line) return { ok: false, message: 'Failed to stop apps' };
-    const [, stoppedRaw] = line.split('|');
-    return {
-      ok: true,
-      stoppedCount: Number(stoppedRaw) || 0,
-    };
-  };
-
-  const trimProcesses = async () => {
-    const res = await runRoot(buildTrimScript(), 8000);
-    if (!res.ok) return { ok: false, message: 'System-level memory trim failed' };
-    const line = parseTaggedLine(res.text, 'TRIM');
-    if (!line) return { ok: false, message: 'System-level memory trim failed' };
-    const [, trimRaw] = line.split('|');
-    return {
-      ok: true,
-      trimApplied: Number(trimRaw) || 0,
-    };
-  };
-
-  const reclaimMemory = async () => {
-    const res = await runRoot(buildReclaimScript(), 8000);
-    if (!res.ok) return { ok: false, message: 'Memory reclaim failed' };
-    const line = parseTaggedLine(res.text, 'RECLAIM');
-    if (!line) return { ok: false, message: 'Memory reclaim failed' };
-    const [, afterRaw] = line.split('|');
-    return {
-      ok: true,
-      afterKb: Number(afterRaw) || 0,
-    };
-  };
-
-  const cleanupTemp = async () => {
-    await runRoot(buildCleanupScript(), 5000);
-  };
-
-  const executeCleanup = async () => {
-    showProgress('Initializing cleanup environment...', 6);
-    await cleanupTemp();
-
-    showProgress('Analyzing foreground app and launcher protection...', 14);
-    await runRoot('echo prepare', 2000);
-
-    showProgress('Scanning for apps that can be cleaned...', 26);
-    const collect = await collectTargets();
-    if (!collect.ok) return collect;
-
-    showProgress(`Found ${collect.pkgCount} targets, preparing to stop apps...`, 38);
-    await runRoot('test -f "' + DEVICE_PKG_FILE + '" && echo ready', 2000);
-
-    showProgress(`Found ${collect.pkgCount} targets, stopping apps...`, 54);
-    const stop = await stopTargets(collect.pkgCount);
-    if (!stop.ok) return stop;
-
-    showProgress('Running system-level memory trim...', 66);
-    const trim = await trimProcesses();
-    if (!trim.ok) return trim;
-
-    showProgress('Reclaiming cache...', 78);
-    await runRoot('sync', 4000);
-
-    showProgress('Running memory compaction and reclaim...', 90);
-    const reclaim = await reclaimMemory();
-    if (!reclaim.ok) return reclaim;
-
-    showProgress('Finishing up...', 97);
-    await cleanupTemp();
-
-    return {
-      ok: true,
-      beforeKb: collect.beforeKb,
-      afterKb: reclaim.afterKb,
-      releasedKb: Math.max(0, reclaim.afterKb - collect.beforeKb),
-      pkgCount: stop.stoppedCount || collect.pkgCount,
-      trimApplied: trim.trimApplied,
-    };
-  };
-
-  const handleClick = async (button) => {
-    if (state.busy) return;
-
-    setBusy(button, true);
-    showProgress('Preparing to clean memory...', 5);
-    try {
-      const result = await executeCleanup();
-      showProgress('Cleanup complete, refreshing display...', 100);
-      hideProgress();
-      if (!result.ok) {
-        await cleanupTemp();
-        createToast(result.message || 'Cleanup failed', 'red');
-        return;
-      }
-
-      const releasedText = formatMemory(result.releasedKb);
-      createToast(
-        `Cleanup complete, freed ${releasedText} of memory, processed ${result.pkgCount} apps`,
-        'green',
-        5000
-      );
-    } catch (error) {
-      hideProgress();
-      await cleanupTemp();
-      createToast(`Cleanup failed: ${error?.message || error || 'Unknown error'}`, 'red', 5000);
-    } finally {
-      hideProgress();
-      setBusy(button, false);
-    }
-  };
-
-  const button = document.createElement('button');
-  button.id = BTN_ID;
-  button.className = 'matchi-memory-clean-btn';
-  button.textContent = TITLE;
-  button.onclick = async () => {
-    await handleClick(button);
-  };
-
-  ensureStyle();
   const host = document.querySelector('.actions-buttons');
-  if (host) host.appendChild(button);
-})();
+  const M = window.MatchiMemClean;
+  if (!host || !M) return;
 
+  const LS_SKIP = 'matchi_memclean_skip', LS_REL = 'matchi_memclean_release';
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+  const skipped = () => { try { const a = JSON.parse(lsGet(LS_SKIP) || '[]'); return new Set(Array.isArray(a) ? a.filter((x) => M.PKG_RX.test(x)) : []); } catch (_) { return new Set(); } };
+
+  const sh = async (cmd, ms) => {
+    try { const r = await runShellWithRoot(cmd, ms); return { ok: !!(r && r.success), text: String((r && r.content) || '') }; }
+    catch (_) { return { ok: false, text: '' }; }
+  };
+  const scan = async () => {
+    const r = await sh(M.scanScript(), 30000);
+    const s = r.ok ? M.parseScan(r.text) : null;
+    return s && s.mem ? s : null;
+  };
+
+  let busy = false, current = null;     // current: the last scan shown in the window
+
+  const el = (tag, css, text) => { const e = document.createElement(tag); if (css) e.style.cssText = css; if (text != null) e.textContent = text; return e; };
+
+  function renderMem(box, mem) {
+    box.textContent = '';
+    if (!mem) return;
+    const used = Math.max(0, mem.totalKb - mem.availKb), pct = Math.min(100, Math.round(used * 100 / mem.totalKb));
+    box.appendChild(el('div', 'display:flex;justify-content:space-between;gap:8px;font-weight:700', 'Available ' + M.fmtKb(mem.availKb) + ' of ' + M.fmtKb(mem.totalKb)));
+    const bar = el('div', 'height:8px;border-radius:99px;background:var(--panel2);border:1px solid var(--bd);overflow:hidden;margin:6px 0 4px');
+    bar.appendChild(el('div', 'height:100%;width:' + pct + '%;background:linear-gradient(90deg,var(--acc),var(--acc2))'));
+    box.appendChild(bar);
+    box.appendChild(el('div', 'font-size:12px;color:var(--mut)', pct + '% in use' + (mem.swapTotalKb ? ' · swap ' + M.fmtKb(mem.swapTotalKb - mem.swapFreeKb) + ' of ' + M.fmtKb(mem.swapTotalKb) : '')));
+  }
+
+  function renderList(listBox, cands) {
+    listBox.textContent = '';
+    if (!cands.length) { listBox.appendChild(el('div', 'padding:14px 0;color:var(--mut)', 'No apps you installed are running in the background.')); return; }
+    const skip = skipped();
+    const head = el('div', 'display:flex;gap:8px;align-items:center;margin:10px 0 4px;color:var(--mut);font-size:12px');
+    head.appendChild(el('span', 'flex:1', cands.length + ' running app' + (cands.length === 1 ? '' : 's') + ', biggest first'));
+    for (const [label, on] of [['All', true], ['None', false]]) {
+      const b = el('button', 'padding:3px 10px;min-height:0;font-size:12px', label); b.type = 'button';
+      b.onclick = () => { listBox.querySelectorAll('input[data-pkg]').forEach((c) => { c.checked = on; }); saveSkips(listBox); updateTotal(listBox); };
+      head.appendChild(b);
+    }
+    listBox.appendChild(head);
+    const rows = el('div', 'max-height:42vh;overflow:auto;border:1px solid var(--bd);border-radius:10px');
+    cands.forEach((c, i) => {
+      const row = el('label', 'display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;' + (i ? 'border-top:1px solid var(--bd)' : ''));
+      const cb = el('input'); cb.type = 'checkbox'; cb.dataset.pkg = c.pkg; cb.dataset.kb = String(c.kb); cb.checked = !skip.has(c.pkg); cb.style.cssText = 'width:auto;min-height:0;flex:none';
+      cb.onchange = () => { saveSkips(listBox); updateTotal(listBox); };
+      row.appendChild(cb);
+      row.appendChild(el('span', 'flex:1;min-width:0;overflow-wrap:anywhere', c.pkg));
+      row.appendChild(el('span', 'color:var(--acc2);font-weight:700;white-space:nowrap', M.fmtKb(c.kb)));
+      rows.appendChild(row);
+    });
+    listBox.appendChild(rows);
+    listBox.appendChild(el('div', 'margin-top:6px;font-size:12px;color:var(--mut)')).id = MODAL + '_total';
+    updateTotal(listBox);
+  }
+  // A package you untick stays unticked the next time (it is remembered in this browser only).
+  function saveSkips(listBox) {
+    const off = [...listBox.querySelectorAll('input[data-pkg]')].filter((c) => !c.checked).map((c) => c.dataset.pkg);
+    const keep = [...skipped()].filter((p) => !listBox.querySelector('input[data-pkg="' + p + '"]'));   // those not on screen now stay remembered
+    lsSet(LS_SKIP, JSON.stringify([...new Set(keep.concat(off))].slice(0, 200)));
+  }
+  function updateTotal(listBox) {
+    const on = [...listBox.querySelectorAll('input[data-pkg]:checked')];
+    const t = document.getElementById(MODAL + '_total');
+    if (t) t.textContent = on.length ? on.length + ' selected, about ' + M.fmtKb(on.reduce((s, c) => s + Number(c.dataset.kb || 0), 0)) + ' held' : 'Nothing selected';
+  }
+
+  async function open() {
+    createModal({
+      name: MODAL, title: 'Clean memory', maxWidth: '520px', confirmBtnText: 'Stop selected', closeBtnText: 'Close',
+      onClose: () => !busy,
+      onConfirm: async () => { await clean(); return false; },
+      content: '<div id="' + MODAL + '_mem"></div><div id="' + MODAL + '_list"></div>' +
+        '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer"><input type="checkbox" id="' + MODAL + '_rel" style="width:auto;min-height:0"> Also release cached memory (drops the file cache, compacts memory)</label>' +
+        '<div id="' + MODAL + '_msg" style="margin-top:10px;min-height:1.4em;color:var(--mut)"></div>' +
+        '<div style="margin-top:8px"><button type="button" id="' + MODAL + '_rescan">Rescan</button></div>',
+    });
+    showModal(MODAL);
+    const rel = document.getElementById(MODAL + '_rel');
+    rel.checked = lsGet(LS_REL) !== '0';
+    rel.onchange = () => lsSet(LS_REL, rel.checked ? '1' : '0');
+    document.getElementById(MODAL + '_rescan').onclick = () => refresh();
+    await refresh();
+  }
+
+  const setMsg = (t, color) => { const m = document.getElementById(MODAL + '_msg'); if (m) { m.textContent = t; m.style.color = color || 'var(--mut)'; } };
+  const setButtons = (disabled) => {
+    for (const id of ['_confirm', '_close', '_rescan']) { const b = document.getElementById(MODAL + id); if (b) b.disabled = disabled; }
+  };
+
+  async function refresh() {
+    if (busy) return;
+    busy = true; setButtons(true); setMsg('Scanning…');
+    try {
+      const s = await scan();
+      if (!document.getElementById(MODAL)) return;
+      if (!s) { current = null; setMsg('Could not read the memory state. Root access is needed: check that root is granted to MatchiTOOL.', 'var(--danger)'); renderMem(document.getElementById(MODAL + '_mem'), null); renderList(document.getElementById(MODAL + '_list'), []); return; }
+      current = s;
+      renderMem(document.getElementById(MODAL + '_mem'), s.mem);
+      renderList(document.getElementById(MODAL + '_list'), M.candidates(s));
+      setMsg('');
+    } finally {
+      busy = false; setButtons(false);
+      const c = document.getElementById(MODAL + '_confirm'); if (c && !current) c.disabled = true;
+    }
+  }
+
+  async function clean() {
+    if (busy) return;
+    const listBox = document.getElementById(MODAL + '_list');
+    const chosen = new Set([...listBox.querySelectorAll('input[data-pkg]:checked')].map((c) => c.dataset.pkg));
+    const release = !!document.getElementById(MODAL + '_rel').checked;
+    if (!chosen.size && !release) { setMsg('Nothing selected.', 'var(--danger)'); return; }
+    busy = true; setButtons(true);
+    try {
+      // Scan again first: the app on screen may have changed since the window opened, and that one must never be stopped.
+      setMsg('Checking what is running…');
+      const fresh = await scan();
+      if (!fresh) { setMsg('Could not read the memory state, nothing was stopped.', 'var(--danger)'); return; }
+      const pkgs = M.candidates(fresh).map((c) => c.pkg).filter((p) => chosen.has(p));
+      setMsg(pkgs.length ? 'Stopping ' + pkgs.length + ' app' + (pkgs.length === 1 ? '' : 's') + (release ? ' and releasing memory' : '') + '…' : 'Releasing memory…');
+      const res = await sh(M.stopScript(pkgs, { release }), Math.min(100000, 15000 + 1500 * pkgs.length));
+      const r = M.parseResult(res.text);
+      if (!res.ok || !r.ok) { setMsg('The clean-up did not report back. Rescan to see the current state.', 'var(--danger)'); createToast('Memory clean-up failed', 'red'); return; }
+      const gain = r.afterKb - r.beforeKb;
+      const msg = 'Stopped ' + r.stopped + ' app' + (r.stopped === 1 ? '' : 's') + '. Available memory ' + M.fmtKb(r.beforeKb) + ' → ' + M.fmtKb(r.afterKb) +
+        (gain > 0 ? ' (+' + M.fmtKb(gain) + ')' : ' (no gain: Android may have restarted some apps)');
+      createToast(msg, gain > 0 ? 'green' : 'orange', 6000);
+      busy = false;
+      await refresh();
+      setMsg(msg, gain > 0 ? 'var(--good)' : 'var(--mut)');
+    } catch (e) {
+      console.error(e);
+      setMsg('Clean-up failed.', 'var(--danger)'); createToast('Memory clean-up failed', 'red');
+    } finally {
+      busy = false; setButtons(false);
+      const c = document.getElementById(MODAL + '_confirm'); if (c && !current) c.disabled = true;
+    }
+  }
+
+  const b = document.createElement('button');
+  b.id = BTN_ID; b.type = 'button'; b.textContent = LABEL;
+  b.onclick = () => { if (!busy) open(); };
+  host.appendChild(b);
+})();
 </script>
 <script type="text/plain" class="webtool" data-name="Change_IP.js">
 /*
@@ -7272,6 +6905,142 @@ function mountNetTools() {
 }
 
 /* @end-include web-src/net-tools.js */
+/* @include web-src/memclean-core.js */
+/* memclean-core.js: the logic of the Memory Cleaner tool, with no DOM and no network (scripts/test_memclean.js runs this file as it is).
+ *   scanScript()          one root shell script: memory numbers, the foreground / home / keyboard app, every process with its RSS, the user-installed packages.
+ *   parseScan(text)       its output -> {mem, top, home, ime, running: Map(pkg -> kB), user: [pkg]}
+ *   candidates(scan)      the apps that may be offered for stopping: user-installed, running now, and not protected, biggest first.
+ *   stopScript(pkgs, o)   the root script that stops the chosen apps, then (optionally) releases cached memory. Package names are checked here again.
+ *   parseResult(text)     its output -> {beforeKb, afterKb, stopped}
+ * Only apps the user installed (pm list packages -3) are ever offered. System packages are never touched. */
+(() => {
+  'use strict';
+
+  const PKG_RX = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
+
+  // Never offered, whatever the scan says: this app itself, and the apps that carry the router's connection (tunnels, proxies, root managers).
+  const KEEP_EXACT = new Set(['com.matchi.tool']);
+  const KEEP_PART = /easytier|mihomo|clash|v2ray|xray|sing-?box|wireguard|openvpn|tailscale|zerotier|magisk|apatch|kernelsu|ksu|sukisu|shizuku|termux/i;
+
+  const kb = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+
+  // "com.foo/.Main", "com.foo/com.foo.Main", "ComponentInfo{com.foo/...}" or a bare "com.foo" -> "com.foo". "", "null" -> ''.
+  function pkgOf(s) {
+    const t = String(s == null ? '' : s).trim();
+    if (!t || t === 'null') return '';
+    const m = t.match(/([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)(?:\/|$|\})/);
+    return m ? m[1] : '';
+  }
+  // The package of the app on screen. `dumpsys activity top` says "ACTIVITY com.foo/.Main ..."; mCurrentFocus is the fallback ("Window{x u0 com.foo/com.foo.Main}").
+  function topPkg(activityLine, focusLine) {
+    const a = String(activityLine || '').match(/ACTIVITY\s+([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)\//);
+    if (a) return a[1];
+    const f = String(focusLine || '').match(/\s([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)\/[^\s}]+\}?\s*$/);
+    return f ? f[1] : '';
+  }
+
+  function scanScript() {
+    return [
+      'echo "MEM|$(awk \'/^MemTotal:/{t=$2}/^MemAvailable:/{a=$2}/^SwapTotal:/{x=$2}/^SwapFree:/{y=$2}END{print t+0"|"a+0"|"x+0"|"y+0}\' /proc/meminfo)"',
+      'echo "TOP|$(dumpsys activity top 2>/dev/null | grep -m1 \' ACTIVITY \')"',
+      'echo "FOCUS|$(dumpsys window 2>/dev/null | grep -m1 mCurrentFocus)"',
+      'echo "HOME|$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -n 1)"',
+      'echo "IME|$(settings get secure default_input_method 2>/dev/null)"',
+      'P=$(ps -A -o RSS,NAME 2>/dev/null)',
+      'if [ -n "$P" ]; then echo "$P" | awk \'NR>1&&NF>=2{print "PS|"$1"|"$2}\'; else ps 2>/dev/null | awk \'NR>1&&NF>=5{print "PS|"$5"|"$NF}\'; fi',
+      'pm list packages -3 2>/dev/null | sed \'s/^package:/USR|/\'',
+    ].join('\n');
+  }
+
+  function parseScan(text) {
+    const out = { mem: null, top: '', home: '', ime: '', running: new Map(), user: [] };
+    let topLine = '', focusLine = '';
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const line = raw.replace(/\r$/, '');
+      const i = line.indexOf('|');
+      if (i < 0) continue;
+      const tag = line.slice(0, i), rest = line.slice(i + 1);
+      if (tag === 'MEM') {
+        const [t, a, st, sf] = rest.split('|');
+        if (kb(t) && kb(a)) out.mem = { totalKb: kb(t), availKb: kb(a), swapTotalKb: kb(st), swapFreeKb: kb(sf) };
+      } else if (tag === 'TOP') topLine = rest;
+      else if (tag === 'FOCUS') focusLine = rest;
+      else if (tag === 'HOME') out.home = pkgOf(rest);
+      else if (tag === 'IME') out.ime = pkgOf(rest);
+      else if (tag === 'PS') {
+        const [r, name] = rest.split('|');
+        const base = String(name || '').split(':')[0];     // "com.foo:remote" is a process of com.foo
+        if (PKG_RX.test(base)) out.running.set(base, (out.running.get(base) || 0) + kb(r));
+      } else if (tag === 'USR') {
+        const p = rest.trim();
+        if (PKG_RX.test(p) && !out.user.includes(p)) out.user.push(p);
+      }
+    }
+    out.top = topPkg(topLine, focusLine);
+    return out;
+  }
+
+  function isProtected(pkg, scan) {
+    if (!PKG_RX.test(pkg)) return true;
+    if (KEEP_EXACT.has(pkg) || KEEP_PART.test(pkg)) return true;
+    return !!scan && (pkg === scan.top || pkg === scan.home || pkg === scan.ime);
+  }
+
+  function candidates(scan) {
+    const list = [];
+    for (const pkg of (scan && scan.user) || []) {
+      if (!scan.running.has(pkg) || isProtected(pkg, scan)) continue;
+      list.push({ pkg, kb: scan.running.get(pkg) });
+    }
+    return list.sort((a, b) => b.kb - a.kb || (a.pkg < b.pkg ? -1 : 1));
+  }
+
+  // opts.release: also sync, drop the page cache and compact memory. Nothing outside the stopped apps is changed permanently (no sysctl is written to stay).
+  function stopScript(pkgs, opts) {
+    const list = [...new Set((pkgs || []).filter((p) => PKG_RX.test(p) && !KEEP_EXACT.has(p)))];
+    const o = opts || {};
+    return [
+      'MA() { awk \'/^MemAvailable:/{print $2; exit}\' /proc/meminfo; }',
+      'echo "BEFORE|$(MA)"',
+      'n=0',
+      ...list.map((p) => `am force-stop '${p}' >/dev/null 2>&1 && n=$((n+1))`),
+      'echo "STOPPED|$n"',
+      'sleep 1',
+      ...(o.release ? [
+        'sync',
+        '[ -w /proc/sys/vm/drop_caches ] && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null',
+        '[ -w /proc/sys/vm/compact_memory ] && echo 1 > /proc/sys/vm/compact_memory 2>/dev/null',
+        'sleep 1',
+      ] : []),
+      'echo "AFTER|$(MA)"',
+    ].join('\n');
+  }
+
+  function parseResult(text) {
+    const r = { beforeKb: 0, afterKb: 0, stopped: 0, ok: false };
+    let seenBefore = false, seenAfter = false;
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const m = raw.trim().match(/^(BEFORE|AFTER|STOPPED)\|(\d+)$/);
+      if (!m) continue;
+      if (m[1] === 'BEFORE') { r.beforeKb = kb(m[2]); seenBefore = true; }
+      else if (m[1] === 'AFTER') { r.afterKb = kb(m[2]); seenAfter = true; }
+      else r.stopped = Number(m[2]);
+    }
+    r.ok = seenBefore && seenAfter && r.beforeKb > 0 && r.afterKb > 0;
+    return r;
+  }
+
+  function fmtKb(v) {
+    const n = Math.max(0, Number(v) || 0);
+    if (n >= 1048576) return (n / 1048576).toFixed(2) + ' GB';
+    if (n >= 1024) return Math.round(n / 1024) + ' MB';
+    return Math.round(n) + ' KB';
+  }
+
+  window.MatchiMemClean = { PKG_RX, pkgOf, topPkg, scanScript, parseScan, isProtected, candidates, stopScript, parseResult, fmtKb };
+})();
+
+/* @end-include web-src/memclean-core.js */
 /* PLUGIN-API-BEGIN */
 /* @include web-src/plugin-host-api.js */
 /* ===== MatchiTOOL plugin API ===================================================================
