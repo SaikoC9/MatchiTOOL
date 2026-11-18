@@ -153,7 +153,7 @@ state.api = async (p, o) => { calls.push([p, JSON.parse(o.body)]); return env._a
 
   // ---- window.matchi ----
   const X = win.matchi;
-  eq(['base64','copy','debounce','escapeHtml','form','formatBytes','hasRoot','interval','loading','menu','modal','panel','root','router','sh','switch','toast','user','wait'].sort(), Object.keys(X).sort(), 'matchi members');
+  eq(['base64','copy','debounce','escapeHtml','form','formatBytes','hasRoot','interval','loading','menu','modal','panel','root','router','sh','status','switch','toast','user','wait'].sort(), Object.keys(X).sort(), 'matchi members');
   ok(Object.isFrozen(X) && Object.isFrozen(X.modal), 'matchi is frozen (a plugin cannot replace the API)');
   X.toast('hello', 'red'); eq(['hello', 'red', undefined, undefined], tmp.toasts[0], 'matchi.toast calls the page toast');
   await X.copy('abc'); eq(['abc'], tmp.copied, 'matchi.copy calls the page copy');

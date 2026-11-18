@@ -703,6 +703,11 @@ html body #home .matchi-menu-box{display:grid!important;grid-template-columns:re
 html body #home .matchi-menu-box>button{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;width:100%;min-height:34px!important;padding:5px 7px 5px 20px!important;border-radius:9px!important;border:1px solid var(--bd)!important;background:var(--panel2)!important;color:var(--fg);font-size:clamp(10.5px,.85vw,12px)!important;line-height:1.15!important;text-align:center;white-space:normal;overflow-wrap:anywhere}
 html body #home .matchi-menu-box>button::before{content:"";position:absolute;left:8px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:2px;background:var(--acc2)}
 @media(hover:hover){html body #home .matchi-menu-box>button:hover{border-color:var(--acc)!important;background:#17365c!important}}
+html body #home .matchi-menu-box>button[data-status]::before{border-radius:50%}
+html body #home .matchi-menu-box>button[data-status="on"]::before{background:var(--good)}
+html body #home .matchi-menu-box>button[data-status="off"]::before{background:var(--danger)}
+html body #home .matchi-menu-box>button[data-status="on"]{border-color:rgba(57,214,160,.5)!important}
+html body #home .matchi-menu-box>button[data-status="off"]{border-color:rgba(255,113,135,.5)!important}
 @media(max-width:760px){
 html body #home .matchi-menu-box{gap:4px!important}
 html body #home .matchi-menu-box>button{min-height:32px!important;padding:4px 5px 4px 17px!important;border-radius:8px!important;font-size:clamp(9.5px,2.9vw,12px)!important}
@@ -7278,6 +7283,7 @@ function mountNetTools() {
  *   matchi.hasRoot()                       true when the root shell answers as root
  *   matchi.copy(text)                      copy to the clipboard, resolves true or false
  *   matchi.menu()                          the "Plugin actions" box on the home page (put your buttons in it)
+ *   matchi.status(button, true|false|null) colours the dot on a Plugin actions button: green = running, red = not running, null = unknown
  *   matchi.router.get(cmd) / .set(params)  read or write the router through the host's saved sign-in
  *   matchi.sh                              shell helpers: q, run (long jobs), upload, download, lanIp, paths
  *   matchi.escapeHtml, formatBytes, wait, debounce, interval, base64, panel, switch, loading, form
@@ -7583,6 +7589,14 @@ async function checkRoot(){
 }
 /* UTF-8 safe base64 of a string (btoa alone throws on non-Latin-1 text). */
 function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+/* Running light for a button in the Plugin actions box: true = green, false = red, null/undefined = no light. Only a data attribute and a tooltip; the page CSS draws it. */
+function matchiStatus(el,on){
+  if(!el||typeof el.setAttribute!=='function')return false;
+  if(on===true){el.setAttribute('data-status','on');el.setAttribute('title','Running')}
+  else if(on===false){el.setAttribute('data-status','off');el.setAttribute('title','Not running')}
+  else{el.removeAttribute('data-status');el.removeAttribute('title')}
+  return true;
+}
 /* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box. */
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
@@ -7619,6 +7633,7 @@ window.matchi=Object.freeze({
   hasRoot:()=>checkRoot(),
   copy:(text)=>copyText(text),
   menu:()=>document.querySelector('.matchi-menu-box'),
+  status:(el,on)=>matchiStatus(el,on),
   router:matchiRouter,
   sh:matchiSh,
   escapeHtml,formatBytes,wait,debounce,

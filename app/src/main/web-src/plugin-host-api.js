@@ -7,6 +7,7 @@
  *   matchi.hasRoot()                       true when the root shell answers as root
  *   matchi.copy(text)                      copy to the clipboard, resolves true or false
  *   matchi.menu()                          the "Plugin actions" box on the home page (put your buttons in it)
+ *   matchi.status(button, true|false|null) colours the dot on a Plugin actions button: green = running, red = not running, null = unknown
  *   matchi.router.get(cmd) / .set(params)  read or write the router through the host's saved sign-in
  *   matchi.sh                              shell helpers: q, run (long jobs), upload, download, lanIp, paths
  *   matchi.escapeHtml, formatBytes, wait, debounce, interval, base64, panel, switch, loading, form
@@ -312,6 +313,14 @@ async function checkRoot(){
 }
 /* UTF-8 safe base64 of a string (btoa alone throws on non-Latin-1 text). */
 function encodeBase64(v){const b=new TextEncoder().encode(String(v==null?'':v));let s='';for(let i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,i+8192));return btoa(s)}
+/* Running light for a button in the Plugin actions box: true = green, false = red, null/undefined = no light. Only a data attribute and a tooltip; the page CSS draws it. */
+function matchiStatus(el,on){
+  if(!el||typeof el.setAttribute!=='function')return false;
+  if(on===true){el.setAttribute('data-status','on');el.setAttribute('title','Running')}
+  else if(on===false){el.setAttribute('data-status','off');el.setAttribute('title','Not running')}
+  else{el.removeAttribute('data-status');el.removeAttribute('title')}
+  return true;
+}
 /* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box. */
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
@@ -348,6 +357,7 @@ window.matchi=Object.freeze({
   hasRoot:()=>checkRoot(),
   copy:(text)=>copyText(text),
   menu:()=>document.querySelector('.matchi-menu-box'),
+  status:(el,on)=>matchiStatus(el,on),
   router:matchiRouter,
   sh:matchiSh,
   escapeHtml,formatBytes,wait,debounce,
