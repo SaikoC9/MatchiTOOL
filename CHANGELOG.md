@@ -1,7 +1,7 @@
 # Unreleased, after 1.4.4 - matchi-doctor is bundled (Phase 5, step 1 binary)
 
 - **matchi-doctor is in the APK.** The read-only diagnostics program from `tools/doctor/` (built by `build-doctor.yml`, `go vet` and `go test` passed) is in `assets/bin/`, copied to the files folder at start like `zreq`, and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`). SHA-256 `5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471`.
-- **Nothing calls it yet.** The Full diagnose route is unchanged; that is Phase 5 step 2. The F50 tests D5-1 to D5-8 (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`) are not recorded yet.
+- **Nothing calls it yet.** The Full diagnose route is unchanged; that is Phase 5 step 2. **Tested on the F50 (MU300, root, 19 Nov 2026):** D5-1 to D5-8 all passed (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`): 9 checks ok, a RIL-held port reported and not touched, a mismatching or missing file reported, 0.09 s, no process left behind, mobile data stayed up, quiet exit on a closed pipe, bad input exits 2.
 
 # Unreleased, after 1.4.4 - optional "Fast sampler" for the Live panel (Phase 4)
 

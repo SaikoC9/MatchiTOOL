@@ -21,8 +21,11 @@ WHAT IS DONE IN STEP 1 (in the repo; nothing here was compiled or run: there is 
 [DONE] 6. Tests (main_test.go): fake /proc, /sys, /data, /dev in a temp folder with the F50 values from 2026-11-19, loopback HTTP and
           TLS servers, a fake sendat. Every status of every check, the held-port cases, the command line, the one-line output.
 [DONE] 7. .github/workflows/build-doctor.yml (copy of build-sampler.yml: go vet, go test, static arm64 build, SHA-256 in the summary).
-[OPEN] 8. Run "Build matchi-doctor" on GitHub. This is the first time the code is compiled: if go vet or go test fails, paste the log.
-[OPEN] 9. Device tests D5-1 to D5-8 below.
+[DONE] 8. "Build matchi-doctor" ran on GitHub (go vet, go test and the arm64 build passed). Artifact matchitool-doctor-arm64, SHA-256
+          5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471.
+[DONE] 9. Device tests D5-1 to D5-8 below: all passed on the F50, 19 Nov 2026 (see RESULTS).
+
+STATUS 19 Nov 2026: step 1 is finished and tested; the binary is bundled in the APK (assets/bin/matchi-doctor, hashes registered). Step 2 (the call from Full diagnose) is not started.
 
 ORDER TO PUT IT IN
  1. Unzip MatchiTOOL-phase5-step1-changes.zip over the repo (new files only: tools/doctor/*, the workflow, this txt).
@@ -79,7 +82,31 @@ D5-8  odd input
     su -c '/data/local/tmp/matchi-doctor -hash sendat=abc; echo exit=$?'   -> message and exit=2
 
 RESULTS (F50)
-Nothing run yet.
+Run 19 Nov 2026 on the F50 (MU300, root) with the binary bundled in the APK (/data/data/com.matchi.tool/files/matchi-doctor), from a Fedora PC over adb.
+D5-1 PASS  "matchi-doctor 1.0 (MatchiTOOL)".
+D5-2 PASS  summary fail 0, ok 9: root uid 0; SELinux Permissive; memory 39 % free (568 of 1467 MB); /data 21 % used, 18630 MB free, inodes 20 %;
+           ca 125 certificates read from /system/etc/security/cacerts, curl bundle 125; tls TLS 1.3 to example.com:443 verified;
+           router answers HTTP on 192.168.0.1:8080 (200); at ok on /dev/stty_nr6 (19 ms); binaries 6 files all ok.
+D5-3 PASS  pinned /dev/stty_nr0: warn, "held by urild (pid 667); not touched". -conf /nonexistent with -sendat given: ok, "default port for
+           slot 0" (19 ms). (A first try without -sendat answered "sendat is missing": that was the test command, not the program.)
+D5-4 PASS  0.09 s real with the router answering.
+D5-5 PASS  fail: "curl: does not match the build (arm64 ELF, 6598192 bytes); nosuch: missing", with the restart hint.
+D5-6 PASS  no matchi-doctor or sendat process left after 10 runs; ping 1.1.1.1 3/3, 0 % loss.
+D5-7 PASS  300 characters, quiet exit.
+D5-8 PASS  "-skip nonsense" and "-hash sendat=abc" both print a message and exit=2.
+COMPARISON WITH THE PAGE'S FULL DIAGNOSE (same device, same minute; page: 56 PASS, 1 WARN, 0 FAIL, the WARN being SIM slot 1, which the doctor skips on purpose):
+  root          uid 0 on both.
+  selinux       Permissive on both.
+  memory        39 % free on both.
+  storage       mount options identical; inodes 20 % on both; space 21 % (doctor) against 20 % (page, df-style). One point apart, probably the
+                minutes between the runs or the rounding; far from the 95 % warning, so no status changes. Not chased.
+  router        HTTP on 8080 (doctor); the page lists 8080, 9090 and 9999 listening.
+  at            slot 0 ok on both (doctor: /dev/stty_nr6, 19 ms).
+  binaries      page lists 7 files ok, matchi-doctor included (the doctor's own run got 6 -hash values, the ones it was given).
+  ca, tls       no page check yet; ok on the doctor (125 certificates, TLS 1.3).
+  Live signal / AT & Radio: loaded and answering on the page (Live Status lists its sources, AT queries OK, VoLTE query works).
+  Result: the doctor's lines match the page's checks. The plan's "done when" for the program itself is met; the call from Full diagnose is step 2.
+Cosmetic, not fixed: with sendat missing the detail reads "sendat is missing or not executable ()" (empty path).
 
 STEP 2 (after D5-1 to D5-8 pass; not started, needs the real binary)
  - app/src/main/assets/bin/matchi-doctor; name added to BinaryHashes.kt (scripts/gen_binary_hashes.py NAMES), NOTICE.md, docs/BINARIES.md,
