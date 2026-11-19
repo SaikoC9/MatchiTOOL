@@ -1,24 +1,25 @@
 # Unreleased, after 1.4.4 - optional "Fast sampler" for the Live panel (Phase 4)
 
-Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build is what confirms the rest. Not run on the F50 yet.
+Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build compiled the rest. Tested on the F50 (MU300, root), 19 Nov 2026.
 
 - **matchi-sampler is bundled.** The small Go program from `tools/sampler/` (built by `build-sampler.yml`) is now in `assets/bin/`, copied to the app's files folder with the other binaries and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`).
 - **New setting, off by default:** a "Fast sampler" button under Live device status (shown only when the program is installed and intact). When it is on, the Live panel's root reader runs `matchi-sampler` instead of the shell loop. It prints the same line, so `LiveScript.parse` and the page did not change. New route `POST /api/live/engine` (same gate as the stream) and `GET /api/live/engine`; the setting is `Prefs.liveBinary`.
 - **The shell loop stays as the fallback.** The program is used only if the setting is on and `BinaryCheck.problem` says the file is the one the app was built with. If a reader that ran it ends without a single reading twice in a row, `LiveSampler` uses the shell loop from then on (until the Live reader is stopped and started again) and writes a WARNING to the log. Switching the setting restarts a running reader at once.
 - **Tests:** `LiveEngineTest` (command line, odd paths refused, rules for using the program, the fallback and its limits); `BinaryHashesFileTest`, `test_route_gates.py`, `check_sources.py` and `test_update_binary_hashes.py` know the new file and routes.
 - **Measuring:** `scripts/measure_live_cpu.sh` prints the CPU the reader and the app used over a window, for the before/after comparison.
-- **Run on the F50:** nothing yet. Test steps are in `docs/MatchiTOOL_Binaries_Phase4_todo.txt`.
+- **Tested on the F50 (MU300, root, 19 Nov 2026):** the installed file matches the build hash; `matchi-sampler -rounds 3` prints the same line as the shell loop (8 cores, the same 16-zone cap); turning the setting on and off swaps the reader within seconds; closing the Live tab or force-stopping the app ends the program; a file that cannot run (`chmod 644`) falls back to the shell loop with the WARNING in the log; a changed file is refused and removed and comes back at the next host start; with the file missing the button is hidden and `POST /api/live/engine` answers 409.
+- **CPU over 300 s in Live (1 s) mode, tab visible:** shell loop 2.82 % of one core, `matchi-sampler` 1.22 %, so the reader uses about 57 % less. The app itself stays about the same (1.11 % and 0.98 %, the parser is unchanged); reader and app together went from 3.93 % to 2.20 %, about 44 % less. The setting stays off by default.
 
 # Unreleased, after 1.4.4 - bundled binaries are checked before they run
 
-Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Not run on the F50 yet.
+Kotlin written without a compiler at hand; the CI build and the unit tests confirmed it, and the start-up check was run on the F50 (see the last point).
 
 - **Hash check:** the app now knows the SHA-256 of `sendat`, `curl`, `jq`, `sha256` and `zreq` as they were when it was built (`BinaryHashes.kt`, written by `scripts/gen_binary_hashes.py`; `validate.sh` and `BinaryHashesFileTest` fail when it does not match `assets/bin`). The copies in the app's files folder are compared with it at every start, not with the file inside the APK as before.
 - **A file that does not match is not run:** at start the copy is made again; a copy that still does not match is deleted and logged as an error. Before every `sendat` call (AT console, AT batch, plugin AT, Live signal, IMEI keeper) the file is checked again, cheaply: it is hashed again only when its size or modified time changed. A changed `sendat` is deleted and the call answers with a plain message instead of running it. `curl`, `jq` and `zreq` are called by path from scripts, so for them the start-up check and the delete are the protection.
 - **Permissions:** a bundled file that other users can write is changed to owner-write only, and a files folder that other users can write is logged. The files stay world-executable, as before.
 - **Full diagnose** has a new section, `bundled binaries`, with one line per file (ok, not installed, different from the build, or refused and why).
 - **Release pipeline:** `update_binary_hashes.py` writes `BinaryHashes.kt` again, and the pull request that `release-tools.yml` opens carries it.
-- **Run on the F50:** nothing yet. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
+- **Run on the F50 (19 Nov 2026, during the Phase 4 tests):** a bundled file that was changed by hand was refused and deleted, and the original was copied back at the next host start; the log shows the warning for a files folder that other users can write. Not run yet: the per-call `sendat` check and the `bundled binaries` lines in Full diagnose. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
 
 # Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
 
