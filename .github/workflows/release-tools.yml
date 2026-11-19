@@ -115,7 +115,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add app/src/main/assets/bin NOTICE.md docs/BINARIES.md
+          git add app/src/main/assets/bin app/src/main/java/com/matchi/tool/BinaryHashes.kt NOTICE.md docs/BINARIES.md
           git commit -m "Rebuilt bundled binaries (workflow run ${GITHUB_RUN_NUMBER})"
           git push origin "$BRANCH"
           {
