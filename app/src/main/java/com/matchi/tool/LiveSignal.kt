@@ -60,6 +60,7 @@ object LiveSignal {
     fun read(ctx: Context): SignalInfo {
         val battery = batteryPercent(ctx)
         val sendat = File(ctx.filesDir, "sendat").absolutePath
+        BinaryCheck.problem(ctx, "sendat")?.let { why -> return SignalInfo(false, 0, null, "", "", "", "", "", null, null, battery, why) }
         val script = listOf(
             "echo '##ID'; id -u",
             "echo '##COPS'; \"$sendat\" -n 0 -c 'AT+COPS?' 2>/dev/null",

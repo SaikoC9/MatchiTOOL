@@ -75,19 +75,29 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         // sendat (MatchiTOOL's own Go build, tools/sendat) talks to the modem for AT commands. It is a native binary, so it stays in the APK.
         val sendat = File(ctx.filesDir, "sendat")
         var copied = true
-        if (refresh || !intact("bin/sendat", sendat)) copied = installSendat(sendat)
+        if (refresh || !intact("sendat", sendat)) copied = installSendat(sendat)
         try { sendat.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // curl (arm64, built by build-binaries.yml) is for plugins that download files (for example ADGuard Home). Android has no curl.
         val curl = File(ctx.filesDir, "curl")
-        if (refresh || !intact("bin/curl", curl)) installBundledBinary("bin/curl", curl)
+        if (refresh || !intact("curl", curl)) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // jq, sha256 and zreq (arm64, MatchiTOOL's own builds) are for plugins that run them from this app's files folder
         // (/data/data/<this app>/files/NAME). Same copy-then-rename as curl.
         for (tool in BUNDLED_TOOLS) {
             val dest = File(ctx.filesDir, tool)
-            if (refresh || !intact("bin/$tool", dest)) installBundledBinary("bin/$tool", dest)
+            if (refresh || !intact(tool, dest)) installBundledBinary("bin/$tool", dest)
             try { dest.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         }
+        // Last word on every file: whatever is on disk now must be the build's file. A copy that failed and left an old or damaged
+        // file behind is removed here, so it cannot be run as root. A failed copy is tried again at the next start.
+        for (name in BinaryHashes.names()) {
+            val f = File(ctx.filesDir, name)
+            if (f.exists() && BinaryGuard.verdict(name, BinaryGuard.hashFile(f)) == BinaryGuard.Verdict.MISMATCH) {
+                BinaryCheck.reject(ctx, name, "the file on disk does not match the hash from the build")
+                copied = false
+            } else if (f.exists()) BinaryGuard.clearRefusal(name)
+        }
+        BinaryCheck.checkPermissions(ctx)
         // Only remember the version when the copy worked, so a failed copy is tried again at the next start.
         if (refresh && copied) Prefs.setSeededVersion(ctx, ver)
     }
@@ -99,22 +109,21 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
      */
     private fun copyAsset(asset: String, tmp: File) {
         ctx.assets.open(asset).use { i -> java.io.FileOutputStream(tmp).use { o -> i.copyTo(o); o.flush(); o.fd.sync() } }
+        // The copy must be the file the build was made with. If it is not (a bad write, or a hash list that was not regenerated),
+        // it is never renamed into place.
+        val name = asset.substringAfterLast('/')
+        if (BinaryGuard.verdict(name, BinaryGuard.hashFile(tmp)) == BinaryGuard.Verdict.MISMATCH)
+            throw java.io.IOException("the copy of $name does not match the hash from the build")
     }
 
-    private fun sha256Of(s: java.io.InputStream): String {
-        val md = MessageDigest.getInstance("SHA-256"); val b = ByteArray(65536)
-        while (true) { val n = s.read(b); if (n < 0) break; md.update(b, 0, n) }
-        return md.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    /** True when [dest] exists and is byte-for-byte the bundled [asset]. A damaged copy (zeros, truncated) is copied again at the next start. */
-    private fun intact(asset: String, dest: File): Boolean {
+    /** True when [dest] exists and is exactly the file the build was made with ([BinaryHashes]). A damaged or replaced copy is copied again at the next start. */
+    private fun intact(name: String, dest: File): Boolean {
         if (!dest.exists()) return false
-        return try {
-            val ok = dest.inputStream().use { sha256Of(it) } == ctx.assets.open(asset).use { sha256Of(it) }
-            if (!ok) LogCatcher.log("WARNING", "WebServer", "${dest.name} is damaged (does not match the bundled copy), copying it again")
-            ok
-        } catch (e: Exception) { Quiet.note("WebServer.intact", e); false }
+        return when (BinaryGuard.verdict(name, BinaryGuard.hashFile(dest))) {
+            BinaryGuard.Verdict.OK -> true
+            BinaryGuard.Verdict.MISMATCH -> { LogCatcher.log("WARNING", "WebServer", "$name does not match the hash from the build, copying it again"); false }
+            else -> false
+        }
     }
 
     /**

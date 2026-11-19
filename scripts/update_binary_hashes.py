@@ -6,10 +6,14 @@ Usage: update_binary_hashes.py <folder holding curl, jq, sendat and zreq> [repo 
 For each binary: if its hash differs from the one in assets/bin, the old hash is replaced by the new one in NOTICE.md
 (it must be there, scripts/check_repo.py needs it) and in docs/BINARIES.md (if it is there), and the file is copied over.
 Nothing is written unless all four binaries can be handled. Only hashes change: the version words in those two files
-(Go, curl, OpenSSL, jq) are for a person to update.
+(Go, curl, OpenSSL, jq) are for a person to update. When the repo has BinaryHashes.kt (the list the app checks its copies against),
+it is written again from the new files, with scripts/gen_binary_hashes.py.
 """
 import hashlib, shutil, sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gen_binary_hashes
 
 NAMES = ('curl', 'jq', 'sendat', 'zreq')
 
@@ -50,6 +54,10 @@ def main(argv):
         path.write_text(text, encoding='utf-8')
     for new_file, old_file in copies:
         shutil.copyfile(new_file, old_file)    # keeps the mode of the existing file
+    kt = root / gen_binary_hashes.TARGET
+    if copies and kt.is_file():
+        kt.write_text(gen_binary_hashes.render(root), encoding='utf-8')
+        report.append('BinaryHashes.kt: written again')
     print('\n'.join(report))
     return 0
 

@@ -1,0 +1,70 @@
+MatchiTOOL - new binaries plan, PHASE 3: runtime hash check in the app
+Built on MatchiTOOL-main (v1.4.4) + MatchiTOOL-phase2-changes.zip. Written 2026-11-19.
+
+WHAT IS DONE (in the repo, not compiled here, not run on the F50)
+[DONE] 1. BinaryHashes.kt: SHA-256 of sendat, curl, jq, sha256, zreq. Written by scripts/gen_binary_hashes.py from assets/bin.
+          (Plan said "at build time". It is a checked-in file instead, same way build-web.js / index.html work: validate.sh
+          --check and BinaryHashesFileTest fail when it is stale. Reason: I could not run Gradle here, so a Gradle task
+          would have been untested.)
+[DONE] 2. WebServer.kt: intact() now compares the copy with the build hash (before: with the file inside the APK). A copy is
+          checked before it is renamed into place. After start-up a file that still does not match is deleted and logged (ERROR).
+          Before each sendat call (AT console, AT batch, plugin AT, Live signal, IMEI keeper) BinaryCheck.problem() runs; it hashes
+          again only if size or modified time changed.
+[DONE] 3. Permissions: bundled files that others can write become owner-write only; a files folder others can write is logged.
+          World-executable is left as it was (it does not let anyone replace the file).
+[DONE] 4. Unit tests: BinaryGuardTest.kt (verdicts, changed file, stamp, refusals, permissions, report lines) and
+          BinaryHashesFileTest.kt (list matches assets/bin).
+[DONE] 5. Full diagnose has a "bundled binaries" section. update_binary_hashes.py rewrites BinaryHashes.kt; release-tools.yml PR
+          carries it. validate.sh passes here (the Kotlin is not compiled by it).
+[OPEN] 6. GitHub Actions: Unit tests + build must be green (Kotlin not compiled here).
+[OPEN] 7. Device tests P3-1 to P3-6 below.
+
+DEVICE TESTS (F50, root). The app's folder: /data/data/com.matchi.tool/files
+Log lines: Log Catcher in the web page, or:  su -c 'logcat -d | grep -E "BinaryCheck|WebServer"'
+
+P3-1  hashes on the device match the build (expect the same 5 values as NOTICE.md)
+    su -c 'cd /data/data/com.matchi.tool/files && sha256sum sendat curl jq sha256 zreq'
+
+P3-2  normal use still works (expect OK)
+    su -c '/data/data/com.matchi.tool/files/sendat -n 0 -c AT'
+  Then open Full diagnose in the web page: the "bundled binaries" section must list 5 lines, each "ok (matches the hash from the build)".
+
+P3-3  a changed sendat is refused and removed
+    su -c 'echo x >> /data/data/com.matchi.tool/files/sendat'
+  Now do any AT action in the web page (open the Live panel, or send AT in the AT console).
+  Expect: the answer says "sendat was refused: ... removed; restart the MatchiTOOL host ...", the log has an ERROR from
+  BinaryCheck, and the file is gone:
+    su -c 'ls -l /data/data/com.matchi.tool/files/sendat'
+  Full diagnose shows "sendat: REFUSED - ...". Then stop and start the host in the app (or force-stop the app and open it) and run P3-1 again:
+  sendat is back and the hash is the right one.
+
+P3-4  a changed curl is replaced at the next start (curl is called by path, so the start-up check is its protection)
+    su -c 'echo x >> /data/data/com.matchi.tool/files/curl'
+  Stop and start the host. Expect the log "curl does not match the hash from the build, copying it again", then run P3-1: curl is right.
+
+P3-5  a damaged copy (zeros, the nobarrier case) is replaced
+    su -c 'dd if=/dev/zero of=/data/data/com.matchi.tool/files/jq bs=1024 count=100 2>/dev/null'
+  Stop and start the host, then P3-1: jq is right again.
+
+P3-6  permissions (expect no "w" for group or other on the files; the folder is the app's own)
+    su -c 'ls -ld /data/data/com.matchi.tool/files; ls -l /data/data/com.matchi.tool/files/sendat /data/data/com.matchi.tool/files/curl /data/data/com.matchi.tool/files/zreq'
+  Optional, make a file group-writable and restart the host: it should come back owner-write only and log a WARNING.
+    su -c 'chmod 775 /data/data/com.matchi.tool/files/jq'
+
+RESULTS (fill in after each test)
+P3-1:
+P3-2:
+P3-3:
+P3-4:
+P3-5:
+P3-6:
+
+KNOWN LIMITS
+- Root can set the modified time back, but root can also change the app. The check is for a file damaged or replaced by another user or app.
+- curl, jq and zreq are called by path from plugin scripts, which never pass through the app, so a change after start-up is only
+  caught at the next start (the file is replaced then). sendat is checked before every call.
+- A new binary needs its hash in BinaryHashes.kt: run python3 scripts/gen_binary_hashes.py (update_binary_hashes.py does it).
+  If it is forgotten the app refuses its own copy, so validate.sh and BinaryHashesFileTest are there to stop that in CI.
+
+ROLLBACK
+Revert the commit. Nothing else changes: the files in the APK and the web page are not touched.

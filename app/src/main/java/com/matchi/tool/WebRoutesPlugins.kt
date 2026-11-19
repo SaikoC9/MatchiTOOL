@@ -483,6 +483,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         when (op) {
             "at" -> {
                 auditBusy(ip, "plugin-at")
+                BinaryCheck.problem(ctx, "sendat")?.let { why -> return@run json(Response.Status.OK, JSONObject().put("success", false).put("result", why)) }
                 val q = "'" + args[0].trim().replace("'", "'\\''") + "'"
                 val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n 0 -c $q", 15000)
                 json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))

@@ -10,6 +10,10 @@ These files in `app/src/main/assets/bin/` are copied to the app's private folder
 | `zreq` | small HTTP client for the router's goform API (Go, static arm64) | MatchiTOOL's own build (zreq 1.1, LD sign-in). No built-in password; `-pwd`, `-pwd-file` or `ZREQ_PWD`; `-ip` must be a private or loopback IPv4. | `tools/zreq/` (Go 1.22.8, `CGO_ENABLED=0`, `-trimpath -ldflags "-s -w"`) built by `.github/workflows/build-zreq.yml`. | `8dc2144a3cc5d6afccb594a25a96d3019b6be05e2f23c2e345aeddd9837b3da2` |
 | `sha256` | shell script: prints the SHA-256 of a file (its content) or of a text argument | Written for MatchiTOOL (1.4.1). Replaces an earlier packed binary that had no source. | The file itself. | see `NOTICE.md` |
 
+## What the app checks
+
+`BinaryHashes.kt` holds the SHA-256 of each of these files as it is in the APK. The app compares its copy in the files folder with that list at every start and before each `sendat` call, and does not run a file that differs (`BinaryGuard.kt`, `BinaryCheck.kt`). Do not edit `BinaryHashes.kt` by hand: after a new binary, run `python3 scripts/gen_binary_hashes.py` (`update_binary_hashes.py` does it for you) and commit the result. `scripts/validate.sh` fails when the two disagree.
+
 ## Verify a file
 
 ```sh

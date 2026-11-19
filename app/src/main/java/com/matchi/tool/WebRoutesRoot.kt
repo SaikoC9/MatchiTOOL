@@ -70,6 +70,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         // Reads are polled constantly (one line per minute is enough). A WRITE (AT+CFUN, IMEI, NV) gets its own line: with auditBusy it would
         // almost always share the minute that a poll had already used and leave no trace. The line holds only a short hash and the length.
         if (readOnly) auditBusy(s.remoteIpAddress ?: "?", "at") else auditShell(s.remoteIpAddress ?: "?", cmd, "at-write")
+        BinaryCheck.problem(ctx, "sendat")?.let { why -> return@run json(Response.Status.OK, JSONObject().put("success", false).put("result", why)) }
         val q = "'" + cmd.replace("'", "'\\''") + "'"
         val r = RootShell.run(ctx, File(ctx.filesDir, "sendat").absolutePath + " -n $slot -c $q", 15000)
         json(Response.Status.OK, JSONObject().put("success", r.success).put("result", r.content.trim()))
@@ -93,6 +94,7 @@ internal fun WebServer.routeRoot(s: IHTTPSession, uri: String): Response? = when
         if (!allReads) rootGate(s)?.let { return@run it }
         // Same rule as /api/at: an all-read batch is logged once a minute, a batch with any write gets its own line.
         if (allReads) auditBusy(s.remoteIpAddress ?: "?", "at-batch") else auditShell(s.remoteIpAddress ?: "?", cmds.joinToString(";"), "at-batch-write")
+        BinaryCheck.problem(ctx, "sendat")?.let { why -> return@run json(Response.Status.OK, JSONObject().put("success", false).put("results", JSONArray(cmds.map { why }))) }
         // A random marker per request: a modem reply containing "##" or a look-alike marker cannot cut or forge results.
         val marker = AtBatch.newMarker()
         val r = RootShell.run(ctx, AtBatch.script(sendat, slot, cmds, marker), 20000)

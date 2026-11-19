@@ -11,6 +11,7 @@ import java.io.File
 object ImeiGuard {
     /** [waitSteps] x 3 s to wait for the modem (boot), [force] = ignore the 3-try limit (manual "Apply now"). */
     fun apply(ctx: Context, waitSteps: Int, force: Boolean): String {
+        BinaryCheck.problem(ctx, "sendat")?.let { return it }
         val sendat = File(ctx.filesDir, "sendat").absolutePath
         val script = ctx.assets.open("bin/imei_apply.sh").bufferedReader().use { it.readText() }.replace("__SENDAT__", sendat)
         val steps = waitSteps.coerceIn(0, 60)

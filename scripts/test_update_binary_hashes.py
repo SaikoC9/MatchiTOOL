@@ -4,6 +4,9 @@ when it cannot do all of it."""
 import hashlib, subprocess, sys, tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gen_binary_hashes as gen
+
 SCRIPT = Path(__file__).resolve().parent / 'update_binary_hashes.py'
 NAMES = ('curl', 'jq', 'sendat', 'zreq')
 sha = lambda b: hashlib.sha256(b).hexdigest()
@@ -77,8 +80,28 @@ with tempfile.TemporaryDirectory() as tmp:
     r = run(new, root)
     check(r.returncode == 0 and (root / 'NOTICE.md').read_text() == before, 'an unchanged set should leave everything as it is')
 
+# 5. the repo has BinaryHashes.kt: it follows the new files, and stays as it is when nothing changed
+with tempfile.TemporaryDirectory() as tmp:
+    root, new = layout(tmp)
+    (root / 'app/src/main/assets/bin/sha256').write_bytes(b'the script')
+    kt = root / gen.TARGET
+    kt.parent.mkdir(parents=True)
+    kt.write_text(gen.render(root), encoding='utf-8')
+    for n in NAMES:
+        (new / n).write_bytes(f'new {n}'.encode() if n == 'sendat' else f'old {n}'.encode())
+    r = run(new, root)
+    check(r.returncode == 0, f'run with BinaryHashes.kt failed: {r.stdout}{r.stderr}')
+    text = kt.read_text()
+    check(sha(b'new sendat') in text and sha(b'old sendat') not in text, 'BinaryHashes.kt does not hold the new sendat hash')
+    check(sha(b'old jq') in text and sha(b'the script') in text, 'BinaryHashes.kt lost a hash that did not change')
+    check(gen.main(['gen', '--check', str(root)]) == 0, 'BinaryHashes.kt is not what gen_binary_hashes.py --check expects')
+    before = kt.read_text()
+    for n in NAMES:
+        (new / n).write_bytes((root / 'app/src/main/assets/bin' / n).read_bytes())
+    check(run(new, root).returncode == 0 and kt.read_text() == before, 'an unchanged set should leave BinaryHashes.kt alone')
+
 if fails:
     print('update_binary_hashes test FAILED:')
     [print('  -', f) for f in fails]
     sys.exit(1)
-print('update_binary_hashes test passed: replaces only changed hashes, writes nothing on error')
+print('update_binary_hashes test passed: replaces only changed hashes, keeps BinaryHashes.kt in step, writes nothing on error')

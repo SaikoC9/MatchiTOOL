@@ -28,7 +28,8 @@ Instead of the three manual workflows, push a tag that starts with `tools-v` (fo
 3. uploads `matchitool-tools-arm64` and tries to record build provenance (this needs a public repo or GitHub Enterprise Cloud;
    on a private repo that step fails and the run goes on);
 4. runs `scripts/update_binary_hashes.py`, which copies the binaries into `assets/bin` and replaces the old SHA-256 values in
-   `NOTICE.md` and `docs/BINARIES.md` with the new ones, then `scripts/check_repo.py`;
+   `NOTICE.md` and `docs/BINARIES.md` with the new ones and writes `BinaryHashes.kt` again (the list the app checks its copies
+   against), then `scripts/check_repo.py`;
 5. opens a pull request called "Rebuilt bundled binaries (not tested on the F50 yet)".
 
 Test on the F50 (step 3 above) before you merge that pull request. The script only rewrites hashes; change the version words

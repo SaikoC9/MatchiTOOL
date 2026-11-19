@@ -1,3 +1,14 @@
+# Unreleased, after 1.4.4 - bundled binaries are checked before they run
+
+Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Not run on the F50 yet.
+
+- **Hash check:** the app now knows the SHA-256 of `sendat`, `curl`, `jq`, `sha256` and `zreq` as they were when it was built (`BinaryHashes.kt`, written by `scripts/gen_binary_hashes.py`; `validate.sh` and `BinaryHashesFileTest` fail when it does not match `assets/bin`). The copies in the app's files folder are compared with it at every start, not with the file inside the APK as before.
+- **A file that does not match is not run:** at start the copy is made again; a copy that still does not match is deleted and logged as an error. Before every `sendat` call (AT console, AT batch, plugin AT, Live signal, IMEI keeper) the file is checked again, cheaply: it is hashed again only when its size or modified time changed. A changed `sendat` is deleted and the call answers with a plain message instead of running it. `curl`, `jq` and `zreq` are called by path from scripts, so for them the start-up check and the delete are the protection.
+- **Permissions:** a bundled file that other users can write is changed to owner-write only, and a files folder that other users can write is logged. The files stay world-executable, as before.
+- **Full diagnose** has a new section, `bundled binaries`, with one line per file (ok, not installed, different from the build, or refused and why).
+- **Release pipeline:** `update_binary_hashes.py` writes `BinaryHashes.kt` again, and the pull request that `release-tools.yml` opens carries it.
+- **Run on the F50:** nothing yet. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
+
 # Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
 
 Build recipes and CI only. The binaries in `app/src/main/assets/bin/` are still the 1.4.4 ones until the new workflow is run and the results are tested on the F50.

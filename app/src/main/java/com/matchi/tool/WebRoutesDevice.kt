@@ -37,7 +37,9 @@ internal fun WebServer.diagnostics(): Response {
         echo '--- storage ---'; df -h /data 2>/dev/null; echo '(the mount point shown can be a bind mount such as Android/obb; it is the same /data partition)'; grep ' /data ' /proc/mounts | head -1 | cut -d' ' -f1-3
     """.trimIndent()
     val r = RootShell.run(ctx, script, 30_000)
-    return json(Response.Status.OK, JSONObject().put("success", r.success).put("report", r.content).put("generatedAt", System.currentTimeMillis()))
+    // The bundled binaries, checked against the hashes the build was made with (BinaryGuard).
+    val report = r.content + "\n--- bundled binaries ---\n" + BinaryCheck.report(ctx)
+    return json(Response.Status.OK, JSONObject().put("success", r.success).put("report", report).put("generatedAt", System.currentTimeMillis()))
 }
 
 /** Inspect XML/scatter text only. This endpoint never writes or flashes a device. */

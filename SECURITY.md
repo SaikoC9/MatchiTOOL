@@ -93,7 +93,7 @@ The updater (upload or an https link, max 120 MB, redirects stay on https) accep
 
 ## Bundled binaries
 
-`sendat`, `curl`, `jq`, `zreq` (arm64) run as root; `sha256` is a script around the system `sha256sum`. Their hashes are pinned in `NOTICE.md` and checked by `scripts/check_repo.py`. `docs/BINARIES.md` lists where each came from and what is unknown (`sendat` and `curl` have no recorded build recipe).
+`sendat`, `curl`, `jq`, `zreq` (arm64) run as root; `sha256` is a script around the system `sha256sum`. Their hashes are pinned in `NOTICE.md` and checked by `scripts/check_repo.py`. At run time the app compares its copy of each file with the hash the build was made with (`BinaryHashes.kt`) and does not run, and deletes, a file that differs; the copy is made again from the APK at the next start. This catches a file that was damaged or replaced by another user or app. It does not protect against someone who already has root, who could also change the app. `docs/BINARIES.md` lists where each came from and what is unknown (`sendat` and `curl` have no recorded build recipe).
 
 ## Other notes
 
