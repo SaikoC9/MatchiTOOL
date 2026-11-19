@@ -2,7 +2,7 @@
 
 ## bundled binaries are checked before they run
 
-Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Compiled and unit-tested in CI (Validate and build APK, green); run on the F50 on 2026-11-19, see the last bullet.
+Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Compiled and unit-tested in CI (Validate and build APK); run on the F50 on 2026-11-19, see the last bullet.
 
 - **Hash check:** the app now knows the SHA-256 of `sendat`, `curl`, `jq`, `sha256` and `zreq` as they were when it was built (`BinaryHashes.kt`, written by `scripts/gen_binary_hashes.py`; `validate.sh` and `BinaryHashesFileTest` fail when it does not match `assets/bin`). The copies in the app's files folder are compared with it at every start, not with the file inside the APK as before.
 - **A file that does not match is not run:** at start the copy is made again; a copy that still does not match is deleted and logged as an error. Before every `sendat` call (AT console, AT batch, plugin AT, Live signal, IMEI keeper) the file is checked again, cheaply: it is hashed again only when its size or modified time changed. A changed `sendat` is deleted and the call answers with a plain message instead of running it. `curl`, `jq` and `zreq` are called by path from scripts, so for them the start-up check and the delete are the protection.
