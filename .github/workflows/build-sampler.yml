@@ -1,0 +1,44 @@
+name: Build matchi-sampler (arm64 Android)
+
+# Builds tools/sampler (stdlib-only Go, our own source) into a static arm64 executable. Run it by hand (release-tools.yml does not call it yet).
+# By hand: download the artifact, test on the device (tools/sampler/README.md), copy it to app/src/main/assets/bin/matchi-sampler, then
+# write the printed SHA-256 into NOTICE.md and docs/BINARIES.md (scripts/validate.sh checks it).
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifact_name:
+        type: string
+        default: matchitool-sampler-arm64
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.10"
+      - name: Test
+        working-directory: tools/sampler
+        run: go vet ./... && go test ./...
+      - name: Build
+        working-directory: tools/sampler
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          go build -trimpath -ldflags "-s -w" -o ../../matchi-sampler .
+          cd ../..; file matchi-sampler | grep -q "ARM aarch64" || { echo "not arm64"; exit 1; }
+          sha256sum matchi-sampler | tee SHA256SUMS
+          { echo "## matchi-sampler"; echo "\`$(sha256sum matchi-sampler | cut -d' ' -f1)\`"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name || 'matchitool-sampler-arm64' }}
+          path: |
+            matchi-sampler
+            SHA256SUMS
