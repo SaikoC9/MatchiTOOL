@@ -12,14 +12,14 @@ Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the
 
 # Unreleased, after 1.4.4 - bundled binaries are checked before they run
 
-Kotlin written without a compiler at hand; the CI build and the unit tests confirmed it, and the start-up check was run on the F50 (see the last point).
+Kotlin written without a compiler at hand; the CI build and the unit tests confirmed it, and it was run on the F50 (see the last point).
 
 - **Hash check:** the app now knows the SHA-256 of `sendat`, `curl`, `jq`, `sha256` and `zreq` as they were when it was built (`BinaryHashes.kt`, written by `scripts/gen_binary_hashes.py`; `validate.sh` and `BinaryHashesFileTest` fail when it does not match `assets/bin`). The copies in the app's files folder are compared with it at every start, not with the file inside the APK as before.
 - **A file that does not match is not run:** at start the copy is made again; a copy that still does not match is deleted and logged as an error. Before every `sendat` call (AT console, AT batch, plugin AT, Live signal, IMEI keeper) the file is checked again, cheaply: it is hashed again only when its size or modified time changed. A changed `sendat` is deleted and the call answers with a plain message instead of running it. `curl`, `jq` and `zreq` are called by path from scripts, so for them the start-up check and the delete are the protection.
 - **Permissions:** a bundled file that other users can write is changed to owner-write only, and a files folder that other users can write is logged. The files stay world-executable, as before.
 - **Full diagnose** has a new section, `bundled binaries`, with one line per file (ok, not installed, different from the build, or refused and why).
 - **Release pipeline:** `update_binary_hashes.py` writes `BinaryHashes.kt` again, and the pull request that `release-tools.yml` opens carries it.
-- **Run on the F50 (19 Nov 2026, during the Phase 4 tests):** a bundled file that was changed by hand was refused and deleted, and the original was copied back at the next host start; the log shows the warning for a files folder that other users can write. Not run yet: the per-call `sendat` check and the `bundled binaries` lines in Full diagnose. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
+- **Run on the F50 (19 Nov 2026):** the five hashes match the build; `sendat` answers; Full diagnose lists every bundled file as ok; a changed `sendat` is refused at the next AT action and deleted, a changed `curl` and a zeroed `jq` are replaced at the next host start; the files have no write for group or other. The log warns about the files folder (group write, the app's own group) even though no other user can write there; the check may be too strict. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
 
 # Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
 
