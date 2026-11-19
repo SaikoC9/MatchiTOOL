@@ -25,7 +25,7 @@ WHAT IS DONE IN STEP 1 (in the repo; nothing here was compiled or run: there is 
           5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471.
 [DONE] 9. Device tests D5-1 to D5-8 below: all passed on the F50, 19 Nov 2026 (see RESULTS).
 
-STATUS 19 Nov 2026: step 1 is finished and tested; the binary is bundled in the APK (assets/bin/matchi-doctor, hashes registered). Step 2 (the call from Full diagnose) is not started.
+STATUS 19 Nov 2026: step 1 is finished and tested; the binary is bundled in the APK (assets/bin/matchi-doctor, hashes registered). Step 2 (the call from Full diagnose) is written (Doctor.kt, DoctorReport.kt, WebRoutesDevice.kt, DoctorTest, DoctorReportTest); it needs CI and a check on the F50: Full diagnose must end with a "--- matchi-doctor ---" section whose lines match D5-2.
 
 ORDER TO PUT IT IN
  1. Unzip MatchiTOOL-phase5-step1-changes.zip over the repo (new files only: tools/doctor/*, the workflow, this txt).

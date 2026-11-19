@@ -38,8 +38,25 @@ internal fun WebServer.diagnostics(): Response {
     """.trimIndent()
     val r = RootShell.run(ctx, script, 30_000)
     // The bundled binaries, checked against the hashes the build was made with (BinaryGuard).
-    val report = r.content + "\n--- bundled binaries ---\n" + BinaryCheck.report(ctx)
-    return json(Response.Status.OK, JSONObject().put("success", r.success).put("report", report).put("generatedAt", System.currentTimeMillis()))
+    // matchi-doctor (tools/doctor) reads the same facts again as one JSON report. Additive: the script above and BinaryCheck.report stay,
+    // so a doctor that is missing, refused or failing only means this section says why it did not run.
+    val doctor = runDoctor()
+    val report = r.content + "\n--- bundled binaries ---\n" + BinaryCheck.report(ctx) +
+        "\n--- matchi-doctor ---\n" + (if (doctor.second != null) DoctorReport.section(doctor.second!!) else Doctor.notRun(doctor.first))
+    val out = JSONObject().put("success", r.success).put("report", report).put("generatedAt", System.currentTimeMillis())
+    doctor.second?.let { out.put("doctor", it.json) }
+    return json(Response.Status.OK, out)
+}
+
+/** Runs the bundled doctor as root. First is why it did not run (used when Second is null); Second is the parsed report. */
+private fun WebServer.runDoctor(): Pair<String, DoctorReport.Parsed?> {
+    BinaryCheck.problem(ctx, Doctor.BINARY)?.let { return Pair(it, null) }
+    val cmd = Doctor.command(ctx.filesDir.absolutePath, BinaryHashes.table())
+        ?: return Pair("the files folder path or a hash was not in the expected form", null)
+    val r = RootShell.run(ctx, cmd, 20_000)
+    val parsed = DoctorReport.parse(r.content)
+    return if (parsed != null) Pair("", parsed)
+    else Pair(if (r.success) "it gave no report" else r.content.ifBlank { "it failed to start" }.take(240), null)
 }
 
 /** Inspect XML/scatter text only. This endpoint never writes or flashes a device. */
