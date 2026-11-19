@@ -16,6 +16,12 @@ ORDER FOR PHASE 2 + 3 (so BinaryHashes.kt is never stale)
  4. bash scripts/validate.sh, commit, push, run "Validate and build APK".
  If step 3 is skipped, validate.sh fails ("BinaryHashes.kt is out of date"); if it got past CI the app would refuse its own copies.
 
+ALTERNATIVE ORDER (chosen 2026-11-19: push Phase 3 first, then merge PR #2)
+ 1. Unzip MatchiTOOL-phase3-changes.zip over the repo, bash scripts/validate.sh, push to main. (Old binaries, old hashes: consistent.)
+ 2. Test the PR #2 binaries on the F50, fix the version words, wait for the green check, merge PR #2.
+ 3. Right after the merge main is stale (new binaries, old BinaryHashes.kt): git pull, python3 scripts/gen_binary_hashes.py,
+    bash scripts/validate.sh, commit, push. Do NOT build or release an APK between step 2 and step 3: it would refuse its own binaries.
+
 WHAT IS DONE (in the repo, not compiled here, not run on the F50)
 [DONE] 1. BinaryHashes.kt: SHA-256 of sendat, curl, jq, sha256, zreq. Written by scripts/gen_binary_hashes.py from assets/bin.
           (Plan said "at build time". It is a checked-in file instead, same way build-web.js / index.html work: validate.sh
