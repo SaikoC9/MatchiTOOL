@@ -81,6 +81,8 @@ TABLE = {
   ('POST', '/api/agh/gate'): ('GATE', 'old route of plugin 0.9.7: same gate with the built-in AdGuard Home declaration; kept for one release'),
   ('GET',  '/api/net/whoami'): ('OPEN', 'read only: returns the caller\'s own address'),
   ('POST', '/api/net/lan-applied'): ('GATE', 'points the router client at the new address named in the pending IP-change note; checks the router afterwards'),
+  ('GET',  '/api/wifiauto'): ('OPEN', 'status of the Wi-Fi-off-while-tethered switch; reads the saved setting and the last look, starts nothing'),
+  ('POST', '/api/wifiauto'): ('GATE', 'turns the Wi-Fi-off-while-tethered watcher on or off; it can switch the hotspot Wi-Fi off, so same fresh sign-in as other router changes'),
   ('POST', '/api/zte/page'): ('OPEN', ''),
   ('GET',  '/api/zte/config'): ('OPEN', ''),
   ('POST', '/api/zte/config'): ('GATE', 'a changed address or password also needs the current password again (counts toward the login lockout); changing the password ends the other sessions'),

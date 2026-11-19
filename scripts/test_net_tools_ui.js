@@ -130,7 +130,10 @@ const askConfirm = async (msg, ok, danger) => { confirms.push({ msg, ok, danger 
 const texts = []; let textAnswer = null;
 const askText = async (o) => { texts.push(o); return textAnswer; };
 const applied = []; let applyFail = null;
-const api = async (url, opts) => { if (url === '/api/net/lan-applied') { if (applyFail) throw new Error(applyFail); applied.push(Object.assign({ method: opts.method }, JSON.parse(opts.body))); return { ok: true }; } assert.strictEqual(url, '/api/net/whoami'); return { ip: '::ffff:' + me }; };
+// The host's Wi-Fi-off-while-tethered switch (/api/wifiauto): a GET shows the status line, a POST sets the switch (and may be refused).
+const waHost = { enabled: false, passwordSaved: true, running: false, status: 'Off' }; const waPosts = []; let waGets = 0, waPostFail = null, waGetFail = null;
+const waReply = () => ({ enabled: waHost.enabled, passwordSaved: waHost.passwordSaved, running: waHost.running, status: waHost.enabled ? 'Watching: no USB tethering' : 'Off' });
+const api = async (url, opts) => { if (url === '/api/wifiauto') { if (opts && opts.method === 'POST') { if (waPostFail) throw new Error(waPostFail); const b = JSON.parse(opts.body); waPosts.push(b); waHost.enabled = b.enabled; waHost.running = b.enabled; return waReply(); } waGets++; if (waGetFail) throw new Error(waGetFail); return waReply(); } if (url === '/api/net/lan-applied') { if (applyFail) throw new Error(applyFail); applied.push(Object.assign({ method: opts.method }, JSON.parse(opts.body))); return { ok: true }; } assert.strictEqual(url, '/api/net/whoami'); return { ip: '::ffff:' + me }; };
 const mount = new Function('window', 'document', 'createModal', 'showModal', 'askConfirm', 'askText', 'api', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal, askConfirm, askText, api);
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 const bodyText = () => doc.getElementById('matchi_net_body').textContent;
@@ -160,6 +163,27 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   const dump = JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v));
   assert.strictEqual(dump.split('TopSecret').length - 1, 1, 'the password is in the password box only, no other node or attribute');
 
+  // USB tethering switch: shown with the status the host reports, off by default; turning it on asks first and sends {enabled:true}.
+  assert.strictEqual(waGets, 1, 'the Wi-Fi tab reads the switch status once');
+  let waBox = doc.getElementById('matchi_wifi_auto');
+  assert(waBox && !waBox.checked && !waBox.disabled, 'the switch is there, off, and usable');
+  assert(/Turn Wi-Fi off while USB tethering is on/.test(bodyText()) && doc.getElementById('matchi_wifi_auto_status').textContent === 'Off', 'switch label and status line');
+  confirmAnswer = false; waBox.checked = true; await click({ onclick: () => waBox.onchange() });
+  assert.strictEqual(waPosts.length, 0, 'a declined confirm sends nothing'); assert(!doc.getElementById('matchi_wifi_auto').checked, 'and the box goes back to off');
+  confirmAnswer = true; waBox = doc.getElementById('matchi_wifi_auto'); waBox.checked = true; await click({ onclick: () => waBox.onchange() });
+  assert.deepStrictEqual(waPosts, [{ enabled: true }]); assert(/Turn Wi-Fi off while USB tethering is on/.test(confirms[confirms.length - 1].msg));
+  waBox = doc.getElementById('matchi_wifi_auto');
+  assert(waBox.checked && doc.getElementById('matchi_wifi_auto_status').textContent === 'Watching: no USB tethering', 'after saving, the box is on and shows the host status');
+  waBox.checked = false; const confirmsBefore = confirms.length; await click({ onclick: () => waBox.onchange() });
+  assert.deepStrictEqual(waPosts[1], { enabled: false }); assert.strictEqual(confirms.length, confirmsBefore, 'turning it off asks nothing');
+  assert(!doc.getElementById('matchi_wifi_auto').checked && doc.getElementById('matchi_wifi_auto_status').textContent === 'Off');
+  waPostFail = 'Sign in again'; waBox = doc.getElementById('matchi_wifi_auto'); waBox.checked = true; await click({ onclick: () => waBox.onchange() });
+  assert(/Not saved: Sign in again/.test(bodyText()) && !doc.getElementById('matchi_wifi_auto').checked, 'a refused save says so and leaves the switch as the host has it'); waPostFail = null;
+  waGetFail = 'offline'; await click(doc.getElementById('matchi_net_refresh'));
+  assert(doc.getElementById('matchi_wifi_auto').disabled && /Could not read the status \(offline\)/.test(doc.getElementById('matchi_wifi_auto_status').textContent), 'an unreadable status disables the box and says why'); waGetFail = null;
+  await click(doc.getElementById('matchi_net_refresh'));
+  confirms.length = 0;   // the switch's own confirmations are checked above; later checks count from zero
+
   await click(tabBtn('devices'));
   t = bodyText();
   assert(/2 devices: 1 on Wi-Fi, 1 on cable/.test(t) && /My-Phone/.test(t) && /GL-MT3000/.test(t) && /aa:bb:cc:dd:ee:02/.test(t) && /Cable/.test(t), 'devices tab: ' + t);
@@ -180,12 +204,12 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(calls.every((c) => c.op === 'get'), 'only reads were sent');
   assert.strictEqual(sets.length, 0, 'no write so far');
   const nSetsBefore = 0;
-  assert.strictEqual(calls.length, 8, 'one read per tab (the Devices tab reads 3 things), nothing else (no polling)');
+  assert.strictEqual(calls.length, 10, 'one read per tab (the Devices tab reads 3 things) plus the two Refresh presses on the Wi-Fi tab above, nothing else (no polling)');
 
   // switching to a tab already read shows it again without asking the router
-  await click(tabBtn('data')); assert.strictEqual(calls.length, 8); assert(/Connected/.test(bodyText()));
+  await click(tabBtn('data')); assert.strictEqual(calls.length, 10); assert(/Connected/.test(bodyText()));
   // Refresh asks again
-  await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(calls.length, 9);
+  await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(calls.length, 11);
   // an error is shown, and a password in the message is hidden
   failNext = new Error('router said ppp_passwd=abc123 not ok');
   await click(doc.getElementById('matchi_net_refresh'));

@@ -10,7 +10,8 @@
  *    (pool moved into the new subnet, pending note written by root, host told the new address, host checks the router after the restart and
  *    puts the old values back if needed) and puts DHCP back On when it was switched Off elsewhere. The mask is not changed and DHCP is never switched Off here.
  *  - Wi-Fi: switches band (2.4 GHz only / 5 GHz only / Off) and changes name, security, SSID broadcast, password and max devices
- *    (backup copy by root, send, wait for Wi-Fi to restart, re-read).
+ *    (backup copy by root, send, wait for Wi-Fi to restart, re-read). Also holds the switch "Turn Wi-Fi off while USB tethering is on" and its
+ *    status line (/api/wifiauto; the host does the watching, this page only sets the switch and reads the status when the tab is read).
  * The one root call (MTU / MSS tab) only reads; the user starts it with a button. Parsing lives in web-src/net-core.js (window.MatchiNetCore, tested by scripts/test_net_tools.js);
  * router calls go through window.MatchiRadio.zte (the same /api/zte proxy as the radio tools).
  *  - Reads happen when a tab is opened for the first time and on the Refresh button. No timer, no polling.
@@ -24,7 +25,7 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, prog: '' };
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, wa: null, waBusy: false, prog: '' };
   let epoch = 0, actId = 0;
   // Any write or wait in progress (one change at a time, whichever tab it started on).
   const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct);
@@ -88,8 +89,40 @@ function mountNetTools() {
     if (mode === 'off') form = note('Wi-Fi is Off. Choose a band above to turn it on; the settings form appears for the band that is on.', 'net-mut');
     else if (!act || !snap) form = note('The settings are not changed here: the router must report one band on, with its name, security mode (one this tool offers), SSID broadcast and max devices.', 'net-mut');
     else form = wifiForm(snap, act, busy);
-    return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, form, blocks,
+    return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, waSection(), form, blocks,
       note('A band change or a save restarts Wi-Fi.', 'net-mut'));
+  }
+  // Switch + status line: "Turn Wi-Fi off while USB tethering is on". The host does the watching; this only sets the switch and shows what the host reports
+  // (read when the tab is read, never polled). The status text comes from the host and is put on the page as text.
+  function waSection() {
+    const a = st.wa;
+    const cb = h('input', { type: 'checkbox', id: 'matchi_wifi_auto' });
+    cb.checked = !!(a && a.enabled);
+    if (!a || a.err || st.waBusy) cb.disabled = true;
+    cb.onchange = () => waToggle(cb.checked, cb);
+    const stat = h('p', { class: 'net-p' + (a && a.err ? ' net-warn' : ' net-mut'), id: 'matchi_wifi_auto_status', role: 'status' },
+      !a ? 'Reading…' : a.err ? 'Could not read the status (' + N.maskSecrets(a.err) + ').' : st.waBusy ? 'Saving…' : a.status);
+    return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'USB tethering'),
+      h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_auto' }, 'Turn Wi-Fi off while USB tethering is on'), cb),
+      stat,
+      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app and a fresh sign-in.', 'net-mut'));
+  }
+  async function waRead() {
+    try {
+      const r = await api('/api/wifiauto');
+      st.wa = { enabled: !!(r && r.enabled), passwordSaved: !!(r && r.passwordSaved), running: !!(r && r.running), status: String((r && r.status) || ''), err: '' };
+    } catch (e) { st.wa = { enabled: false, passwordSaved: false, running: false, status: '', err: (e && e.message) || 'no answer' }; }
+  }
+  async function waToggle(want, cb) {
+    if (st.waBusy) return;
+    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console. Needs a fresh sign-in.', 'Turn on', false))) { cb.checked = false; return; }
+    st.waBusy = true; paint('wifi');
+    try {
+      const r = await api('/api/wifiauto', { method: 'POST', body: JSON.stringify({ enabled: want }) });
+      st.wa = { enabled: !!(r && r.enabled), passwordSaved: !!(r && r.passwordSaved), running: !!(r && r.running), status: String((r && r.status) || ''), err: '' };
+      st.wifiMsg = { bad: false, lines: [want ? 'Saved: the router watches the USB link. The status line shows what it sees; Refresh reads it again.' : 'Saved: switched off. If the router had turned Wi-Fi off, it turns it on again; Refresh shows the result.'] };
+    } catch (e) { st.wifiMsg = { bad: true, lines: ['Not saved: ' + N.maskSecrets((e && e.message) || 'no answer') + '.'] }; await waRead(); }
+    st.waBusy = false; if (st.tab === 'wifi') paint('wifi');
   }
   function wifiForm(snap, act, busy) {
     const curPw = st.cache.wifi && st.cache.wifi.d ? N.wifiPlainPw(st.cache.wifi.d) : null;   // shown like the stock page (dots + Display password); kept in memory only
@@ -330,7 +363,9 @@ function mountNetTools() {
     st.loading = true; syncButtons(); setStatus('Reading…');
     if (!st.cache[tab]) paint(tab);
     try {
+      const waRead1 = tab === 'wifi' ? waRead() : null;   // never throws; the Wi-Fi tab also shows the USB-tethering switch
       const d = tab === 'devices' ? await readDevicesRaw() : await R.zte('get', { multi_data: '1', cmd: N.READ[tab] });
+      if (waRead1) await waRead1;
       if (my !== epoch) return;
       st.cache[tab] = { d, at: Date.now() };
       paint(tab); setStatus('Updated ' + new Date().toLocaleTimeString());
@@ -998,7 +1033,7 @@ function mountNetTools() {
     const first = typeof startTab === 'string' && VIEWS[startTab] ? startTab : 'data';   // the click on the Network button passes an event, not a tab
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false;
     createModal({
       name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
       content: '<div class="net-top">' + (st.only ? '<span></span>' : '<div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button></div>' +
