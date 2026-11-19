@@ -4,7 +4,7 @@ Built on MatchiTOOL-main (v1.4.4, Phase 3 merged, tools/sampler and build-sample
 PHASE 4 STEP 1 (done before): tools/sampler/ with golden-file tests from the F50, build-sampler.yml, binary built
  (matchi-sampler 1.0, SHA-256 82bc92bc78e0afb55fc914a49d4885f2abddd02e9e2ad93b51f3ac40f1594cc6, arm64, static).
 
-WHAT IS DONE IN THIS STEP (in the repo, not run on the F50)
+WHAT IS DONE IN THIS STEP (in the repo; device tests run on the F50 on 2026-11-19, see RESULTS)
 [DONE] 1. assets/bin/matchi-sampler added; listed in BinaryHashes.kt (gen_binary_hashes.py), NOTICE.md, docs/BINARIES.md.
 [DONE] 2. WebServer copies it to the files folder like jq / zreq (copy, fsync, hash check, rename).
 [DONE] 3. Setting Prefs.liveBinary, default OFF. Button "Fast sampler: Off/On" in the Live panel options row, hidden until the program
@@ -15,8 +15,8 @@ WHAT IS DONE IN THIS STEP (in the repo, not run on the F50)
           A change of the setting restarts a running reader. Setting off = the old shell loop, nothing else changed.
 [DONE] 6. Tests: LiveEngineTest (new), plus updated BinaryHashesFileTest, test_route_gates.py, check_sources.py, test_update_binary_hashes.py.
           bash scripts/validate.sh passes; the pure-Kotlin unit tests (534) pass with the Gradle Kotlin compiler.
-[OPEN] 7. "Validate and build APK" on GitHub (compiles WebServer.kt, WebRoutesDevice.kt, LiveEngineSetting.kt, which need Android classes).
-[OPEN] 8. Device tests P4-1 to P4-7 below, and the CPU measurement (P4-8).
+[DONE] 7. "Validate and build APK" on GitHub (compiles WebServer.kt, WebRoutesDevice.kt, LiveEngineSetting.kt, which need Android classes): green, APK installed on the F50.
+[DONE] 8. Device tests P4-1 to P4-7 and the CPU measurement (P4-8): all pass, see RESULTS.
 
 ORDER TO PUT IT IN
  1. Unzip MatchiTOOL-phase4-step2-changes.zip over the repo (it holds only changed / new files, including the binary).
@@ -79,17 +79,28 @@ P4-8  CPU before / after (the point of this phase)  - plan step 3
   Done when: same values as the shell version (P4-4) and the reader + app total is lower with the setting ON.
   If it is NOT lower, say so in CHANGELOG.md and leave the setting off by default (it already is).
 
-RESULTS (fill in after each test)
-P4-1:
-P4-2:
-P4-3:
-P4-4:
-P4-5:
-P4-6:
-P4-7a:
-P4-7b:
-P4-7c:
-P4-8 (shell loop %, sampler %, app % before / after):
+RESULTS (F50, MU300, root; 2026-11-19; APK from the Phase 4 step 2 push)
+P4-1: PASS. sha256sum 82bc92bc...4cc6, "matchi-sampler 1.0 (MatchiTOOL)".
+P4-2: PASS. -rounds 3 prints three @L1 lines, the first with s: filled; -rounds 1 | head -c 200 exits quietly.
+P4-3: PASS. Setting Off: "sh /dev/fd/3" running, no matchi-sampler.
+P4-4: PASS. Setting On: matchi-sampler running, no shell loop, values keep updating. Compared with the shell loop: both read 8 cores
+      and at most 16 of the 26 thermal zones in glob order (the cap is in LiveSampler.kt and in tools/sampler/main.go).
+P4-5: PASS. Off again: ps -ef shows "sh /dev/fd/3" and no matchi-sampler. (Needs Live (1 s) mode with the tab visible; in Balanced
+      mode or with the tab hidden no reader runs at all. ps -A shows only the process name, use ps -ef.)
+P4-6: PASS. Tab closed: gone after ~20 s. App force-stopped with the Live panel open: gone within seconds.
+P4-7a: PASS. chmod 644 (readable, not executable): the Log Catcher shows "matchi-sampler gave no readings 2 times, using the shell loop
+      (last output: ... can't execute: Permission denied)". chmod 755: the program is used again.
+P4-7b: PASS. Setting On, a byte appended to the file (only possible while the program is not running, else "Text file busy"): file
+      refused and removed, shell loop keeps running, button hidden; after Stop host / Start host the file is back with the right hash.
+P4-7c: PASS. File missing: button hidden, POST /api/live/engine {"fast":true} answers 409.
+P4-8: PASS. 300 s, Live (1 s) mode, tab visible, two runs each:
+        setting Off: reader 2.83 % / 2.82 %, app 1.74 % / 1.11 %, total 4.57 % / 3.93 %
+        setting On:  reader 1.20 % / 1.22 %, app 1.64 % / 0.98 %, total 2.84 % / 2.20 %
+      Lower run of each: total 3.93 % -> 2.20 % (about 44 % less); reader alone 2.82 % -> 1.22 % (about 57 % less). The app's own CPU is
+      about the same, as expected (the Kotlin parser is unchanged). The setting stays off by default.
+      Notes: keep the Live tab visible while measuring (a hidden tab stops the reader after the grace time); the "can't open
+      /proc/NNN/cmdline" lines are harmless (short-lived processes ended while the script scanned /proc).
+Done: Phase 4 passes. Next: CHANGELOG, merge, release; then Phase 5 (matchi-doctor).
 
 KNOWN LIMITS
 - The program replaces only the reader's script. The parse and snapshot code in Kotlin (LiveScript.parse, LiveSnapshot) is the same, so
