@@ -10,9 +10,8 @@
   }
   function tick(){
     paint('');
-    if(got||typeof api!=='function')return;
-    /* /api/ping is open (no sign-in needed), so the App version also shows on the sign-in screen. quiet: no error pop-up while the host is down. */
-    api('/api/ping',{quiet:true}).then(function(d){if(d&&d.version){got=true;paint(d.version)}}).catch(function(){});
+    if(got||typeof TOKEN!=='string'||!TOKEN||typeof api!=='function')return;
+    api('/api/ping').then(function(d){if(d&&d.version){got=true;paint(d.version)}}).catch(function(){});
   }
   window.addEventListener('load',tick);
   setInterval(function(){if(!got&&!document.hidden)tick()},3000);
