@@ -1,0 +1,136 @@
+name: Release tools (build, compare, hashes, PR)
+
+# One run builds curl, jq, sendat and zreq, builds sendat and zreq a second time and compares the two builds, records
+# build provenance, and opens a pull request that puts the binaries into assets/bin with their new SHA-256 values in
+# NOTICE.md and docs/BINARIES.md.
+# Nothing here has run on the F50. The pull request says so, and docs/BUILD_BINARIES.md (step 3) says what to test
+# before it is merged.
+# Start it by pushing a tag named tools-v<anything> (for example tools-v2026.11.1), or from Actions > Run workflow.
+on:
+  push:
+    tags: ['tools-v*']
+  workflow_dispatch:
+    inputs:
+      check_native:
+        description: Build curl and jq a second time and compare (takes about as long again)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      artifact_name: tools-native
+  sendat:
+    uses: ./.github/workflows/build-sendat.yml
+    with:
+      artifact_name: tools-sendat
+  zreq:
+    uses: ./.github/workflows/build-zreq.yml
+    with:
+      artifact_name: tools-zreq
+  sendat_again:
+    uses: ./.github/workflows/build-sendat.yml
+    with:
+      artifact_name: tools-sendat-again
+  zreq_again:
+    uses: ./.github/workflows/build-zreq.yml
+    with:
+      artifact_name: tools-zreq-again
+  native_again:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.check_native }}
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      artifact_name: tools-native-again
+
+  collect:
+    needs: [native, sendat, zreq, sendat_again, zreq_again, native_again]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          path: parts
+          pattern: tools-*
+      - name: Compare the two builds
+        run: |
+          set -eu
+          same() {
+            if cmp -s "parts/$1/$3" "parts/$2/$3"; then echo "same on both builds: $3"
+            else echo "::error::$3 is different on the second build; the build is not reproducible"; exit 1; fi
+          }
+          same tools-sendat tools-sendat-again sendat
+          same tools-zreq tools-zreq-again zreq
+          if [ -d parts/tools-native-again ]; then
+            same tools-native tools-native-again curl
+            same tools-native tools-native-again jq
+          else
+            echo "curl and jq: not built a second time in this run"
+          fi
+      - name: Collect
+        run: |
+          set -eu
+          mkdir out
+          cp parts/tools-native/curl parts/tools-native/jq parts/tools-sendat/sendat parts/tools-zreq/zreq out/
+          chmod 755 out/curl out/jq out/sendat out/zreq
+          (cd out && sha256sum curl jq sendat zreq > SHA256SUMS)
+          {
+            echo "## Binaries"
+            echo "| file | SHA-256 |"
+            echo "|---|---|"
+            while read -r h f; do echo "| $f | \`$h\` |"; done < out/SHA256SUMS
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: matchitool-tools-arm64
+          path: out/*
+      # Needs a public repository or GitHub Enterprise Cloud. On a private repo without it this step fails, and the run goes on.
+      - name: Build provenance
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: out/*
+      - name: Put the binaries and hashes into the tree
+        run: python3 scripts/update_binary_hashes.py out
+      - name: Check the repo is still consistent
+        run: python3 scripts/check_repo.py .
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          if git diff --quiet; then echo "No binary changed, so no pull request."; exit 0; fi
+          BRANCH="tools-update-${GITHUB_RUN_NUMBER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add app/src/main/assets/bin NOTICE.md docs/BINARIES.md
+          git commit -m "Rebuilt bundled binaries (workflow run ${GITHUB_RUN_NUMBER})"
+          git push origin "$BRANCH"
+          {
+            echo "Built by $RUN_URL from $GITHUB_REF_NAME ($GITHUB_SHA)."
+            echo
+            echo "New SHA-256 values:"
+            echo
+            sed 's/^/    /' out/SHA256SUMS
+            echo
+            echo "Before merging:"
+            echo
+            echo "- [ ] Tested on the F50 (docs/BUILD_BINARIES.md, step 3)"
+            echo "- [ ] The version words in NOTICE.md and docs/BINARIES.md (Go, curl, OpenSSL, jq) are right; only the hashes were rewritten"
+            echo "- [ ] \`bash scripts/validate.sh\` passes"
+            echo
+            echo "A pull request opened with the default token does not start other workflows. Run \"Validate and build APK\" on this branch by hand."
+          } > pr-body.md
+          gh pr create --base "$BASE" --head "$BRANCH" --title "Rebuilt bundled binaries (not tested on the F50 yet)" --body-file pr-body.md

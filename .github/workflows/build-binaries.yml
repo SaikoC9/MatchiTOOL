@@ -2,20 +2,35 @@ name: Build jq and curl (arm64 Android)
 
 # Builds jq and curl from pinned upstream release tags with the Android NDK, so the
 # executables in app/src/main/assets/bin have a source and a recipe (docs/BUILD_BINARIES.md).
-# Manual only: run it, download the artifact, review it, copy the files into assets/bin,
+# Run it by hand, or let release-tools.yml call it. By hand: download the artifact, review it, copy the files into assets/bin,
 # then write the printed SHA-256 values into NOTICE.md and docs/BINARIES.md.
 on:
   workflow_dispatch:
     inputs:
       jq_tag:
         description: jqlang/jq tag
-        default: jq-1.7.1
+        default: jq-1.8.2
       curl_tag:
         description: curl/curl tag
-        default: curl-8_11_0
+        default: curl-8_23_0
       openssl_tag:
         description: openssl/openssl tag (statically linked into curl)
-        default: openssl-3.0.15
+        default: openssl-3.5.9
+  # Called by release-tools.yml. Keep these defaults the same as the three above.
+  workflow_call:
+    inputs:
+      jq_tag:
+        type: string
+        default: jq-1.8.2
+      curl_tag:
+        type: string
+        default: curl-8_23_0
+      openssl_tag:
+        type: string
+        default: openssl-3.5.9
+      artifact_name:
+        type: string
+        default: matchitool-binaries-arm64
 
 permissions:
   contents: read
@@ -133,5 +148,5 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: matchitool-binaries-arm64
+          name: ${{ inputs.artifact_name || 'matchitool-binaries-arm64' }}
           path: out/*
