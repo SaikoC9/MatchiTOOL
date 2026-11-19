@@ -63,6 +63,12 @@ object BinaryGuard {
     fun othersCanWrite(perms: Set<PosixFilePermission>): Boolean =
         PosixFilePermission.GROUP_WRITE in perms || PosixFilePermission.OTHERS_WRITE in perms
 
+    /**
+     * True when a user other than the owner and the owner's group can write to the folder. Android gives every app folder rwx for the
+     * app's own group (here u0_a135, the same uid), so GROUP_WRITE on the folder is normal and not a warning; only OTHERS_WRITE is.
+     */
+    fun folderOpenToOthers(perms: Set<PosixFilePermission>): Boolean = PosixFilePermission.OTHERS_WRITE in perms
+
     /** One line for Full diagnose. */
     fun reportLine(name: String, verdict: Verdict, refusal: String?): String = when {
         refusal != null -> "$name: REFUSED - $refusal"

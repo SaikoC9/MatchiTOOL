@@ -10,6 +10,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE
+import java.nio.file.attribute.PosixFilePermission.GROUP_READ
 import java.nio.file.attribute.PosixFilePermission.GROUP_WRITE
 import java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE
 import java.nio.file.attribute.PosixFilePermission.OTHERS_READ
@@ -89,6 +90,15 @@ class BinaryGuardTest {
         assertTrue(BinaryGuard.othersCanWrite(ownerOnly + GROUP_WRITE))
         assertTrue(BinaryGuard.othersCanWrite(ownerOnly + OTHERS_WRITE))
         assertFalse(BinaryGuard.othersCanWrite(emptySet<PosixFilePermission>()))
+    }
+
+    @Test fun appFolderWithGroupWriteIsNotAWarning() {
+        // drwxrwx--x is what Android gives every app's files folder (the group is the app's own uid)
+        val androidFolder = setOf(OWNER_READ, OWNER_WRITE, OWNER_EXECUTE, GROUP_READ, GROUP_WRITE, GROUP_EXECUTE, OTHERS_EXECUTE)
+        assertFalse(BinaryGuard.folderOpenToOthers(androidFolder))
+        assertTrue(BinaryGuard.folderOpenToOthers(androidFolder + OTHERS_WRITE))
+        // the same group write on a binary is still taken away
+        assertTrue(BinaryGuard.othersCanWrite(setOf(OWNER_READ, OWNER_WRITE, GROUP_WRITE)))
     }
 
     @Test fun reportLinesSayWhatHappened() {

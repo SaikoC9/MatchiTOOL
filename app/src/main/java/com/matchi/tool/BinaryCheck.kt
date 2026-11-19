@@ -40,13 +40,13 @@ object BinaryCheck {
     }
 
     /**
-     * Group or other write access on the binaries or on the folder that holds them. On the binaries it is taken away. On the folder it is
-     * only logged: the app's folder belongs to Android and is not changed from here. Never throws.
+     * Group or other write access on the binaries is taken away. On the folder only write access for others is logged (the group of an
+     * app folder is the app itself, so group write is normal there); the folder belongs to Android and is not changed from here. Never throws.
      */
     fun checkPermissions(ctx: Context) {
         try {
             val dir = ctx.filesDir
-            if (BinaryGuard.othersCanWrite(Files.getPosixFilePermissions(dir.toPath())))
+            if (BinaryGuard.folderOpenToOthers(Files.getPosixFilePermissions(dir.toPath())))
                 LogCatcher.log("WARNING", "BinaryCheck", "The folder that holds the bundled binaries can be written by other users (${dir.absolutePath})")
             for (name in BinaryHashes.names()) {
                 val f = File(dir, name)
