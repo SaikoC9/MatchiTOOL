@@ -19,12 +19,23 @@ object WifiSwitch {
     /** True when the router password is saved (the calls cannot sign in without it). */
     fun ready(ctx: Context): Boolean = Prefs.ztePass(ctx).isNotEmpty()
 
-    /** One read of the router; null when it cannot be read. */
+    @Volatile private var lastReadNote = ""
+
+    /** One read of the router; null when it cannot be read. The reason is written to the file trace once per kind (not every poll). */
     fun read(ctx: Context): WifiGoform.Seen? = try {
-        WifiGoform.seenFrom(ZteClient.call(ctx, "get", WifiGoform.readParams()))
+        val seen = WifiGoform.seenFrom(ZteClient.call(ctx, "get", WifiGoform.readParams()))
+        noteRead(ctx, if (seen == null) "Wi-Fi read: reply not understood" else "")
+        seen
     } catch (e: Exception) {
         LogCatcher.log("WARNING", "WifiSwitch", "Wi-Fi read failed: ${e.message}")
+        noteRead(ctx, "Wi-Fi read failed: ${e.message}")
         null
+    }
+
+    private fun noteRead(ctx: Context, text: String) {
+        if (text == lastReadNote) return
+        lastReadNote = text
+        WifiAutoTrace.note(ctx, if (text.isEmpty()) "Wi-Fi read ok again" else text)
     }
 
     /** True / false from the real read-back, null when it cannot be told. */

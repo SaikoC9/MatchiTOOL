@@ -55,7 +55,7 @@ internal class WifiAutoPortImpl(private val ctx: Context) : WifiAutoPort {
         }
         val band = WifiGoform.bandOf(seen) ?: return false   // not readable (or already off): nothing is written
         // band is "2g" or "5g" (checked above), so it is safe inside the script. Write a temp file, then move it, so a half-written file never exists.
-        val script = "mkdir -p /data/local/matchitool && printf 'band=$band\\n' > $STATE_FILE.tmp && mv $STATE_FILE.tmp $STATE_FILE && chmod 600 $STATE_FILE"
+        val script = "mkdir -p /data/local/matchitool && printf 'band=$band\\n' > $STATE_FILE.tmp && sync && mv $STATE_FILE.tmp $STATE_FILE && sync && chmod 600 $STATE_FILE"   // sync: a power loss must not leave an empty file
         val ok = try { RootShell.run(ctx, script, SHELL_MS).success } catch (e: Exception) { false }
         if (ok) { lastHolds = true; seenHolds = true; problem = null } else log("The state file could not be written, so Wi-Fi is left on")
         return ok
