@@ -1,3 +1,7 @@
+# Unreleased, after 1.4.4 - no atd, no root helper, no merged binary
+
+Decided not to build the last three binary ideas. `sendat` answers in 10 to 20 ms already and I have not seen two callers clash on the AT port, so a daemon would only add a way to break. The root helper would break plugins that call `runShellWithRoot`. Merging the Go programs would save about 7 MB of 22.9 MB, but I would have to redo the hash list, the F50 tests and the CI for it. No code changed. If AT errors show up, third-party plugins arrive or the APK gets too big, I will look at them again.
+
 # Unreleased, after 1.4.4 - matchi-doctor is bundled and called from Full diagnose (Phase 5)
 
 - **matchi-doctor is in the APK.** The read-only diagnostics program from `tools/doctor/` (built by `build-doctor.yml`, `go vet` and `go test` passed) is in `assets/bin/`, copied to the files folder at start like `zreq`, and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`). SHA-256 `5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471`.
