@@ -58,10 +58,19 @@ jobs:
           SHA: ${{ steps.apk.outputs.sha }}
         run: |
           TAG="build-${{ github.event.workflow_run.run_number }}"
-          gh release create "$TAG" \
-            release/MatchiTOOL.apk#MatchiTOOL.apk \
-            --latest=false \
-            --repo "$RELEASES_REPO" \
-            --title "MatchiTOOL $TAG" \
-            --notes "Signed release APK build.
+          NOTES="Signed release APK build.
           SHA-256: $SHA"
+          # GitHub's API now and then answers HTTP 500 for a moment. Try up to 4 times. A 500 can still leave the release behind
+          # without the file, so a retry first looks for it and only uploads the APK when it is already there.
+          for try in 1 2 3 4; do
+            if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+              gh release upload "$TAG" release/MatchiTOOL.apk#MatchiTOOL.apk --clobber --repo "$RELEASES_REPO" && exit 0
+            else
+              gh release create "$TAG" release/MatchiTOOL.apk#MatchiTOOL.apk --latest=false --repo "$RELEASES_REPO" \
+                --title "MatchiTOOL $TAG" --notes "$NOTES" && exit 0
+            fi
+            echo "Attempt $try failed, waiting before the next one"
+            sleep $((try * 20))
+          done
+          echo "::error::could not publish $TAG after 4 attempts"
+          exit 1
