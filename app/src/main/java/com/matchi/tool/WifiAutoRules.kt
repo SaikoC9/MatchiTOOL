@@ -17,8 +17,11 @@ enum class WifiAutoAction {
  *
  * "State file" = [holdsState]: it exists when WE turned Wi-Fi off. It is what makes a later turn-on ours to do.
  *
- *  - Tethering active for [DEBOUNCE_MS] in a row and Wi-Fi on: turn it off (the caller writes the state file first).
- *  - Tethering not active for [DEBOUNCE_MS] in a row and we hold the state file: turn Wi-Fi on and delete the file.
+ *  - Tethering active for [ACTIVE_DEBOUNCE_MS] in a row and Wi-Fi on: turn it off (the caller writes the state file first). This is long on
+ *    purpose: with the PC stuck the link flips ACTIVE/IDLE every few seconds, and turning Wi-Fi off on a short ACTIVE streak can leave
+ *    the router with neither Wi-Fi nor a working USB link. Any IDLE or unreadable look restarts the count.
+ *  - Tethering not active for [IDLE_DEBOUNCE_MS] in a row and we hold the state file: turn Wi-Fi on and delete the file (kept short: getting
+ *    Wi-Fi back is the safe direction).
  *  - Wi-Fi was already off before tethering started: no state file, so it is never turned on by us.
  *  - After a boot nothing is decided as "tethering is gone" for [BOOT_WAIT_MS]; the state file stays as it is.
  *  - Wi-Fi turned on by hand while tethered (after we had seen it off): left on, state file dropped, and not turned off again
@@ -32,7 +35,10 @@ enum class WifiAutoAction {
  */
 class WifiAutoRules {
     companion object {
-        const val DEBOUNCE_MS = 5_000L
+        /** Wi-Fi goes off only after the link has been ACTIVE this long without a break. */
+        const val ACTIVE_DEBOUNCE_MS = 15_000L
+        /** Wi-Fi comes back after the link has been IDLE this long without a break. */
+        const val IDLE_DEBOUNCE_MS = 5_000L
         const val BOOT_WAIT_MS = 45_000L
         /** After a successful change the Wi-Fi read-back may lag; readings are ignored for this long. */
         const val SETTLE_MS = 15_000L
@@ -72,7 +78,7 @@ class WifiAutoRules {
         if (link == TetherLink.ACTIVE) {
             idleSince = null
             val since = activeSince ?: nowMs.also { activeSince = it }
-            if (nowMs - since < DEBOUNCE_MS) return WifiAutoAction.NONE
+            if (nowMs - since < ACTIVE_DEBOUNCE_MS) return WifiAutoAction.NONE
             if (!wifiOn || userOverride) return WifiAutoAction.NONE
             if (!holdsState || !offSeen) return WifiAutoAction.TURN_OFF
             userOverride = true
@@ -83,7 +89,7 @@ class WifiAutoRules {
         activeSince = null
         if (sinceBootMs < BOOT_WAIT_MS) { idleSince = null; return WifiAutoAction.NONE }
         val since = idleSince ?: nowMs.also { idleSince = it }
-        if (nowMs - since < DEBOUNCE_MS) return WifiAutoAction.NONE
+        if (nowMs - since < IDLE_DEBOUNCE_MS) return WifiAutoAction.NONE
         userOverride = false
         if (!holdsState) return WifiAutoAction.NONE
         return if (wifiOn) WifiAutoAction.DROP_STATE else WifiAutoAction.TURN_ON
