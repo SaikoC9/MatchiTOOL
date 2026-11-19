@@ -1,6 +1,6 @@
 # MatchiTOOL 1.4.5
 
-The bundled programs got a clean-up: newer toolchains and one release pipeline, a hash check before anything runs as root, an optional fast sampler for the Live panel and a diagnostics program for Full diagnose. The last section says what I decided not to build.
+The bundled programs got a clean-up: newer toolchains and one release pipeline, a hash check before anything runs as root, an optional fast sampler for the Live panel and a diagnostics program for Full diagnose.
 
 ## no atd, no root helper, no merged binary
 
