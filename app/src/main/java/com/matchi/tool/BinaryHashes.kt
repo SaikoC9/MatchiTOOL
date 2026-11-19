@@ -4,11 +4,11 @@ package com.matchi.tool
 // scripts/validate.sh and BinaryHashesFileTest fail when this file and the assets disagree.
 object BinaryHashes {
     private val TABLE: Map<String, String> = mapOf(
-        "curl" to "4c063298cc2d2b710d729c8f54f2ad503b504bfb80ff1f9f1e8dea7d8017d2b3",
-        "jq" to "738ee0567401f51c8c95c1df118b924d9e97954b00034bb91e37d995faa180e0",
-        "sendat" to "1ec33c2096c630e1f8bca34dcb239d48878f6816cbb8b5b31795568125dbc103",
+        "curl" to "bb49333d364737bef97b77114790be5684fd3c22d6d4274fbe56c3a83869428a",
+        "jq" to "a8dc0221d8a6e7d67feb16882768585e6f339dcf0fce1e828761c2c4f1ca3050",
+        "sendat" to "c7f61e688b269d924f0f5274abc599251c11341606cf99c435c64c4aa0eddbb7",
         "sha256" to "c937b0f3728d3ade2212d2de2e3ec258b396e5efc26821c4816528f484a868eb",
-        "zreq" to "8dc2144a3cc5d6afccb594a25a96d3019b6be05e2f23c2e345aeddd9837b3da2",
+        "zreq" to "96d4ba28f0f1a2b3dbbe0c805d99ce33b0053fd65552352a3dd4698117cc9b50",
     )
 
     /** The name of every bundled executable that is copied to the app's files folder. */
