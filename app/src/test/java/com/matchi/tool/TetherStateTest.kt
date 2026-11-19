@@ -71,8 +71,31 @@ class TetherStateTest {
         assertEquals(TetherLink.UNKNOWN, TetherState.fromOutput("carrier=1\n"))
     }
 
-    @Test fun readCommandHasBothMarkers() {
-        assert(TetherState.READ_COMMAND.contains("udc=") && TetherState.READ_COMMAND.contains("carrier="))
+    // The peer reading (a PC that is gone although the UDC and the carrier still look connected: the half-pulled cable seen on the F50).
+    @Test fun peerZeroTurnsAnActiveLinkIdle() {
+        assertEquals(TetherLink.IDLE, TetherState.decide(listOf("configured", "not attached"), "1", "0"))
+        assertEquals(TetherLink.IDLE, TetherState.fromOutput("udc=configured\nudc=not attached\ncarrier=1\npeer=0\n"))
+    }
+
+    @Test fun peerOneOrUnknownKeepsTheOldAnswer() {
+        assertEquals(TetherLink.ACTIVE, TetherState.decide(listOf("configured"), "1", "1"))
+        assertEquals(TetherLink.ACTIVE, TetherState.decide(listOf("configured"), "1", null))
+        assertEquals(TetherLink.ACTIVE, TetherState.decide(listOf("configured"), "1", ""))
+        assertEquals(TetherLink.ACTIVE, TetherState.decide(listOf("configured"), "1", "garbage"))
+        assertEquals(TetherLink.ACTIVE, TetherState.fromOutput("udc=configured\ncarrier=1\npeer=1\n"))
+        assertEquals(TetherLink.ACTIVE, TetherState.fromOutput("udc=configured\ncarrier=1\npeer=\n"))
+        assertEquals(TetherLink.ACTIVE, TetherState.fromOutput("udc=configured\ncarrier=1\n"))
+    }
+
+    @Test fun peerNeverMakesAnIdleOrUnknownLinkActive() {
+        assertEquals(TetherLink.IDLE, TetherState.decide(listOf("not attached"), "0", "1"))
+        assertEquals(TetherLink.IDLE, TetherState.decide(listOf("default"), "1", "1"))
+        assertEquals(TetherLink.UNKNOWN, TetherState.decide(listOf("configured"), null, "1"))
+        assertEquals(TetherLink.UNKNOWN, TetherState.decide(null, "1", "1"))
+    }
+
+    @Test fun readCommandHasAllMarkers() {
+        assert(TetherState.READ_COMMAND.contains("udc=") && TetherState.READ_COMMAND.contains("carrier=") && TetherState.READ_COMMAND.contains("peer="))
         assert(!TetherState.READ_COMMAND.contains('\n'))
     }
 }
