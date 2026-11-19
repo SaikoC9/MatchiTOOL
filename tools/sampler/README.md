@@ -33,7 +33,7 @@ six lines byte for byte.
     .github/workflows/build-sampler.yml
 Run the workflow, download `matchitool-sampler-arm64`, test it on the F50 (below) **before** copying it to
 `app/src/main/assets/bin/matchi-sampler` and writing the SHA-256 into `NOTICE.md`, `docs/BINARIES.md` and `BinaryHashes.kt`
-(`scripts/gen_binary_hashes.py`). The app does not use it until the setting is switched on (next step of Phase 4).
+(`scripts/gen_binary_hashes.py`). The app does not use it until "Fast sampler" is switched on under Live device status (`LiveEngine.kt`, `LiveEngineSetting.kt`); if the program gives no readings twice in a row it goes back to the shell loop by itself.
 
 ## Test on the F50
     adb push matchi-sampler /data/local/tmp/ && adb shell chmod 755 /data/local/tmp/matchi-sampler

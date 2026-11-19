@@ -200,6 +200,8 @@ interface LiveShell {
     fun readLine(): String?
     /** Stops the reader. Safe to call more than once, from any thread. Must make a blocked [readLine] return. */
     fun close()
+    /** Which program feeds this reader: [LiveEngine.ENGINE_SHELL] (the loop in [LiveScript]) or [LiveEngine.ENGINE_BINARY] (matchi-sampler). */
+    val engine: String get() = LiveEngine.ENGINE_SHELL
 }
 
 /**
@@ -211,13 +213,19 @@ interface LiveShell {
  * If the shell ends or fails it is started again, after 1, 2, 4, 8, 16 and then at most 30 seconds when it keeps failing ([backoff]);
  * a shell that delivered readings starts again after 1 s. It never restarts in a tight loop. When root was refused it does not ask again
  * until [isDenied] says the shared cool-down is over. [stop] ends the shell and the worker thread.
+ *
+ * [safeLaunch] is the way back for the optional matchi-sampler program: when [launch] gave a reader that ran the program
+ * ([LiveShell.engine] is "binary") and it ended without a single reading [LiveEngine.BINARY_TRIES] times in a row, the next starts use
+ * [safeLaunch] (the shell loop) until [stop] / [start]. [onFallback] is told once, with the reason, for the log.
  */
 class LiveSampler(
     private val launch: () -> LiveShell,
     private val isDenied: () -> Boolean = { false },
     private val onDenied: () -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
-    private val delayMs: (Int) -> Long = { backoff(it) }
+    private val delayMs: (Int) -> Long = { backoff(it) },
+    private val safeLaunch: (() -> LiveShell)? = null,
+    private val onFallback: (String) -> Unit = {}
 ) {
     companion object {
         /** Wait before the next start after [failures] failures in a row (1 -> 1 s, 2 -> 2 s, 3 -> 4 s ... capped at 30 s). */
@@ -227,7 +235,18 @@ class LiveSampler(
          * The real reader: `su -c sh` with [LiveScript.launch] on its stdin. Pass RootShell.isDenied / RootShell.noteDenied so that a refused
          * su is remembered once for the whole app.
          */
-        fun forRoot(isDenied: () -> Boolean, onDenied: () -> Unit): LiveSampler = LiveSampler({ RootLiveShell.start() }, isDenied, onDenied)
+        fun forRoot(
+            isDenied: () -> Boolean,
+            onDenied: () -> Unit,
+            binaryPath: () -> String? = { null },   // the verified matchi-sampler to run, or null for the shell loop; asked at every reader start
+            onFallback: (String) -> Unit = {}
+        ): LiveSampler = LiveSampler(
+            launch = { RootLiveShell.start(binaryPath()) },
+            isDenied = isDenied,
+            onDenied = onDenied,
+            safeLaunch = { RootLiveShell.start(null) },
+            onFallback = onFallback
+        )
     }
 
     private val monitor = Object()
@@ -236,10 +255,14 @@ class LiveSampler(
     private var active: LiveShell? = null // guarded by monitor
     @Volatile private var latest: LiveSnapshot? = null
     @Volatile private var note: String = ""
+    @Volatile private var engineName: String = LiveEngine.ENGINE_SHELL
     private val listeners = CopyOnWriteArrayList<(LiveSnapshot) -> Unit>()
 
     /** The newest snapshot, or null before the first one (and after [stop] it is the last one that was read). */
     fun latest(): LiveSnapshot? = latest
+
+    /** The program behind the reader that was started last ([LiveEngine.ENGINE_SHELL] before the first start). */
+    fun engine(): String = engineName
 
     /** The last line the reader printed that was not a reading (su's own message, for example), for the log. Empty if none. */
     fun lastNote(): String = note
@@ -289,11 +312,13 @@ class LiveSampler(
 
     private fun run(g: Int) {
         var failures = 0
+        var binaryBad = 0   // readers in a row that ran matchi-sampler and ended without a reading
         try {
             while (current(g)) {
                 if (isDenied()) { failures++; if (!pause(g, delayMs(failures))) return; continue }
+                val safe = safeLaunch
                 val shell = try {
-                    launch()
+                    if (safe != null && binaryBad >= LiveEngine.BINARY_TRIES) safe() else launch()
                 } catch (e: Exception) {
                     // su could not be started at all: share that with the rest of the app instead of retrying alone.
                     if (e is IOException || e is SecurityException) onDenied()
@@ -304,11 +329,19 @@ class LiveSampler(
                 }
                 val ok = synchronized(monitor) { if (generation == g) { active = shell; true } else false }
                 if (!ok) { shell.close(); return }
+                engineName = shell.engine
                 val delivered = try { readLoop(shell, g) } finally {
                     synchronized(monitor) { if (active === shell) active = null }
                     try { shell.close() } catch (e: Exception) { Quiet.note("LiveSampler.close", e) }
                 }
                 if (delivered > 0) failures = 0 else failures++
+                if (shell.engine == LiveEngine.ENGINE_BINARY) {
+                    if (delivered > 0) binaryBad = 0
+                    else if (++binaryBad == LiveEngine.BINARY_TRIES && safeLaunch != null) {
+                        note = "matchi-sampler gave no readings " + LiveEngine.BINARY_TRIES + " times, using the shell loop"
+                        onFallback(note + (lastOutput.let { if (it.isEmpty()) "" else " (last output: $it)" }))
+                    }
+                }
                 if (!pause(g, delayMs(maxOf(failures, 1)))) return
             }
         } finally {
@@ -316,17 +349,20 @@ class LiveSampler(
         }
     }
 
+    private var lastOutput = ""   // the last line of the latest reader that was not a reading (before [note] is replaced), only used for the log
+
     /** Reads until the reader ends or this worker is replaced. Returns how many valid lines it delivered. */
     private fun readLoop(shell: LiveShell, g: Int): Int {
         var prev: LiveLine? = null
         var sys: SysInfo? = null
         var sysAt: Long? = null
         var count = 0
+        lastOutput = ""
         while (current(g)) {
             val line = (try { shell.readLine() } catch (e: IOException) { null }) ?: break
             val cur = LiveScript.parse(line)
             if (cur == null) {
-                if (line.isNotBlank()) note = line.take(200)
+                if (line.isNotBlank()) { note = line.take(200); lastOutput = note }
                 continue
             }
             val snap = LiveScript.snapshot(prev, cur, sys, sysAt, now())
@@ -342,12 +378,24 @@ class LiveSampler(
 }
 
 /** `su -c sh` running [LiveScript.launch]. Starting it can throw (no su); the caller treats that as a refusal. */
-private class RootLiveShell(private val p: Process) : LiveShell {
+private class RootLiveShell(private val p: Process, override val engine: String = LiveEngine.ENGINE_SHELL) : LiveShell {
     private val reader = BufferedReader(InputStreamReader(p.inputStream, Charsets.UTF_8))
     @Volatile private var closed = false
 
     companion object {
-        fun start(): LiveShell {
+        /** [binary] is the full path of the verified matchi-sampler, or null for the shell loop (also when the path is not a plain absolute path). */
+        fun start(binary: String? = null): LiveShell {
+            val run = binary?.let { LiveEngine.command(it) }
+            if (run != null) {
+                // The program is one fixed command line. Nothing is sent to it: stdin is closed at once. It ends when its next write fails
+                // (the app closed the pipe), so no root process is left behind; -rounds is the second limit, as for the loop.
+                val p = ProcessBuilder("su", "-c", run).redirectErrorStream(true).start()
+                try { p.outputStream.close() } catch (e: IOException) {
+                    try { p.destroy() } catch (x: Exception) { Quiet.note("LiveSampler.start", x) }
+                    throw e
+                }
+                return RootLiveShell(p, LiveEngine.ENGINE_BINARY)
+            }
             val p = ProcessBuilder("su", "-c", "sh").redirectErrorStream(true).start()
             try {
                 // The script is written once, then stdin is closed: nothing else is ever sent to the shell.

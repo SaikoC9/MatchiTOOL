@@ -60,9 +60,9 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
     }
 
-    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq")
+    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY)
 
-    init { seedPlugins(); ApkUpdater.cleanStale(ctx) }
+    init { LiveEngineSetting.bind(ctx); seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
     /**
      * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The built-in tools
@@ -82,7 +82,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         if (refresh || !intact("curl", curl)) installBundledBinary("bin/curl", curl)
         try { curl.setExecutable(true, false) } catch (e: Exception) { Quiet.note("WebServer.seedPlugins", e) }
         // jq, sha256 and zreq (arm64, MatchiTOOL's own builds) are for plugins that run them from this app's files folder
-        // (/data/data/<this app>/files/NAME). Same copy-then-rename as curl.
+        // (/data/data/<this app>/files/NAME). Same copy-then-rename as curl. matchi-sampler is the optional Live panel reader (see LiveEngine).
         for (tool in BUNDLED_TOOLS) {
             val dest = File(ctx.filesDir, tool)
             if (refresh || !intact(tool, dest)) installBundledBinary("bin/$tool", dest)

@@ -70,6 +70,9 @@ object Prefs {
     /** Root actions from another device while the console runs over plain HTTP (HTTPS could not start). Off by default; see RootGate.insecureRefused. */
     fun rootOverHttp(c: Context): Boolean = sp(c).getBoolean("root_over_http", false)
     fun setRootOverHttp(c: Context, v: Boolean) { sp(c).edit().putBoolean("root_over_http", v).apply() }
+    /** Live panel: read the numbers with the bundled matchi-sampler program instead of the shell loop. Off by default; see LiveEngine. */
+    fun liveBinary(c: Context): Boolean = sp(c).getBoolean("live_binary", false)
+    fun setLiveBinary(c: Context, v: Boolean) { sp(c).edit().putBoolean("live_binary", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
     fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)

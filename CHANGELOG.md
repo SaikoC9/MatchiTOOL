@@ -1,3 +1,14 @@
+# Unreleased, after 1.4.4 - optional "Fast sampler" for the Live panel (Phase 4)
+
+Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build is what confirms the rest. Not run on the F50 yet.
+
+- **matchi-sampler is bundled.** The small Go program from `tools/sampler/` (built by `build-sampler.yml`) is now in `assets/bin/`, copied to the app's files folder with the other binaries and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`).
+- **New setting, off by default:** a "Fast sampler" button under Live device status (shown only when the program is installed and intact). When it is on, the Live panel's root reader runs `matchi-sampler` instead of the shell loop. It prints the same line, so `LiveScript.parse` and the page did not change. New route `POST /api/live/engine` (same gate as the stream) and `GET /api/live/engine`; the setting is `Prefs.liveBinary`.
+- **The shell loop stays as the fallback.** The program is used only if the setting is on and `BinaryCheck.problem` says the file is the one the app was built with. If a reader that ran it ends without a single reading twice in a row, `LiveSampler` uses the shell loop from then on (until the Live reader is stopped and started again) and writes a WARNING to the log. Switching the setting restarts a running reader at once.
+- **Tests:** `LiveEngineTest` (command line, odd paths refused, rules for using the program, the fallback and its limits); `BinaryHashesFileTest`, `test_route_gates.py`, `check_sources.py` and `test_update_binary_hashes.py` know the new file and routes.
+- **Measuring:** `scripts/measure_live_cpu.sh` prints the CPU the reader and the app used over a window, for the before/after comparison.
+- **Run on the F50:** nothing yet. Test steps are in `docs/MatchiTOOL_Binaries_Phase4_todo.txt`.
+
 # Unreleased, after 1.4.4 - bundled binaries are checked before they run
 
 Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Not run on the F50 yet.

@@ -257,7 +257,14 @@ internal fun WebServer.screenInput(req: JSONObject): Response {
  * The one root reader of the Live panel, shared by every browser (see LiveStream.kt). Nothing starts it until the first stream is opened,
  * and the last stream to close stops it. It asks RootShell's shared "su was refused" cool-down, so it never retries on its own.
  */
-internal val liveHub: LiveHub by lazy { liveHubMade = true; LiveHub(LiveSampler.forRoot({ RootShell.isDenied() }, { RootShell.noteDenied() })) }
+internal val liveHub: LiveHub by lazy {
+    liveHubMade = true
+    LiveHub(LiveSampler.forRoot(
+        { RootShell.isDenied() }, { RootShell.noteDenied() },
+        binaryPath = { LiveEngineSetting.binaryPath() },
+        onFallback = { LogCatcher.log("WARNING", "LiveSampler", it) }
+    ))
+}
 @Volatile private var liveHubMade = false
 
 /** Ends every live stream and the root reader. HostService calls it when the service goes away; it does not create the hub just to stop it. */
@@ -303,6 +310,31 @@ internal fun WebServer.liveView(s: IHTTPSession): Response {
     else json(Response.Status.NOT_FOUND, JSONObject().put("error", "no such live stream"))
 }
 
+/** What GET /api/live/engine and POST /api/live/engine answer: the setting, whether the program is installed and intact, and which one runs now. */
+private fun WebServer.liveEngineState(): JSONObject = JSONObject()
+    .put("fast", Prefs.liveBinary(ctx))
+    .put("available", LiveEngineSetting.available())
+    .put("running", if (liveHubMade) liveHub.engine() else "none")
+
+/**
+ * POST /api/live/engine {"fast":true|false}: switch the Live panel's root reader between the shell loop (off, the default) and the bundled
+ * matchi-sampler program (on). Turning it on is refused (409) when the program is not installed or is not the file the app was built with.
+ * A running reader is restarted so the change shows at once; the page keeps its stream. The caller has passed rootGate.
+ */
+internal fun WebServer.liveEngineSet(s: IHTTPSession): Response {
+    val req = body(s)
+    if (!req.has("fast") || req.opt("fast") !is Boolean)
+        return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "fast (true or false) is required"))
+    val on = req.getBoolean("fast")
+    if (on && !LiveEngineSetting.available())
+        return json(Response.Status.CONFLICT, JSONObject().put("error", "matchi-sampler is not installed or does not match the build. Restart the MatchiTOOL host to copy it again."))
+    val was = Prefs.liveBinary(ctx)
+    Prefs.setLiveBinary(ctx, on)
+    auditShell(s.remoteIpAddress ?: "?", "live-engine fast=$on", "live-engine")
+    if (was != on && liveHubMade) liveHub.restartReader()
+    return json(Response.Status.OK, liveEngineState().put("ok", true))
+}
+
 internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = when {
     uri == "/api/ping" -> {
         @Suppress("DEPRECATION")
@@ -317,6 +349,9 @@ internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = wh
     // Live panel push stream: one persistent root reader shared by all viewers. It starts root, so it has the same gate as /api/shell.
     uri == "/api/live/stream" && s.method == Method.GET -> rootGate(s) ?: liveStream(s)
     uri == "/api/live/view" && s.method == Method.POST -> rootGate(s) ?: liveView(s)
+    // Live panel reader choice: the answer shows a setting and a file check only (open); changing it restarts the root reader, so that has the gate.
+    uri == "/api/live/engine" && s.method == Method.GET -> json(Response.Status.OK, liveEngineState())
+    uri == "/api/live/engine" && s.method == Method.POST -> rootGate(s) ?: liveEngineSet(s)
     uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
     uri == "/api/usb/control" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)

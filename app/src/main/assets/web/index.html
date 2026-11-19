@@ -1884,7 +1884,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   let inl = null;
   if (home) {
     inl = document.createElement('div'); inl.id = INL; inl.className = 'liv';
-    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><div class="liv-auto" title="Turn automatic live refresh on or off"><span class="liv-autolbl">Live refresh: On</span><button type="button" class="liv-sw" role="switch" aria-checked="true" aria-label="Automatic refresh"></button></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div><div class="liv-opts"><span>Refresh</span><span class="liv-chips"></span><label>Pause below <select class="liv-bp" aria-label="Pause live refresh when the battery is below"></select></label></div>';
+    inl.innerHTML = '<div class="liv-head"><div class="liv-title">Live device status</div><div class="liv-live"><span class="liv-pulse off"></span><span class="liv-when">Connecting…</span></div><div class="liv-auto" title="Turn automatic live refresh on or off"><span class="liv-autolbl">Live refresh: On</span><button type="button" class="liv-sw" role="switch" aria-checked="true" aria-label="Automatic refresh"></button></div></div><div class="liv-body"><div class="empty-state">Reading modem…</div></div><div class="liv-foot"></div><div class="liv-opts"><span>Refresh</span><span class="liv-chips"></span><label>Pause below <select class="liv-bp" aria-label="Pause live refresh when the battery is below"></select></label><button type="button" class="liv-chip liv-eng" hidden title="Read the numbers with the small bundled program (matchi-sampler) instead of a shell loop. Uses less CPU. Off by default.">Fast sampler: Off</button></div>';
     home.appendChild(inl);
   }
   const modalRoot = () => { const m = document.getElementById(ID); return m && m.classList.contains('show') ? m : null; };
@@ -2159,6 +2159,22 @@ rm -f $P.g $P.4 $P.6 $P.d
       syncOpts(); armF(auto ? fastDelay() : 60000); armS(auto ? slowDelay() : 60000); armC(auto ? cpuDelay() : 60000);
       if (auto && !batLow()) { tickFast(); } paint();
     };
+    // Fast sampler: the host reads the numbers with the bundled matchi-sampler program (less CPU than the shell loop). Off by default and only shown
+    // when the program is installed and intact. The host falls back to the shell loop by itself if the program gives no readings.
+    const eng = inl.querySelector('.liv-eng');
+    const syncEng = (j) => { const on = !!(j && j.fast); eng.hidden = !(j && j.available); eng.setAttribute('aria-pressed', String(on)); eng.textContent = 'Fast sampler: ' + (on ? 'On' : 'Off'); };
+    if (eng) {
+      api('/api/live/engine', { quiet: true }).then(syncEng).catch(() => {  });
+      eng.onclick = async () => {
+        const want = eng.getAttribute('aria-pressed') !== 'true';
+        eng.disabled = true;
+        try {
+          const j = await api('/api/live/engine', { method: 'POST', body: JSON.stringify({ fast: want }) });
+          syncEng(j); createToast('Fast sampler ' + (want ? 'on' : 'off'), want ? 'green' : 'blue');
+        } catch (e) { createToast(String((e && e.message) || e).slice(0, 120), 'red'); }
+        finally { eng.disabled = false; }
+      };
+    }
   }
   syncLive();   // open the push stream at once (its first frame is the host's last reading)
   if (loadCache()) paint();   // cached reading on screen straight away (labelled "Last reading"), then the first live read replaces it

@@ -340,6 +340,21 @@ class LiveHub(
         }
     }
 
+    /** Which program feeds the root reader now ("shell" or "binary"); see [LiveEngine]. */
+    fun engine(): String = sampler.engine()
+
+    /**
+     * Starts the root reader again so a changed setting (shell loop or matchi-sampler) takes effect now. Streams stay open: they listen to the
+     * sampler, not to one reader. Does nothing while no reader runs (the next start uses the new setting anyway).
+     */
+    fun restartReader() {
+        synchronized(lock) {
+            if (!sampler.isRunning()) return
+            sampler.stop()
+            refresh()   // starts it again when somebody is looking; otherwise the grace-time rules apply as always
+        }
+    }
+
     /** Ends every stream and the root reader (the service is going away). Safe to call more than once. */
     fun shutdown() {
         val all: List<LiveStream>
