@@ -88,6 +88,9 @@ class HostService : Service() {
                     }
                 } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "LAN interface watch failed: ${e.message}") }
             }, 45, 45, TimeUnit.SECONDS)
+            // "Turn Wi-Fi off while USB tethering is on": starts its own loop when the switch is on (and, with the switch off, looks once for a
+            // state file left by a killed app, so Wi-Fi is never left off). See WifiAutoLoop.
+            try { WifiAutoLoop.sync(applicationContext) } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Wi-Fi auto switch start failed: ${e.message}") }
             // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).
             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
         }
@@ -283,6 +286,7 @@ class HostService : Service() {
         destroyed = true   // first: a host that is still starting sees this and stops itself again
         Tls.ready = false
         try { workers.shutdownNow() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
+        try { WifiAutoLoop.shutdown() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }   // the state file stays; the next start carries on
         try { server?.stop() } catch (e: Exception) { Quiet.note("HostService.onDestroy", e) }
         server = null
         try { stopLiveHub() } catch (e: Exception) { Quiet.note("HostService.liveHub", e) }   // no root reader left behind when the service stops

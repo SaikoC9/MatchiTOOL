@@ -71,6 +71,10 @@ object Prefs {
     fun rootOverHttp(c: Context): Boolean = sp(c).getBoolean("root_over_http", false)
     fun setRootOverHttp(c: Context, v: Boolean) { sp(c).edit().putBoolean("root_over_http", v).apply() }
     /** Live panel: read the numbers with the bundled matchi-sampler program instead of the shell loop. Off by default; see LiveEngine. */
+    /** "Turn Wi-Fi off while USB tethering is on" (Network window, Wi-Fi tab). Off by default; read at every host start. */
+    fun wifiAutoTether(c: Context): Boolean = sp(c).getBoolean("wifi_auto_tether", false)
+    fun setWifiAutoTether(c: Context, v: Boolean) { sp(c).edit().putBoolean("wifi_auto_tether", v).apply() }
+
     fun liveBinary(c: Context): Boolean = sp(c).getBoolean("live_binary", false)
     fun setLiveBinary(c: Context, v: Boolean) { sp(c).edit().putBoolean("live_binary", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
