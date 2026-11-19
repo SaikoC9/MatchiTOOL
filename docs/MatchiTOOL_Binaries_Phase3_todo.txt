@@ -1,6 +1,21 @@
 MatchiTOOL - new binaries plan, PHASE 3: runtime hash check in the app
 Built on MatchiTOOL-main (v1.4.4) + MatchiTOOL-phase2-changes.zip. Written 2026-11-19.
 
+PHASE 2 RESULT (workflow "Release tools", run 44434964609, 2026-11-19, from main aece0f0 = Phase 2 only)
+[PASS] sendat, zreq, curl and jq came out byte-for-byte the same on the second build (reproducible).
+[PASS] Build provenance attestation created (Rekor log 3982939884), so the repo is public and this step works.
+[PASS] update_binary_hashes.py: curl 4c063298 -> bb49333d, jq 738ee056 -> a8dc0221, sendat 1ec33c20 -> c7f61e68, zreq 8dc2144a -> 96d4ba28.
+[PASS] check_repo.py passed. Pull request #2 (branch tools-update-1, 6 files: 4 binaries, NOTICE.md, docs/BINARIES.md) opened.
+[OPEN] PR #2 not tested on the F50 yet, version words in NOTICE.md / BINARIES.md not updated yet (Go 1.26.10, curl 8.23.0, OpenSSL 3.5.9, jq 1.8.2).
+[NOTE] That run used the Phase 2 workflow, whose "git add" does not include BinaryHashes.kt. The Phase 3 zip fixes that for later runs.
+
+ORDER FOR PHASE 2 + 3 (so BinaryHashes.kt is never stale)
+ 1. Test the new binaries on the F50 (Phase 1 test list), then merge PR #2.
+ 2. Unzip MatchiTOOL-phase3-changes.zip over the repo.
+ 3. python3 scripts/gen_binary_hashes.py   (BinaryHashes.kt now holds the NEW hashes)
+ 4. bash scripts/validate.sh, commit, push, run "Validate and build APK".
+ If step 3 is skipped, validate.sh fails ("BinaryHashes.kt is out of date"); if it got past CI the app would refuse its own copies.
+
 WHAT IS DONE (in the repo, not compiled here, not run on the F50)
 [DONE] 1. BinaryHashes.kt: SHA-256 of sendat, curl, jq, sha256, zreq. Written by scripts/gen_binary_hashes.py from assets/bin.
           (Plan said "at build time". It is a checked-in file instead, same way build-web.js / index.html work: validate.sh
@@ -68,3 +83,7 @@ KNOWN LIMITS
 
 ROLLBACK
 Revert the commit. Nothing else changes: the files in the APK and the web page are not touched.
+
+CI NOTE 2026-11-19: publish-release.yml failed once with "HTTP 500" from api.github.com (build-600, GitHub's side).
+[DONE] The publish step now retries up to 4 times and uploads the APK to a release that a failed try left without a file.
+[OPEN] Re-run the failed job once; if "build-600" is already in SaikoC9/MatchiTOOL-releases without the APK, the new step handles it.
