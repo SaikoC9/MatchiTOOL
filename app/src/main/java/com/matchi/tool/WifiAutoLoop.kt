@@ -78,7 +78,7 @@ internal class WifiAutoPortImpl(private val ctx: Context) : WifiAutoPort {
         return WifiSwitch.on(ctx, band).also { if (it) lastWifiOn = true }
     }
 
-    override fun log(message: String) = LogCatcher.log("WARNING", "WifiAuto", message)
+    override fun log(message: String) { LogCatcher.log("WARNING", "WifiAuto", message); WifiAutoTrace.note(ctx, message) }
 }
 
 /**
@@ -103,6 +103,7 @@ object WifiAutoLoop {
     @Volatile private var enabled = false
     @Volatile private var appCtx: Context? = null
     @Volatile private var seen: Seen? = null
+    private var lastTrace = ""
 
     /** What the Network window shows. */
     class Status(val enabled: Boolean, val passwordSaved: Boolean, val running: Boolean, val line: String)
@@ -155,6 +156,9 @@ object WifiAutoLoop {
         val now = SystemClock.elapsedRealtime()
         val action = w.tick(now, now, on)
         if (action != WifiAutoAction.NONE) LogCatcher.log("INFO", "WifiAuto", "Action: $action (link=${p.lastLink}, wifiOn=${p.lastWifiOn})")
+        // File trace (survives a router restart): one line when anything the watcher sees changes, and one per action.
+        val sig = "link=${p.lastLink} wifiOn=${p.lastWifiOn} holds=${p.lastHolds} switch=$on"
+        if (action != WifiAutoAction.NONE || sig != lastTrace) { lastTrace = sig; WifiAutoTrace.note(c, "$sig action=$action") }
         seen = Seen(p.lastLink, p.lastWifiOn, p.lastHolds, p.problem)
         if (!on && !p.hasState()) stopIfIdle()
     }

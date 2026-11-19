@@ -55,15 +55,18 @@ object WifiSwitch {
             ZteClient.call(ctx, "set", params)   // the reply is not trusted, only the read-back below
         } catch (e: Exception) {
             LogCatcher.log("WARNING", "WifiSwitch", "Wi-Fi change to $want failed: ${e.message}")
+            WifiAutoTrace.note(ctx, "Wi-Fi change to $want failed: ${e.javaClass.simpleName}")
             return false
         }
+        WifiAutoTrace.note(ctx, "Wi-Fi change to $want sent")
         val end = System.currentTimeMillis() + WAIT_MS
         while (true) {
             try { Thread.sleep(POLL_MS) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
-            if (WifiGoform.reached(read(ctx), want)) return true
+            if (WifiGoform.reached(read(ctx), want)) { WifiAutoTrace.note(ctx, "Wi-Fi change to $want confirmed"); return true }
             if (System.currentTimeMillis() >= end) break
         }
         LogCatcher.log("WARNING", "WifiSwitch", "Wi-Fi change to $want: the router did not report it within ${WAIT_MS / 1000} s")
+        WifiAutoTrace.note(ctx, "Wi-Fi change to $want not confirmed within ${WAIT_MS / 1000} s")
         return false
     }
 }
