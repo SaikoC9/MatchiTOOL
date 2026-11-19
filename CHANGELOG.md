@@ -1,3 +1,14 @@
+# Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
+
+Build recipes and CI only. The binaries in `app/src/main/assets/bin/` are still the 1.4.4 ones until the new workflow is run and the results are tested on the F50.
+
+- **curl:** the build workflow now defaults to curl 8.23.0 (was 8.11.0).
+- **OpenSSL:** it now defaults to 3.5.9 (was 3.0.15). OpenSSL 3.0 stopped getting security fixes on 7 Sep 2026, and 3.5 is the LTS line.
+- **jq:** it now defaults to 1.8.2 (was 1.7.1), which has the 2026 security fixes.
+- **Go:** the `sendat` and `zreq` workflows now use Go 1.26.10 (was 1.22.8).
+- **One pipeline:** `release-tools.yml` (a `tools-v*` tag, or run by hand) builds all four binaries, builds `sendat` and `zreq` twice and fails if they differ, and opens a pull request with the binaries and their new SHA-256 values in `NOTICE.md` and `docs/BINARIES.md`. `scripts/update_binary_hashes.py` does the hash rewrite and has its own test, which `validate.sh` runs. `scripts/pin-actions.sh` pins the actions to full commits. How to use it: `docs/BUILD_BINARIES.md`.
+- **Still to do before this ships:** run the pipeline, test on the F50 (`curl -V`, an https request, `jq --version`, `sendat -n 0 -c AT`, a `zreq` sign-in on 192.168.0.1:8080), fix the version words in `NOTICE.md` and `docs/BINARIES.md`, run `scripts/pin-actions.sh`, then `bash scripts/validate.sh`.
+
 # MatchiTOOL 1.4.4
 
 The short version. The full notes for this release, with test names and hashes, are in the 1.4.4 section at the top of [`docs/CHANGELOG_DETAIL.md`](docs/CHANGELOG_DETAIL.md). The Kotlin in this release was written without a compiler at hand, so the CI build is what confirms it. Unless it says "run on the F50", it has not been tried on the device.

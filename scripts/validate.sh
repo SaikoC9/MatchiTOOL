@@ -26,6 +26,7 @@ python3 "$ROOT/scripts/check_repo.py" "$ROOT"      # version in one place, READM
 python3 "$ROOT/scripts/check_sources.py" "$ROOT"    # legacy source-text tripwires (see its header)
 python3 "$ROOT/scripts/test_route_gates.py"          # who may call which route
 python3 "$ROOT/scripts/test_plugin_undo.py"           # the undo script in a real sh (fake iptables)
+python3 "$ROOT/scripts/test_update_binary_hashes.py"   # CI helper that writes new binary hashes into NOTICE.md
 
 # Boot / log shell tests (need setsid, pgrep and node; skipped where they are missing).
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
