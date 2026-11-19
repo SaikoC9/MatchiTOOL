@@ -29,6 +29,7 @@ object WifiSwitch {
     } catch (e: Exception) {
         LogCatcher.log("WARNING", "WifiSwitch", "Wi-Fi read failed: ${e.message}")
         noteRead(ctx, "Wi-Fi read failed: ${e.message}")
+        if (e.message?.contains("unreachable") == true) WifiAutoTrace.noteNet(ctx)   // why: the router's own network state
         null
     }
 
