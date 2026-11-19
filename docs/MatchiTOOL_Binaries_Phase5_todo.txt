@@ -1,0 +1,101 @@
+MatchiTOOL - new binaries plan, PHASE 5: matchi-doctor (read-only diagnostics, Go)
+Built on MatchiTOOL-main (v1.4.4, Phases 1-4 merged, tools/sampler in main). Written 2026-11-19.
+Plan text (MatchiTOOL_new_binaries_plan.txt, Phase 5): "one read-only command for Full diagnose. Checks: AT port answers (uses pinned
+port, skips RIL-held ports), router API on 8080, TLS + CA path, root UID, SELinux mode, free RAM/space, binary hashes. Output: JSON.
+Steps: tools/doctor/ + tests; call it from the Full diagnose route. Done when: results match the current diagnose on the F50."
+
+Same two steps as Phase 4:  STEP 1 = the program, its tests and its build workflow (this zip);  STEP 2 = the binary in the APK and the
+call from the Full diagnose route (after STEP 1 passes on the F50, because the app needs the real file and its SHA-256).
+
+WHAT IS DONE IN STEP 1 (in the repo; nothing here was compiled or run: there is no Go toolchain where this was written)
+[DONE] 1. tools/doctor/{go.mod, main.go, checks.go, main_test.go, README.md}. Stdlib only. Nine checks: root, selinux, memory, storage,
+          ca, tls (only with -tls), router, at, binaries. JSON on one line (-pretty indents). Exit 0 = report written, 2 = usage, 1 = reader gone.
+[DONE] 2. Thresholds copied from the checks in the page: memory fail < 5 % / warn < 10 % free, /data warn from 95 % used (space or inodes),
+          /data mounted ro = fail, df-style rounding up. Status words are the page's: ok / warn / fail / skip.
+[DONE] 3. "at" uses the pinned port from sendat.conf, skips a port another process holds (/proc/<pid>/fd) or that urild/engpc normally
+          hold (same rules as tools/sendat, copied on purpose until Phase 8), and asks through sendat ("-d <port> -c AT"; "-n 0" when
+          nothing is pinned). It does NOT test slot 1 (one SIM slot; a write to slot 1 reaches the RIL).
+[DONE] 4. "ca" reads /apex/com.android.conscrypt/cacerts (else /system/etc/security/cacerts) and counts the curl bundle. "tls" does a
+          handshake that trusts only those certificates, so the old unknown-CA failure would show as fail and a missing network as warn.
+[DONE] 5. "binaries": SHA-256 of every -hash name=sha256 file in -files; names missing and zero-filled files (the 15 Nov copy loss).
+[DONE] 6. Tests (main_test.go): fake /proc, /sys, /data, /dev in a temp folder with the F50 values from 2026-11-19, loopback HTTP and
+          TLS servers, a fake sendat. Every status of every check, the held-port cases, the command line, the one-line output.
+[DONE] 7. .github/workflows/build-doctor.yml (copy of build-sampler.yml: go vet, go test, static arm64 build, SHA-256 in the summary).
+[OPEN] 8. Run "Build matchi-doctor" on GitHub. This is the first time the code is compiled: if go vet or go test fails, paste the log.
+[OPEN] 9. Device tests D5-1 to D5-8 below.
+
+ORDER TO PUT IT IN
+ 1. Unzip MatchiTOOL-phase5-step1-changes.zip over the repo (new files only: tools/doctor/*, the workflow, this txt).
+ 2. git add, commit, push. Run the workflow "Build matchi-doctor (arm64 Android)" from the Actions tab.
+ 3. Download matchitool-doctor-arm64, run D5-1 to D5-8 on the F50. Do NOT go to step 2 until they pass.
+ 4. Send me the results and the SHA-256 of the binary; step 2 (Kotlin) is written against that file.
+ gofmt: run  gofmt -l tools/doctor  on a PC with Go; it should print nothing (it could not be run where this was written).
+
+DEVICE TESTS (F50, root). The app's folder: /data/data/com.matchi.tool/files
+Setup:  adb push matchi-doctor /data/local/tmp/ && adb shell chmod 755 /data/local/tmp/matchi-doctor
+        D=/data/local/tmp/matchi-doctor ; F=/data/data/com.matchi.tool/files
+
+D5-1  version
+    su -c '/data/local/tmp/matchi-doctor -version'
+  Expect "matchi-doctor 1.0 (MatchiTOOL)".
+
+D5-2  the report, next to the page (this is the plan's "results match the current diagnose")
+    su -c 'cd /data/data/com.matchi.tool/files; H=""; for f in sendat curl jq sha256 zreq matchi-sampler; do H="$H -hash $f=$(sha256sum $f | cut -d" " -f1)"; done; /data/local/tmp/matchi-doctor -pretty -files /data/data/com.matchi.tool/files -tls example.com:443 $H'
+  (If the router is not on 192.168.0.1 add  -router <address>.)  Open the page, Full diagnose, and compare line by line:
+    root      = "Root shell (su)"                      uid 0
+    selinux   = "Root speed, SELinux, clock"           same mode (Permissive on this unit)
+    memory    = "Memory, CPU load, stuck processes"    free % within a few points (it moves)
+    storage   = "Storage (/data)" and "Filesystem"     same space %, same inode %, same mount options
+    ca        = no page check yet                      expect 125 certificates; "curl bundle has 125 certificates" after any root script ran
+    tls       = no page check yet                      expect ok, TLS 1.3 (or 1.2), no -k needed
+    router    = "Router web server ports"              ok on 8080 (or the port the page says); any HTTP status counts
+    at        = "AT command, SIM slot 0"               ok on /dev/stty_nr6, a few ms to ~20 ms
+    binaries  = "bundled binaries" section             6 files, all ok (the hashes here come from the device, so this only proves the check runs; D5-5 proves it can fail)
+  Expect summary fail 0. Write down every line that differs from the page.
+
+D5-3  a port the RIL holds is reported and left alone (do NOT edit the real sendat.conf for this: that would point the app at the RIL)
+    su -c "echo 0=/dev/stty_nr0 > /data/local/tmp/doctor_test.conf; /data/local/tmp/matchi-doctor -pretty -conf /data/local/tmp/doctor_test.conf -sendat /data/data/com.matchi.tool/files/sendat -skip root,selinux,memory,storage,ca,router,binaries"
+  Expect status warn, "the pinned port /dev/stty_nr0 is held by urild (pid N); not touched". Then:  su -c 'rm /data/local/tmp/doctor_test.conf'
+  Also  -conf /nonexistent  : the check uses sendat's own default port (expect ok, "default port for slot 0").
+
+D5-4  speed
+    su -c 'time /data/local/tmp/matchi-doctor -files /data/data/com.matchi.tool/files -skip tls >/dev/null'
+  Expect well under 2 s with the router answering. With no router answer it waits up to 2 s per port (4 ports): note the time.
+
+D5-5  a file that does not match is reported
+    su -c '/data/local/tmp/matchi-doctor -pretty -files /data/data/com.matchi.tool/files -hash curl=0000000000000000000000000000000000000000000000000000000000000000 -skip root,selinux,memory,storage,ca,router,at'
+  Expect fail, "curl: does not match the build (arm64 ELF, N bytes)", hint to restart the host. And with -hash for a name that is not there (nosuch=00..00): "nosuch: missing".
+
+D5-6  nothing keeps running and nothing is changed
+    su -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /data/local/tmp/matchi-doctor -files /data/data/com.matchi.tool/files -tls example.com:443 >/dev/null; done; ps -ef | grep -E "matchi-doctor|sendat" | grep -v grep; ping -c 3 1.1.1.1'
+  Expect no matchi-doctor or sendat process left, ping 0 % loss (mobile data stays up), and the Live signal / AT & Radio still answer.
+
+D5-7  the reader goes away
+    su -c '/data/local/tmp/matchi-doctor -pretty | head -c 300'
+  Expect 300 characters and a quiet exit (no hang, no error text).
+
+D5-8  odd input
+    su -c '/data/local/tmp/matchi-doctor -skip nonsense; echo exit=$?'     -> message and exit=2
+    su -c '/data/local/tmp/matchi-doctor -hash sendat=abc; echo exit=$?'   -> message and exit=2
+
+RESULTS (F50)
+Nothing run yet.
+
+STEP 2 (after D5-1 to D5-8 pass; not started, needs the real binary)
+ - app/src/main/assets/bin/matchi-doctor; name added to BinaryHashes.kt (scripts/gen_binary_hashes.py NAMES), NOTICE.md, docs/BINARIES.md,
+   WebServer BUNDLED_TOOLS, scripts/check_sources.py, BinaryHashesFileTest, test_update_binary_hashes.py (same list as Phase 4 step 2).
+ - A small Android-free Kotlin part (command line with the hashes from BinaryHashes, JSON parse, text lines) with unit tests.
+ - GET /api/diagnostics: after the existing script and the "bundled binaries" lines, a "--- matchi-doctor ---" section with one line per
+   check, and the parsed report as "doctor" in the answer. The program is started as root only when BinaryCheck.problem() is null.
+ - Nothing existing is removed: the shell script and BinaryCheck.report stay as they are, so a missing, refused or failing doctor only
+   means the new section says why it did not run. That is the fallback; no setting is needed because the program is read-only.
+ - Done when (plan): the doctor's lines match the page's checks on the F50 (D5-2 repeated through the page). Then CHANGELOG, merge, release.
+
+KNOWN LIMITS
+- The doctor reads what the page's checks read, but it is not a copy of all 58 page checks: USB, plugins, thermal zones, battery,
+  kernel log, hotspot LAN and the browser-side checks stay in the page. Slot 1 is left out on purpose.
+- "router" only proves that something speaks HTTP on that port; it does not sign in (a wrong password can lock the login).
+- "tls" needs a working uplink; without one it says warn (could not connect), which is not a CA fault.
+
+ROLLBACK
+Step 1 adds files only: delete tools/doctor, the workflow and this txt. Step 2 is additive: revert its commit and Full diagnose is as before.
