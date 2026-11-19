@@ -13,6 +13,11 @@ interface WifiAutoPort {
     fun wifiOff(): Boolean
     /** Turn Wi-Fi on (same band as before) and read the result back. True only when it really is on. */
     fun wifiOnAgain(): Boolean
+    /**
+     * The router web API cannot be read: start the hotspot by root, wait for the API, then restore the stock config through it.
+     * True only when Wi-Fi is on again and the API read-back says so. Slow (up to about a minute): called at most [WifiAutoRules.MAX_RESCUES] times.
+     */
+    fun wifiRescue(): Boolean
     fun log(message: String)
 }
 
@@ -38,6 +43,11 @@ class WifiAutoWatcher(private val port: WifiAutoPort, private val rules: WifiAut
             WifiAutoAction.TURN_ON -> {
                 val ok = attempt { port.wifiOnAgain() }
                 if (ok) port.clearState() else port.log("Wi-Fi could not be turned back on")
+                rules.result(action, ok, nowMs)
+            }
+            WifiAutoAction.RESCUE -> {
+                val ok = port.wifiRescue()
+                if (ok) port.clearState() else port.log("Wi-Fi could not be started by the root fallback")
                 rules.result(action, ok, nowMs)
             }
             WifiAutoAction.DROP_STATE -> {

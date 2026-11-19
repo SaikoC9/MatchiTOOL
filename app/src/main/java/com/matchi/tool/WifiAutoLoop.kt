@@ -17,6 +17,34 @@ internal class WifiAutoPortImpl(private val ctx: Context) : WifiAutoPort {
     companion object {
         const val STATE_FILE = "/data/local/matchitool/wifi_auto_off"
         private const val SHELL_MS = 10_000L
+        private const val RESCUE_MS = 45_000L
+        private const val API_WAIT_MS = 20_000L
+        /**
+         * Runs as root. "@" stands for the dollar sign (replaced below) so the Kotlin string needs no escapes. Prints only "rescue:" lines.
+         * Passphrase and name stay in shell variables: they are never printed, only their lengths.
+         */
+        private val RESCUE_SCRIPT = """
+F=/data/misc/apexdata/com.android.wifi/WifiConfigStoreSoftAp.xml
+unesc() { sed 's/&quot;/"/g;s/&apos;/'"'"'/g;s/&lt;/</g;s/&gt;/>/g;s/&amp;/\&/g'; }
+getv() { sed -n "s|.*<string name=\"@1\"[^>]*>\(.*\)</string>.*|\1|p" @F | head -n 1 | unesc; }
+if [ ! -r @F ]; then echo rescue:cfg=missing; exit 0; fi
+SSID=@(getv SSID); [ -n "@SSID" ] || SSID=@(getv WifiSsid)
+SSID=@{SSID#\"}; SSID=@{SSID%\"}
+PASS=@(getv Passphrase)
+ST=@(sed -n 's|.*<int name="SecurityType" value="\([0-9]*\)".*|\1|p' @F | head -n 1)
+case "@ST" in 1) SEC=wpa2;; 3) SEC=wpa3;; *) SEC=wpa3_transition;; esac
+echo "rescue:cfg ssidlen=@{#SSID} passlen=@{#PASS} sec=@SEC"
+if [ -z "@SSID" ] || [ -z "@PASS" ]; then echo rescue:cfg=incomplete; exit 0; fi
+up() { [ "@(getprop init.svc.hostapd)" = running ] && [ "@(cat /sys/class/net/wlan0/operstate 2>/dev/null)" = up ]; }
+if up; then echo rescue:ap=already
+else
+  cmd wifi start-softap "@SSID" @SEC "@PASS" -b __BAND__ >/dev/null 2>&1
+  i=0; while [ @i -lt 15 ] && ! up; do sleep 1; i=@((i+1)); done
+fi
+if up; then echo rescue:ap=up; else echo rescue:ap=down; fi
+if ip -4 addr show br0 2>/dev/null | grep -q 192.168.0.1; then echo rescue:br0ip=present
+else ip link set br0 up 2>/dev/null; ip addr add 192.168.0.1/24 dev br0 2>/dev/null; echo rescue:br0ip=added; fi
+""".replace('@', '$')
         private const val READ_SCRIPT = TetherState.READ_COMMAND + "; if [ -f $STATE_FILE ]; then echo state=1; else echo state=0; fi"
     }
 
@@ -76,6 +104,37 @@ internal class WifiAutoPortImpl(private val ctx: Context) : WifiAutoPort {
             WifiGoform.BAND_24
         }
         return WifiSwitch.on(ctx, band).also { if (it) lastWifiOn = true }
+    }
+
+    /**
+     * Root fallback for "the router API is unreachable" (no 192.168.0.1 after a boot with the data link out). Three steps:
+     *  1. [RESCUE_SCRIPT] starts the hotspot with "cmd wifi start-softap" from the stored hotspot config (name, security, passphrase are read
+     *     inside the root shell and never leave it; only lengths are printed) and puts 192.168.0.1 back on br0 if it is missing.
+     *  2. Wait for the router API to answer.
+     *  3. Restore the stock config through the API (off, then on): the root start is 5 GHz or 2.4 GHz only and shuts itself off after 10 min idle.
+     * The answer of "cmd wifi" is not trusted; the script reads hostapd and wlan0 back. True only when the API says Wi-Fi is on again.
+     */
+    override fun wifiRescue(): Boolean {
+        val r = try { RootShell.run(ctx, "cat $STATE_FILE 2>/dev/null", SHELL_MS) } catch (e: Exception) { ShellResult(false, "") }
+        if (!r.success) return false   // band unreadable while root is unavailable: try again later
+        val band = WifiGoform.parseState(r.content) ?: WifiGoform.BAND_24
+        val script = RESCUE_SCRIPT.replace("__BAND__", if (band == WifiGoform.BAND_5) "5" else "2")   // fixed values only, nothing from outside enters the script
+        val out = try { RootShell.run(ctx, script, RESCUE_MS) } catch (e: Exception) { ShellResult(false, "") }
+        val lines = out.content.lines().map { it.trim() }.filter { it.startsWith("rescue:") }   // only our own lines (no secrets in them)
+        log("Root fallback: " + (if (lines.isEmpty()) "no answer" else lines.joinToString("; ") { it.removePrefix("rescue:") }))
+        if (lines.none { it == "rescue:ap=up" }) return false
+        var seen: WifiGoform.Seen? = null
+        val end = System.currentTimeMillis() + API_WAIT_MS
+        while (seen == null && System.currentTimeMillis() < end) {
+            seen = WifiSwitch.read(ctx)
+            if (seen == null) try { Thread.sleep(2_000L) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+        }
+        if (seen == null) { log("Root fallback: Wi-Fi is up but the router API still does not answer"); return false }
+        // Stock config back: off, then on. If "off" works and "on" does not, the file stays and the normal turn-on takes over (the API is readable now).
+        if (WifiSwitch.isOn(ctx) == true && !WifiSwitch.off(ctx)) { log("Root fallback: Wi-Fi is on (root start), stock config not restored"); return true }
+        val ok = WifiSwitch.on(ctx, band)
+        if (ok) lastWifiOn = true
+        return ok
     }
 
     override fun log(message: String) { LogCatcher.log("WARNING", "WifiAuto", message); WifiAutoTrace.note(ctx, message) }

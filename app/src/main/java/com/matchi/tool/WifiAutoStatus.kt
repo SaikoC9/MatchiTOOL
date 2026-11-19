@@ -18,6 +18,7 @@ object WifiAutoStatus {
     const val TETHER_WIFI_OFF = "USB tethering active, Wi-Fi off by us"
     const val TETHER_WIFI_ON = "USB tethering active, Wi-Fi on"
     const val TETHER_WIFI_WAS_OFF = "USB tethering active, Wi-Fi was already off (left alone)"
+    const val RESCUING = "Router not reachable: starting Wi-Fi another way"
     const val TETHER_GONE = "USB tethering gone, turning Wi-Fi back on"
 
     fun line(
@@ -33,6 +34,7 @@ object WifiAutoStatus {
         if (!passwordSaved) return NEEDS_PASSWORD
         if (!problem.isNullOrBlank()) return problem
         if (link == null) return STARTING
+        if (link == TetherLink.IDLE && wifiOn == null && holdsState && sinceBootMs >= WifiAutoRules.BOOT_WAIT_MS) return RESCUING
         if (link == TetherLink.UNKNOWN || wifiOn == null) return UNREADABLE
         if (link == TetherLink.ACTIVE) return when {
             holdsState -> TETHER_WIFI_OFF

@@ -3,6 +3,11 @@ package com.matchi.tool
 /** What the watcher must do after one look at the router. */
 enum class WifiAutoAction {
     NONE,
+    /**
+     * The router web API cannot be read (no 192.168.0.1) while the link is IDLE and we hold the state file: start the hotspot by root
+     * first, then restore the stock config through the router API. The state file is deleted only when that worked.
+     */
+    RESCUE,
     /** Turn Wi-Fi off (the state file must exist first, so the change can always be undone). */
     TURN_OFF,
     /** Turn Wi-Fi on, then delete the state file. */
@@ -44,6 +49,10 @@ class WifiAutoRules {
         const val SETTLE_MS = 15_000L
         /** After a failed change nothing is tried again for this long. */
         const val RETRY_MS = 30_000L
+        /** The router must stay unreadable this long (link IDLE, state file held, after the boot wait) before the root fallback runs. */
+        const val UNREADABLE_MS = 20_000L
+        /** The root fallback is tried at most this often until a normal turn-on works (each try restarts the hotspot). */
+        const val MAX_RESCUES = 3
     }
 
     private var activeSince: Long? = null
@@ -51,9 +60,11 @@ class WifiAutoRules {
     private var offSeen = false        // this run has seen Wi-Fi off while holding the state file
     private var userOverride = false   // the user turned Wi-Fi on while tethered: do not turn it off again until tethering has been gone
     private var pausedUntil = 0L
+    private var unreadableSince: Long? = null
+    private var rescues = 0
     private var retryUntil = 0L        // set only by a FAILED change; the switch-off path waits for it too (it ignores the 15 s settle pause on purpose)
 
-    private fun resetCounters() { activeSince = null; idleSince = null }
+    private fun resetCounters() { activeSince = null; idleSince = null; unreadableSince = null }
 
     /**
      * [nowMs]: any steadily increasing clock. [sinceBootMs]: time since the router booted. [wifiOn]: null = could not be read.
@@ -73,7 +84,14 @@ class WifiAutoRules {
         // Not during the boot wait: the router's own Wi-Fi is still down then and comes up by itself, which must not look like a manual turn-on.
         if (holdsState && wifiOn == false && sinceBootMs >= BOOT_WAIT_MS) offSeen = true
         if (!holdsState) offSeen = false
+        // Router API unreadable while the USB link is gone and we hold the file (seen after a boot with the data link out): wait, then fall back to root.
+        if (link == TetherLink.IDLE && wifiOn == null && holdsState && sinceBootMs >= BOOT_WAIT_MS) {
+            activeSince = null; idleSince = null
+            val since = unreadableSince ?: nowMs.also { unreadableSince = it }
+            return if (nowMs - since >= UNREADABLE_MS && rescues < MAX_RESCUES) WifiAutoAction.RESCUE else WifiAutoAction.NONE
+        }
         if (link == TetherLink.UNKNOWN || wifiOn == null) { resetCounters(); return WifiAutoAction.NONE }
+        unreadableSince = null
 
         if (link == TetherLink.ACTIVE) {
             idleSince = null
@@ -99,12 +117,15 @@ class WifiAutoRules {
     fun result(action: WifiAutoAction, ok: Boolean, nowMs: Long) {
         resetCounters()
         if (action == WifiAutoAction.NONE) return
+        if (action == WifiAutoAction.RESCUE) rescues++
         pausedUntil = nowMs + if (ok) SETTLE_MS else RETRY_MS
         if (!ok) { retryUntil = pausedUntil; return }
         retryUntil = 0L
         when (action) {
             WifiAutoAction.TURN_OFF -> offSeen = true
-            WifiAutoAction.TURN_ON, WifiAutoAction.DROP_STATE -> offSeen = false
+            WifiAutoAction.TURN_ON -> { offSeen = false; rescues = 0 }
+            WifiAutoAction.RESCUE -> { offSeen = false; rescues = 0 }
+            WifiAutoAction.DROP_STATE -> offSeen = false
             WifiAutoAction.NONE -> {}
         }
     }
