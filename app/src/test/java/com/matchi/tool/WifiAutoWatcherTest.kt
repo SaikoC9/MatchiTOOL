@@ -17,6 +17,8 @@ class WifiAutoWatcherTest {
         var failWrite = false
         var offCalls = 0
         var onCalls = 0
+        var failRescue = false
+        var rescueCalls = 0
         var lagUntil = 0L          // after turning Wi-Fi off, the read-back still says "on" until this time
         val logs = ArrayList<String>()
         override fun link() = link
@@ -26,6 +28,7 @@ class WifiAutoWatcherTest {
         override fun clearState() { state = false }
         override fun wifiOff(): Boolean { offCalls++; if (failOff) return false; wifi = false; return true }
         override fun wifiOnAgain(): Boolean { onCalls++; if (failOn) return false; wifi = true; return true }
+        override fun wifiRescue(): Boolean { rescueCalls++; if (failRescue) return false; wifi = true; return true }
         override fun log(message: String) { logs.add(message) }
     }
 
@@ -237,5 +240,50 @@ class WifiAutoWatcherTest {
         assertTrue(r.port.state); assertEquals(false, r.port.wifi)
         r.port.failOn = false; r.run(60)
         assertEquals(true, r.port.wifi); assertFalse(r.port.state)
+    }
+
+    // Root fallback: the router API cannot be read while the link is IDLE and we hold the state file (seen after a boot with the data link out)
+    @Test fun rescue_unreadableRouterAfterTheWaitStartsTheRootFallback() {
+        val r = Run(); r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.IDLE
+        r.run(21); assertEquals(0, r.port.rescueCalls)                           // 18 s of unreadable so far, 20 s are needed
+        r.run(3)
+        assertEquals(1, r.port.rescueCalls); assertEquals(true, r.port.wifi); assertFalse(r.port.state)
+        r.run(60); assertEquals(1, r.port.rescueCalls)                           // done: nothing left to undo
+    }
+
+    @Test fun rescue_notDuringTheBootWait() {
+        val r = Run(bootMs = 0L); r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.IDLE
+        r.run(60); assertEquals(0, r.port.rescueCalls)                           // the 45 s boot wait, then 15 s of unreadable
+        r.run(9); assertEquals(1, r.port.rescueCalls)
+    }
+
+    @Test fun rescue_neverWhileTetheredOrWithoutTheStateFile() {
+        val r = Run(); r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.ACTIVE
+        r.run(120); assertEquals(0, r.port.rescueCalls)
+        val q = Run(); q.port.state = false; q.port.wifi = null; q.port.link = TetherLink.IDLE
+        q.run(120); assertEquals(0, q.port.rescueCalls)
+    }
+
+    @Test fun rescue_neverWhenTheLinkIsUnknown() {
+        val r = Run(); r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.UNKNOWN
+        r.run(120); assertEquals(0, r.port.rescueCalls)
+    }
+
+    @Test fun rescue_readableRouterUsesTheNormalTurnOnInstead() {
+        val r = Run(); r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.IDLE
+        r.run(15); r.port.wifi = false; r.run(30)
+        assertEquals(0, r.port.rescueCalls); assertEquals(1, r.port.onCalls)
+        assertEquals(true, r.port.wifi); assertFalse(r.port.state)
+    }
+
+    @Test fun rescue_failedIsTriedAtMostThreeTimesAndKeepsTheStateFile() {
+        val r = Run(); r.port.failRescue = true; r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.IDLE
+        r.run(600)
+        assertEquals(WifiAutoRules.MAX_RESCUES, r.port.rescueCalls)              // 24 s, 75 s, 126 s (30 s pause + 20 s unreadable between tries)
+        assertTrue(r.port.state); assertTrue(r.port.logs.size >= WifiAutoRules.MAX_RESCUES)
+    }
+
+    @Test fun rescue_constants() {
+        assertEquals(20_000L, WifiAutoRules.UNREADABLE_MS); assertEquals(3, WifiAutoRules.MAX_RESCUES)
     }
 }
