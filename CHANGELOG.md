@@ -1,3 +1,8 @@
+# Unreleased, after 1.4.4 - matchi-doctor is bundled (Phase 5, step 1 binary)
+
+- **matchi-doctor is in the APK.** The read-only diagnostics program from `tools/doctor/` (built by `build-doctor.yml`, `go vet` and `go test` passed) is in `assets/bin/`, copied to the files folder at start like `zreq`, and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`). SHA-256 `5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471`.
+- **Nothing calls it yet.** The Full diagnose route is unchanged; that is Phase 5 step 2. The F50 tests D5-1 to D5-8 (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`) are not recorded yet.
+
 # Unreleased, after 1.4.4 - optional "Fast sampler" for the Live panel (Phase 4)
 
 Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build compiled the rest. Tested on the F50 (MU300, root), 19 Nov 2026.

@@ -25,7 +25,7 @@ class BinaryHashesFileTest {
     }
 
     @Test fun everyBundledToolIsListed() {
-        assertEquals(listOf("curl", "jq", "matchi-sampler", "sendat", "sha256", "zreq"), BinaryHashes.names().sorted())
+        assertEquals(listOf("curl", "jq", "matchi-doctor", "matchi-sampler", "sendat", "sha256", "zreq"), BinaryHashes.names().sorted())
     }
 
     @Test fun everyHashLooksLikeSha256() {

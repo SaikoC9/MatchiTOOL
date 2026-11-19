@@ -85,6 +85,7 @@ with tempfile.TemporaryDirectory() as tmp:
     root, new = layout(tmp)
     (root / 'app/src/main/assets/bin/sha256').write_bytes(b'the script')
     (root / 'app/src/main/assets/bin/matchi-sampler').write_bytes(b'the sampler')   # built by build-sampler.yml, not by release-tools.yml: it only has to stay in the list
+    (root / 'app/src/main/assets/bin/matchi-doctor').write_bytes(b'the doctor')   # built by build-doctor.yml, same as the sampler
     kt = root / gen.TARGET
     kt.parent.mkdir(parents=True)
     kt.write_text(gen.render(root), encoding='utf-8')
@@ -94,7 +95,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(r.returncode == 0, f'run with BinaryHashes.kt failed: {r.stdout}{r.stderr}')
     text = kt.read_text()
     check(sha(b'new sendat') in text and sha(b'old sendat') not in text, 'BinaryHashes.kt does not hold the new sendat hash')
-    check(sha(b'old jq') in text and sha(b'the script') in text and sha(b'the sampler') in text, 'BinaryHashes.kt lost a hash that did not change')
+    check(sha(b'old jq') in text and sha(b'the script') in text and sha(b'the sampler') in text and sha(b'the doctor') in text, 'BinaryHashes.kt lost a hash that did not change')
     check(gen.main(['gen', '--check', str(root)]) == 0, 'BinaryHashes.kt is not what gen_binary_hashes.py --check expects')
     before = kt.read_text()
     for n in NAMES:

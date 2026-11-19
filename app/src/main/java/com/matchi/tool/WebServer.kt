@@ -60,7 +60,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
     }
 
-    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY)
+    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor")
 
     init { LiveEngineSetting.bind(ctx); seedPlugins(); ApkUpdater.cleanStale(ctx) }
 
