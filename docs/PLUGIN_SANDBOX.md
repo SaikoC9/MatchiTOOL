@@ -1,6 +1,6 @@
 # Sandboxed plugins
 
-Current for MatchiTOOL 1.4.4 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); the stop hook was run on the F50 (14 Nov 2026), and the rest of the sandbox is not recorded as run on the F50.
+Current for MatchiTOOL 1.4.5 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); the stop hook was run on the F50 (14 Nov 2026), and the rest of the sandbox is not recorded as run on the F50.
 
 A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; legacy `.html` blocks are not loaded.
 

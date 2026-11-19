@@ -1,13 +1,17 @@
-# Unreleased, after 1.4.4 - no atd, no root helper, no merged binary
+# MatchiTOOL 1.4.5
+
+The bundled programs got a clean-up: newer toolchains and one release pipeline, a hash check before anything runs as root, an optional fast sampler for the Live panel and a diagnostics program for Full diagnose. The last section says what I decided not to build.
+
+## no atd, no root helper, no merged binary
 
 Decided not to build the last three binary ideas. `sendat` answers in 10 to 20 ms already and I have not seen two callers clash on the AT port, so a daemon would only add a way to break. The root helper would break plugins that call `runShellWithRoot`. Merging the Go programs would save about 7 MB of 22.9 MB, but I would have to redo the hash list, the F50 tests and the CI for it. No code changed. If AT errors show up, third-party plugins arrive or the APK gets too big, I will look at them again.
 
-# Unreleased, after 1.4.4 - matchi-doctor is bundled and called from Full diagnose (Phase 5)
+## matchi-doctor is bundled and called from Full diagnose (Phase 5)
 
 - **matchi-doctor is in the APK.** The read-only diagnostics program from `tools/doctor/` (built by `build-doctor.yml`, `go vet` and `go test` passed) is in `assets/bin/`, copied to the files folder at start like `zreq`, and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`). SHA-256 `5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471`.
 - **Full diagnose calls it (Phase 5 step 2).** `GET /api/diagnostics` now ends with a `--- matchi-doctor ---` section (a summary line, then one line per check) and the parsed report as `doctor` in the answer. The program is started as root by its full path only when `BinaryCheck.problem` is null, with `-files`, the build's hash of every bundled file and `-tls example.com:443` (`Doctor.kt`, `DoctorReport.kt`, `WebRoutesDevice.kt`). Nothing existing is removed: the shell script and the "bundled binaries" lines stay, so a missing, refused or failing doctor only means the section says why it did not run. Tests: `DoctorTest` (command line, odd input refused, JSON found, lines, summary) and `DoctorReportTest` (reads a report from the F50). **Tested on the F50 (19 Nov 2026):** Full diagnose ends with the section, 9 ok lines matching the page; the page still shows 56 PASS, 1 WARN (slot 1), 0 FAIL and takes the same time (15.6 s against 15.0 s). The doctor shows `/data` space 21 % where the page shows 20 % (rounding; no status changes). **Tested on the F50 (MU300, root, 19 Nov 2026):** D5-1 to D5-8 all passed (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`): 9 checks ok, a RIL-held port reported and not touched, a mismatching or missing file reported, 0.09 s, no process left behind, mobile data stayed up, quiet exit on a closed pipe, bad input exits 2.
 
-# Unreleased, after 1.4.4 - optional "Fast sampler" for the Live panel (Phase 4)
+## optional "Fast sampler" for the Live panel (Phase 4)
 
 Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build compiled the rest. Tested on the F50 (MU300, root), 19 Nov 2026.
 
@@ -20,7 +24,7 @@ Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the
 - **Tested on the F50 (MU300, root, 19 Nov 2026):** the installed file matches the build hash; `matchi-sampler -rounds 3` prints the same line as the shell loop (8 cores, the same 16-zone cap); turning the setting on and off swaps the reader within seconds; closing the Live tab or force-stopping the app ends the program; a file that cannot run (`chmod 644`) falls back to the shell loop with the WARNING in the log; a changed file is refused and removed and comes back at the next host start; with the file missing the button is hidden and `POST /api/live/engine` answers 409.
 - **CPU over 300 s in Live (1 s) mode, tab visible:** shell loop 2.82 % of one core, `matchi-sampler` 1.22 %, so the reader uses about 57 % less. The app itself stays about the same (1.11 % and 0.98 %, the parser is unchanged); reader and app together went from 3.93 % to 2.20 %, about 44 % less. The setting stays off by default.
 
-# Unreleased, after 1.4.4 - bundled binaries are checked before they run
+## bundled binaries are checked before they run
 
 Kotlin written without a compiler at hand; the CI build and the unit tests confirmed it, and it was run on the F50 (see the last point).
 
@@ -31,7 +35,7 @@ Kotlin written without a compiler at hand; the CI build and the unit tests confi
 - **Release pipeline:** `update_binary_hashes.py` writes `BinaryHashes.kt` again, and the pull request that `release-tools.yml` opens carries it.
 - **Run on the F50 (19 Nov 2026):** the five hashes match the build; `sendat` answers; Full diagnose lists every bundled file as ok; a changed `sendat` is refused at the next AT action and deleted, a changed `curl` and a zeroed `jq` are replaced at the next host start; the files have no write for group or other. The start-up log warned about the files folder on every start although only the app's own group can write there; fixed in the next point. Test steps are in `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
 
-# Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
+## newer toolchains and one release pipeline for the bundled tools
 
 Build recipes and CI only. The binaries in `app/src/main/assets/bin/` are still the 1.4.4 ones until the new workflow is run and the results are tested on the F50.
 

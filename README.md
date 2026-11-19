@@ -47,7 +47,7 @@ As a second line of defence, the web API rejects every source that is not this d
 
 ## Build
 
-Current source version: **1.4.4** (versionCode **404**). The version lives in one place, `version.properties`. Gradle reads it, `node scripts/build-web.js` writes it into the page (`PAGE_VERSION`), and `scripts/validate.sh` fails if the README or the top CHANGELOG entry names a different version. To bump it, edit `version.properties`, run `node scripts/build-web.js`, update the README line and add a CHANGELOG entry.
+Current source version: **1.4.5** (versionCode **405**). The version lives in one place, `version.properties`. Gradle reads it, `node scripts/build-web.js` writes it into the page (`PAGE_VERSION`), and `scripts/validate.sh` fails if the README or the top CHANGELOG entry names a different version. To bump it, edit `version.properties`, run `node scripts/build-web.js`, update the README line and add a CHANGELOG entry.
 
 You need an Android 8.0+ device (minSdk 26), and either Android Studio with Android SDK 34 and JDK 17, or Gradle 8.7 with Android Gradle Plugin 8.5.2.
 

@@ -1,4 +1,6 @@
-# Unreleased, after 1.4.4 - bundled binaries are checked before they run
+# MatchiTOOL 1.4.5
+
+## bundled binaries are checked before they run
 
 Kotlin written without a compiler at hand; the CI build and the unit tests are what confirm it. Compiled and unit-tested in CI (Validate and build APK, green); run on the F50 on 2026-11-19, see the last bullet.
 
@@ -9,7 +11,7 @@ Kotlin written without a compiler at hand; the CI build and the unit tests are w
 - **Release pipeline:** `update_binary_hashes.py` writes `BinaryHashes.kt` again, and the pull request that `release-tools.yml` opens carries it.
 - **Run on the F50 (2026-11-19, MU300, root):** the five hashes on the device match the build; a `sendat` with one byte added is refused and removed, and comes back at the next host start; a `curl` with one byte added and a `jq` cut to 100 KB are replaced at the next host start; the bundled files have no group or other write; Full diagnose lists all five as `ok (matches the hash from the build)`. Steps and results: `docs/MatchiTOOL_Binaries_Phase3_todo.txt`.
 
-# Unreleased, after 1.4.4 - newer toolchains and one release pipeline for the bundled tools
+## newer toolchains and one release pipeline for the bundled tools
 
 Build recipes and CI only. The binaries in `app/src/main/assets/bin/` are the rebuilt ones (pull request #2): curl 8.23.0, OpenSSL 3.5.9, jq 1.8.2 and `sendat` / `zreq` built with Go 1.26.10. They passed the F50 checks listed below.
 

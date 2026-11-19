@@ -99,7 +99,7 @@ This release closes the three gaps listed for 1.4.2 in the 1.4.1 plugin stop wor
 
 - **Device status (F50, 14 Nov 2026, 1.4.2 build):** the Turn off dialog wording; the store install dialog (a plugin with header lines lists its stop commands, the check and the boot files before the install, one without them shows nothing extra); a reboot after the Bypass cleanup was removed (the `boot.d` script ran again, `events.log` has no cleanup line, the hotspot stayed usable); Delete and stop of a plugin with header lines (its process was found by its pid file and ended, its boot script removed, the plugin deleted); and, for the first time, the sandbox stop hook (a working hook ended its job and the plugin was deleted; a hook that never finished kept the plugin after 15 s). One oddity: after the first Delete and stop on the working-hook plugin the dialog opened a second time before the delete went through; the cause is not known and nothing went wrong. **Not run on a device:** the data route with a sign-in older than 4 h (the stale-session case); it is covered by unit tests and the route-gate table only.
 
-# MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 5: heat guard on real thermal zones
+# MatchiTOOL 1.4.2 - Live panel real-time plan, Phase 5: heat guard on real thermal zones
 
 - **Where.** `heatLevel()` and its guard (`GUARD_UP` 60 / 70, `GUARD_DOWN` 57 / 67, `guardTemp`) sit in the DELAY block of the Live device status script in `index.html`; the repaint throttle (`MODE_PUSH`, `GUARD_PUSH`, `pushEvery`) sits in the LIVE-STREAM block.
 - **Signal.** `max(sysMax, modemTemp - 10)`, both from kernel zones. Battery temperature is shown and drives the banner, but never the guard. Unknown readings keep the last level (a phone that was hot is not declared cool because a read failed).
@@ -108,7 +108,7 @@ This release closes the three gaps listed for 1.4.2 in the 1.4.1 plugin stop wor
 - **Chips.** Live = `fast`, Balanced = `normal`, Eco = `eco`; keys in localStorage are unchanged.
 - **Not done.** The host sampler's 1 s cadence is not changed by heat (Kotlin, not compiled here). The levels are not tuned: Phase 0 numbers from the F50 are still needed.
 
-# MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 4: the page uses the push stream
+# MatchiTOOL 1.4.2 - Live panel real-time plan, Phase 4: the page uses the push stream
 
 - **Where.** The block between `/* LIVE-STREAM-BEGIN */` and `/* LIVE-STREAM-END */` in the Live device status script of `index.html` (that script is not in `web-src/`). Plus four small edits: `tickCpu` returns `'skip'` while `liveFresh()`; `collectSlow` lays `liveSys()` over its result when the stream is fresh (just before `last = build()`; the battery lines are not touched); `when()` appends `· device N s ago`; the 1 s timer, the `visibilitychange` event and the start call `syncLive()`.
 - **When the stream is used.** `streamWanted()`: Live refresh on, mode Normal or Fast, no battery pause, no radio restart, not plain HTTP, `heatLevel() === 0` and at least 60 s since the last close for heat, and a token. It opens only when the tab and the card are visible. Eco keeps the old polling on purpose (it is the explicit low-power choice; the default for new installs is still Eco, so a new install sees the push stream after choosing Normal).
@@ -118,7 +118,7 @@ This release closes the three gaps listed for 1.4.2 in the 1.4.1 plugin stop wor
 - **Failures.** Retry no sooner than 5 s, doubling to 30 s; reset after a stream that delivered; 30 s after `event: end` reason `session`. A frame buffer over 64 KB ends the stream.
 - **Checked here:** `validate.sh` passes including the new `test_live_stream.js` (10 groups); the old live tests pass unchanged. **Not checked:** nothing in a real browser against a real host, and nothing on the F50. The Kotlin of Phases 1-3 is still not compiled by me (CI must).
 
-# MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 3: run only while watched
+# MatchiTOOL 1.4.2 - Live panel real-time plan, Phase 3: run only while watched
 
 - **Lifecycle.** `LiveHub` keeps the open streams in a map (id -> stream). `refresh()` runs after every open, close and visibility change: any visible stream means `sampler.start()` (idempotent, also starts a reader whose thread had ended); none means a stop is scheduled after `LiveTiming.graceMs` (10 s; 0 stops at once, which the old tests use). A new visible stream cancels the pending stop; a timer that fires late sees a newer `stopGen` and does nothing. The real timer is one lazy daemon `ScheduledExecutorService` (`liveHubSchedule`); tests pass a manual one.
 - **Hidden tab.** `POST /api/live/view` (`WebRoutesDevice.kt`, `rootGate(s) ?: liveView(s)`), body `{"id":"<X-Live-Id>","visible":bool}`. The id is 12 random bytes (hex) in the `X-Live-Id` header of the stream answer, so the page reads it with the same `fetch` it uses for the stream. The stream keeps the session token in memory and compares it in constant time; unknown id and other session both answer 404. A hidden stream stays open (the reader just may stop); it is not sent `event: stale`, and when it becomes visible again its stall clock restarts and it gets the cached reading.
@@ -128,7 +128,7 @@ This release closes the three gaps listed for 1.4.2 in the 1.4.1 plugin stop wor
 
 <!-- Full, unedited per-change history kept for reference. The short per-version summary is ../CHANGELOG.md. Headings are not in version order and some versions appear several times. -->
 
-# MatchiTOOL 1.4.2 (unreleased) - Live panel real-time plan, Phase 2: push route
+# MatchiTOOL 1.4.2 - Live panel real-time plan, Phase 2: push route
 
 - **Route.** `GET /api/live/stream` (`WebRoutesDevice.kt`, `rootGate(s) ?: liveStream(s)`), chunked `text/event-stream`, same response shape and headers as `/api/logs/stream`. The page must use `fetch` with the `x-token` marker header (EventSource cannot send it) and, over plain HTTP, `x-insecure-ok: 1`.
 - **Why a gate:** the stream starts the Phase 1 root reader. The script is fixed and read-only, but it is still root running for as long as someone watches, so it follows the rule for everything that runs as root.
@@ -614,7 +614,7 @@ Found by running 8 real UFI plugins in Chromium (4 of them failed on names Match
 - Version 1.4.0 / versionCode 400 (app, web page, validation, README).
 - Not shown yet: Kotlin compiling (still no Kotlin, Gradle or Android SDK in the build sandbox); the store dialog and installs in a browser; the new binaries running on an F50 (`sha256` has no section headers and was only checked as an ELF file, never run); a real UFI plugin corpus passing.
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 3: modem data and router API
+# MatchiTOOL - UFI-TOOLS plugin support, Phase 3: modem data and router API
 
 - `window.UFI_DATA` is now filled by a poller that runs only while an enabled plugin mentions `UFI_DATA`. It asks the router for the fields the plugins read (`UFI_DATA.name` or `UFI_DATA['name']`; the router's own field names are the keys) through `/api/zte`, 20 fields per request, one request at a time. It polls every 5 s, waits longer (doubling to 60 s) while the router does not answer, pauses while the page is hidden, and stops when no enabled plugin uses it. A plugin that reads it in a way the page cannot see (a computed key, `Object.keys`) gets a default list of usual ZTE names. UFI-TOOLS' own full field list could not be read (its `main.js` is obfuscated), so that default list is a best guess. `cpuUsageInfo` is computed by UFI-TOOLS itself and stays empty. `lan_ipaddr` still falls back to the bridge interface.
 - New routes: `GET /api/goform/goform_get_cmd_process` and `POST /api/goform/goform_set_cmd_process` (query, form or JSON parameters; the AD token is added for a set, like `/api/zte`; the router's raw reply is returned), `GET|POST /api/proxy/<path>` (a plain path on the saved gateway, with the router session), `GET /api/get_cookie` and `POST /api/set_cookie` (body `{cookie}`; both root-gated, because the cookie signs in to the router). UFI's request and reply shapes for these were not seen; `get_cookie` replies `{cookie}` and `set_cookie` replies `{result, error}` by analogy with `set_custom_head`.
@@ -622,7 +622,7 @@ Found by running 8 real UFI plugins in Chromium (4 of them failed on names Match
 - Tests: `GatewayProxyTest` (Kotlin; includes the cases for a request to any host other than the saved gateway) and `scripts/test_ufi_data.js` (run by `validate.sh`). Not compiled, not run in a browser, not run on a device.
 - Not changed: `/api/zte` and its stored encrypted credentials; version became 1.4.0 in Phase 4.
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 2: runtime API and paths
+# MatchiTOOL - UFI-TOOLS plugin support, Phase 2: runtime API and paths
 
 - The UFI-TOOLS helpers now live in the page, not in each converted plugin. `createModal` follows UFI's signature: `onConfirm`, `confirmBtnText`, `closeBtnText`, `isMask`, `noBlur`, the `NAME_confirm` and `NAME_close` button ids, the id returned as `#NAME`, and the dialog closes only when `onClose` / `onConfirm` return a true value (a dialog with no `onClose` stays open, as in UFI). `showModal` and `closeModal` take a selector, a bare id (the old form), `time`, and a callback in either place; `closeModal(sel, 300, cb)` no longer throws. `createToast` runs its callback and treats a non-built-in colour as the text colour. `copyText` takes a string or a click event.
 - New globals: `runShellWithUser`, `createSwitch`, `createFormToast`, `setBtnLoading`, `formatBytes`, `escapeHtml`, `wait`, `debounce`, `t()` (English strings for the helpers only). Ported from UFI-TOOLS 4.1.5 (MIT, see `LICENSE-UFI-TOOLS`).
@@ -635,7 +635,7 @@ Found by running 8 real UFI plugins in Chromium (4 of them failed on names Match
 - On purpose different from UFI: toast text is plain text, not HTML, and every toast still stays 4 s whatever delay is passed (existing rule); a dialog's `el` is the box unless `isMask` is set.
 - Not changed: version became 1.4.0 in Phase 4.
 
-# MatchiTOOL (unreleased) - UFI-TOOLS plugin support, Phase 1: plugin format and manager
+# MatchiTOOL - UFI-TOOLS plugin support, Phase 1: plugin format and manager
 
 - UFI-TOOLS plugin files (one `.txt` of `<!-- [KANO_PLUGIN_START] name -->` ... `<!-- [KANO_PLUGIN_END] name -->` blocks) can be added in Plugins. Each block is stored as its own `.html` plugin beside the `.js` ones, with UFI's own marker pattern. Inside text is kept as it was; script tags are re-created so they run, and style/meta tags go to the page head in saved order.
 - New **Export UFI .txt** / **Import UFI .txt** buttons. Export writes `.js` plugins as `<script>` blocks. Limits: 1 MB per block, 50 plugins, 4 MB per UFI file (UFI's own), 5 MB stored in total.

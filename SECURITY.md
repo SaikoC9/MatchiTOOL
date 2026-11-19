@@ -1,6 +1,6 @@
 # Security notes
 
-Current for MatchiTOOL 1.4.4. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](CHANGELOG.md).
+Current for MatchiTOOL 1.4.5. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](CHANGELOG.md).
 
 **What has been run on a device.** The plugin stop (header lines and the process sweep) was run on the F50. So were the firewall and boot-script undo and "Turn off and stop", which are also compiled and unit-tested in CI. Those F50 runs covered Bypass without headers, a reboot, two copies sharing one chain, boot files of other plugins and system chains. The per-test results were not written down. The no-root and timeout path was not run on the device.
 

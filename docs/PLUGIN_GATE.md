@@ -1,6 +1,6 @@
 # How to protect a plugin web page (author guide, one page)
 
-Current for MatchiTOOL 1.4.4. For a plugin that starts its own local web page (AdGuard Home, a router-style panel). MatchiTOOL puts a **gate** in front of the page, so the page's own login cookie (often 30 days) never reaches the browser.
+Current for MatchiTOOL 1.4.5. For a plugin that starts its own local web page (AdGuard Home, a router-style panel). MatchiTOOL puts a **gate** in front of the page, so the page's own login cookie (often 30 days) never reaches the browser.
 
 ## What the person gets
 
