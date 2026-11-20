@@ -1,4 +1,4 @@
-# Stopping what a plugin started (author guide)
+# Stopping what a plugin started (GUIDE)
 
 Current for MatchiTOOL 1.4.5.
 
