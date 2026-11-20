@@ -77,7 +77,7 @@ What changed, one entry per version. The full change-by-change history (with tes
 
 # MatchiTOOL 1.4.0 - UFI-TOOLS plugin support
 
-- Phases 1-4: plugin format and manager, UFI runtime API and paths, modem data and router API, bundled tools (`jq`, `sha256`, `zreq`), plugin store, security pass.
+- Plugin format and manager, UFI runtime API and paths, modem data and router API, bundled tools (`jq`, `sha256`, `zreq`), plugin store, security pass.
 
 # MatchiTOOL 1.3.9
 

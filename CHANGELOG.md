@@ -19,12 +19,12 @@ A new switch in Network > Wi-Fi, off by default. While USB tethering works, the 
 
 Decided not to build the last three binary ideas. `sendat` answers in 10 to 20 ms already and I have not seen two callers clash on the AT port, so a daemon would only add a way to break. The root helper would break plugins that call `runShellWithRoot`. Merging the Go programs would save about 7 MB of 22.9 MB, but I would have to redo the hash list, the F50 tests and the CI for it. No code changed. If AT errors show up, third-party plugins arrive or the APK gets too big, I will look at them again.
 
-## matchi-doctor is bundled and called from Full diagnose (Phase 5)
+## matchi-doctor is bundled and called from Full diagnose
 
 - **matchi-doctor is in the APK.** The read-only diagnostics program from `tools/doctor/` (built by `build-doctor.yml`, `go vet` and `go test` passed) is in `assets/bin/`, copied to the files folder at start like `zreq`, and checked against its hash (`BinaryHashes.kt`, `NOTICE.md`, `docs/BINARIES.md`). SHA-256 `5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471`.
-- **Full diagnose calls it (Phase 5 step 2).** `GET /api/diagnostics` now ends with a `--- matchi-doctor ---` section (a summary line, then one line per check) and the parsed report as `doctor` in the answer. The program is started as root by its full path only when `BinaryCheck.problem` is null, with `-files`, the build's hash of every bundled file and `-tls example.com:443` (`Doctor.kt`, `DoctorReport.kt`, `WebRoutesDevice.kt`). Nothing existing is removed: the shell script and the "bundled binaries" lines stay, so a missing, refused or failing doctor only means the section says why it did not run. Tests: `DoctorTest` (command line, odd input refused, JSON found, lines, summary) and `DoctorReportTest` (reads a report from the F50). **Tested on the F50 (19 Nov 2026):** Full diagnose ends with the section, 9 ok lines matching the page; the page still shows 56 PASS, 1 WARN (slot 1), 0 FAIL and takes the same time (15.6 s against 15.0 s). The doctor shows `/data` space 21 % where the page shows 20 % (rounding; no status changes). **Tested on the F50 (MU300, root, 19 Nov 2026):** D5-1 to D5-8 all passed (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`): 9 checks ok, a RIL-held port reported and not touched, a mismatching or missing file reported, 0.09 s, no process left behind, mobile data stayed up, quiet exit on a closed pipe, bad input exits 2.
+- **Full diagnose calls it.** `GET /api/diagnostics` now ends with a `--- matchi-doctor ---` section (a summary line, then one line per check) and the parsed report as `doctor` in the answer. The program is started as root by its full path only when `BinaryCheck.problem` is null, with `-files`, the build's hash of every bundled file and `-tls example.com:443` (`Doctor.kt`, `DoctorReport.kt`, `WebRoutesDevice.kt`). Nothing existing is removed: the shell script and the "bundled binaries" lines stay, so a missing, refused or failing doctor only means the section says why it did not run. Tests: `DoctorTest` (command line, odd input refused, JSON found, lines, summary) and `DoctorReportTest` (reads a report from the F50). **Tested on the F50 (19 Nov 2026):** Full diagnose ends with the section, 9 ok lines matching the page; the page still shows 56 PASS, 1 WARN (slot 1), 0 FAIL and takes the same time (15.6 s against 15.0 s). The doctor shows `/data` space 21 % where the page shows 20 % (rounding; no status changes). **Tested on the F50 (MU300, root, 19 Nov 2026):** D5-1 to D5-8 all passed (`docs/MatchiTOOL_Binaries_Phase5_todo.txt`): 9 checks ok, a RIL-held port reported and not touched, a mismatching or missing file reported, 0.09 s, no process left behind, mobile data stayed up, quiet exit on a closed pipe, bad input exits 2.
 
-## optional "Fast sampler" for the Live panel (Phase 4)
+## optional "Fast sampler" for the Live panel
 
 Kotlin written with the Kotlin compiler from Gradle for the pure parts only; the CI build compiled the rest. Tested on the F50 (MU300, root), 19 Nov 2026.
 
@@ -113,7 +113,7 @@ What changed, one entry per version. The full change-by-change history (with tes
 
 # MatchiTOOL 1.4.0 - UFI-TOOLS plugin support
 
-- Phases 1-4: plugin format and manager, UFI runtime API and paths, modem data and router API, bundled tools (`jq`, `sha256`, `zreq`), plugin store, security pass.
+- Plugin format and manager, UFI runtime API and paths, modem data and router API, bundled tools (`jq`, `sha256`, `zreq`), plugin store, security pass.
 
 # MatchiTOOL 1.3.9
 
