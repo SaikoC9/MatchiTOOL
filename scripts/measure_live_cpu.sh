@@ -1,6 +1,6 @@
 #!/bin/sh
 # CPU used by the Live panel's reader, and by the app, over a time window. Run it on the F50 as root (see
-# docs/MatchiTOOL_Binaries_Phase4_todo.txt, step 3):
+# docs/dev-notes/binaries-phase4.txt, step 3):
 #
 #   adb push scripts/measure_live_cpu.sh /data/local/tmp/ && adb shell su -c 'sh /data/local/tmp/measure_live_cpu.sh 300'
 #
