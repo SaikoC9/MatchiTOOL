@@ -29,14 +29,3 @@ DONE IN CODE
      restarted with old values, lost sign-in after restart, DHCP, router IP, Wi-Fi settings, Wi-Fi band). validate.sh exit 0, check_repo.py ok,
      web-src and index.html rebuilt and in sync.
  [x] CHANGELOG.md 1.4.2 entry added.
-
-NOT DONE / NOT CHANGED
- - Not run on the F50. Kotlin not touched (web page only). CI + device check still to do.
- - Mobile data on/off, device rename / block, APN steps: they read back and report; no automatic resend added there.
- - Whether the 1449 attempt in the screenshot was an ignored send is NOT proven. If the new message after a retry says "ignored", the router
-   rejects the command even with a fresh sign-in; then the stored admin password is the next thing to check (see the hint in the message).
-
-TO TEST ON THE F50 (after installing this build; each change restarts the router, 1-2 minutes)
- 1. MTU / MSS tab: MTU 1500, MSS 1449, Apply. Expected: restarted and reports 1500 / 1449 (or "ignored" after 3 sends with a reason).
- 2. Then Restore. Expected: back to 1500 / 1460.
- 3. If it says "ignored": sign in to the web console with the router password once, try again.
