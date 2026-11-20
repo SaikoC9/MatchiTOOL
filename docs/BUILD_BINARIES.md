@@ -1,4 +1,4 @@
-# Building jq and curl yourself
+# Building jq and curl 
 
 `.github/workflows/build-binaries.yml` builds `jq` and `curl` for arm64 Android from pinned upstream tags
 with the Android NDK (API 26, the app's minSdk). `curl` links OpenSSL statically, so it no longer depends on
