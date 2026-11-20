@@ -4242,6 +4242,20 @@ function askDialog(o){
     const box=document.createElement('div');box.className='modal modal-flex';box.setAttribute('role','alertdialog');box.setAttribute('aria-modal','true');box.style.maxWidth=o.maxWidth||'420px';
     const h=document.createElement('h3');h.className='title';const hs=document.createElement('span');hs.textContent=o.title||'Confirm';h.appendChild(hs);
     const body=document.createElement('div');body.className='content mbody';body.style.cssText='white-space:pre-line;line-height:1.5';body.textContent=o.message||'';
+    /* Compact layout (o.lead): one short sentence, an optional warning line, label/value rows, and the full text behind a \"Show details\" link.
+       o.lead replaces o.message on screen; o.detail keeps the full text one click away. */
+    if(o.lead!=null){
+      body.textContent=o.lead;
+      if(o.warn){const w=document.createElement('div');w.style.cssText='border-left:3px solid #f0b34a;padding:2px 0 2px 10px;margin-top:10px;white-space:normal';w.textContent=o.warn;body.appendChild(w)}
+      if(o.rows&&o.rows.length){const tb=document.createElement('div');tb.style.cssText='margin-top:10px';
+        for(const r of o.rows){const row=document.createElement('div');row.style.cssText='display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid var(--bd);white-space:normal';
+          const a=document.createElement('span');a.textContent=r[0];const b=document.createElement('span');b.style.cssText='opacity:.7;text-align:right';b.textContent=r[1];row.append(a,b);tb.appendChild(row)}
+        body.appendChild(tb)}
+      if(o.detail){const tg=document.createElement('button');tg.type='button';tg.textContent='Show details';tg.style.cssText='background:none!important;border:none!important;padding:8px 0 0!important;min-height:0!important;text-decoration:underline;opacity:.75;cursor:pointer';
+        const dt=document.createElement('div');dt.style.cssText='display:none;margin-top:8px;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:40vh;overflow:auto';dt.textContent=o.detail;
+        tg.onclick=()=>{const on=dt.style.display==='none';dt.style.display=on?'block':'none';tg.textContent=on?'Hide details':'Show details'};body.append(tg,dt)}
+    }
+    if(o.compact){box.style.width='fit-content';box.style.minWidth='300px'}
     let inp=null;
     if(o.input){inp=document.createElement(o.multiline?'textarea':'input');if(!o.multiline)inp.type=o.password?'password':'text';else inp.rows=3;
       inp.value=o.value||'';inp.autocomplete=o.password?'current-password':'off';inp.spellcheck=false;inp.style.cssText='width:100%;box-sizing:border-box;margin-top:8px;white-space:normal';body.appendChild(inp)}
@@ -8596,8 +8610,27 @@ function renderPlugins(list){
           if(mode!=='stop')msg+=undoEffectsText(fx,undoModeRuns(mode)&&un.items.length>0);
           if(info&&info.rejected&&info.rejected.length)msg+='\n\nNot erased: '+info.rejected.map(r=>r.path+(r.reason?' ('+r.reason+')':'')).join('; ');
         }
-        const choice=await askDialog({title,message:msg,okText,danger:!failure,extra,maxWidth:'460px'});
+        const fmtKb=k=>k>=1024?(Math.round(k/102.4)/10)+' MB':k+' KB',plural=(n,w)=>n+' '+w+(n===1?'':(w==='process'?'es':'s'));
+        let ui;
+        if(failure){
+          const left=failure.leftovers||[],nc=failure.notChecked||[],run=sw.checked?sw.cands.length:0,rows=[];
+          if(left.length)rows.push(['Still there',plural(left.length,'item')]);
+          if(run)rows.push(['Running now',plural(run,'process')]);
+          if(nc.length)rows.push(['Not checked',plural(nc.length,'item')]);
+          rows.push(['Your data','Kept, nothing was deleted']);
+          ui={title:'Could not stop '+p.name,lead:'Nothing was deleted. What it started could not be stopped completely.',rows,detail:msg};
+        }else{
+          extra=[{text:'Back up first',value:'backup'}].concat(extra);
+          const willStop=mode==='stop'||mode==='sweep'||mode==='hook',nproc=sw.checked?sw.cands.length:0,kb=present.reduce((a,it)=>a+(it.kb||0),0),noRoot2=info&&info.rootOk===false;
+          const r1=willStop?(mode==='stop'?'Run its '+plural(cmds.length,'stop command'):nproc?'End '+plural(nproc,'running process'):'Run its stop code'):'Stop it: skipped';
+          const r2=willStop&&un.items&&un.items.length?'Undo '+plural(un.items.length,'change'):'Undo changes: none';
+          const r3='Delete the plugin'+(present.length||ups.length?' and its data'+(kb?' ('+fmtKb(kb)+')':''):'');
+          const warn=noRoot2?'Root is not available, so nothing can be erased until root works.':mode==='shared'?shared.join(', ')+' uses the same stop command or boot file, so the stop is skipped.':mode==='cannot'?'Its stop cannot run, so nothing it started will be stopped.':mode==='toomany'?'Too many running processes to end automatically, so nothing will be stopped.':'';
+          ui={title:'Delete '+p.name+'?',lead:'This cannot be undone. Back up first if you may need it again.',warn,rows:[['Step 1',r1],['Step 2',r2],['Step 3',r3]],detail:msg};
+        }
+        const choice=await askDialog(Object.assign({title,message:msg,okText,danger:!failure,extra},ui,{compact:true,maxWidth:'400px'}));
         if(!choice)return;
+        if(choice==='backup'){ex.click();continue}
         if(choice==='reboot'){document.getElementById('rebootbtn').click();return}
         const stop=(!failure&&(mode==='stop'||mode==='sweep'||mode==='hook'))||choice==='stop'||(!!failure&&choice===true);
         const skip=choice==='skip'||(!failure&&(mode==='cannot'||mode==='toomany'));
