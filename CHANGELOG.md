@@ -1,6 +1,19 @@
 # MatchiTOOL 1.4.5
 
-The bundled programs got a clean-up: newer toolchains and one release pipeline, a hash check before anything runs as root, an optional fast sampler for the Live panel and a diagnostics program for Full diagnose.
+The bundled programs got a clean-up: newer toolchains and one release pipeline, a hash check before anything runs as root, an optional fast sampler for the Live panel and a diagnostics program for Full diagnose. There is also a new switch that turns the hotspot Wi-Fi off while USB tethering is on.
+
+## Wi-Fi off while USB tethering is on
+
+A new switch in Network > Wi-Fi, off by default. While USB tethering works, the router's Wi-Fi is turned off. When tethering stops, Wi-Fi comes back on the same band.
+
+- **When tethering counts as working:** the PC link is up and the PC answers a ping. A half-unplugged cable (data lost, power kept) still looks connected to the router's USB controller, so the ping is what catches it.
+- **Timing:** Wi-Fi goes off after 15 s of steady tethering and comes back after 5 s without it. A short link drop changes nothing.
+- **Your choice wins:** Wi-Fi that was already off is never turned on by the app. Wi-Fi you turn on yourself while tethered stays on until the link has gone once. Turning the switch off while the app is holding Wi-Fi off turns it back on at once.
+- **Reboot and power loss:** a small state file (`/data/local/matchitool/wifi_auto_off`) records that the app turned Wi-Fi off. After a boot the app waits 45 s before deciding tethering is gone, so Wi-Fi stays off through a reboot while tethered.
+- **Root fallback:** after a boot with no USB, the router's address can be missing because the bridge is gone. The app then restarts the hotspot with `cmd wifi start-softap` and puts the stock settings back through the router's own calls. It does the same after two failed turn-ons in a row.
+- **Switching:** the router's own calls, the same as its web page, with a fresh sign-in before every change. The band and the stock settings come back exactly. The router password must be saved in the app. If both bands are on, the app leaves Wi-Fi alone because it cannot restore both.
+- **Routes and log:** `GET /api/wifiauto` shows the status; `POST /api/wifiauto` needs a fresh sign-in like other router changes. Every action is written to `/data/local/matchitool/wifi_auto.log`.
+- **Tested on the F50 (MU300, root, 19 and 20 Nov 2026):** turn-off and turn-on, four half-unplug cycles, PC adapter off, Wi-Fi off by hand, three reboots while tethered, boot with no USB (3 of 3 with the fallback; older builds failed 3 of 4), switch turned off while Wi-Fi was held off, Wi-Fi turned on by hand, app killed while tethered. Not yet tested: a tether of 30 minutes or more (T11 in `docs/TESTING.md`).
 
 ## no atd, no root helper, no merged binary
 
