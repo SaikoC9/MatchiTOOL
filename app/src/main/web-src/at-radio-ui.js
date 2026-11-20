@@ -120,7 +120,7 @@
     const before = await readImei();
     if (!before) throw new Error('The current IMEI could not be read, so nothing was changed (no way to go back)');
     if (before === imei) throw new Error('That is already the current IMEI');
-    if (!(await askConfirm('Change the IMEI of SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '?\n\nThe current IMEI is saved on the router first. Changing an IMEI is restricted or illegal in some countries; only use your own device\'s IMEI or where the law allows it.', 'Change IMEI', true))) return false;
+    if (!(await askDialog({ title: 'Change the IMEI?', message: 'SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '\n\nA wrong IMEI can break the SIM connection.', check: 'I understand', okText: 'Change IMEI', danger: true, maxWidth: '360px' }))) return false;
     if (!(await backupImei(before))) throw new Error('Could not save a backup of the current IMEI on the router, so nothing was changed');
     log('Backup saved: ' + before + ' (' + BACKUP + ')');
     log('> AT+SPIMEI=' + slot() + ',"' + imei + '"');

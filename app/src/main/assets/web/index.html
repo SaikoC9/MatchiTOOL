@@ -1113,7 +1113,7 @@ html body #home .matchi-menu-box>button::before{left:6px}
     const before = await readImei();
     if (!before) throw new Error('The current IMEI could not be read, so nothing was changed (no way to go back)');
     if (before === imei) throw new Error('That is already the current IMEI');
-    if (!(await askConfirm('Change the IMEI of SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '?\n\nThe current IMEI is saved on the router first. Changing an IMEI is restricted or illegal in some countries; only use your own device\'s IMEI or where the law allows it.', 'Change IMEI', true))) return false;
+    if (!(await askDialog({ title: 'Change the IMEI?', message: 'SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '\n\nA wrong IMEI can break the SIM connection.', check: 'I understand', okText: 'Change IMEI', danger: true, maxWidth: '360px' }))) return false;
     if (!(await backupImei(before))) throw new Error('Could not save a backup of the current IMEI on the router, so nothing was changed');
     log('Backup saved: ' + before + ' (' + BACKUP + ')');
     log('> AT+SPIMEI=' + slot() + ',"' + imei + '"');
@@ -4234,7 +4234,7 @@ function createToast(msg,color,ms,fn){
 }
 /* In-page confirm dialog (replaces the browser's "192.168.0.1:2334 says" box). Resolves true / false. */
 /* In-page dialogs (replace the browser's own confirm / prompt / alert boxes). They are built like every createModal window: title, text, a thin line, then
-   Cancel and OK at the bottom right. askConfirm(message, okText, danger) -> true / false. askText({title,message,value,password,multiline,okText}) -> text or null.
+   Cancel and OK at the bottom right. askConfirm(message, okText, danger) -> true / false. askText({title,message,value,password,multiline,okText}) -> text or null. askDialog({title,message,okText,danger,check}): check = text of a tick box that must be ticked before OK works.
    askNotice(message, title) -> resolves when closed. */
 function askDialog(o){
   return new Promise(resolve=>{
@@ -4245,6 +4245,10 @@ function askDialog(o){
     let inp=null;
     if(o.input){inp=document.createElement(o.multiline?'textarea':'input');if(!o.multiline)inp.type=o.password?'password':'text';else inp.rows=3;
       inp.value=o.value||'';inp.autocomplete=o.password?'current-password':'off';inp.spellcheck=false;inp.style.cssText='width:100%;box-sizing:border-box;margin-top:8px;white-space:normal';body.appendChild(inp)}
+    /* o.check: a tick box with this text under the message; OK stays off until it is ticked. */
+    let chk=null;
+    if(o.check){const lab=document.createElement('label');lab.style.cssText='display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer';
+      chk=document.createElement('input');chk.type='checkbox';const sp=document.createElement('span');sp.textContent=o.check;lab.append(chk,sp);body.appendChild(lab)}
     const foot=document.createElement('div');foot.className='btn mfoot';
     let cancel=null;
     if(!o.noCancel){cancel=document.createElement('button');cancel.type='button';cancel.className='mclose ccancel';cancel.textContent='Cancel';foot.appendChild(cancel)}
@@ -4256,6 +4260,7 @@ function askDialog(o){
     if(o.noCancel){ok.className='mclose cok'}
     else if(o.danger)ok.style.cssText='background:rgba(255,100,124,.16)!important;border:1px solid rgba(255,100,124,.5)!important;color:#ffd5dc!important';
     else ok.style.cssText='background:rgba(22,140,255,.2)!important;border:1px solid rgba(85,182,255,.5)!important';
+    if(chk){ok.disabled=true;ok.style.opacity='.5';chk.onchange=()=>{ok.disabled=!chk.checked;ok.style.opacity=chk.checked?'':'.5'}}
     foot.appendChild(ok);box.append(h,body,foot);bg.appendChild(box);
     const val=()=>inp?inp.value:true;
     const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(o.noCancel?true:(o.input?null:false))}else if(e.key==='Enter'&&inp&&!o.multiline){e.preventDefault();e.stopPropagation();done(val())}};
@@ -4264,7 +4269,7 @@ function askDialog(o){
     if(cancel)cancel.onclick=()=>done(o.input?null:false);
     ok.onclick=()=>done(o.noCancel?true:val());
     bg.addEventListener('mousedown',e=>{if(e.target===bg&&!o.noCancel)done(o.input?null:false)});
-    document.body.appendChild(bg);(inp||ok).focus();
+    document.body.appendChild(bg);(inp||chk||ok).focus();
   });
 }
 function askConfirm(message,okText,danger){return askDialog({title:'Confirm',message,okText,danger})}
