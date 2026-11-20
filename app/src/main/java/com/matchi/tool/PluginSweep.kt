@@ -125,9 +125,9 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
     "n=0",
     "cp=",
-    "T=\$(command -v timeout 2>/dev/null) && T='timeout 10'",
-    "C=\$(\$T grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
-    "E=\$(\$T grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | tr '\\000' ' ')",
+    "T=\$(command -v timeout 2>/dev/null) && T='timeout 6'",
+    "C=\$(\$T grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | \$T tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
+    "E=\$(\$T grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | \$T tr '\\000' ' ')",
     "flush() {",
     "  [ -n \"\$cp\" ] || return 0",
     "  echo \"$SWEEP_LINE_PREFIX|\$cp|\$cpp|\$cst|\$cu|\$ct|\$ca\"",
@@ -550,7 +550,7 @@ keep() {
   out=
   for p in ^*; do
     case "^prot" in *" ^p "*) continue ;; esac
-    a=^(head -c 1024 /proc/^p/cmdline 2>/dev/null | tr '\000' ' ')
+    a=^(ps -A -o PID,ARGS 2>/dev/null | awk -v p=^p '^1==p{^1="";print;exit}')
     case "^a" in 'com.matchi.tool'|'com.matchi.tool '*|'com.matchi.tool:'*) continue ;; esac
     out="^out ^p"
   done
