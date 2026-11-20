@@ -4240,7 +4240,7 @@ function askDialog(o){
   return new Promise(resolve=>{
     const bg=document.createElement('div');bg.className='modal-bg show';bg.style.zIndex='3000';
     const box=document.createElement('div');box.className='modal modal-flex';box.setAttribute('role','alertdialog');box.setAttribute('aria-modal','true');box.style.maxWidth=o.maxWidth||'420px';
-    const h=document.createElement('h3');h.className='title';const hs=document.createElement('span');hs.textContent=o.title||'Confirm';h.appendChild(hs);
+    const h=document.createElement('h3');h.className='title';const hs=document.createElement('span');hs.textContent=o.heading||o.title||'Confirm';h.appendChild(hs);
     const body=document.createElement('div');body.className='content mbody';body.style.cssText='white-space:pre-line;line-height:1.5';body.textContent=o.message||'';
     /* Compact layout (o.lead): one short sentence, an optional warning line, label/value rows, and the full text behind a \"Show details\" link.
        o.lead replaces o.message on screen; o.detail keeps the full text one click away. */
@@ -8618,7 +8618,7 @@ function renderPlugins(list){
           if(run)rows.push(['Running now',plural(run,'process')]);
           if(nc.length)rows.push(['Not checked',plural(nc.length,'item')]);
           rows.push(['Your data','Kept, nothing was deleted']);
-          ui={title:'Could not stop '+p.name,lead:'Nothing was deleted. What it started could not be stopped completely.',rows,detail:msg};
+          ui={heading:'Could not stop '+p.name,lead:'Nothing was deleted. What it started could not be stopped completely.',rows,detail:msg};
         }else{
           extra=[{text:'Back up first',value:'backup'}].concat(extra);
           const willStop=mode==='stop'||mode==='sweep'||mode==='hook',nproc=sw.checked?sw.cands.length:0,kb=present.reduce((a,it)=>a+(it.kb||0),0),noRoot2=info&&info.rootOk===false;
@@ -8626,7 +8626,7 @@ function renderPlugins(list){
           const r2=willStop&&un.items&&un.items.length?'Undo '+plural(un.items.length,'change'):'Undo changes: none';
           const r3='Delete the plugin'+(present.length||ups.length?' and its data'+(kb?' ('+fmtKb(kb)+')':''):'');
           const warn=noRoot2?'Root is not available, so nothing can be erased until root works.':mode==='shared'?shared.join(', ')+' uses the same stop command or boot file, so the stop is skipped.':mode==='cannot'?'Its stop cannot run, so nothing it started will be stopped.':mode==='toomany'?'Too many running processes to end automatically, so nothing will be stopped.':'';
-          ui={title:'Delete '+p.name+'?',lead:'This cannot be undone. Back up first if you may need it again.',warn,rows:[['Step 1',r1],['Step 2',r2],['Step 3',r3]],detail:msg};
+          ui={heading:'Delete '+p.name+'?',lead:'This cannot be undone. Back up first if you may need it again.',warn,rows:[['Step 1',r1],['Step 2',r2],['Step 3',r3]],detail:msg};
         }
         const choice=await askDialog(Object.assign({title,message:msg,okText,danger:!failure,extra},ui,{compact:true,maxWidth:'400px'}));
         if(!choice)return;
