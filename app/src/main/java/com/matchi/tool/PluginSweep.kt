@@ -125,7 +125,7 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
     "echo \"$SWEEP_LINE_PREFIX-SELF \$\$\"",
     "n=0",
     "cp=",
-    "T=; command -v timeout >/dev/null 2>&1 && T='timeout 10'",
+    "T=\$(command -v timeout 2>/dev/null) && T='timeout 10'",
     "C=\$(\$T grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
     "E=\$(\$T grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | tr '\\000' ' ')",
     "flush() {",
