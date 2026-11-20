@@ -276,6 +276,21 @@ class WifiAutoWatcherTest {
         assertEquals(true, r.port.wifi); assertFalse(r.port.state)
     }
 
+    @Test fun rescue_readableRouterButTurnOnKeepsFailingEscalatesToTheRootFallback() {
+        val r = Run(); r.port.state = true; r.port.wifi = false; r.port.link = TetherLink.IDLE; r.port.failOn = true
+        r.run(60)
+        assertEquals(0, r.port.rescueCalls); assertEquals(2 * WifiAutoWatcher.ATTEMPTS, r.port.onCalls)   // two failed cycles, 3 tries each
+        r.run(30)
+        assertEquals(1, r.port.rescueCalls); assertEquals(true, r.port.wifi); assertFalse(r.port.state)
+        r.run(60); assertEquals(1, r.port.rescueCalls)                           // done: nothing left to undo
+    }
+
+    @Test fun rescue_oneFailedTurnOnThenSuccessNeverStartsTheRootFallback() {
+        val r = Run(); r.port.state = true; r.port.wifi = false; r.port.link = TetherLink.IDLE; r.port.failOn = true
+        r.run(40); r.port.failOn = false; r.run(30)
+        assertEquals(0, r.port.rescueCalls); assertEquals(true, r.port.wifi); assertFalse(r.port.state)
+    }
+
     @Test fun rescue_failedIsTriedAtMostThreeTimesAndKeepsTheStateFile() {
         val r = Run(); r.port.failRescue = true; r.port.state = true; r.port.wifi = null; r.port.link = TetherLink.IDLE
         r.run(600)
@@ -285,5 +300,6 @@ class WifiAutoWatcherTest {
 
     @Test fun rescue_constants() {
         assertEquals(20_000L, WifiAutoRules.UNREADABLE_MS); assertEquals(3, WifiAutoRules.MAX_RESCUES)
+        assertEquals(2, WifiAutoRules.TURN_ON_FAILS_BEFORE_RESCUE)
     }
 }

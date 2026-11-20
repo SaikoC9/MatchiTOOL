@@ -64,7 +64,10 @@ object WifiSwitch {
         }
         if (WifiGoform.reached(read(ctx), want)) return true   // already as wanted: send nothing
         try {
-            ZteClient.call(ctx, "set", params)   // the reply is not trusted, only the read-back below
+            // retry=1: always sign in fresh first. The router drops the login after a long quiet stretch (a long tether) but still answers reads
+            // and answers a "set" with a dead cookie as if all was well, so a cached session made every change silently do nothing.
+            ZteClient.call(ctx, "set", params, 1)   // the reply is not trusted, only the read-back below
+            WifiAutoTrace.note(ctx, "Wi-Fi set reply: ${ZteClient.lastInfo}")   // AD token state, session, HTTP code, start of the reply (no secrets)
         } catch (e: Exception) {
             LogCatcher.log("WARNING", "WifiSwitch", "Wi-Fi change to $want failed: ${e.message}")
             WifiAutoTrace.note(ctx, "Wi-Fi change to $want failed: ${e.javaClass.simpleName}")

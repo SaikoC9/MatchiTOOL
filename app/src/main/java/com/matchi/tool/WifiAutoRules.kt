@@ -53,6 +53,11 @@ class WifiAutoRules {
         const val UNREADABLE_MS = 20_000L
         /** The root fallback is tried at most this often until a normal turn-on works (each try restarts the hotspot). */
         const val MAX_RESCUES = 3
+        /**
+         * Turn-on cycles (3 tries each) that may fail while the router is still READABLE before the root fallback runs anyway. Seen 2026-11-20 after
+         * a long tether: reads worked, every turn-on was sent and never took effect, and nothing else ever tried.
+         */
+        const val TURN_ON_FAILS_BEFORE_RESCUE = 2
     }
 
     private var activeSince: Long? = null
@@ -62,6 +67,7 @@ class WifiAutoRules {
     private var pausedUntil = 0L
     private var unreadableSince: Long? = null
     private var rescues = 0
+    private var turnOnFails = 0        // failed turn-on cycles in a row (reset by a success)
     private var retryUntil = 0L        // set only by a FAILED change; the switch-off path waits for it too (it ignores the 15 s settle pause on purpose)
 
     private fun resetCounters() { activeSince = null; idleSince = null; unreadableSince = null }
@@ -110,7 +116,9 @@ class WifiAutoRules {
         if (nowMs - since < IDLE_DEBOUNCE_MS) return WifiAutoAction.NONE
         userOverride = false
         if (!holdsState) return WifiAutoAction.NONE
-        return if (wifiOn) WifiAutoAction.DROP_STATE else WifiAutoAction.TURN_ON
+        if (wifiOn) return WifiAutoAction.DROP_STATE
+        // Router readable but turning Wi-Fi on keeps failing: stop repeating the same call, start the hotspot by root.
+        return if (turnOnFails >= TURN_ON_FAILS_BEFORE_RESCUE && rescues < MAX_RESCUES) WifiAutoAction.RESCUE else WifiAutoAction.TURN_ON
     }
 
     /** The caller reports what happened to the action it ran. */
@@ -118,13 +126,14 @@ class WifiAutoRules {
         resetCounters()
         if (action == WifiAutoAction.NONE) return
         if (action == WifiAutoAction.RESCUE) rescues++
+        if (action == WifiAutoAction.TURN_ON) turnOnFails = if (ok) 0 else turnOnFails + 1
         pausedUntil = nowMs + if (ok) SETTLE_MS else RETRY_MS
         if (!ok) { retryUntil = pausedUntil; return }
         retryUntil = 0L
         when (action) {
             WifiAutoAction.TURN_OFF -> offSeen = true
             WifiAutoAction.TURN_ON -> { offSeen = false; rescues = 0 }
-            WifiAutoAction.RESCUE -> { offSeen = false; rescues = 0 }
+            WifiAutoAction.RESCUE -> { offSeen = false; rescues = 0; turnOnFails = 0 }
             WifiAutoAction.DROP_STATE -> offSeen = false
             WifiAutoAction.NONE -> {}
         }
