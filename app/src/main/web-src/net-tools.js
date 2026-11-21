@@ -163,7 +163,7 @@ function mountNetTools() {
     const refusal = N.aclRefusal(acl);
     const blockedMacs = new Set(acl ? acl.black.map((b) => b.mac) : []);
     const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (st.devAct || st.limAct) b.disabled = true; b.onclick = fn; return b; };
-    const limMsg = st.limMsg ? note(st.limMsg.text, st.limMsg.bad ? 'net-warn' : '') : null;
+    const limMsg = st.limMsg ? h('p', { class: 'net-p' + (st.limMsg.bad ? ' net-warn' : ''), id: 'matchi_lim_msg', role: 'status' }, st.limMsg.text) : null;   // always plain text: a result must never hide behind an Info chip
     let noLimit = 0;
     let table = null;
     if (p.rows.length) {
