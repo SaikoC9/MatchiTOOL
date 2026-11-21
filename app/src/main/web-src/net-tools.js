@@ -1094,7 +1094,9 @@ function mountNetTools() {
     s.textContent = `#matchi_net_modal .net-top{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
 #matchi_net_tabs{display:flex;gap:5px;flex-wrap:wrap}
 #matchi_net_modal button{min-height:30px;padding:3px 10px;font-size:12.5px;border-radius:7px}
-#matchi_net_modal [role=tab].on{border-color:var(--acc);background:#17365c}
+#matchi_net_modal button{background:linear-gradient(180deg,#1b3454,#172b46)!important;border:1px solid rgba(119,166,225,.23)}   /* every button in this window has the same blue (some got a flat grey from other page rules) */
+#matchi_net_modal button:disabled{opacity:.55}
+#matchi_net_modal [role=tab].on{border-color:var(--acc);background:#1d395c!important}
 #matchi_net_body{min-height:120px}
 #matchi_net_status{font-size:11.5px;margin-top:10px;color:var(--mut)}
 #matchi_net_modal .net-kv{display:grid;grid-template-columns:minmax(120px,38%) 1fr;gap:4px 12px;margin:0 0 8px}
@@ -1104,16 +1106,17 @@ function mountNetTools() {
 #matchi_net_modal .net-p{margin:6px 0}
 #matchi_net_modal h4{margin:12px 0 6px;font-size:12.5px;letter-spacing:.04em}
 #matchi_net_modal .net-sec{border-top:1px solid var(--bd);margin-top:10px;padding-top:2px}
-#matchi_net_modal .net-actions{margin:6px 0}
+#matchi_net_modal .net-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}   /* room between buttons and between button rows */
+#matchi_net_modal .net-sec .mt-tip-btn{margin:2px 0 10px!important}
 #matchi_net_modal .net-scroll{overflow-x:auto;margin:8px 0}
 #matchi_net_modal .net-tbl{border-collapse:collapse;width:100%;font-size:12.5px}
 #matchi_net_modal .net-tbl th,#matchi_net_modal .net-tbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}
 #matchi_net_modal .net-ul{margin:4px 0;padding-left:18px}
-#matchi_net_modal .net-rowact{white-space:nowrap}#matchi_net_modal .net-act{margin-right:4px;min-height:26px;padding:2px 8px}
-#matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(110px,32%) 1fr;gap:8px;align-items:center;margin:5px 0}#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:30px;padding:3px 8px}
+#matchi_net_modal .net-tbl td.net-rowact{white-space:normal;min-width:110px}#matchi_net_modal .net-act{margin:0 6px 4px 0;min-height:26px;padding:2px 8px}
+#matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(110px,32%) 1fr;gap:8px;align-items:center;margin:9px 0}#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:30px;padding:3px 8px}
 #matchi_net_modal .net-prog{padding:8px 10px;border-radius:8px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
-#matchi_net_modal .net-lim{font-size:12px}
-#matchi_net_modal .net-danger{border-color:rgba(255,100,124,.5)}
+#matchi_net_modal .net-tbl td.net-lim{font-size:12px;white-space:normal;min-width:84px;max-width:150px}   /* the limit wraps onto two lines so the buttons stay on screen */
+#matchi_net_modal button.net-danger{border-color:rgba(255,100,124,.5)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
