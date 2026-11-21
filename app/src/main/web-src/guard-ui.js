@@ -20,7 +20,7 @@
   }
   function plugRows(r) {
     const list = Array.isArray(r.plugins) ? r.plugins : [];
-    return list.filter((p) => p && typeof p.name === 'string').map((p) => ({
+    return list.filter((p) => p && typeof p.name === 'string' && num(p.procs) > 0).map((p) => ({
       name: str(p.name, 48), cpu: Math.round(num(p.cpu_pct)), budget: Math.round(num(p.budget_pct)), rss: num(p.rss_kb), procs: num(p.procs),
       state: STATE[p.state] ? p.state : 'ok', strikes: num(p.strikes),
     })).sort((a, b) => b.cpu - a.cpu || a.name.localeCompare(b.name)).slice(0, ROWS_MAX);

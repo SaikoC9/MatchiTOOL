@@ -20,11 +20,11 @@ t('status line: every state in plain words', () => {
   assert.strictEqual(ui.statusLine(ui.norm(ans({ running: false }))), 'Not running: report is outdated');
   assert.strictEqual(ui.statusLine(ui.norm(ans({}))), 'Running: 471 processes, sweep 14 ms, every 30 s');
 });
-t('rows: sorted by CPU, unknown state becomes OK, capped, bad entries dropped', () => {
-  const plugins = [{ name: 'b', cpu_pct: 5 }, { name: 'a', cpu_pct: 90.4, budget_pct: 80, rss_kb: 2048, procs: 3, state: 'throttled', strikes: 2 }, null, { cpu_pct: 1 }, { name: 'c', cpu_pct: 5, state: 'weird' }];
+t('rows: sorted by CPU, unknown state becomes OK, capped, bad entries and plugins with no process dropped', () => {
+  const plugins = [{ name: 'gone', cpu_pct: 0, procs: 0, state: 'throttled' }, { name: 'b', cpu_pct: 5, procs: 1 }, { name: 'a', cpu_pct: 90.4, budget_pct: 80, rss_kb: 2048, procs: 3, state: 'throttled', strikes: 2 }, null, { cpu_pct: 1 }, { name: 'c', cpu_pct: 5, state: 'weird', procs: 2 }];
   const r = ui.plugRows(rep({ plugins }));
   assert.deepStrictEqual(r.map((x) => x.name), ['a', 'b', 'c']); assert.strictEqual(r[0].cpu, 90); assert.strictEqual(r[2].state, 'ok');
-  const many = Array.from({ length: 30 }, (_, i) => ({ name: 'p' + i, cpu_pct: i }));
+  const many = Array.from({ length: 30 }, (_, i) => ({ name: 'p' + i, cpu_pct: i, procs: 1 }));
   assert.strictEqual(ui.plugRows(rep({ plugins: many })).length, 12);
 });
 t('actions: newest first, at most 6, text is plain', () => {
