@@ -136,9 +136,23 @@ internal fun StopReport.toJson(): JSONObject {
 // Paths passed the strict character check in checkPluginDataPath, so they cannot break out of single quotes.
 internal fun WebServer.quotedList(paths: List<String>) = paths.joinToString(" ") { "'$it'" }
 
+// Size probe cache: the dialog and repeated clicks used to start a fresh root du every time. One probe at a time, and the answer is reused for 10 s
+// (dropped when a plugin is deleted so the re-check after Delete is always fresh).
+internal object ProbeCache {
+    private var key = ""; private var at = 0L; private var res: ShellResult? = null
+    @Synchronized fun get(k: String, run: () -> ShellResult): ShellResult {
+        val now = System.currentTimeMillis()
+        val r = res
+        if (r != null && k == key && now - at < 10_000 && r.success) return r
+        val n = run(); key = k; at = System.currentTimeMillis(); res = n; return n
+    }
+    @Synchronized fun clear() { res = null }
+}
+
 internal fun WebServer.probeScript(paths: List<String>) =
+    "T=; command -v timeout >/dev/null 2>&1 && T='timeout 8'; " +   // -x: never cross into mounted proc/sys/dev inside a plugin's rootfs; timeout: never hang
     "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
-    "echo \"EXISTS \$(du -sk -- \"\$p\" 2>/dev/null | cut -f1) \$p\"; fi; done; true"
+    "echo \"EXISTS \$(\$T du -skx -- \"\$p\" 2>/dev/null | cut -f1) \$p\"; fi; done; true"
 
 // rm -rf on a symlink removes the link itself, never what it points to, but it DOES follow a symlink in a parent folder.
 // So every folder between the allowed root and the path is tested with [ -L ] first, and the path is skipped if one is a link.
@@ -277,6 +291,13 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         Prefs.setPluginOrder(ctx, names.filter { it in have })
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
+    // Cheap running-state check for the page's 30 s status light (every 2 min): ONLY the process sweep, no du, no stop plan, no undo list.
+    uri == "/api/plugins/state" && s.method == Method.POST -> {
+        val name = body(s).optString("name")
+        if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
+        val gated = rootGate(s) != null
+        json(Response.Status.OK, JSONObject().put("sweep", (if (gated) refusedSweep() else pluginSweep(name)).toJson()))
+    }
     // What deleting this plugin would erase (read-only): its own data folder plus the paths it declares with
     // "// @matchi-data /path" in its source. Used by the page to show the list before the user confirms.
     // Not behind rootGate as a whole (see the note inside): only its two root calls are.
@@ -288,7 +309,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         // the page treats an error as "nothing to show" and would silently fall back to a plain delete, so it gets the same answer as "root not available" instead
         // (items without "exists", sweep.rootOk=false) and still receives the stop plan, the undo list, the uploads and the effects, which come from files and the ledger.
         val gated = rootGate(s) != null
-        val probe = if (gated) ShellResult(false, "") else RootShell.run(ctx, probeScript(paths), 15_000)
+        val probe = if (gated) ShellResult(false, "") else ProbeCache.get(paths.joinToString("|")) { RootShell.run(ctx, probeScript(paths), 15_000) }
         val found = HashMap<String, Long>()
         if (probe.success) probe.content.lineSequence().forEach { line ->
             val m = Regex("^EXISTS (\\d*) (/\\S+)$").find(line.trim()) ?: return@forEach
@@ -310,6 +331,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
     // If the stop does not fully succeed the plugin is NOT deleted and nothing is erased: the answer is {"ok":false,"kept":true,"stop":{...}} and the
     // person can try again or send {"stop":true,"skipStop":true} ("Delete without stopping"). A request without "stop" never runs a stop.
     uri == "/api/plugins/delete" && s.method == Method.POST -> run {
+        ProbeCache.clear()
         val req = body(s)
         val wantStop = req.optBoolean("stop", false)
         val keep = req.optBoolean("keep", false) // "Disable and stop": the same stop, but the plugin and its data stay and it is switched off
