@@ -288,7 +288,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         val input = s.inputStream
         while (off < len) {
             val n = input.read(buf, off, len - off)
-            if (n < 0) break
+            if (n < 0) throw IllegalArgumentException("request body was cut off (got $off of $len bytes)")
             off += n
         }
         val text = String(buf, 0, off, Charsets.UTF_8).trim()

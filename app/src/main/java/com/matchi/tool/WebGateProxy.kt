@@ -7,8 +7,13 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** What one gate needs to know about its target. [tabClose] adds the page ping + close beacon (logout when the last page of the tab closes). */
 class WebGateConfig(
@@ -46,6 +51,12 @@ class WebGateProxy(
         const val MAX_REQ_BODY = 2 * 1024 * 1024
         const val MAX_RESP = 24 * 1024 * 1024
         private const val MAX_HEAD = 16 * 1024
+        private const val WORKERS = 12
+        private const val QUEUE = 64                 // connections waiting for a worker; more than this are closed at once, never piled up
+        private const val MAX_PER_IP = 10            // one address may use at most this many connections (workers + waiting) at the same time; a browser opens 6 per page origin, so 10 leaves room for a second tab but stops one address taking all 12 workers
+        private const val IDLE_READ_MS = 20_000      // longest silence between two reads
+        private const val ACCEPT_ERROR_PAUSE_MS = 100L
+        const val REQUEST_READ_MS = 30_000L          // the WHOLE request (head + body) must arrive within this time, however slowly it is sent
         private const val MAX_GATES = 16
         private const val MAX_TICKETS = 16
         private const val MAX_JAR = 20
@@ -78,6 +89,9 @@ class WebGateProxy(
     private var pool: java.util.concurrent.ExecutorService? = null
     private var sweeper: Thread? = null
     @Volatile private var running = false
+    private val perIp = ConcurrentHashMap<String, AtomicInteger>()
+    /** Test hook: the time one request may take to arrive. */
+    @Volatile internal var requestReadMs = REQUEST_READ_MS
 
     private fun token(): String { val b = ByteArray(32); rng.nextBytes(b); return b.joinToString("") { "%02x".format(it) } }
 
@@ -92,14 +106,19 @@ class WebGateProxy(
         } catch (e: Exception) { return "port ${cfg.listenPort} could not be opened (${e.message})" }
         running = true
         val tf = ThreadFactory { r -> Thread(r, "web-gate").also { it.isDaemon = true } }
-        pool = Executors.newFixedThreadPool(12, tf)
+        // A bounded queue + AbortPolicy: when every worker is busy and the queue is full the new connection is refused (closed), not kept waiting forever.
+        pool = ThreadPoolExecutor(WORKERS, WORKERS, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(QUEUE), tf, ThreadPoolExecutor.AbortPolicy())
         val ss = server!!
         Thread {
             while (running) {
                 try {
                     val c = ss.accept()
-                    pool?.execute { try { handle(c) } catch (e: Exception) { Quiet.note("WebGateProxy.handle", e) } finally { try { c.close() } catch (e: Exception) { Quiet.note("WebGateProxy.closeClient", e) } } }
-                } catch (_: Exception) { if (!running) break }
+                    admit(c)
+                } catch (_: Exception) {
+                    if (!running) break
+                    // accept() failing again and again (for example "too many open files") must not spin the CPU.
+                    try { Thread.sleep(ACCEPT_ERROR_PAUSE_MS) } catch (_: InterruptedException) { break }
+                }
             }
         }.also { it.isDaemon = true; it.name = "web-gate-accept"; it.start() }
         sweeper = Thread {
@@ -110,6 +129,26 @@ class WebGateProxy(
         }.also { it.isDaemon = true; it.name = "web-gate-sweep"; it.start() }
         null
     }
+
+    /** Hands an accepted connection to a worker, or closes it when this address already has [MAX_PER_IP] open or no worker / queue slot is free. */
+    private fun admit(c: Socket) {
+        val ip = normIp((c.remoteSocketAddress as? InetSocketAddress)?.address?.hostAddress)
+        val n = perIp.computeIfAbsent(ip) { AtomicInteger() }
+        if (n.incrementAndGet() > MAX_PER_IP) { release(ip); closeQuietly(c); return }
+        try {
+            val p = pool ?: throw RejectedExecutionException("stopped")
+            p.execute {
+                try { handle(c) } catch (e: Exception) { Quiet.note("WebGateProxy.handle", e) }
+                finally { closeQuietly(c); release(ip) }
+            }
+        } catch (_: RejectedExecutionException) { release(ip); closeQuietly(c) }   // full or stopping: the socket must not leak
+    }
+
+    private fun release(ip: String) { perIp[ip]?.let { if (it.decrementAndGet() <= 0) perIp.remove(ip, it) } }
+    private fun closeQuietly(c: Socket) { try { c.close() } catch (e: Exception) { Quiet.note("WebGateProxy.closeClient", e) } }
+
+    /** Test helper: connections currently counted against [ip]. */
+    internal fun openFrom(ip: String): Int = perIp[ip]?.get() ?: 0
 
     fun stop() {
         closeAll()
@@ -200,10 +239,18 @@ class WebGateProxy(
         val query: String get() = if (target.contains('?')) target.substringAfter('?') else ""
     }
 
-    private fun readHead(inp: InputStream): String? {
+    /** Before each blocking read: gives up when the whole-request time is used, and never waits longer than that time for the next bytes. */
+    private fun arm(sock: Socket, deadlineNs: Long) {
+        val left = (deadlineNs - System.nanoTime()) / 1_000_000L
+        if (left <= 0L) throw java.net.SocketTimeoutException("request took too long to arrive")
+        sock.soTimeout = minOf(left, IDLE_READ_MS.toLong()).toInt()
+    }
+
+    private fun readHead(inp: InputStream, sock: Socket, deadlineNs: Long): String? {
         val bo = ByteArrayOutputStream()
         var state = 0
         while (bo.size() < MAX_HEAD) {
+            if (inp.available() == 0) arm(sock, deadlineNs)   // data already buffered needs no wait
             val b = inp.read()
             if (b < 0) return null
             bo.write(b)
@@ -217,8 +264,9 @@ class WebGateProxy(
         return null
     }
 
-    private fun parse(inp: InputStream): Req? {
-        val head = readHead(inp) ?: return null
+    private fun parse(inp: InputStream, sock: Socket): Req? {
+        val deadlineNs = System.nanoTime() + requestReadMs * 1_000_000L
+        val head = readHead(inp, sock, deadlineNs) ?: return null
         val lines = head.split("\r\n").filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
         val rl = lines[0].split(" ")
@@ -233,7 +281,8 @@ class WebGateProxy(
         if (len < 0 || len > MAX_REQ_BODY) return Req("BIG", rl[1], hs, ByteArray(0))
         val body = ByteArray(len)
         var off = 0
-        while (off < len) { val n = inp.read(body, off, len - off); if (n < 0) return null; off += n }
+        while (off < len) { arm(sock, deadlineNs); val n = inp.read(body, off, len - off); if (n < 0) return null; off += n }
+        sock.soTimeout = IDLE_READ_MS
         return Req(rl[0].uppercase(), rl[1], hs, body)
     }
 
@@ -270,11 +319,11 @@ class WebGateProxy(
     }
 
     private fun handle(sock: Socket) {
-        sock.soTimeout = 20_000
+        sock.soTimeout = IDLE_READ_MS
         val inp = BufferedInputStream(sock.getInputStream())
         val out = sock.getOutputStream()
         val ip = normIp((sock.remoteSocketAddress as? InetSocketAddress)?.address?.hostAddress)
-        val req = parse(inp) ?: return
+        val req = parse(inp, sock) ?: return
         if (req.method == "TE") { text(out, 411, "Length Required", "Chunked request bodies are not supported."); return }
         if (req.method == "BIG") { text(out, 413, "Payload Too Large", "Request too large."); return }
         if (req.header("upgrade") != null) { text(out, 501, "Not Implemented", "WebSocket and other upgrades are not supported behind the MatchiTOOL gate."); return }

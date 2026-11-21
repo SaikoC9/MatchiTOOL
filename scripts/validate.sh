@@ -28,6 +28,15 @@ python3 "$ROOT/scripts/test_route_gates.py"          # who may call which route
 python3 "$ROOT/scripts/test_plugin_undo.py"           # the undo script in a real sh (fake iptables)
 python3 "$ROOT/scripts/test_update_binary_hashes.py"   # CI helper that writes new binary hashes into NOTICE.md
 python3 "$ROOT/scripts/gen_binary_hashes.py" --check "$ROOT"   # BinaryHashes.kt (what the app checks its copies against) must match assets/bin
+bash "$ROOT/scripts/pin-actions.sh" --check            # every "uses:" in the workflows is pinned to a full commit (run scripts/pin-actions.sh to fix)
+
+# Kotlin unit tests that need no Android SDK (pure logic, the gate proxy, ...). Needs java and the Kotlin compiler inside gradle's lib folder; skipped where they are missing.
+if command -v java >/dev/null 2>&1 && command -v gradle >/dev/null 2>&1; then
+  bash "$ROOT/scripts/kotlin_pure_tests.sh" </dev/null | tee /tmp/matchitool-kotlin-pure.txt
+  grep -q '^OK (' /tmp/matchitool-kotlin-pure.txt || { echo "Kotlin pure tests failed"; exit 1; }
+else
+  echo "skipped: Kotlin pure tests (java or gradle missing)"
+fi
 
 # Boot / log shell tests (need setsid, pgrep and node; skipped where they are missing).
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then

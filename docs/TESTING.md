@@ -1,13 +1,15 @@
 # Testing
 
-Current for MatchiTOOL 1.4.1. This file replaces `TESTING_1.1.54_STABILITY.md`, `TESTING_1.2.0.md` and `TESTING_BOOT_CAPTURE.md`. A test counts as passed only when seen on the real F50 firmware; source checks do not certify runtime behaviour.
+Current for MatchiTOOL 1.4.5. This file replaces `TESTING_1.1.54_STABILITY.md`, `TESTING_1.2.0.md` and `TESTING_BOOT_CAPTURE.md`. A test counts as passed only when seen on the real F50 firmware; source checks do not certify runtime behaviour.
 
 ## 1. Automated checks (on a PC)
 
 ```sh
 ./scripts/validate.sh                 # page build, repo checks, route table, Node + shell tests, source tripwires
-gradle :app:testDebugUnitTest         # Kotlin unit tests (RootGateTest, HostControlTest, BootLogdModelTest, ...)
-gradle :app:assembleRelease           # release build (R8 shrink): check it installs and the console starts
+scripts/kotlin_pure_tests.sh           # the Kotlin tests that need no Android SDK (also run by validate.sh when java and gradle exist)
+gradle :app:testDebugUnitTest         # all Kotlin unit tests (RootGateTest, HostControlTest, BootLogdModelTest, ...)
+gradle :app:assembleRelease           # release build (R8 shrink)
+scripts/check_release_apk.sh app/build/outputs/apk/release/app-release.apk   # manifest components, NanoHTTPD and assets survived R8 (CI runs it too); then install it and check the console starts
 python3 scripts/phase0/test_round5_browser.py   # Chromium + Playwright, fake router; not part of validate.sh
 node scripts/phase0/test_plugin_sandbox_browser.js app/src/main/assets/web/index.html   # Chromium + Playwright: sandboxed plugins; not part of validate.sh
 ```

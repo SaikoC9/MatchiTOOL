@@ -239,7 +239,7 @@ class WebGateProxyTest {
     }
 
     @Test fun manyRequestsAtOnceDoNotDeadlock() {
-        val p = gate(); val c = enter(p); val pool = Executors.newFixedThreadPool(20); val ok = java.util.concurrent.atomic.AtomicInteger(); val l = CountDownLatch(40)
+        val p = gate(); val c = enter(p); val pool = Executors.newFixedThreadPool(8); val ok = java.util.concurrent.atomic.AtomicInteger(); val l = CountDownLatch(40)
         repeat(40) { pool.execute { try { if (http("GET", "/big", c).code == 200) ok.incrementAndGet() } finally { l.countDown() } } }
         assertTrue(l.await(20, TimeUnit.SECONDS)); pool.shutdownNow(); assertEquals(40, ok.get())
     }
@@ -273,5 +273,49 @@ class WebGateProxyTest {
         assertFalse(p.isIdle())                       // someone is logged in
         valid.remove("tok"); p.sweep()
         assertTrue(p.isIdle())                        // console session gone, gate dropped
+    }
+
+    /** True when the other side has closed the connection (read gives end-of-stream); false when it is still open after [ms]. */
+    private fun closedWithin(c: Socket, ms: Int): Boolean {
+        c.soTimeout = ms
+        return try { c.getInputStream().read() < 0 } catch (_: java.net.SocketTimeoutException) { false } catch (_: java.io.IOException) { true }
+    }
+
+    @Test fun slowSenderIsCutOffAtTheTotalDeadline() {
+        val p = gate(); p.requestReadMs = 700
+        val c = Socket("127.0.0.1", p.port)
+        try {
+            val start = System.nanoTime()
+            var closed = false
+            // one byte every 150 ms keeps every single read alive, but the whole request may not take longer than 700 ms
+            for (i in 0 until 40) {
+                try { c.getOutputStream().write('G'.code); c.getOutputStream().flush() } catch (_: java.io.IOException) { closed = true; break }
+                if (closedWithin(c, 150)) { closed = true; break }
+            }
+            val took = (System.nanoTime() - start) / 1_000_000
+            assertTrue("a slow sender must be disconnected", closed)
+            assertTrue("cut off after about the deadline, not before ($took ms)", took >= 600)
+            assertTrue("and not much later ($took ms)", took < 3_000)
+        } finally { c.close() }
+    }
+
+    @Test fun oneAddressCannotHoldEveryWorker() {
+        val p = gate()
+        val held = ArrayList<Socket>()
+        try {
+            repeat(10) { held.add(Socket("127.0.0.1", p.port)) }                // MAX_PER_IP connections that send nothing
+            val ninth = Socket("127.0.0.1", p.port); held.add(ninth)
+            assertTrue("the 11th connection from the same address is closed", closedWithin(ninth, 3_000))
+            assertFalse("the first ones stay open", closedWithin(held[0], 300))
+            // the gate still answers somebody else's work: a normal request from a free slot is not starved
+            held.removeAt(held.size - 1).close(); held.removeAt(0).close()
+            Thread.sleep(300)
+            val t = p.newTicket("127.0.0.1", "tok")!!
+            assertEquals(302, http("GET", "/__matchi/enter?t=$t").code)
+        } finally { held.forEach { try { it.close() } catch (_: Exception) {} } }
+        // slots are given back when connections end
+        val deadline = System.currentTimeMillis() + 3_000
+        while (p.openFrom("127.0.0.1") > 0 && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        assertEquals(0, p.openFrom("127.0.0.1"))
     }
 }

@@ -3,7 +3,8 @@
   1. The version lives in version.properties only. Gradle reads it, the page's PAGE_VERSION matches it, the README and the top
      CHANGELOG entry name it, and the release workflow reads it from there.
   2. The README's count and list of built-in tools equals the tools embedded in the page.
-  3. Every bundled executable (assets/bin) has its SHA-256 written in NOTICE.md, so a changed binary cannot slip in unnoticed."""
+  3. Every bundled executable (assets/bin) has its SHA-256 written in NOTICE.md, so a changed binary cannot slip in unnoticed.
+  4. A doc that says "Current for X" in its first lines names the version in version.properties."""
 import hashlib, re, sys
 from pathlib import Path
 
@@ -56,6 +57,11 @@ for f in sorted((root / 'app/src/main/assets/bin').iterdir()):
     if f.name.endswith('.sh'): continue    # shell scripts (matchi_logd.sh) are source, versioned by their own header
     h = hashlib.sha256(f.read_bytes()).hexdigest()
     need(h in notice, f'assets/bin/{f.name} has sha256 {h}, which is not written in NOTICE.md - review the file, then update NOTICE.md (and docs/BINARIES.md)')
+
+# ---- 4. docs that say which version they are current for ----
+for d in sorted((root / 'docs').glob('*.md')):
+    m = re.search(r'Current for (?:MatchiTOOL )?(\d+\.\d+\.\d+)', d.read_text()[:600])
+    if m: need(m.group(1) == name, f'docs/{d.name} says "Current for {m.group(1)}" but the version is {name}: review it, then update that line')
 
 if errors:
     print('repo check FAILED:'); [print('  -', e) for e in errors]; sys.exit(1)

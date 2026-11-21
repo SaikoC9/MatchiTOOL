@@ -202,11 +202,11 @@ object Prefs {
 
     /** null or empty removes the separate password (the router password signs in again); a too short one is refused with an exception. */
     @Synchronized fun setConsolePassword(c: Context, pw: String?) {
-        if (pw.isNullOrEmpty()) { sp(c).edit().remove(CONSOLE_PW).apply(); return }
+        if (pw.isNullOrEmpty()) { sp(c).edit().remove(CONSOLE_PW).commit(); return }   // commit: a password change must be on disk before the reply, not lost if the process is killed
         if (pw.length < MIN_CONSOLE_PW) throw IllegalArgumentException("The console password needs at least $MIN_CONSOLE_PW characters")
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val h = pbkdf2(pw, salt, CONSOLE_PW_ITER)
-        sp(c).edit().putString(CONSOLE_PW, "$CONSOLE_PW_ITER:" + Base64.encodeToString(salt, Base64.NO_WRAP) + ":" + Base64.encodeToString(h, Base64.NO_WRAP)).apply()
+        sp(c).edit().putString(CONSOLE_PW, "$CONSOLE_PW_ITER:" + Base64.encodeToString(salt, Base64.NO_WRAP) + ":" + Base64.encodeToString(h, Base64.NO_WRAP)).commit()
     }
 
     /** Re-makes the hash only while the stored value is still the one that was just checked: the slow PBKDF2 run must not overwrite a password changed meanwhile. */

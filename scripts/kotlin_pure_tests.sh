@@ -13,7 +13,7 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 K() { java -cp "$CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect "$@" 2>&1 | grep -v '^Picked up' || true; }
 printf 'package com.matchi.tool\ndata class ShellResult(val success: Boolean, val content: String)\n' > "$W/Stub.kt"
 MAIN="$W/Stub.kt"
-for f in "$ROOT"/app/src/main/java/com/matchi/tool/*.kt; do grep -qE '^import (android|org\.json|fi\.iki|java\.net\.Inet)|NanoHTTPD' "$f" || MAIN="$MAIN $f"; done
+for f in "$ROOT"/app/src/main/java/com/matchi/tool/*.kt; do grep -qE '^import (android|org\.json|fi\.iki)|NanoHTTPD|org\.json\.[A-Z]|[^./A-Za-z]android\.(content|util|os|net|app|text|view|widget)\.' "$f" || MAIN="$MAIN $f"; done   # also catches fully qualified uses (org.json.JSONArray(...)) that have no import line
 OUT="$(K -cp "$STD" -d "$W/main" $MAIN)"; [ -z "$OUT" ] || { echo "$OUT"; echo "main sources do not compile"; exit 1; }
 TESTS=""; SKIPPED=""
 for f in "$ROOT"/app/src/test/java/com/matchi/tool/*.kt; do
