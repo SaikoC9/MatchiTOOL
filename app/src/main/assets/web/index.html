@@ -9844,7 +9844,7 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     '#guardCard .gd-pill{font-size:10.5px;font-weight:600;color:var(--mut);border:1px solid var(--bd);border-radius:999px;padding:1px 7px;white-space:nowrap}' +
     '#guardCard .gd-tbl{overflow-x:auto;margin-top:6px}' +
     '#guardCard table{width:100%;border-collapse:collapse;font-size:11.5px}#guardCard th{font-weight:600;color:var(--mut);text-align:left;padding:2px 6px 3px 0;white-space:nowrap}' +
-    '#guardCard td{padding:4px 6px 4px 0;border-top:1px solid var(--bd)}#guardCard td.n,#guardCard th.n{text-align:right;white-space:nowrap}#guardCard td:first-child{overflow-wrap:anywhere}#guardCard td:last-child,#guardCard th:last-child{padding-right:0}' +
+    '#guardCard td{padding:4px 6px 4px 0;border-top:1px solid var(--bd)}#guardCard td.gd-n,#guardCard th.gd-n{text-align:right;white-space:nowrap}#guardCard td:first-child{overflow-wrap:anywhere}#guardCard td:last-child,#guardCard th:last-child{padding-right:0}' +
     '#guardCard .gd-ok{color:var(--good);font-weight:700}#guardCard .gd-bad{color:var(--danger);font-weight:700}' +
     '#guardCard .gd-log{margin-top:6px;font-size:10.5px;color:var(--mut);white-space:pre-wrap;word-break:break-word}' +
     '#guardCard .gd-note{font-size:10.5px;color:var(--mut);margin-top:6px;line-height:1.4}';
@@ -9862,13 +9862,14 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     body.textContent = '';
     if (!s.report) return;
     const wrap = el('div', 'gd-tbl'), tb = el('table'), hd = el('tr');
-    for (const [h, n] of [['Plugin', 0], ['CPU', 1], ['Limit', 1], ['Memory', 1], ['Procs', 1], ['State', 0]]) hd.appendChild(el('th', n ? 'n' : '', h));
+    for (const [h, n] of [['Plugin', 0], ['CPU', 1], ['Limit', 1], ['Memory', 1], ['Procs', 1], ['State', 0]]) hd.appendChild(el('th', n ? 'gd-n' : '', h));
     tb.appendChild(hd);
     if (!s.rows.length) { const r = el('tr'), c = el('td', '', 'No plugin processes running'); c.colSpan = 6; r.appendChild(c); tb.appendChild(r); }
     for (const p of s.rows) {
       const r = el('tr');
-      r.appendChild(el('td', '', p.name.replace(/_/g, '_\u200b')));   // a long name can wrap after an underscore r.appendChild(el('td', 'n', fmtCpu(p.cpu))); r.appendChild(el('td', 'n', fmtCpu(p.budget)));
-      r.appendChild(el('td', 'n', fmtMem(p.rss))); r.appendChild(el('td', 'n', String(p.procs)));
+      r.appendChild(el('td', '', p.name.replace(/_/g, '_\u200b')));   // a long name can wrap after an underscore
+      r.appendChild(el('td', 'gd-n', fmtCpu(p.cpu))); r.appendChild(el('td', 'gd-n', fmtCpu(p.budget)));
+      r.appendChild(el('td', 'gd-n', fmtMem(p.rss))); r.appendChild(el('td', 'gd-n', String(p.procs)));
       r.appendChild(el('td', p.state === 'ok' ? 'gd-ok' : 'gd-bad', STATE[p.state]));
       tb.appendChild(r);
     }

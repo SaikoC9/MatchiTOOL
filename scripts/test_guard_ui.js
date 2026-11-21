@@ -55,4 +55,33 @@ t('page and host: module included, routes exist, slow refresh', () => {
   const dev = fs.readFileSync(path.join(__dirname, '../app/src/main/java/com/matchi/tool/WebRoutesDevice.kt'), 'utf8');
   assert.ok(/"\/api\/guard\/report" && s\.method == Method\.GET/.test(dev) && /"\/api\/guard\/state" && s\.method == Method\.POST -> rootGate/.test(dev));
 });
-console.log('guard ui test passed: ' + n + ' groups');
+const drawTest = () => {
+  // Runs the card code the way the page does, against a tiny fake DOM, and reads the table back.
+  const vm = require('vm');
+  class El {
+    constructor(tag) { this.tag = tag; this.className = ''; this.children = []; this._t = ''; this.attrs = {}; }
+    set textContent(v) { this._t = String(v); if (v === '') this.children = []; }
+    get textContent() { return this._t; }
+    appendChild(c) { this.children.push(c); return c; }
+    setAttribute(k, v) { this.attrs[k] = v; }
+    getAttribute(k) { return this.attrs[k]; }
+    get offsetParent() { return {}; }
+  }
+  const home = new El('div'), later = [];
+  const doc = { hidden: false, head: new El('head'), createElement: (tag) => new El(tag), getElementById: (id) => (id === 'home' ? home : null) };
+  const plugins = [{ name: 'A_B.js', cpu_pct: 1, budget_pct: 80, rss_kb: 22000, procs: 3, state: 'ok' }, { name: 'C.js', cpu_pct: 90, budget_pct: 80, rss_kb: 2048, procs: 2, state: 'throttled' }];
+  const ctx = { document: doc, window: { addEventListener: (ev, f) => { ctx.onload = f; } }, TOKEN: 'x', api: async () => ans({ report: rep({ plugins }) }), createToast() {},
+    setTimeout: (f) => { later.push(f); return later.length; }, clearTimeout() {}, setInterval: () => 1, clearInterval() {} };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/src/main/web-src/guard-ui.js'), 'utf8'), ctx);
+  ctx.onload(); later[0]();
+  return new Promise((resolve) => setImmediate(resolve)).then(() => {
+    const find = (e, tag) => (e.tag === tag ? e : e.children.map((c) => find(c, tag)).find(Boolean));
+    const rows = find(home, 'table').children.map((r) => r.children.map((c) => c.textContent));
+    assert.strictEqual(rows.length, 3);
+    for (const r of rows) assert.strictEqual(r.length, 6);
+    assert.deepStrictEqual(rows[1].slice(1, 5), ['90 %', '80 %', '2.0 MB', '2']);   // sorted by CPU, so C.js first
+    assert.deepStrictEqual(rows[2].slice(1, 5), ['1 %', '80 %', '21 MB', '3']);
+  });
+};
+drawTest().then(() => { n++; console.log('guard ui test passed: ' + n + ' groups'); }, (e) => { console.error(e); process.exit(1); });
