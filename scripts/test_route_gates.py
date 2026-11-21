@@ -65,6 +65,7 @@ TABLE = {
   ('POST', '/api/plugins/approve'): ('GATE', 'also needs the sign-in password'),
   ('POST', '/api/plugins/call'): ('PARTIAL', 'sandboxed plugins only; the host checks the approved record on every call; the shell op needs the gate, AT reads and router reads are read-only'),
   ('POST', '/api/plugins/mode'): ('GATE', 'also needs the sign-in password; both directions (sandbox and trusted)'),
+  ('POST', '/api/plugins/state'): ('PARTIAL', 'the page\'s running-state light: ONLY the process scan, no du; it runs only when rootGate lets the request through, a refused request gets refusedSweep() and not an error'),
   ('POST', '/api/plugins/data'): ('PARTIAL', 'the route itself stays open (a refusal would hide the stop plan: the page treats an error as "nothing to show"); its two root calls, the existence probe of paths that passed checkPluginDataPath and the process scan, run only when rootGate lets the request through; the plan, undo list, uploads and effects come from files and the ledger, not from root'),
   ('POST', '/api/plugins/delete'): ('PARTIAL', 'erasing the plugin data or running its stop commands needs the gate; every delete needs the sign-in password, except keep:true; with keep:true (Disable and stop) it stops and switches the plugin off, nothing is deleted or erased'),
   ('POST', '/api/plugins/toggle'): ('GATE', 'a plugin holding a session cannot switch other plugins on or off after 4 h'),
@@ -144,13 +145,13 @@ for fname, head, paths, methods, body in branches():
 # 1.4.2 (F10): /api/plugins/data must keep both of its root calls (existence probe, process scan) behind the gate decision. A refused request gets the
 # "cannot be checked" answer, not an error, so the page still shows the stop plan.
 for fname, head, paths, methods, body in branches():
-    if '/api/plugins/data' in paths:
-        if 'val gated = rootGate(s) != null' not in body: errors.append(f'{fname}: /api/plugins/data must compute  val gated = rootGate(s) != null')
+    if '/api/plugins/data' in paths or '/api/plugins/state' in paths:
+        if 'val gated = rootGate(s) != null' not in body: errors.append(f'{fname}: {paths} must compute  val gated = rootGate(s) != null')
         for l in body.split('\n'):
             code = l.split('//')[0]
             if ('RootShell.run(' in code or 'pluginSweep(' in code) and 'gated' not in code:
-                errors.append(f'{fname}: /api/plugins/data runs root outside the gated decision: {l.strip()}')
-        if 'refusedSweep()' not in body: errors.append(f'{fname}: /api/plugins/data must answer a refused request with refusedSweep(), not an error')
+                errors.append(f'{fname}: {paths} runs root outside the gated decision: {l.strip()}')
+        if 'refusedSweep()' not in body: errors.append(f'{fname}: {paths} must answer a refused request with refusedSweep(), not an error')
 
 # AT writes must be audited one by one: auditBusy keeps one line a minute per kind, and the Live / AT Radio polls use that minute up, so a write
 # logged with auditBusy alone (the old /api/at and /api/at/batch) left no trace.
