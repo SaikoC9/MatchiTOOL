@@ -77,6 +77,9 @@ object Prefs {
 
     fun liveBinary(c: Context): Boolean = sp(c).getBoolean("live_binary", false)
     fun setLiveBinary(c: Context, v: Boolean) { sp(c).edit().putBoolean("live_binary", v).apply() }
+    /** Plugin guard (matchi-guard watch) switched on by the owner. Off by default; started again at every host start when on. */
+    fun guardOn(c: Context): Boolean = sp(c).getBoolean("guard_on", false)
+    fun setGuardOn(c: Context, v: Boolean) { sp(c).edit().putBoolean("guard_on", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
     fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)

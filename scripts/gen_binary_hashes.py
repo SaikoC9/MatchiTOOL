@@ -13,7 +13,7 @@ from pathlib import Path
 
 # The files the app copies out of assets/bin and runs. matchi_logd.sh and imei_apply.sh are read as text and handed to the root shell,
 # they are never copied to disk as programs, so they are not listed here.
-NAMES = ('curl', 'jq', 'matchi-doctor', 'matchi-sampler', 'sendat', 'sha256', 'zreq')
+NAMES = ('curl', 'jq', 'matchi-doctor', 'matchi-guard', 'matchi-sampler', 'sendat', 'sha256', 'zreq')
 TARGET = 'app/src/main/java/com/matchi/tool/BinaryHashes.kt'
 
 

@@ -1,7 +1,7 @@
 # matchi-guard
 
 Keeps plugin processes from taking over the CPU. Go, standard library only, one static arm64 binary (about 2 MB).
-Not started by the app yet: it is off until phase 4 wires it in. Design and limits: [DESIGN.md](DESIGN.md).
+Started by the app (Plugin guard card on the home page, off by default): `watch` only. `run` is not used by the host yet. Design and limits: [DESIGN.md](DESIGN.md).
 
 ```
 matchi-guard run   --plugin NAME [--wall S] [--cpu S] [--mem MB] [--procs N] [--nice N] [--shares N] [--report FILE] -- command [args...]

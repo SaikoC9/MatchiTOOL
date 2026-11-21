@@ -79,7 +79,9 @@ class PluginSweepTest {
     @Test fun theProbeStartsNoProgramPerProcess() {
         // device test (F50, 496 processes): the first version took 19 s (over the 15 s limit) because it started ~8 programs per process
         val sc = sweepProbeScript()
-        assertTrue(sc.contains("grep -a -H '' /proc/[0-9]*/cmdline"))                    // one bulk read of every command line
+        assertTrue(sc.contains("ps -A -o PID,ARGS"))                                       // one bulk read of every command line, from ps
+        assertFalse(sc.contains("grep -a -H '' /proc"))                                    // never a direct read of cmdline files (it hung tr on the MU300)
+        assertFalse(sc.contains("\$T grep -a -H ''"))                                      // and no grep over cmdline files
         assertTrue(sc.contains("grep -a -o -H -E") && sc.contains("/proc/[0-9]*/environ")) // one bulk read of every environ (the tag)
         // device test 2026-11-13: a per-process search in one big string (the owner list) made the loop take 28 s; it must not come back
         assertFalse(sc.contains("stat -c")); assertFalse(sc.contains("\${U#")); assertFalse(sc.contains("\${x%%"))

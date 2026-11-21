@@ -60,9 +60,9 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
     }
 
-    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor")
+    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)
 
-    init { LiveEngineSetting.bind(ctx); seedPlugins(); ApkUpdater.cleanStale(ctx) }
+    init { LiveEngineSetting.bind(ctx); seedPlugins(); ApkUpdater.cleanStale(ctx); if (Prefs.guardOn(ctx)) Thread({ guardAutostart() }, "guard-autostart").apply { isDaemon = true }.start() }
 
     /**
      * Prepare the plugin folder (custom plugins only) and the bundled sendat binary. The built-in tools

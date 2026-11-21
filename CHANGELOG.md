@@ -3,6 +3,8 @@
 - Added: switch in Network > Wi-Fi (off by default) that turns the hotspot Wi-Fi off while USB tethering works.
 - Added: bundled programs are hash-checked before they run as root. Full diagnose lists each file.
 - Added: `matchi-doctor`, a read-only checker that Full diagnose now runs.
+- Added: `matchi-guard` and a Plugin guard card on the home page (off by default): per-plugin CPU and memory, throttling of plugins over budget, and ending of stuck helpers (`tr`, `du`, `grep`).
+- Fixed: the plugin process scan no longer reads `/proc/PID/cmdline` through `grep` and `tr`; it uses `ps`.
 - Added: optional "Fast sampler" for the Live panel (off by default). The shell loop stays as the fallback.
 - Changed: rebuilt `curl` 8.23.0, OpenSSL 3.5.9, `jq` 1.8.2 and `sendat` / `zreq` on Go 1.26.10, with one release pipeline (`release-tools.yml`).
 - Fixed: a false "folder can be written by other users" warning at every start.

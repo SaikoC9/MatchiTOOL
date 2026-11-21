@@ -110,7 +110,8 @@ internal class SweepProbe(
  * SWEEP_ARGS_MAX + 60 characters per line and parseSweepProbe cuts ARGS at [SWEEP_ARGS_MAX], so a line is always one line.
  * ARGS is last, so a "|" inside it cannot shift a column. Kernel threads have no command line and are NOT listed (they are never candidates).
  * SPEED (device test, F50, 496 processes): the first version started about 8 programs per process and took 19 s, over the 15 s limit.
- * This version reads everything with TWO bulk commands (one grep over every cmdline, one grep over every environ)
+ * The command lines come from `ps -A -o PID,ARGS` (a direct read of /proc/PID/cmdline by grep or tr never reached end-of-file on the MU300 kernel and
+ * left a tr at 100% CPU), the tags from one grep over every environ; both are bulk commands under `timeout`
  * and then walks the result with shell built-ins only, so it starts no program per process. The UID column is always EMPTY (parsed as -1): nothing
  * uses it. SPEED (device test, F50, 150 processes with a command line, 490 in /proc): a lookup of each PID in one 15 KB "stat -c %n %u" string
  * (a prefix pattern on that string, once per process) made the loop take 27-29 s, over the 15 s limit; without it the loop takes 0.2 s.
@@ -126,7 +127,7 @@ internal fun sweepProbeScript(pidfiles: List<String> = emptyList()): String = (l
     "n=0",
     "cp=",
     "T=\$(command -v timeout 2>/dev/null) && T='timeout 6'",
-    "C=\$(\$T grep -a -H '' /proc/[0-9]*/cmdline 2>/dev/null | \$T tr '\\000\\t' '  ' | cut -c1-${SWEEP_ARGS_MAX + 60})",
+    "C=\$(\$T ps -A -o PID,ARGS 2>/dev/null | while read -r q a; do case \"\$q\" in ''|*[!0-9]*) continue ;; esac; case \"\$a\" in ''|'['*']') continue ;; esac; echo \"/proc/\$q/cmdline:\$a\"; done | cut -c1-${SWEEP_ARGS_MAX + 60})",
     "E=\$(\$T grep -a -o -H -E '(^|[^A-Za-z0-9_])$SWEEP_TAG_VAR=[A-Za-z0-9._-]+' /proc/[0-9]*/environ 2>/dev/null | \$T tr '\\000' ' ')",
     "flush() {",
     "  [ -n \"\$cp\" ] || return 0",

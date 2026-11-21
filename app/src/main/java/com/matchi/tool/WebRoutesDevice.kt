@@ -369,6 +369,9 @@ internal fun WebServer.routeDevice(s: IHTTPSession, uri: String): Response? = wh
     // Live panel reader choice: the answer shows a setting and a file check only (open); changing it restarts the root reader, so that has the gate.
     uri == "/api/live/engine" && s.method == Method.GET -> json(Response.Status.OK, liveEngineState())
     uri == "/api/live/engine" && s.method == Method.POST -> rootGate(s) ?: liveEngineSet(s)
+    // Plugin guard: the report is a small file the program wrote (open, no root call); switching it on or off starts or ends a root process, so that has the gate.
+    uri == "/api/guard/report" && s.method == Method.GET -> json(Response.Status.OK, guardState())
+    uri == "/api/guard/state" && s.method == Method.POST -> rootGate(s) ?: guardSet(s)
     uri == "/api/usb/status" && s.method == Method.GET -> usbStatus()
     uri == "/api/usb/control" && s.method == Method.POST -> rootGate(s) ?: run {
         val req = body(s)
