@@ -42,6 +42,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - name: Tools
         run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool make perl file
@@ -61,7 +62,7 @@ jobs:
 
       # ---------- jq (static) ----------
       - name: Get jq source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: jqlang/jq
           ref: ${{ inputs.jq_tag }}
@@ -80,7 +81,7 @@ jobs:
 
       # ---------- OpenSSL (static, only used to link curl) ----------
       - name: Get OpenSSL source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: openssl/openssl
           ref: ${{ inputs.openssl_tag }}
@@ -104,7 +105,7 @@ jobs:
 
       # ---------- curl ----------
       - name: Get curl source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: curl/curl
           ref: ${{ inputs.curl_tag }}
@@ -146,7 +147,7 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           sha256sum out/* > out/SHA256SUMS
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ inputs.artifact_name || 'matchitool-binaries-arm64' }}
           path: out/*

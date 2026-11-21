@@ -3,21 +3,26 @@ name: Publish APK to public releases repo
 # Run manually: Actions > "Publish APK to public releases repo" > Run workflow.
 on:
   workflow_dispatch:
+# Two publishes at once could race on the same release tag: the second waits, it is never cancelled.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   release:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
         with:
           gradle-version: '8.7'
       - name: Validate source
@@ -31,24 +36,14 @@ jobs:
           echo "MATCHI_KEYSTORE_FILE=$RUNNER_TEMP/matchitool-release.jks" >> "$GITHUB_ENV"
       - name: Unit tests
         run: |
-          G=gradle; [ -x ./gradlew ] && G=./gradlew
-          for i in 1 2 3; do
-            $G :app:testDebugUnitTest --stacktrace && break
-            [ "$i" = 3 ] && exit 1
-            echo "::warning::Gradle failed (attempt $i/3), retrying in 20s (likely a network timeout)"; sleep 20
-          done
+          bash scripts/gradle-retry.sh :app:testDebugUnitTest --stacktrace
       - name: Build signed RELEASE APK
         env:
           MATCHI_KEYSTORE_PASSWORD: ${{ secrets.MATCHI_KEYSTORE_PASSWORD }}
           MATCHI_KEY_ALIAS: matchitool
           MATCHI_KEY_PASSWORD: ${{ secrets.MATCHI_KEYSTORE_PASSWORD }}
         run: |
-          G=gradle; [ -x ./gradlew ] && G=./gradlew
-          for i in 1 2 3; do
-            $G :app:assembleRelease --stacktrace && break
-            [ "$i" = 3 ] && exit 1
-            echo "::warning::Gradle failed (attempt $i/3), retrying in 20s (likely a network timeout)"; sleep 20
-          done
+          bash scripts/gradle-retry.sh :app:assembleRelease --stacktrace
       - name: Refuse to publish a debuggable or unsigned APK
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
@@ -58,11 +53,13 @@ jobs:
             echo "::error::the release APK is debuggable; refusing to publish"; exit 1
           fi
           "$BT/apksigner" verify --print-certs "$APK"
+      - name: Smoke-test the shrunk release APK (components, NanoHTTPD, assets survived R8)
+        run: bash scripts/check_release_apk.sh app/build/outputs/apk/release/app-release.apk
       # R8 renames classes/methods in the release build (proguard-rules.pro). Kept as a PRIVATE artifact of this workflow
       # run ONLY - the next step publishes just the APK to the public releases repo, so this mapping never goes there.
       - name: Upload mapping.txt as a private build artifact (needed to de-obfuscate a trace pulled off a device)
         run: cp app/build/outputs/mapping/release/mapping.txt "mapping-$(grep -oP '^VERSION_CODE=\K.+' version.properties).txt"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: MatchiTOOL-mapping
           path: mapping-*.txt

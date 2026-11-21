@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+# Two publishes at once could race on the same release tag: the second waits, it is never cancelled.
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 permissions:
   actions: read
   contents: read
@@ -17,10 +21,11 @@ jobs:
   publish:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
       - name: Download APK artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: MatchiTOOL-release
           path: ./artifact
