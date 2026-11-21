@@ -465,4 +465,39 @@ assert(!/\.(Password|PasswordShow|passwd|ppp_passwd|apn_ppp_passwd|passphrase)\b
     assert.strictEqual(N.wifiSaveCall(mk(o), keep).Password, b, 'sent as Base64 of the plain password, once');
   }
 }
-console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls, the MTU call, the DHCP pool / lease call and the Wi-Fi band and settings calls, all built by net-core.js');
+// ---- Limit speed: the checks, the body of POST /api/net/limit and the parser of the host's answer (mirrors SpeedLimit.kt) ------------------------
+assert.strictEqual(N.LIMIT_MIN, 8); assert.strictEqual(N.LIMIT_MAX, 125000);
+eq(N.limitIp('192.168.0.2'), '192.168.0.2'); eq(N.limitIp('::ffff:192.168.0.254'), '192.168.0.254'); eq(N.limitIp(' 192.168.0.100 '), '192.168.0.100');
+for (const bad of ['192.168.0.1', '192.168.0.0', '192.168.0.255', '192.168.0.256', '192.168.1.5', '10.0.0.2', '192.168.0.02', '192.168.0.2.1', '', null, undefined, 'fe80::1']) eq(N.limitIp(bad), null, 'not a limit address: ' + bad);
+eq(N.limitMac('AA:BB:CC:DD:EE:01'), 'aa:bb:cc:dd:ee:01'); eq(N.limitMac('aa-bb-cc-dd-ee-02'), null); eq(N.limitMac('01:00:5e:00:00:01'), null); eq(N.limitMac('ff:ff:ff:ff:ff:ff'), null); eq(N.limitMac('00:00:00:00:00:00'), null); eq(N.limitMac('nonsense'), null);
+eq(N.limitField('', 'Download'), { value: null, error: null }); eq(N.limitField('   ', 'Download'), { value: null, error: null }); eq(N.limitField(undefined, 'Upload'), { value: null, error: null });
+eq(N.limitField('8', 'Download'), { value: 8, error: null }); eq(N.limitField(' 125000 ', 'Download'), { value: 125000, error: null }); eq(N.limitField('0500', 'Download'), { value: 500, error: null });
+for (const bad of ['7', '0', '125001', '-5', '1e3', '12.5', '12,5', '5 KB', 'abc', '1234567890']) assert(N.limitField(bad, 'Download').error, 'refused: ' + bad);
+assert(/^Upload must be 8 to 125000 KB\/s/.test(N.limitField('5', 'Upload').error) && /^Download must be a whole number/.test(N.limitField('x', 'Download').error));
+eq(N.limitCheck('', ''), { down: null, up: null, error: null }); eq(N.limitCheck('500', ''), { down: 500, up: null, error: null }); assert.strictEqual(N.limitCheck('500', '3').error.startsWith('Upload'), true); assert.strictEqual(N.limitCheck('2', '3').error.startsWith('Download'), true, 'Download is reported first');
+eq(N.limitCall('AA:BB:CC:DD:EE:01', '::ffff:192.168.0.10', '500', '250'), { mac: 'aa:bb:cc:dd:ee:01', ip: '192.168.0.10', down: 500, up: 250 });
+eq(N.limitCall('aa:bb:cc:dd:ee:01', '192.168.0.10', '', ''), { mac: 'aa:bb:cc:dd:ee:01', ip: '192.168.0.10', down: null, up: null });   // both empty = remove
+assert.throws(() => N.limitCall('nonsense', '192.168.0.10', '5', ''), /MAC/); assert.throws(() => N.limitCall('aa:bb:cc:dd:ee:01', '192.168.0.1', '500', ''), /192\.168\.0\.2/);
+assert.throws(() => N.limitCall('aa:bb:cc:dd:ee:01', '', '500', ''), /none/); assert.throws(() => N.limitCall('aa:bb:cc:dd:ee:01', '192.168.0.10', '7', ''), /8 to 125000/);
+const limReply = { success: true, lanUp: true, rootBusy: false, note: '', limits: [
+  { mac: 'AA:BB:CC:DD:EE:01', down: 500, up: 250, ip: '192.168.0.10', online: true, active: true },
+  { mac: 'aa:bb:cc:dd:ee:02', down: null, up: 300, ip: null, online: false, active: false },
+  { mac: 'aa:bb:cc:dd:ee:03', down: null, up: null, ip: '192.168.0.3', online: true, active: null },
+  { mac: 'broken', down: 1, up: 1 }, { mac: 'aa:bb:cc:dd:ee:04', down: -5, up: 'x', active: 'yes' }, null, 'junk'] };
+const pl = N.parseLimits(limReply);
+eq(pl.rows.map((r) => r.mac), ['aa:bb:cc:dd:ee:01', 'aa:bb:cc:dd:ee:02', 'aa:bb:cc:dd:ee:03', 'aa:bb:cc:dd:ee:04'], 'bad rows dropped, MACs normalised');
+eq(pl.rows[0], { mac: 'aa:bb:cc:dd:ee:01', down: 500, up: 250, ip: '192.168.0.10', online: true, active: true }); eq(pl.rows[1], { mac: 'aa:bb:cc:dd:ee:02', down: null, up: 300, ip: null, online: false, active: false });
+eq(pl.rows[2].active, null); eq(pl.rows[3], { mac: 'aa:bb:cc:dd:ee:04', down: null, up: null, ip: null, online: false, active: null }, 'odd values are not guessed');
+eq([pl.lanUp, pl.rootBusy, pl.note], [true, false, '']);
+eq(N.parseLimits({ success: true, lanUp: false, rootBusy: true, note: ' br0 busy ', limits: [] }), { rows: [], lanUp: false, rootBusy: true, note: 'br0 busy' });
+for (const bad of [null, undefined, 'x', [], {}, { success: false, error: 'no', limits: [] }, { success: true }, { success: true, limits: 'x' }]) eq(N.parseLimits(bad), null);
+eq(N.limitFor(pl, 'AA:BB:CC:DD:EE:01').down, 500); eq(N.limitFor(pl, 'aa:bb:cc:dd:ee:03'), null, 'a row with both sides Unlimited is no limit'); eq(N.limitFor(pl, 'aa:bb:cc:dd:ee:09'), null); eq(N.limitFor(null, 'aa:bb:cc:dd:ee:01'), null); eq(N.limitFor(pl, 'junk'), null);
+eq(N.limitText(500, null), 'Download 500 KB/s, Upload Unlimited'); eq(N.limitText(null, 250), 'Download Unlimited, Upload 250 KB/s');
+assert(N.limitReached(pl, 'aa:bb:cc:dd:ee:01', 500, 250), 'same values and active'); assert(!N.limitReached(pl, 'aa:bb:cc:dd:ee:01', 500, 300), 'other values'); assert(!N.limitReached(pl, 'aa:bb:cc:dd:ee:02', null, 300), 'saved but not active is not reached');
+assert(N.limitReached(pl, 'aa:bb:cc:dd:ee:03', null, null) && N.limitReached(pl, 'aa:bb:cc:dd:ee:09', null, null) && !N.limitReached(pl, 'aa:bb:cc:dd:ee:01', null, null), 'removal is reached only when the row is gone'); assert(!N.limitReached(null, 'aa:bb:cc:dd:ee:01', 500, 250));
+assert(!N.limitReached({ rows: [{ mac: 'aa:bb:cc:dd:ee:05', down: 9, up: null, ip: null, online: true, active: null }], lanUp: true, rootBusy: false, note: '' }, 'aa:bb:cc:dd:ee:05', 9, null) === false, 'active unknown (null) is accepted: only an explicit false fails');
+// the window sends limits only through the host route, with a body built by net-core.js, and reads them quietly
+assert((ui.match(/api\('\/api\/net\/limit'/g) || []).length === 1 && (ui.match(/api\('\/api\/net\/limits', \{ quiet: true \}\)/g) || []).length === 2, 'one POST /api/net/limit and two quiet reads of /api/net/limits');
+assert(/call = N\.limitCall\(f\.mac, f\.ip, f\.down, f\.up\)/.test(ui) && ui.includes("api('/api/net/limit', { method: 'POST', body: JSON.stringify(call) })"), 'the limit body is built by net-core.js (limitCall)');
+assert(!/\/api\/shell|R\.sh\(.*\btc\b/.test(ui.replace(/R\.sh\(N\.ROOT_READ_SH/g, '')), 'the window never runs tc itself: the host does');
+console.log('net tools ok: parsers for 6 tabs, password never copied, the window writes only mobile data, device rename / block / unblock, the APN calls, the MTU call, the DHCP pool / lease call and the Wi-Fi band and settings calls, the Limit speed checks and reader, all built by net-core.js');

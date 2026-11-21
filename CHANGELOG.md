@@ -1,5 +1,6 @@
 # MatchiTOOL 1.4.5
 
+- Added: Limit speed in Network > Devices: per-device Download and Upload caps in KB/s, set on the phone with root (`tc`), put back after a reboot. IPv4 only; not yet verified on a real F50 (see `docs/LIMIT_SPEED.md`).
 - Added: switch in Network > Wi-Fi (off by default) that turns the hotspot Wi-Fi off while USB tethering works.
 - Added: bundled programs are hash-checked before they run as root. Full diagnose lists each file.
 - Added: `matchi-doctor`, a read-only checker that Full diagnose now runs.

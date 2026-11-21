@@ -133,7 +133,18 @@ const applied = []; let applyFail = null;
 // The host's Wi-Fi-off-while-tethered switch (/api/wifiauto): a GET shows the status line, a POST sets the switch (and may be refused).
 const waHost = { enabled: false, passwordSaved: true, running: false, status: 'Off' }; const waPosts = []; let waGets = 0, waPostFail = null, waGetFail = null;
 const waReply = () => ({ enabled: waHost.enabled, passwordSaved: waHost.passwordSaved, running: waHost.running, status: waHost.enabled ? 'Watching: no USB tethering' : 'Off' });
-const api = async (url, opts) => { if (url === '/api/wifiauto') { if (opts && opts.method === 'POST') { if (waPostFail) throw new Error(waPostFail); const b = JSON.parse(opts.body); waPosts.push(b); waHost.enabled = b.enabled; waHost.running = b.enabled; return waReply(); } waGets++; if (waGetFail) throw new Error(waGetFail); return waReply(); } if (url === '/api/net/lan-applied') { if (applyFail) throw new Error(applyFail); applied.push(Object.assign({ method: opts.method }, JSON.parse(opts.body))); return { ok: true }; } assert.strictEqual(url, '/api/net/whoami'); return { ip: '::ffff:' + me }; };
+// The host's per-device speed limits (/api/net/limits, /api/net/limit): saved rows, what the phone reports (active), and the ways a call can go wrong.
+const lim = { rows: [], note: '', rootBusy: false, getFail: null, postFail: null, refuse: null, ignore: false }; const limPosts = []; let limGets = 0;
+const limReply = () => ({ success: true, lanUp: true, rootBusy: lim.rootBusy, note: lim.note, minKbps: 8, maxKbps: 125000, limits: lim.rows.map((r) => Object.assign({}, r)) });
+const limApi = (url, opts) => {
+  if (url === '/api/net/limits') { limGets++; if (lim.getFail) throw new Error(lim.getFail); return limReply(); }
+  const b = JSON.parse(opts.body); assert.strictEqual(opts.method, 'POST'); limPosts.push(b);
+  if (lim.postFail) throw new Error(lim.postFail);
+  if (lim.refuse) return { success: false, error: lim.refuse };
+  if (!lim.ignore) { lim.rows = lim.rows.filter((r) => r.mac !== b.mac); if (b.down !== null || b.up !== null) lim.rows.push({ mac: b.mac, down: b.down, up: b.up, ip: b.ip, online: true, active: true }); }
+  return limReply();
+};
+const api = async (url, opts) => { if (url === '/api/net/limits' || url === '/api/net/limit') return limApi(url, opts); if (url === '/api/wifiauto') { if (opts && opts.method === 'POST') { if (waPostFail) throw new Error(waPostFail); const b = JSON.parse(opts.body); waPosts.push(b); waHost.enabled = b.enabled; waHost.running = b.enabled; return waReply(); } waGets++; if (waGetFail) throw new Error(waGetFail); return waReply(); } if (url === '/api/net/lan-applied') { if (applyFail) throw new Error(applyFail); applied.push(Object.assign({ method: opts.method }, JSON.parse(opts.body))); return { ok: true }; } assert.strictEqual(url, '/api/net/whoami'); return { ip: '::ffff:' + me }; };
 const mount = new Function('window', 'document', 'createModal', 'showModal', 'askConfirm', 'askText', 'api', src + '\nreturn mountNetTools;')(win, doc, createModal, showModal, askConfirm, askText, api);
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
 const bodyText = () => doc.getElementById('matchi_net_body').textContent;
@@ -272,6 +283,67 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   sets.length = 0; await click(btns('Unblock')[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'setDeviceAccessControlList', AclMode: '2', WhiteMacList: '', BlackMacList: '', WhiteNameList: '', BlackNameList: '' });
   assert(/Unblocked aa:bb:cc:dd:ee:02/.test(bodyText()) && !/Blocked devices/.test(bodyText()) && btns('Unblock').length === 0, 'after unblock: ' + bodyText());
+  // ---- Devices: Limit speed ----
+  {
+    const GL = 'aa:bb:cc:dd:ee:02', ME = 'aa:bb:cc:dd:ee:01';
+    const lbtn = (id) => doc.getElementById(id);
+    const rowBtn = (name) => rowOf(name).findAll((n) => n.tag === 'button' && n.textContent === 'Limit speed')[0];
+    const typeIn = (down, up) => { lbtn('matchi_lim_down').value = down; lbtn('matchi_lim_up').value = up; };
+    limPosts.length = 0; confirms.length = 0; limGets = 0; lim.rows = []; lim.getFail = null; lim.postFail = null; lim.refuse = null; lim.ignore = false; lim.note = '';
+    await click(doc.getElementById('matchi_net_refresh'));
+    assert.strictEqual(limGets, 1, 'one limits read per Devices read'); assert.strictEqual(btns('Limit speed').length, 2, 'Limit speed on both rows (both addresses are in 192.168.0.2 to 254)');
+    assert(/Limit/.test(doc.getElementById('matchi_net_body').findAll((n) => n.tag === 'th').map((n) => n.textContent).join(' ')), 'a Limit column');
+    // cancel and bad input send nothing
+    await click(rowBtn('GL Router')); assert(/Limit Speed Settings/.test(bodyText()) && /GL Router · 192\.168\.0\.2 · aa:bb:cc:dd:ee:02/.test(bodyText()), 'form names the device: ' + bodyText());
+    assert.strictEqual(lbtn('matchi_lim_down').getAttribute('placeholder'), 'Unlimited');
+    await click(lbtn('matchi_lim_cancel')); assert(!/Limit Speed Settings/.test(bodyText()) && limPosts.length === 0, 'cancel closes the form, sends nothing');
+    await click(rowBtn('GL Router')); typeIn('5', ''); await click(lbtn('matchi_lim_apply'));
+    assert(/Download must be 8 to 125000 KB\/s/.test(lbtn('matchi_lim_err').textContent) && limPosts.length === 0 && confirms.length === 0, 'too small: refused before any confirm');
+    typeIn('12.5', ''); await click(lbtn('matchi_lim_apply')); assert(/whole number/.test(lbtn('matchi_lim_err').textContent) && limPosts.length === 0);
+    typeIn('', '200000'); await click(lbtn('matchi_lim_apply')); assert(/Upload must be 8 to 125000/.test(lbtn('matchi_lim_err').textContent) && limPosts.length === 0);
+    // declined confirm sends nothing and keeps the form
+    typeIn('500', '250'); confirmAnswer = false; await click(lbtn('matchi_lim_apply'));
+    assert.strictEqual(limPosts.length, 0, 'declined: nothing sent'); assert(/Download 500 KB\/s, Upload 250 KB\/s/.test(confirms[0].msg) && /aa:bb:cc:dd:ee:02/.test(confirms[0].msg) && /IPv4/.test(confirms[0].msg) && !/slows this console/.test(confirms[0].msg), 'confirm names device and limits: ' + confirms[0].msg);
+    assert(lbtn('matchi_lim_form'), 'form stays after a decline');
+    // apply: the body, the re-read, the column
+    confirmAnswer = true; await click(lbtn('matchi_lim_apply'));
+    assert.deepStrictEqual(limPosts, [{ mac: GL, ip: '192.168.0.2', down: 500, up: 250 }]);
+    assert(/Limit set for aa:bb:cc:dd:ee:02: Download 500 KB\/s, Upload 250 KB\/s\. The phone reports it as active\./.test(bodyText()) && !lbtn('matchi_lim_form'), 'after apply: ' + bodyText());
+    assert(/Down 500 KB\/s, Up 250 KB\/s/.test(rowOf('GL Router').textContent) && /Limit speed/.test(rowOf('GL Router').textContent) && !/Down/.test(rowOf('My-Phone').textContent), 'row shows the limit the phone reports');
+    // the form starts from the saved values; one side only (empty = Unlimited)
+    await click(rowBtn('GL Router')); assert.strictEqual(lbtn('matchi_lim_down').value, '500'); assert.strictEqual(lbtn('matchi_lim_up').value, '250');
+    limPosts.length = 0; typeIn('300', ''); await click(lbtn('matchi_lim_apply')); assert.deepStrictEqual(limPosts, [{ mac: GL, ip: '192.168.0.2', down: 300, up: null }]);
+    assert(/Down 300 KB\/s, Up Unlimited/.test(rowOf('GL Router').textContent), 'one side: ' + rowOf('GL Router').textContent);
+    // remove: both empty
+    limPosts.length = 0; confirms.length = 0; await click(rowBtn('GL Router')); typeIn('', ''); await click(lbtn('matchi_lim_apply'));
+    assert.deepStrictEqual(limPosts, [{ mac: GL, ip: '192.168.0.2', down: null, up: null }]); assert(/Remove the speed limit/.test(confirms[0].msg) && confirms[0].ok === 'Remove limit');
+    assert(/Limit removed from aa:bb:cc:dd:ee:02/.test(bodyText()) && !/Down/.test(rowOf('GL Router').textContent), 'after remove: ' + bodyText());
+    // removing a limit that does not exist sends nothing
+    limPosts.length = 0; confirms.length = 0; await click(rowBtn('GL Router')); typeIn('', ''); await click(lbtn('matchi_lim_apply'));
+    assert.strictEqual(limPosts.length, 0); assert.strictEqual(confirms.length, 0); assert(/No limit is set/.test(bodyText()));
+    // the device in use: warned twice (form + confirm), and the confirm is a danger one
+    confirms.length = 0; await click(rowBtn('My-Phone')); assert(/limiting it slows this console down too/.test(bodyText()), 'form warns: ' + bodyText());
+    typeIn('1000', '1000'); await click(lbtn('matchi_lim_apply')); assert(/this console slows down too/.test(confirms[0].msg) && confirms[0].danger === true);
+    assert.strictEqual(limPosts[limPosts.length - 1].mac, ME);
+    limPosts.length = 0; await click(rowBtn('My-Phone')); typeIn('', ''); await click(lbtn('matchi_lim_apply')); assert.strictEqual(limPosts.length, 1, 'own limit removed again');
+    // host refuses / call fails / old sign-in: shown, nothing claimed, the column unchanged
+    limPosts.length = 0; lim.refuse = 'br0 already has another traffic setup'; await click(rowBtn('GL Router')); typeIn('400', ''); await click(lbtn('matchi_lim_apply'));
+    assert(/Not applied: br0 already has another traffic setup/.test(bodyText()) && !/Limit set for/.test(bodyText()) && !/Down 400/.test(bodyText()), 'refused: ' + bodyText()); assert(lbtn('matchi_lim_form'), 'the form stays open after a failure');
+    lim.refuse = null; lim.postFail = 'Session too old for root commands - sign in again'; await click(lbtn('matchi_lim_apply')); assert(/Not applied: Session too old for root commands/.test(bodyText()) && /Refresh/.test(bodyText()));
+    lim.postFail = null;
+    // the phone says OK but does not hold the limit: not claimed
+    lim.ignore = true; await click(lbtn('matchi_lim_apply')); assert(/does not report this limit as active/.test(bodyText()) && !/Limit set for/.test(bodyText()), 'ignored: ' + bodyText());
+    lim.ignore = false; await click(lbtn('matchi_lim_cancel'));
+    // saved but not on the phone now / host note
+    lim.rows = [{ mac: GL, down: 100, up: null, ip: '192.168.0.2', online: true, active: false }]; lim.note = 'br0 already has another traffic setup; limits are not applied'; lim.rootBusy = true;
+    await click(doc.getElementById('matchi_net_refresh')); assert(/Down 100 KB\/s, Up Unlimited \(saved, not on the phone now\)/.test(rowOf('GL Router').textContent) && /limits are not applied/.test(bodyText()), 'inactive: ' + bodyText());
+    lim.rows = []; lim.note = ''; lim.rootBusy = false;
+    // the limits read fails (old sign-in): the list still shows, the reason is shown, Limit speed is still there
+    lim.getFail = 'Session too old for root commands - sign in again'; await click(doc.getElementById('matchi_net_refresh'));
+    assert(/Speed limits not read: Session too old/.test(bodyText()) && /My-Phone/.test(bodyText()) && btns('Limit speed').length === 2, 'limits read failed: ' + bodyText()); lim.getFail = null;
+    // a device without a usable address has no button
+    await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(btns('Limit speed').length, 2);
+  }
   // refused write (old sign-in): shown, nothing claimed, lists unchanged
   setFail = new Error('Session too old for root commands'); await click(btns('Block')[0]);
   assert(/Not sent: Session too old/.test(bodyText()) && !/Blocked aa/.test(bodyText()) && btns('Unblock').length === 0, 'refused: ' + bodyText());

@@ -2,7 +2,8 @@
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
  * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
  *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
- *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports).
+ *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports). Limit speed (docs/LIMIT_SPEED.md): per-device Download / Upload
+ *    caps in KB/s, set by the phone with root (POST /api/net/limit, read with GET /api/net/limits); the row shows what the phone reports, not what was asked.
  *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
  *    writes only in Manual mode, plus one guarded way in from Auto).
  *  - MTU / MSS: changes both values with the router's own call (backup copy by root, send, wait for the restart, re-read, root checks).
@@ -25,10 +26,10 @@ function mountNetTools() {
   const R = window.MatchiRadio, N = window.MatchiNetCore, host = document.querySelector('.actions-buttons');
   if (!R || !N || !host || document.getElementById('matchi_net_btn')) return;
   const MODAL = 'matchi_net_modal', NOT = 'Not reported by this router';
-  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, wa: null, waBusy: false, prog: '' };
-  let epoch = 0, actId = 0;
+  const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, wa: null, waBusy: false, prog: '', lim: null, limErr: '', limForm: null, limAct: false, limMsg: null };
+  let epoch = 0, actId = 0, limSeq = 0;
   // Any write or wait in progress (one change at a time, whichever tab it started on).
-  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct);
+  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct || st.limAct);
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
   const h = (tag, attrs, ...kids) => {
@@ -161,18 +162,23 @@ function mountNetTools() {
     const msg = st.devMsg ? note(st.devMsg.text, st.devMsg.bad ? 'net-warn' : '') : null;
     const refusal = N.aclRefusal(acl);
     const blockedMacs = new Set(acl ? acl.black.map((b) => b.mac) : []);
-    const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (st.devAct) b.disabled = true; b.onclick = fn; return b; };
+    const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (st.devAct || st.limAct) b.disabled = true; b.onclick = fn; return b; };
+    const limMsg = st.limMsg ? note(st.limMsg.text, st.limMsg.bad ? 'net-warn' : '') : null;
+    let noLimit = 0;
     let table = null;
     if (p.rows.length) {
       table = h('div', { class: 'net-scroll' }, h('table', { class: 'net-tbl' },
-        h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type', ''].map((t) => h('th', { scope: 'col' }, t)))),
+        h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type', 'Limit', ''].map((t) => h('th', { scope: 'col' }, t)))),
         h('tbody', {}, p.rows.map((r) => {
           const self = N.isSelf(r.ip, st.me), canAct = N.isMac(r.mac);
           const cell = h('td', { class: 'net-rowact' });
           if (canAct) cell.append(act('Rename', () => devRename(r)));
+          const limitable = canAct && !!N.limitMac(r.mac) && !!N.limitIp(r.ip);
+          if (limitable) cell.append(act('Limit speed', () => limOpen(r)));
+          else if (canAct) noLimit++;
           if (self) cell.append(h('span', { class: 'net-mut' }, ' this device'));
           else if (canAct && !refusal && !blockedMacs.has(r.mac)) cell.append(act('Block', () => devBlock(r, acl), true));
-          return h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type), cell);
+          return h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type), h('td', { class: 'net-lim' }, limCell(r.mac)), cell);
         }))));
     }
     const blocked = [];
@@ -183,7 +189,10 @@ function mountNetTools() {
     }
     if (refusal) extra.push(note(refusal, 'net-mut'));
     if (!st.me) extra.push(note('The address of the device you are using was not found, so Block does not know which row is yours. Do not block your own device.', 'net-mut'));
-    return h('div', {}, head, msg, table, blocked, extra);
+    if (noLimit) extra.push(note('Limit speed needs a device address 192.168.0.2 to 192.168.0.254 and a normal MAC address. ' + noLimit + (noLimit === 1 ? ' device has' : ' devices have') + ' none, so it has no Limit speed button.', 'net-mut'));
+    if (st.limErr) extra.push(note('Speed limits not read: ' + N.maskSecrets(st.limErr) + '. Press Refresh to try again.', 'net-mut'));
+    else if (st.lim && st.lim.note) extra.push(note('Speed limits: ' + st.lim.note + '.', st.lim.rootBusy ? 'net-warn' : 'net-mut'));
+    return h('div', {}, head, msg, limMsg, table, st.limForm ? limitFormView(st.limForm) : null, blocked, extra);
   }
   function viewApn(d) {
     const a = N.parseApn(d);
@@ -369,6 +378,7 @@ function mountNetTools() {
       if (my !== epoch) return;
       st.cache[tab] = { d, at: Date.now() };
       paint(tab); setStatus('Updated ' + new Date().toLocaleTimeString());
+      if (tab === 'devices') limRead();   // best effort, never blocks the list: the Limit column fills in when the phone answers
     } catch (e) {
       if (my !== epoch) return;
       delete st.cache[tab];
@@ -478,6 +488,84 @@ function mountNetTools() {
     let call; try { call = N.unblockCall(acl, b.mac); } catch (e) { st.devMsg = { bad: true, text: e.message }; paint('devices'); return; }
     await devApply(call, (d) => { const a = N.parseAcl(d); return !!a && !a.black.some((x) => x.mac === b.mac); },
       'Unblocked ' + b.mac + '.', 'The router still lists this device as blocked.');
+  }
+  // ---- devices: Limit speed ----------------------------------------------------------------------------------------
+  // The Limit column shows what the PHONE reports (GET /api/net/limits reads the live tc state as root); a limit that is saved but not on the phone says so.
+  // Reading needs the fresh root sign-in: when it fails the column stays "-" and the reason is shown under the table. Nothing is claimed without the re-read.
+  function limCell(mac) {
+    const r = N.limitFor(st.lim, mac);
+    if (!r) return '-';
+    return N.limitText(r.down, r.up).replace('Download ', 'Down ').replace('Upload ', 'Up ') + (r.active === false ? ' (saved, not on the phone now)' : '');
+  }
+  async function limRead() {
+    const my = ++limSeq;
+    let p = null, err = '';
+    try { p = N.parseLimits(await api('/api/net/limits', { quiet: true })); if (!p) err = 'the phone gave no usable answer'; }
+    catch (e) { err = e.message || 'failed'; }
+    if (my !== limSeq) return;
+    st.lim = p; st.limErr = err;
+    if (st.tab === 'devices' && st.cache.devices && !st.limForm) paint('devices');
+  }
+  function limOpen(r) {
+    if (anyAct()) return;
+    const cur = N.limitFor(st.lim, r.mac);
+    st.limForm = { mac: N.limitMac(r.mac), ip: N.limitIp(r.ip), name: r.name || '', down: cur && cur.down !== null ? String(cur.down) : '', up: cur && cur.up !== null ? String(cur.up) : '' };
+    st.limMsg = null; paint('devices');
+    const e = $('matchi_lim_down'); if (e) e.focus();
+  }
+  function limClose() { st.limForm = null; paint('devices'); }
+  function limitFormView(f) {
+    const busy = st.limAct, self = N.isSelf(f.ip, st.me);
+    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
+    const mkIn = (id, key, label) => { const e = h('input', { type: 'text', id, inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false', placeholder: 'Unlimited', 'aria-label': label }); e.value = f[key]; e.oninput = () => { f[key] = e.value; }; if (busy) e.disabled = true; return e; };
+    const down = mkIn('matchi_lim_down', 'down', 'Download limit in KB/s'), up = mkIn('matchi_lim_up', 'up', 'Upload limit in KB/s');
+    const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    return h('section', { class: 'net-sec net-form', id: 'matchi_lim_form' }, h('h4', {}, 'Limit Speed Settings'),
+      h('p', { class: 'net-p' }, (f.name || '(no name)') + ' · ' + f.ip + ' · ' + f.mac),
+      row('Download (KB/s)', down), row('Upload (KB/s)', up), err,
+      self ? note('This is the device you are using: limiting it slows this console down too.', 'net-warn') : (!st.me ? note('This page could not tell which device you are using. If this is it, the limit slows this console down too.', 'net-mut') : null),
+      note('Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). Only IPv4 traffic is limited: a device that also uses IPv6 can go around it. The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.', 'net-mut'),
+      h('div', { class: 'net-actions' }, mk('Cancel', 'matchi_lim_cancel', limClose, false), mk('Apply', 'matchi_lim_apply', () => { f.down = down.value; f.up = up.value; limSubmit(f, err); }, true)));
+  }
+  function limSubmit(f, errEl) {
+    if (anyAct()) return;
+    let call; try { call = N.limitCall(f.mac, f.ip, f.down, f.up); } catch (e) { errEl.textContent = e.message; return; }
+    errEl.textContent = '';
+    return limApply(f, call);
+  }
+  async function limApply(f, call) {
+    const none = call.down === null && call.up === null, cur = N.limitFor(st.lim, call.mac);
+    if (none && !cur && st.lim) { st.limForm = null; st.limMsg = { bad: false, text: 'No limit is set for ' + call.mac + '.' }; paint('devices'); return; }
+    const self = N.isSelf(call.ip, st.me);
+    const warn = self ? '\n\nThis is the device you are using: this console slows down too.' : !st.me ? '\n\nThis page could not tell which device you are using. If this is it, this console slows down too.' : '';
+    const ok = await askConfirm((none ? 'Remove the speed limit?' : 'Limit the speed of this device?') + '\n\n' + (f.name || '(no name)') + '\n' + call.mac + '\n' + call.ip + '\n\n'
+      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc). Needs a fresh sign-in.', none ? 'Remove limit' : 'Apply', !none && self);
+    if (!ok) return;
+    st.limAct = true; st.limMsg = null; syncButtons(); paint('devices'); setStatus('Applying…');
+    const my = ++actId;
+    try {
+      let p = null, bad = null;
+      try {
+        const r = await api('/api/net/limit', { method: 'POST', body: JSON.stringify(call) });
+        if (r && r.success === false) bad = String(r.error || 'the phone refused the change');
+        else { p = N.parseLimits(r); if (!p) bad = 'the phone gave no usable answer'; }
+      } catch (e) { bad = e.message || 'failed'; }
+      if (my !== actId) return;
+      if (bad) { st.limMsg = { bad: true, text: 'Not applied: ' + N.maskSecrets(bad) + '. Press Refresh to read what the phone has now.' }; return; }
+      let good = N.limitReached(p, call.mac, call.down, call.up);
+      for (let i = 0; i < 2 && !good; i++) {
+        await R.sleep(1000);
+        if (my !== actId) return;
+        try { const q = N.parseLimits(await api('/api/net/limits', { quiet: true })); if (q) { p = q; good = N.limitReached(q, call.mac, call.down, call.up); } } catch (_) { /* read again */ }
+      }
+      if (my !== actId) return;
+      limSeq++; st.lim = p; st.limErr = ''; if (good) st.limForm = null;
+      st.limMsg = good ? { bad: false, text: none ? 'Limit removed from ' + call.mac + '.' : 'Limit set for ' + call.mac + ': ' + N.limitText(call.down, call.up) + '. The phone reports it as active.' }
+        : { bad: true, text: 'The phone does not report this limit as active' + (p && p.note ? ' (' + p.note + ')' : '') + '. Press Refresh to read it again.' };
+    } finally {
+      if (my === actId) { st.limAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.limMsg && st.limMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+    }
   }
   // ---- APN ---------------------------------------------------------------------------------------------------------
   // Every APN change: send the step(s), re-read the profile list (up to 5 reads, 2 s apart) until `check(parsed)` holds, and for changes that move
@@ -1024,6 +1112,7 @@ function mountNetTools() {
 #matchi_net_modal .net-rowact{white-space:nowrap}#matchi_net_modal .net-act{margin-right:4px;min-height:26px;padding:2px 8px}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(110px,32%) 1fr;gap:8px;align-items:center;margin:5px 0}#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:30px;padding:3px 8px}
 #matchi_net_modal .net-prog{padding:8px 10px;border-radius:8px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
+#matchi_net_modal .net-lim{font-size:12px}
 #matchi_net_modal .net-danger{border-color:rgba(255,100,124,.5)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
@@ -1033,9 +1122,9 @@ function mountNetTools() {
     const first = typeof startTab === 'string' && VIEWS[startTab] ? startTab : 'data';   // the click on the Network button passes an event, not a tab
     netStyle();
     release(); st.release = R.beginBusy('Network window open');
-    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false;
+    st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false; st.lim = null; st.limErr = ''; st.limForm = null; st.limAct = false; st.limMsg = null; limSeq++;
     createModal({
-      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.prog = ''; release(); return true; },
+      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
       content: '<div class="net-top">' + (st.only ? '<span></span>' : '<div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button></div>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

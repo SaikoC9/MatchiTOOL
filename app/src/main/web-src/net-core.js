@@ -817,6 +817,62 @@
   // While the router restarts the console may ask for a new sign-in: that is not "still down", so the wait stops and says so.
   const isAuthError = (msg) => /\b(401|403)\b|unauthori[sz]ed|sign[- ]?in|log[- ]?in|session/i.test(String(msg == null ? '' : msg));
 
+  // ---- Limit speed (Devices tab; the phone does the work with root and tc, docs/LIMIT_SPEED.md) -----------------------------------
+  // The host (SpeedLimit.kt) checks everything again: these checks only keep an obvious mistake from being sent. KB/s bounds = SpeedLimit.MIN_KBPS / MAX_KBPS.
+  const LIMIT_MIN = 8, LIMIT_MAX = 125000;
+  const LIMIT_IP = /^192\.168\.0\.(?:[2-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-4])$/;
+  // A LAN address the limit can use (192.168.0.2 to 254; the router .1, .0 and .255 are refused), or null.
+  const limitIp = (ip) => { const t = plainIp(ip); return LIMIT_IP.test(t) ? t : null; };
+  // A MAC the limit can use: group (multicast / broadcast) and all-zero addresses are refused, like the host does.
+  const limitMac = (m) => { if (!isMac(m)) return null; const n = normMac(m); return (parseInt(n.slice(0, 2), 16) & 1) === 0 && n !== '00:00:00:00:00:00' ? n : null; };
+  // One field: '' = Unlimited (null). Anything else must be a whole number of KB/s inside the bounds. Returns { value, error }.
+  function limitField(text, name) {
+    const t = String(text == null ? '' : text).trim();
+    if (t === '') return { value: null, error: null };
+    if (!/^\d{1,9}$/.test(t)) return { value: null, error: name + ' must be a whole number of KB/s, or empty for Unlimited.' };
+    const v = Number(t);
+    if (v < LIMIT_MIN || v > LIMIT_MAX) return { value: null, error: name + ' must be ' + LIMIT_MIN + ' to ' + LIMIT_MAX + ' KB/s, or empty for Unlimited.' };
+    return { value: v, error: null };
+  }
+  // Both fields -> { down, up, error }. Both empty is allowed: it removes the limit.
+  function limitCheck(downText, upText) {
+    const d = limitField(downText, 'Download'), u = limitField(upText, 'Upload');
+    return { down: d.value, up: u.value, error: d.error || u.error };
+  }
+  // The body of POST /api/net/limit. Throws a plain message when the device or a value is not usable.
+  function limitCall(mac, ip, downText, upText) {
+    const m = limitMac(mac); if (!m) throw new Error('This device has no usable MAC address: ' + mac);
+    const a = limitIp(ip); if (!a) throw new Error('A limit needs a device address 192.168.0.2 to 192.168.0.254 (this device: ' + (plainIp(ip) || 'none') + ').');
+    const c = limitCheck(downText, upText); if (c.error) throw new Error(c.error);
+    return { mac: m, ip: a, down: c.down, up: c.up };
+  }
+  const limitKb = (v) => (Number.isInteger(v) && v > 0 ? v : null);
+  // GET /api/net/limits (and the reply of POST /api/net/limit) -> { rows, lanUp, rootBusy, note }, or null when it is not that shape. Nothing is guessed.
+  function parseLimits(d) {
+    if (!isObj(d) || d.success !== true || !Array.isArray(d.limits)) return null;
+    const rows = [];
+    for (const r of d.limits) {
+      const mac = isObj(r) ? limitMac(r.mac) : null; if (!mac) continue;
+      rows.push({ mac, down: limitKb(r.down), up: limitKb(r.up), ip: typeof r.ip === 'string' && r.ip ? plainIp(r.ip) : null, online: r.online === true, active: r.active === true ? true : r.active === false ? false : null });
+    }
+    return { rows, lanUp: d.lanUp === true, rootBusy: d.rootBusy === true, note: typeof d.note === 'string' ? d.note.trim() : '' };
+  }
+  // The saved limit of one device, or null (no row, or a row with both sides Unlimited).
+  function limitFor(parsed, mac) {
+    const m = limitMac(mac); if (!parsed || !m) return null;
+    const r = parsed.rows.find((x) => x.mac === m);
+    return r && (r.down !== null || r.up !== null) ? r : null;
+  }
+  const limitSide = (v) => (v === null ? 'Unlimited' : v + ' KB/s');
+  const limitText = (down, up) => 'Download ' + limitSide(down) + ', Upload ' + limitSide(up);
+  // After a change: does the phone report exactly the wanted limit, and (when there is one) is it on the phone now? Not active = not reached.
+  function limitReached(parsed, mac, down, up) {
+    if (!parsed) return false;
+    const r = limitFor(parsed, mac);
+    if (down === null && up === null) return !r;
+    return !!r && r.down === down && r.up === up && r.active !== false;
+  }
+
   return {
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
@@ -832,5 +888,6 @@
     parseMtu, sections, parseRootNet,
     MTU_MIN, MTU_MAX, MSS_MIN, mtuDefaultMss, mtuCheck, mtuCall, MTU_BACKUP_PATH, mtuBackupWriteSh, MTU_BACKUP_READ_SH, MTU_BACKUP_DELETE_SH, parseMtuBackup,
     wanFollowed, PING_SH, parsePing, isAuthError,
+    LIMIT_MIN, LIMIT_MAX, limitIp, limitMac, limitField, limitCheck, limitCall, parseLimits, limitFor, limitText, limitReached,
   };
 });

@@ -74,6 +74,9 @@ object Prefs {
     /** "Turn Wi-Fi off while USB tethering is on" (Network window, Wi-Fi tab). Off by default; read at every host start. */
     fun wifiAutoTether(c: Context): Boolean = sp(c).getBoolean("wifi_auto_tether", false)
     fun setWifiAutoTether(c: Context, v: Boolean) { sp(c).edit().putBoolean("wifi_auto_tether", v).apply() }
+    /** Per-device speed limits, one string in the form SpeedLimit.encode writes ("mac=down|up|ip,..."). */
+    fun speedLimits(c: Context): String? = sp(c).getString("speed_limits", null)
+    @Synchronized fun setSpeedLimits(c: Context, v: String) { sp(c).edit().putString("speed_limits", v).apply() }
 
     fun liveBinary(c: Context): Boolean = sp(c).getBoolean("live_binary", false)
     fun setLiveBinary(c: Context, v: Boolean) { sp(c).edit().putBoolean("live_binary", v).apply() }
