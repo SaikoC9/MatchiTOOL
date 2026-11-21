@@ -62,7 +62,7 @@ jobs:
 
       # ---------- jq (static) ----------
       - name: Get jq source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: jqlang/jq
           ref: ${{ inputs.jq_tag }}
@@ -81,7 +81,7 @@ jobs:
 
       # ---------- OpenSSL (static, only used to link curl) ----------
       - name: Get OpenSSL source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: openssl/openssl
           ref: ${{ inputs.openssl_tag }}
@@ -105,7 +105,7 @@ jobs:
 
       # ---------- curl ----------
       - name: Get curl source
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: curl/curl
           ref: ${{ inputs.curl_tag }}
