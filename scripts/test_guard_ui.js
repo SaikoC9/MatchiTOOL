@@ -20,6 +20,14 @@ t('status line: every state in plain words', () => {
   assert.strictEqual(ui.statusLine(ui.norm(ans({ running: false }))), 'Not running: report is outdated');
   assert.strictEqual(ui.statusLine(ui.norm(ans({}))), 'Running: 471 processes, sweep 14 ms, every 30 s');
 });
+t('status parts: word, tone and pills for every state', () => {
+  const sp = (x) => ui.statusParts(ui.norm(x));
+  assert.deepStrictEqual(sp(ans({ available: false, on: false })), { word: 'Unavailable', tone: 'bad', note: 'Program missing or refused', pills: [] });
+  assert.deepStrictEqual(sp(ans({ on: false })), { word: 'Off', tone: 'off', note: '', pills: [] });
+  assert.deepStrictEqual(sp(ans({ report: null, running: false })), { word: 'Starting', tone: 'wait', note: 'No report yet', pills: [] });
+  assert.deepStrictEqual(sp(ans({ running: false })), { word: 'Not running', tone: 'bad', note: 'Report is outdated', pills: [] });
+  assert.deepStrictEqual(sp(ans({})), { word: 'Running', tone: 'ok', note: '', pills: ['471 processes', '14 ms', 'every 30 s'] });
+});
 t('rows: sorted by CPU, unknown state becomes OK, capped, bad entries and plugins with no process dropped', () => {
   const plugins = [{ name: 'gone', cpu_pct: 0, procs: 0, state: 'throttled' }, { name: 'b', cpu_pct: 5, procs: 1 }, { name: 'a', cpu_pct: 90.4, budget_pct: 80, rss_kb: 2048, procs: 3, state: 'throttled', strikes: 2 }, null, { cpu_pct: 1 }, { name: 'c', cpu_pct: 5, state: 'weird', procs: 2 }];
   const r = ui.plugRows(rep({ plugins }));

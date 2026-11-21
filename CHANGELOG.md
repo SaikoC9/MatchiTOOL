@@ -4,6 +4,7 @@
 - Added: bundled programs are hash-checked before they run as root. Full diagnose lists each file.
 - Added: `matchi-doctor`, a read-only checker that Full diagnose now runs.
 - Added: `matchi-guard` and a Plugin guard card on the home page (off by default): per-plugin CPU and memory, throttling of plugins over budget, and ending of stuck helpers (`tr`, `du`, `grep`).
+- Changed: the Plugin guard card has a new look: bordered box, status dot, small info pills, round buttons and a roomier table that keeps numbers on one line on narrow screens.
 - Added: resource-rule lint in CI (`du`/`find` without `-x`, `/proc/PID/cmdline` reads, busy loops, timers on expensive routes) and `docs/PLUGIN_RULES.md`. The Delete dialog size probe moved to `PluginProbe.kt` with tests.
 - Fixed: the plugin process scan no longer reads `/proc/PID/cmdline` through `grep` and `tr`; it uses `ps`.
 - Added: optional "Fast sampler" for the Live panel (off by default). The shell loop stays as the fallback.
