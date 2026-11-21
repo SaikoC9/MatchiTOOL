@@ -13,7 +13,8 @@ func defaultCg() cgHost { return cgHost{"/dev/cpuctl", "/dev/memcg", "/dev/cpufr
 
 func (h cgHost) dir(root, name string) string { return root + "/matchi-" + name }
 
-func writeFile(path, val string) error { return os.WriteFile(path, []byte(val), 0) }
+// The mode only matters for a plain file (tests); real cgroup files already exist.
+func writeFile(path, val string) error { return os.WriteFile(path, []byte(val), 0o644) }
 
 // join puts pid in the group (created on demand). Errors are returned, never fatal: a missing cgroup only means less protection.
 func (h cgHost) join(root, name string, pid int) error {
