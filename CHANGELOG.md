@@ -9,7 +9,7 @@
 - Added: optional "Fast sampler" for the Live panel (off by default). The shell loop stays as the fallback.
 - Changed: rebuilt `curl` 8.23.0, OpenSSL 3.5.9, `jq` 1.8.2 and `sendat` / `zreq` on Go 1.26.10, with one release pipeline (`release-tools.yml`).
 - Fixed: a false "folder can be written by other users" warning at every start.
-- Tested on the F50 (MU300, root, 19-20 Nov 2026) except a tether of 30 minutes or more (T11 in `docs/TESTING.md`). Still to do: run `scripts/pin-actions.sh`.
+-Tested on the F50 (MU300, root, 19-20 Nov 2026) except a tether of 30 minutes or more (T11 in `docs/TESTING.md`). Still to do: run `scripts/pin-actions.sh` Fixed .
 
 # MatchiTOOL 1.4.4
 
