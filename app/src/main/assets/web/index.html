@@ -7828,7 +7828,7 @@ function matchiRunState(info){
 }
 /* The "Plugin actions" box on the home page: the button shows only once a plugin has put something in the box.
    Every button a plugin adds is tagged with that plugin's file name (from the script's stack frame, or data-sbx for a sandboxed one). While the box is open the page asks the host
-   every 30 s whether that plugin has a running process (the same scan as the Delete dialog) and lights the button: green = running, red = nothing running.
+   every 2 min whether that plugin has a running process (the same scan as the Delete dialog) and lights the button: green = running, red = nothing running.
    A plugin that calls matchi.status() itself wins over this. No root or an incomplete scan = no light. */
 (()=>{
   const btn=document.getElementById('matchi_menu_btn'),wrap=btn&&btn.nextElementSibling,box=wrap&&wrap.querySelector('.matchi-menu-box');
@@ -7848,7 +7848,7 @@ function matchiRunState(info){
       const by=new Map();
       for(const b of box.children){const n=b.dataset&&(b.dataset.plugin||b.dataset.sbx);if(!n)continue;if(!by.has(n))by.set(n,[]);by.get(n).push(b)}
       for(const [n,list] of by){
-        let st=null;try{st=matchiRunState(await api('/api/plugins/data',{method:'POST',body:JSON.stringify({name:n})}))}catch(_){}
+        let st=null;try{st=matchiRunState(await api('/api/plugins/state',{method:'POST',body:JSON.stringify({name:n})}))}catch(_){}
         for(const b of list)paint(b,st);
       }
     }catch(_){}finally{busy=false}
@@ -7857,7 +7857,7 @@ function matchiRunState(info){
   const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}else if(!wrap.hidden)setTimeout(autoRefresh,300)};
   btn.onclick=()=>open(wrap.hidden);
   new MutationObserver(sync).observe(box,{childList:true});sync();
-  setInterval(autoRefresh,30000);
+  setInterval(autoRefresh,120000);
 })();
 /* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM
    (ENABLE_PIN: a wrong PIN counts as an attempt) asks once per page load. The host decides which writes also need the fresh sign-in. */
