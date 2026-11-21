@@ -6,11 +6,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 L="${1:-$(dirname "$(dirname "$(readlink -f "$(command -v gradle)")")")/lib}"
-J() { ls "$L"/$1 | head -1; }
+J() { find "$L" -maxdepth 2 -name "$1" 2>/dev/null | sort | head -1; }   # lib/ and lib/plugins/; the jar names and folders differ a little between Gradle versions
 KC="$(J 'kotlin-compiler-embeddable-*.jar')"; STD="$(J 'kotlin-stdlib-[0-9]*.jar')"; JU="$(J 'junit-4*.jar')"; HC="$(J 'hamcrest-core-*.jar')"
-CP="$KC:$STD:$(J 'kotlin-script-runtime-*.jar'):$(J 'kotlin-reflect-*.jar'):$(J 'trove4j-*.jar'):$(J 'kotlinx-coroutines-core-jvm-*.jar'):$(J 'annotations-*.jar'):$(J 'kotlin-daemon-embeddable-*.jar')"
+CP="$KC:$STD:$(J 'kotlin-script-runtime-*.jar'):$(J 'kotlin-reflect-*.jar'):$(J 'trove4j-*.jar'):$(J 'kotlinx-coroutines-core*.jar'):$(J 'annotations-*.jar'):$(J 'kotlin-daemon-embeddable-*.jar')"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-K() { java -cp "$CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect "$@" 2>&1 | grep -v '^Picked up' || true; }
+# Only compiler ERRORS count. Warnings (an unused parameter, ...) differ between Kotlin versions and must not fail the run.
+K() { java -cp "$CP" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -nowarn "$@" 2>&1 | grep -v '^Picked up' | grep -A3 -E 'error:|exception|Exception' || true; }
 printf 'package com.matchi.tool\ndata class ShellResult(val success: Boolean, val content: String)\n' > "$W/Stub.kt"
 MAIN="$W/Stub.kt"
 for f in "$ROOT"/app/src/main/java/com/matchi/tool/*.kt; do grep -qE '^import (android|org\.json|fi\.iki)|NanoHTTPD|org\.json\.[A-Z]|[^./A-Za-z]android\.(content|util|os|net|app|text|view|widget)\.' "$f" || MAIN="$MAIN $f"; done   # also catches fully qualified uses (org.json.JSONArray(...)) that have no import line
