@@ -133,27 +133,6 @@ internal fun StopReport.toJson(): JSONObject {
     return JSONObject().put("success", success).put("log", log).put("leftovers", JSONArray(leftovers)).put("notChecked", JSONArray(notChecked)).put("commands", cmds)
 }
 
-// Paths passed the strict character check in checkPluginDataPath, so they cannot break out of single quotes.
-internal fun WebServer.quotedList(paths: List<String>) = paths.joinToString(" ") { "'$it'" }
-
-// Size probe cache: the dialog and repeated clicks used to start a fresh root du every time. One probe at a time, and the answer is reused for 10 s
-// (dropped when a plugin is deleted so the re-check after Delete is always fresh).
-internal object ProbeCache {
-    private var key = ""; private var at = 0L; private var res: ShellResult? = null
-    @Synchronized fun get(k: String, run: () -> ShellResult): ShellResult {
-        val now = System.currentTimeMillis()
-        val r = res
-        if (r != null && k == key && now - at < 10_000 && r.success) return r
-        val n = run(); key = k; at = System.currentTimeMillis(); res = n; return n
-    }
-    @Synchronized fun clear() { res = null }
-}
-
-internal fun WebServer.probeScript(paths: List<String>) =
-    "T=; command -v timeout >/dev/null 2>&1 && T='timeout 8'; " +   // -x: never cross into mounted proc/sys/dev inside a plugin's rootfs; timeout: never hang
-    "for p in ${quotedList(paths)}; do if [ -e \"\$p\" ] || [ -L \"\$p\" ]; then " +
-    "echo \"EXISTS \$(\$T du -skx -- \"\$p\" 2>/dev/null | cut -f1) \$p\"; fi; done; true"
-
 // rm -rf on a symlink removes the link itself, never what it points to, but it DOES follow a symlink in a parent folder.
 // So every folder between the allowed root and the path is tested with [ -L ] first, and the path is skipped if one is a link.
 // After a path is removed, the parent folders it leaves EMPTY are removed too (rmdir never deletes a folder that has anything in it,
@@ -292,7 +271,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
     // Cheap running-state check for the page's 30 s status light (every 2 min): ONLY the process sweep, no du, no stop plan, no undo list.
-    uri == "/api/plugins/state" && s.method == Method.POST -> {
+    uri == "/api/plugins/state" && s.method == Method.POST -> {   // @expensive-route: process scan (ps); the page polls it only every 2 min and only while visible
         val name = body(s).optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val gated = rootGate(s) != null
@@ -301,7 +280,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
     // What deleting this plugin would erase (read-only): its own data folder plus the paths it declares with
     // "// @matchi-data /path" in its source. Used by the page to show the list before the user confirms.
     // Not behind rootGate as a whole (see the note inside): only its two root calls are.
-    uri == "/api/plugins/data" && s.method == Method.POST -> {
+    uri == "/api/plugins/data" && s.method == Method.POST -> {   // @expensive-route: size probe (du) and process scan; never call it from a timer
         val name = body(s).optString("name")
         if (!nameRx.matches(name) || name.contains("..")) throw IllegalArgumentException("invalid plugin name")
         val (paths, rejected) = pluginDataPlan(name)

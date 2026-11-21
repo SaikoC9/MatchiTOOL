@@ -492,7 +492,7 @@ object ApkUpdater {
             rm -f $LOG
             if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi
             if command -v nice >/dev/null 2>&1; then N='nice -n 10'; else N=; fi
-            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; rm -f "$prev"; find $TMPD /data/local/tmp -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
+            ${'$'}S nohup ${'$'}N sh -c 'sleep 2; pm install $flags -S ${s.size} < "$path" > $LOG 2>&1; rc=${'$'}?; ${fallback}rm -f "$path"; if [ ${'$'}rc -eq 0 ]; then am start --user 0 -n ${ctx.packageName}/.MainActivity >/dev/null 2>&1; rm -f "$prev"; find $TMPD /data/local/tmp -maxdepth 1 -name ".matchi_out_*" -mmin +5 -delete 2>/dev/null; rm -f $LOG; fi' </dev/null >/dev/null 2>&1 &
             echo started
         """.trimIndent()
         val r = RootShell.run(ctx, script, 15_000)

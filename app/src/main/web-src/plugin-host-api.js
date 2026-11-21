@@ -82,7 +82,7 @@ function closeModal(id,time,cb){
   modalTimer=setTimeout(()=>{el.style.display='none';fin()},typeof time==='number'?time:300);
 }
 /* More helpers for plugins (reached as matchi.interval, matchi.panel, matchi.switch, matchi.loading, matchi.form). */
-function requestInterval(fn,ms){const h=setInterval(fn,ms);return()=>clearInterval(h)}
+function requestInterval(fn,ms){const h=setInterval(fn,ms);return()=>clearInterval(h)}   // lint-ok: plugin-supplied timer, calls nothing itself
 function createFixedToast(id,html,st={}){
   document.getElementById(id)?.remove();
   const el=document.createElement('div');el.id=id;
@@ -359,7 +359,7 @@ function matchiRunState(info){
   const sync=()=>{const n=box.children.length;btn.style.display=n?'':'none';if(cnt)cnt.textContent=String(n);if(!n){open(false);seen=false}else if(!seen){seen=true;open(true)}else if(!wrap.hidden)setTimeout(autoRefresh,300)};
   btn.onclick=()=>open(wrap.hidden);
   new MutationObserver(sync).observe(box,{childList:true});sync();
-  setInterval(autoRefresh,120000);
+  setInterval(autoRefresh,120000);   // lint-ok: expensive route /api/plugins/state, 2 min, skipped while the tab is hidden (see autoRefresh)
 })();
 /* Router calls through the host: it signs in with the saved credentials, so a plugin never sees the password. A set call that can lock a SIM
    (ENABLE_PIN: a wrong PIN counts as an attempt) asks once per page load. The host decides which writes also need the fresh sign-in. */

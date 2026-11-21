@@ -24,6 +24,8 @@ PY
 
 python3 "$ROOT/scripts/check_repo.py" "$ROOT"      # version in one place, README counts, bundled binary hashes
 python3 "$ROOT/scripts/check_sources.py" "$ROOT"    # legacy source-text tripwires (see its header)
+python3 "$ROOT/scripts/lint_resource_rules.py" "$ROOT"  # du/find without -x, /proc/*/cmdline reads, busy loops, timers on expensive routes (docs/PLUGIN_RULES.md)
+python3 "$ROOT/scripts/test_lint_resource_rules.py"   # the lint itself
 python3 "$ROOT/scripts/test_route_gates.py"          # who may call which route
 python3 "$ROOT/scripts/test_plugin_undo.py"           # the undo script in a real sh (fake iptables)
 python3 "$ROOT/scripts/test_update_binary_hashes.py"   # CI helper that writes new binary hashes into NOTICE.md

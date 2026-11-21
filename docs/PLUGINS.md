@@ -141,5 +141,6 @@ never reaches the browser. Details: [`PLUGIN_GATE.md`](PLUGIN_GATE.md).
 - [`PLUGIN_HEADERS.md`](PLUGIN_HEADERS.md): every header line
 - [`PLUGIN_STOP.md`](PLUGIN_STOP.md): stop, sweep, undo
 - [`PLUGIN_SANDBOX.md`](PLUGIN_SANDBOX.md): sandbox
+- [`PLUGIN_RULES.md`](PLUGIN_RULES.md): CPU and resource rules, plugin lint
 - [`PLUGIN_GATE.md`](PLUGIN_GATE.md): web page gate
 - [`examples/`](examples/): working example plugins
