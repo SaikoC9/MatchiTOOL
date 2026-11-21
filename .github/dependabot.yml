@@ -1,12 +1,23 @@
 # Weekly pull requests for newer versions of the GitHub Actions (pinned to a commit, see scripts/pin-actions.sh) and of the Gradle
-# dependencies (Android Gradle Plugin, Kotlin, NanoHTTPD, test libraries). Review each one; a version bump never merges itself.
+# dependencies. Review each one; a version bump never merges itself, and every pull request must pass the build first.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:            # one pull request for all action updates instead of one each
+        patterns: ["*"]
   - package-ecosystem: gradle
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      # The Android Gradle Plugin and Kotlin move together with the Gradle version (8.7) and the build scripts: upgrade them by hand, on purpose.
+      - dependency-name: "com.android.application"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "org.jetbrains.kotlin.android"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
