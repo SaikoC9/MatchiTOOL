@@ -31,7 +31,9 @@ python3 "$ROOT/scripts/gen_binary_hashes.py" --check "$ROOT"   # BinaryHashes.kt
 bash "$ROOT/scripts/pin-actions.sh" --check            # every "uses:" in the workflows is pinned to a full commit (run scripts/pin-actions.sh to fix)
 
 # Kotlin unit tests that need no Android SDK (pure logic, the gate proxy, ...). Needs java and the Kotlin compiler inside gradle's lib folder; skipped where they are missing.
-if command -v java >/dev/null 2>&1 && command -v gradle >/dev/null 2>&1; then
+if [ -n "${CI:-}" ]; then
+  echo "skipped: Kotlin pure tests (CI runs all Kotlin tests with gradle :app:testDebugUnitTest)"
+elif command -v java >/dev/null 2>&1 && command -v gradle >/dev/null 2>&1; then
   bash "$ROOT/scripts/kotlin_pure_tests.sh" </dev/null | tee /tmp/matchitool-kotlin-pure.txt
   grep -q '^OK (' /tmp/matchitool-kotlin-pure.txt || { echo "Kotlin pure tests failed"; exit 1; }
 else
