@@ -4,3 +4,5 @@ keystore.properties
 build/
 .gradle/
 local.properties
+__pycache__/
+*.pyc
