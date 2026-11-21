@@ -145,7 +145,8 @@ object SpeedLimit {
     private val RATE = Regex("\\brate\\s+([0-9]+(?:\\.[0-9]+)?)([KkMmGg]?)bit")
     private val CLASS = Regex("^class htb 1:([0-9a-f]+)\\b")
     private val PREF = Regex("\\bpref ([0-9]+) ([a-z0-9_]+)")
-    private val NEIGH = Regex("^([0-9]{1,3}(?:\\.[0-9]{1,3}){3}) dev br0 lladdr ([0-9a-f:]{17}) ([A-Z]+)")
+    // `ip neigh show dev br0` leaves "dev br0" out of each line (seen on the F50); the unfiltered form has it. Either is br0, any other dev does not match.
+    private val NEIGH = Regex("^([0-9]{1,3}(?:\\.[0-9]{1,3}){3})(?: dev br0)? lladdr ([0-9a-f:]{17}) ([A-Z]+)")
 
     /** tc prints rates in bits per second with a K, M or G prefix (1000 based); the result is KB/s, rounded. */
     fun toKbps(num: String, unit: String): Int? {

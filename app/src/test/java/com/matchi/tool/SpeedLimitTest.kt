@@ -197,6 +197,17 @@ class SpeedLimitTest {
         assertFalse(none.rootBusy)
     }
 
+    @Test fun neighbourLinesFromTheFilteredCommandAreRead() {
+        // Real F50 output of `ip neigh show dev br0`: no "dev br0" in the line.
+        val l = SpeedLimit.parseLive("--- neigh\n" +
+            "192.168.0.167 lladdr 96:d1:33:9a:2d:46 REACHABLE\n" +
+            "192.168.0.4 lladdr 5c:4d:bf:88:9c:78 REACHABLE\n" +
+            "2405:8d40:4072:8e5:b846:f7ff:fe01:73e4 lladdr ba:46:f7:01:73:e4 STALE\n" +
+            "2405:8d40:4072:8e5:855e:dade:ca55:81ec  FAILED\n" +
+            "192.168.0.9 dev wlan0 lladdr aa:bb:cc:dd:ee:02 REACHABLE\n--- root\nqdisc noqueue 0: dev br0 root")
+        assertEquals(mapOf(macA to "192.168.0.167", macB to "192.168.0.4"), l.neigh)   // another dev is not used
+    }
+
     @Test fun neighbourTableIsReadCarefully() {
         val newer = SpeedLimit.parseLive("--- neigh\n" +
             "192.168.0.50 dev br0 lladdr 96:d1:33:9a:2d:46 STALE\n" +
