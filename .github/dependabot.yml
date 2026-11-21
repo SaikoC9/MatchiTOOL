@@ -1,0 +1,12 @@
+# Weekly pull requests for newer versions of the GitHub Actions (pinned to a commit, see scripts/pin-actions.sh) and of the Gradle
+# dependencies (Android Gradle Plugin, Kotlin, NanoHTTPD, test libraries). Review each one; a version bump never merges itself.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
