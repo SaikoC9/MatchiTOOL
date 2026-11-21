@@ -20,7 +20,7 @@ updates:
       - dependency-name: "com.android.application"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "org.jetbrains.kotlin.android"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
       # Gradle 9 does not work with the Android Gradle Plugin 8.5.2 used here; CI pins Gradle 8.7. Move the wrapper by hand, together with the plugin.
       - dependency-name: "gradle-wrapper"
         update-types: ["version-update:semver-major"]
