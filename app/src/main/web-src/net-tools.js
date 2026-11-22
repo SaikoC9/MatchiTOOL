@@ -1165,7 +1165,11 @@ html body #matchi_net_modal button.mt-tip-btn.mt-dock{height:16px!important;padd
 #matchi_net_modal .net-limhint{color:var(--mut);font-size:12.5px;white-space:nowrap}
 #matchi_net_modal .net-actions.net-end{justify-content:flex-end}
 @media (max-width:520px){
-html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 auto!important;padding:0 7px!important;font-size:11px!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 auto!important;padding:0 4px!important;font-size:10.5px!important}
+/* all six tabs stay on ONE row on a phone (MTU / MSS used to drop to its own full-width line); if the screen is still too narrow the row scrolls sideways instead of wrapping */
+#matchi_net_tabs{flex-wrap:nowrap!important;gap:3px!important;overflow-x:auto;scrollbar-width:none}
+#matchi_net_tabs::-webkit-scrollbar{display:none}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 0 auto!important}
 #matchi_net_modal .net-tbl thead{display:none}
 #matchi_net_modal .net-tbl,#matchi_net_modal .net-tbl tbody{display:block}
 #matchi_net_modal .net-tbl tr{display:grid;grid-template-columns:auto 1fr;gap:0 14px;border-bottom:1px solid var(--bd);padding:8px 0}
