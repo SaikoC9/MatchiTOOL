@@ -42,6 +42,9 @@
 .mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;box-sizing:border-box;width:auto;height:17px;min-width:0;min-height:0;padding:0 7px 0 4px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 10px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
 .mt-tip-btn svg{display:block;flex:none;width:10px!important;height:10px!important}
 button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:17px!important;min-width:0!important;min-height:0!important;padding:0 7px 0 4px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:10px!important;font-weight:600!important;gap:3px!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
+.mt-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mt-head>h1,.mt-head>h2,.mt-head>h3,.mt-head>h4,.mt-head>h5,.mt-head>h6{flex:1 1 auto;min-width:0}
+html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 auto!important}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
@@ -98,5 +101,40 @@ button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(
       el.parentNode.insertBefore(wrap, el); wrap.append(btn, el);   // button and text travel together when the card is moved
     }
   }
-  window.MatchiTip = { make: make, enhance: enhance, kindOf: kindOf, LONG: LONG, KINDS: KINDS };
+  // Docking: when a tip sits in a section whose FIRST element is a heading (h1-h6) or a header row (.mt-head, .dr-h, .dc-h), its Info button moves to the
+  // right end of that heading row and the text opens right under the heading. One button per heading; a tip anywhere else stays where it is.
+  const HEAD_ROW = /(^|\s)(mt-head|dr-h|dc-h)(\s|$)/;
+  function dock(wrap) {
+    if (!wrap || wrap.getAttribute('data-docked')) return;
+    wrap.setAttribute('data-docked', '1');
+    const par = wrap.parentNode, head = par && par.firstElementChild;
+    const btn = wrap.querySelector ? wrap.querySelector('button.mt-tip-btn') : null;
+    if (!head || head === wrap || !btn) return;
+    let row = null;
+    if (/^H[1-6]$/.test(head.tagName)) {
+      row = document.createElement('div'); row.className = 'mt-head';
+      par.insertBefore(row, head); row.appendChild(head);
+    } else if (HEAD_ROW.test(head.className || '')) row = head;
+    if (!row || row.querySelector('.mt-tip-btn')) { if (row && row !== head && row.parentNode) { par.insertBefore(head, row); row.remove(); } return; }
+    btn.classList.add('mt-dock');
+    const first = row.querySelector(':scope > button, :scope > .dc-hb');
+    if (first) row.insertBefore(btn, first); else row.appendChild(btn);
+    if (row.nextSibling !== wrap) par.insertBefore(wrap, row.nextSibling);
+  }
+  function dockAll(root) {
+    if (!root || !root.querySelectorAll) return;
+    const list = root.querySelectorAll('.mt-tip:not([data-docked])');
+    for (let i = 0; i < list.length; i++) { try { dock(list[i]); } catch (_) { /* a tip that cannot dock stays in place */ } }
+  }
+  if (typeof MutationObserver === 'function' && typeof document !== 'undefined') {
+    let queued = false;
+    const run = () => { queued = false; dockAll(document); };
+    const start = () => {
+      if (!document.body) return;
+      new MutationObserver(() => { if (queued) return; queued = true; (window.requestAnimationFrame || setTimeout)(run, 0); }).observe(document.body, { childList: true, subtree: true });
+      dockAll(document);
+    };
+    if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+  }
+  window.MatchiTip = { make: make, enhance: enhance, dock: dockAll, kindOf: kindOf, LONG: LONG, KINDS: KINDS };
 })();
