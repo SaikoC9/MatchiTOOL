@@ -39,8 +39,9 @@ class GuardHostTest {
     @Test fun reportPathIsInsideTheFilesFolder() = assertEquals("$dir/guard/report.json", GuardHost.reportPath(dir))
 
     @Test fun freshMeansWithinThreeIntervalsAndFiveSeconds() {
-        assertTrue(GuardHost.fresh(1000, 1000)); assertTrue(GuardHost.fresh(1000, 1095))
-        assertFalse(GuardHost.fresh(1000, 1096)); assertFalse(GuardHost.fresh(0, 5))
+        assertTrue(GuardHost.fresh(1000, 1000)); assertTrue(GuardHost.fresh(1000, 1035))   // default interval is 10 s: 3 * 10 + 5
+        assertFalse(GuardHost.fresh(1000, 1036)); assertFalse(GuardHost.fresh(0, 5))
+        assertTrue(GuardHost.fresh(1000, 1095, 30)); assertFalse(GuardHost.fresh(1000, 1096, 30))
         assertTrue(GuardHost.fresh(1000, 1020, 5)); assertFalse(GuardHost.fresh(1000, 1021, 5))
     }
 
