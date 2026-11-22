@@ -1,4 +1,4 @@
-/* cmd-card.js: the "Device commands" button in the Plugin actions folder, which opens a popup. A list of read-only shell commands, in closed groups, each with a Copy button.
+/* cmd-card.js: the "Device commands" button in the home tool row, which opens a popup (a .card.pop, like Terminal). A list of read-only shell commands, in closed groups, each with a Copy button.
    Nothing here runs a command or talks to the host: the person pastes the command into a root shell (the AT console or adb). The card never builds markup from text. */
 (function () {
   'use strict';
@@ -57,52 +57,47 @@
     ta.remove(); return ok;
   }
   const css = document.createElement('style');
-  css.textContent = '#cmdPop .modal{max-width:520px}#cmdPop .cc-head{display:flex;align-items:center;gap:8px;margin:0 0 6px}#cmdPop .cc-head h3{margin:0;flex:1 1 auto}' +
-    '#cmdPop .cc-note{color:var(--mut);font-size:10px;margin:1px 0 4px}' +
-    '#cmdPop details{border-top:1px solid var(--bd)}' +
-    '#cmdPop summary{display:flex;align-items:center;min-height:30px;cursor:pointer;font-weight:700;font-size:12px;list-style:none}#cmdPop summary::-webkit-details-marker{display:none}' +
-    '#cmdPop summary::after{content:"+";color:var(--mut);font-size:14px}#cmdPop details[open]>summary::after{content:"\\2013"}' +
-    '#cmdPop .cc-n{margin-left:auto;margin-right:8px;color:var(--mut);font-weight:500;font-size:10px}' +
-    '#cmdPop .cc-r{display:grid;grid-template-columns:minmax(0,1fr) 58px;grid-template-rows:auto auto;column-gap:6px;padding:2px 0 6px}' +
-    '#cmdPop .cc-l{grid-column:1/-1;color:var(--mut);font-size:10px;margin-bottom:2px}' +
-    '#cmdPop .cc-c{grid-column:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.3;background:var(--bg);border:1px solid var(--bd);border-radius:5px;padding:3px 6px;overflow-wrap:anywhere;user-select:all}' +
-    '#cmdPop .cc-b{grid-column:2;align-self:stretch;width:58px;min-height:0!important;padding:0!important;display:flex;align-items:center;justify-content:center}';
+  // The stock look of the old home card (closed groups with + / -, small labels, mono command box, Copy on the right), now inside a popup.
+  css.textContent = '#cmdpop .cc-title{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}#cmdpop .cc-note{color:var(--mut);font-size:11px;line-height:1.35;margin:0 0 9px}' +
+    '#cmdpop .cc-grp{border-top:1px solid var(--bd)}' +
+    '#cmdpop .cc-sum{display:flex;align-items:center;min-height:26px;font-weight:700;font-size:12px;cursor:pointer;user-select:none}'+
+    '#cmdpop .cc-sum::after{content:"+";color:var(--mut);font-size:14px}#cmdpop .cc-grp.open>.cc-sum::after{content:"\\2013"}' +
+    '#cmdpop .cc-n{margin-left:auto!important;margin-right:8px;color:var(--mut);font-weight:500;font-size:10px}' +
+    '#cmdpop .cc-r{display:grid;grid-template-columns:minmax(0,1fr) 52px;column-gap:6px;padding:2px 0 4px}' +
+    '#cmdpop .cc-l{grid-column:1/-1;color:var(--mut);font-size:10px;margin-bottom:1px}' +
+    '#cmdpop .cc-c{grid-column:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.3;background:var(--bg);border:1px solid var(--bd);border-radius:5px;padding:2px 6px;overflow-wrap:anywhere;user-select:all;display:flex;align-items:center}' +
+    '#cmdpop .cc-b{grid-column:2;align-self:stretch;width:52px;min-height:0!important;padding:0!important;font-size:11px!important;border-radius:6px!important;display:flex;align-items:center;justify-content:center}';
   document.head.appendChild(css);
 
+  // Built in like the other tools: a .card.pop opened with openPop(), and a button in the home tool row.
   function build() {
-    const bg = el('div', 'modal-bg'); bg.id = 'cmdPop';
-    const m = el('div', 'modal');
-    const head = el('div', 'cc-head'), x = el('button', '', 'Close'); x.type = 'button';
-    head.appendChild(el('h3', '', 'Device commands')); head.appendChild(x);
-    m.appendChild(head);
-    m.appendChild(el('div', 'cc-note', 'Run as root (AT console or adb). They only read, except Kill all copies.'));
+    const c = el('div', 'card pop'); c.id = 'cmdpop';
+    const t = el('div', 'cc-title', 'Device commands'); c.appendChild(t);
+    c.appendChild(el('div', 'cc-note', 'Run as root (AT console or adb). They only read, except Kill all copies.'));
     for (const [name, rows] of GROUPS) {
-      const d = el('details'), s = el('summary');
-      s.appendChild(el('span', '', name)); s.appendChild(el('span', 'cc-n', String(rows.length))); d.appendChild(s);
+      const g = el('div', 'cc-grp'), s = el('div', 'cc-sum'), body = el('div'); s.setAttribute('role', 'button'); s.tabIndex = 0; body.hidden = true;   // a div, so the page's button rules do not restyle it
+      s.appendChild(el('span', '', name)); s.appendChild(el('span', 'cc-n', String(rows.length)));
+      const flip = () => { body.hidden = !body.hidden; g.classList.toggle('open', !body.hidden); s.setAttribute('aria-expanded', String(!body.hidden)); };
+      s.onclick = flip; s.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } };
+      g.appendChild(s);
       for (const [label, cmd] of rows) {
         const r = el('div', 'cc-r'), b = el('button', 'cc-b', 'Copy'); b.type = 'button';
         r.appendChild(el('div', 'cc-l', label)); r.appendChild(el('div', 'cc-c', cmd)); r.appendChild(b);
         b.onclick = async () => { const ok = await copy(cmd); try { createToast(ok ? 'Copied' : 'Select the command and copy it by hand', ok ? 'green' : 'red'); } catch (_) { /* not fatal */ } };
-        d.appendChild(r);
+        body.appendChild(r);
       }
-      m.appendChild(d);
+      g.appendChild(body); c.appendChild(g);
     }
-    bg.appendChild(m);
-    const close = () => bg.classList.remove('show');
-    x.onclick = close;
-    bg.onclick = (e) => { if (e.target === bg) close(); };
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-    document.body.appendChild(bg);
-    return bg;
+    const foot = el('div', 'popfoot'), x = el('button', 'popx', 'Close'); x.type = 'button'; x.onclick = () => closePop();
+    foot.appendChild(x); c.appendChild(foot);
+    (document.querySelector('main') || document.body).appendChild(c);
   }
 
   function mount() {
-    const box = document.querySelector('.matchi-menu-box'); if (!box || document.getElementById('cmdBtn')) return;
-    // A button in the "Plugin actions" folder, next to SMS and the others. The list opens in a popup.
-    const btn = el('button', '', 'Device commands'); btn.id = 'cmdBtn'; btn.type = 'button';
-    let pop = null;
-    btn.onclick = () => { if (!pop) pop = build(); pop.classList.add('show'); };
-    box.appendChild(btn);
+    const row = document.querySelector('#home .actions-buttons'); if (!row || document.getElementById('cmdBtn')) return;
+    const btn = el('button', '', 'Commands'); btn.id = 'cmdBtn'; btn.type = 'button';
+    btn.onclick = () => { if (!document.getElementById('cmdpop')) build(); openPop('cmdpop'); };
+    row.appendChild(btn);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();
