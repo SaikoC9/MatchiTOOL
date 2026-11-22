@@ -254,6 +254,12 @@ object ZteClient {
         } catch (e: java.io.IOException) { throw IllegalStateException("Router web page unreachable: ${e.message ?: e.javaClass.simpleName}") }
     }
 
+    /** false only when the router answers the "loginfo" read with a value other than "ok" (our session is gone); true when signed in or unknown. */
+    private fun sessionAlive(ctx: Context): Boolean = try {
+        val o = JSONObject(http(ctx, "GET", GET_PATH, mapOf("isTest" to "false", "cmd" to "loginfo")).body)
+        !o.has("loginfo") || o.optString("loginfo") == "ok"
+    } catch (e: java.io.IOException) { throw e } catch (_: Exception) { true }
+
     /** op is "get" or "set". Returns the router's raw response body. */
     fun call(ctx: Context, op: String, params: Map<String, String>, retry: Int = 0): String = synchronized(lock) {
         try {
@@ -281,6 +287,12 @@ object ZteClient {
         val hasPass = Prefs.ztePass(ctx).isNotEmpty()
         if (hasPass && cookie.isNotEmpty() && System.currentTimeMillis() - lastUse > IDLE_RELOGIN_MS) cookie = ""
         if (cookie.isEmpty() && hasPass) login(ctx)?.let { throw IllegalStateException(it) }
+        // The router can end our session at any time (its own web page signed in elsewhere, its session timer, a router-side restart of the web
+        // server) while reads still work, so lastUse stays fresh. A "set" made with a dead session is answered with an empty body and does nothing, which
+        // is why mobile data off and renaming a device stopped working until the router was rebooted. Ask the router whether the session is still
+        // signed in before every "set" and sign in again when it says it is not. Only an explicit answer other than "ok" counts: a firmware that does
+        // not know the key (no "loginfo" in the reply) is left alone.
+        if (op == "set" && hasPass && cookie.isNotEmpty() && !sessionAlive(ctx)) { cookie = ""; lastLoginFail = 0L; login(ctx)?.let { throw IllegalStateException(it) } }
         val legacyMd5 = retry >= 2
         var r = send(ctx, op, params, legacyMd5)
         // Retry once after logging in. Only for reads (or an explicit 401/403): a failed "set" must never be repeated blindly.

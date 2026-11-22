@@ -433,8 +433,9 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
 assert(!/\.innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(ui), 'net-tools.js must put values on the page with textContent, not markup');
 assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js must not call another MatchiRadio writer');
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
-assert(setCalls.length === 5 && /^R\.setRouter\(N\.dataCall\(action\), true\)/.test(setCalls[0]) && /^R\.setRouter\(call, true\)/.test(setCalls[1]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[2]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[3]) && /^R\.setRouter\(call, true, level\)/.test(setCalls[4]),
-  'the only router writes: mobile data, the device call, the APN steps, and ONE send for the restart changes (sendTaken: MTU, DHCP, Wi-Fi band, Wi-Fi settings): ' + setCalls.join(' | '));
+assert(setCalls.length === 4 && /^R\.setRouter\(call, true, level\)/.test(setCalls[0]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[1]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[2]) && /^R\.setRouter\(call, true, level\)/.test(setCalls[3]),
+  'the only router writes: sendRetried (mobile data and the device calls: an empty reply is checked and resent, not trusted), the APN steps, and ONE send for the restart changes (sendTaken: MTU, DHCP, Wi-Fi band, Wi-Fi settings): ' + setCalls.join(' | '));
+assert((ui.match(/await sendRetried\(/g) || []).length === 2, 'mobile data and devApply both send through sendRetried');
 assert((ui.match(/= await sendTaken\(call, /g) || []).length === 4, 'MTU, DHCP, Wi-Fi band and Wi-Fi settings all send through sendTaken (an empty reply is checked, not trusted)');
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');

@@ -394,6 +394,28 @@ function mountNetTools() {
   }
   // ---- mobile data off / on -------------------------------------------------------------------------------------------------
   const readPpp = async () => N.parseData(await R.zte('get', { multi_data: '1', cmd: N.READ.data }));
+  // Mobile data and device changes are idempotent. The F50 answers a set with an EMPTY reply and does NOTHING when it lost our sign-in (or the AD token was
+  // refused), and the page used to take that empty reply as "sent". Only a router reboot cleared it. So after an empty reply the router gets two reads to show
+  // the change (`tookIt`); if it does not, the same call goes out again with a fresh sign-in (retry 1) and then with the older token form (retry 2).
+  // A reply of "success" is never repeated. Returns { reply, attempts, ok } (ok = a read showed the change), or null when the action was closed meanwhile.
+  // Throws only when the FIRST send fails (nothing was changed then).
+  async function sendRetried(call, tookIt, live) {
+    let reply = 'empty', attempts = 0;
+    for (let level = 0; level <= 2; level++) {
+      attempts++;
+      try { reply = await R.setRouter(call, true, level); }
+      catch (e) { if (level === 0) throw e; break; }   // a later send failed: the first one may have worked, so the caller's read decides
+      if (reply === 'success') return { reply, attempts, ok: false };
+      for (let i = 0; i < 2; i++) {
+        await R.sleep(i === 0 ? 1200 : 1500);
+        if (!live()) return null;
+        let ok = false; try { ok = !!(await tookIt()); } catch (_) { /* not read: counts as not shown */ }
+        if (!live()) return null;
+        if (ok) return { reply, attempts, ok: true };
+      }
+    }
+    return { reply, attempts, ok: false };
+  }
   async function dataSwitch(action) {
     if (!action || st.act) return;
     const ok = await askConfirm(action === 'off'
@@ -404,8 +426,11 @@ function mountNetTools() {
     st.act = action; st.actMsg = null; syncButtons(); paint('data'); setStatus('Sending…');
     const live = () => my === actId;
     try {
-      try { await R.setRouter(N.dataCall(action), true); }
+      const before = st.cache.data && st.cache.data.d ? N.connState(st.cache.data.d.ppp_status) : null;
+      let sent;
+      try { sent = await sendRetried(N.dataCall(action), async () => { const q = await readPpp(); return !!q && (N.dataReached(action, q.state) || (before !== null && q.state !== before)); }, live); }
       catch (e) { if (live()) st.actMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
+      if (sent === null || !live()) return;
       const t0 = Date.now(); let p = null, reached = false;
       for (;;) {
         await R.sleep(2000);
@@ -418,9 +443,11 @@ function mountNetTools() {
         setStatus('Waiting for the router… ' + Math.round((Date.now() - t0) / 1000) + ' s');
       }
       const now = p && p.ppp ? p.ppp : 'no answer';
+      const ignored = !reached && sent.reply !== 'success' && !sent.ok ? ' The router ignored the command ' + sent.attempts + ' times. ' + (R.emptyHint ? await R.emptyHint() : '') : '';
+      if (!live()) return;
       st.actMsg = reached
         ? { bad: false, text: action === 'off' ? 'Mobile data is off (' + now + ').' : 'Mobile data is on (' + now + ').' }
-        : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' };
+        : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' + ignored };
     } finally {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
@@ -446,9 +473,11 @@ function mountNetTools() {
     st.devAct = true; st.devMsg = null; syncButtons(); paint('devices'); setStatus('Sending…');
     const my = ++actId;
     try {
-      try { await R.setRouter(call, true); }
+      let d = null, good = false, sent;
+      try { sent = await sendRetried(call, async () => { d = await readDevicesRaw(); return !!check(d); }, () => my === actId); }
       catch (e) { st.devMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
-      let d = null, good = false;
+      if (sent === null || my !== actId) return;
+      good = sent.ok;
       for (let i = 0; i < 3 && !good; i++) {
         await R.sleep(1000);
         if (my !== actId) return;
@@ -457,7 +486,9 @@ function mountNetTools() {
         good = !!check(d);
       }
       if (d) st.cache.devices = { d, at: Date.now() };
-      st.devMsg = good ? { bad: false, text: okText } : { bad: true, text: badText + ' Press Refresh to read the lists again.' };
+      const ignored = !good && sent.reply !== 'success' ? ' The router ignored the command ' + sent.attempts + ' times. ' + (R.emptyHint ? await R.emptyHint() : '') : '';
+      if (my !== actId) return;
+      st.devMsg = good ? { bad: false, text: okText } : { bad: true, text: badText + ' Press Refresh to read the lists again.' + ignored };
     } finally {
       if (my === actId) { st.devAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.devMsg && st.devMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }

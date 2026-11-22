@@ -47,7 +47,7 @@ const createModal = (o) => {
 const showModal = () => {};
 
 // ---- scripted radio ---------------------------------------------------------------------------------------------------------
-const calls = [], shells = [], sets = [], confirms = []; let aclMissing = false, black = '', blackNames = '', hostOverride = null, me = '192.168.0.10', pppNow = 'ipv4_ipv6_connected', stuck = false, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
+const calls = [], shells = [], sets = [], confirms = []; let aclMissing = false, black = '', blackNames = '', hostOverride = null, me = '192.168.0.10', pppNow = 'ipv4_ipv6_connected', stuck = false, ignoreSets = 0, setFail = null, confirmAnswer = true; let busyNow = 0, released = 0, failNext = null;
 // The Wi-Fi part of the fake router: the real F50 reply shape (two chips, ChipIndex tells the band, Password in clear text) and the stock calls.
 // A save or a band switch makes Wi-Fi "restart" (the next reads fail). The backup file is written by a REAL shell into a temp folder.
 const wifiState = { module: '1', chip: 1, ssid: 'HomeNet', auth: 'WPA2PSKWPA3PSK', hidden: '0', max: 10, pw: 'TopSecret-pass-1' }; let wifiDown = 0, stuckWifi = false, failWifiBackup = false, wifiReadErr = null, wifiSendPw = null;
@@ -117,6 +117,7 @@ const R = {
   beginBusy: () => { busyNow++; return () => { busyNow--; released++; }; }, isBusy: () => busyNow > 0,
   sleep: async () => { if (sleepSpy) { const e = doc.getElementById('matchi_net_prog'); sleepSpy.push(e ? e.textContent : null); } },
   setRouter: async (params, allowEmpty, level) => { sets.push({ params, allowEmpty, level }); if (setFail) { const e = setFail; setFail = null; throw e; }
+    if (ignoreSets > 0) { ignoreSets--; return 'empty'; }   // the router lost our sign-in: an empty reply and NOTHING done
     if (params.goformId === 'setDeviceAccessControlList') { if (!stuck) { black = params.BlackMacList; blackNames = params.BlackNameList; } return; }
     if (params.goformId === 'APN_PROC_EX') { if (failOn && params.apn_action === failOn) { failOn = null; throw new Error('Router refused the change (failure)'); } apnWrite(params); return; }
     if (params.goformId === 'SET_DEVICE_MTU') { if (mtuDown > 0) throw new Error('Failed to fetch'); /* a router that is down answers nothing */ retryLevels.push(level || 0); if (ignoreMtu > 0) { ignoreMtu--; return 'empty'; } if (restartOldMtu) { mtuDown = 2; return 'empty'; } if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
@@ -251,6 +252,11 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   stuck = true; const realNow = Date.now; let fake = realNow(); Date.now = () => (fake += 5000);
   await click(dbtn()); Date.now = realNow; stuck = false;
   assert(/did not reach the wanted state within 30 seconds/.test(bodyText()) && /ipv4_ipv6_connected/.test(bodyText()) && !/Mobile data is o/.test(bodyText()), 'stuck: ' + bodyText());
+  // the router ignores the first send (empty reply, nothing done): it is sent again with a fresh sign-in (level 1) and only then reported
+  sets.length = 0; ignoreSets = 1; await click(dbtn());
+  assert.deepStrictEqual(sets.map((x) => x.level), [0, 1], 'data off resent once with a fresh sign-in: ' + JSON.stringify(sets.map((x) => x.level)));
+  assert(/Mobile data is off \(ppp_disconnected\)/.test(bodyText()), 'after resent off: ' + bodyText());
+  pppNow = 'ipv4_ipv6_connected';
   // closing the window while a switch is waiting stops the wait quietly
   pppNow = 'ipv4_ipv6_connected';
 
@@ -273,6 +279,13 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   confirmAnswer = true; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'EDIT_HOSTNAME', mac: 'aa:bb:cc:dd:ee:02', hostname: 'GL Router' });
   assert(/Renamed to "GL Router"/.test(bodyText()) && /GL Router/.test(rowOf('GL Router').textContent), 'after rename: ' + bodyText());
+  // the router ignores the first rename (lost sign-in): resent with a fresh sign-in, then reported
+  sets.length = 0; ignoreSets = 1; textAnswer = 'Lab Router'; await click(rowOf('GL Router').findAll((n) => n.textContent === 'Rename')[0]);
+  assert.deepStrictEqual(sets.map((x) => x.level), [0, 1], 'rename resent once: ' + JSON.stringify(sets.map((x) => x.level))); assert(/Renamed to "Lab Router"/.test(bodyText()), 'after resent rename: ' + bodyText());
+  // three ignored sends: the failure is shown with the number of tries, never "renamed"
+  sets.length = 0; ignoreSets = 3; textAnswer = 'Third Name'; await click(rowOf('Lab Router').findAll((n) => n.textContent === 'Rename')[0]);
+  assert.strictEqual(sets.length, 3); assert(/does not report the new name/.test(bodyText()) && /ignored the command 3 times/.test(bodyText()) && !/Renamed to/.test(bodyText()), 'ignored: ' + bodyText());
+  ignoreSets = 0; textAnswer = 'GL Router'; await click(rowOf('Lab Router').findAll((n) => n.textContent === 'Rename')[0]); assert(/Renamed to "GL Router"/.test(bodyText()));   // back to the name the next steps use
   // block (confirm names the MAC), then it shows under Blocked devices with Unblock
   sets.length = 0; confirmAnswer = false; await click(btns('Block')[0]); assert.strictEqual(sets.length, 0, 'declined block sends nothing');
   confirmAnswer = true; confirms.length = 0; await click(btns('Block')[0]);

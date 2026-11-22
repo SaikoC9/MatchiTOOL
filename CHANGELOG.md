@@ -1,5 +1,6 @@
 # MatchiTOOL 1.4.5
 
+- Fixed: Mobile data off / on and Rename device did nothing until the router was rebooted. The router can drop the console's sign-in while reads still work, and then ignores every change in silence. The host now checks the sign-in before each change and signs in again when it is gone, and these two actions resend (fresh sign-in, then the older token) when the router shows no change.
 - Added: Limit speed in Network > Devices: per-device Download and Upload caps in KB/s, set on the phone with root (`tc`), put back after a reboot. IPv4 only; not yet verified on a real F50 (see `docs/LIMIT_SPEED.md`).
 - Added: switch in Network > Wi-Fi (off by default) that turns the hotspot Wi-Fi off while USB tethering works.
 - Added: bundled programs are hash-checked before they run as root. Full diagnose lists each file.
