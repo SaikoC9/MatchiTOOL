@@ -4825,6 +4825,7 @@ button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(
 .mt-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mt-head>h1,.mt-head>h2,.mt-head>h3,.mt-head>h4,.mt-head>h5,.mt-head>h6{flex:1 1 auto;min-width:0}
 html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 auto!important}
+.mt-caret{font-size:9px;line-height:1;margin-left:1px}
 .mt-tip-btn:hover{background:var(--th)}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
 .mt-tip-btn[aria-expanded="true"]{background:var(--th)}
@@ -4848,6 +4849,7 @@ html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 aut
     btn.className = 'mt-tip-btn mt-tip-' + kk;
     btn.appendChild(icon(k));
     btn.appendChild(document.createTextNode('Info'));   // the only word on it
+    const caret = document.createElement('span'); caret.className = 'mt-caret'; caret.setAttribute('aria-hidden', 'true'); caret.textContent = '\u25BE'; btn.appendChild(caret);   // \u25BE closed, \u25B4 open
     btn.setAttribute('aria-label', k.label);
     btn.setAttribute('title', k.label);
     btn.setAttribute('aria-expanded', 'false');
@@ -4856,6 +4858,7 @@ html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 aut
       if (ev && ev.preventDefault) ev.preventDefault();
       const open = btn.getAttribute('aria-expanded') !== 'true';
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      caret.textContent = open ? '\u25B4' : '\u25BE';
       panel.style.display = open ? '' : 'none';
     });
     return btn;
