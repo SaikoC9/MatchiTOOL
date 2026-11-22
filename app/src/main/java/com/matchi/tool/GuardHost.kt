@@ -39,6 +39,7 @@ object GuardHost {
         val g = "$dir/$BINARY"
         return listOf(
             stopLines(g),
+            "rm -f '${reportPath(dir)}'",   // an old report would show the old interval until the new run writes its own
             "if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi",
             "\$S nohup '$g' watch --interval $interval --report '${reportPath(dir)}' </dev/null >/dev/null 2>&1 &",
             "echo started",

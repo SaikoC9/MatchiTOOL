@@ -10095,12 +10095,17 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     const r = s.report;
     return { word: 'Running', tone: 'ok', note: '', pills: [num(r.procs_seen) + ' processes', num(r.scan_ms) + ' ms', 'every ' + num(r.interval_s) + ' s'] };
   }
+  /** The cost line next to the interval box: measured (sweep time / interval) when the report has it, else the 1 s figure (2.5 %) divided by the interval. */
+  function costHint(n, scanMs) {
+    const pct = num(scanMs) > 0 ? num(scanMs) / (n * 1000) * 100 : 2.5 / n;
+    return 'At ' + n + ' s the guard uses about ' + (Math.round(pct * 10) / 10) + ' % of one core';
+  }
   function actionLine(a) {
     const t = a.ts ? new Date(a.ts * 1000).toTimeString().slice(0, 8) + '  ' : '';
     return t + a.what + (a.plugin ? ' ' + a.plugin : '') + (a.comm ? ' (' + a.comm + (a.pid ? ' ' + a.pid : '') + ')' : '') + (a.why ? ': ' + a.why : '');
   }
   const INTERVALS = [1, 5, 10];
-  const H = { norm, INTERVALS, plugRows, otherRows, actionList, fmtMem, fmtCpu, statusLine, statusParts, actionLine, STATE, REFRESH_MS };
+  const H = { norm, INTERVALS, costHint, plugRows, otherRows, actionList, fmtMem, fmtCpu, statusLine, statusParts, actionLine, STATE, REFRESH_MS };
   if (typeof module !== 'undefined' && module.exports) { module.exports = H; return; }
   if (typeof document === 'undefined') return;
 
@@ -10131,7 +10136,7 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     '#guardCard .gd-note{font-size:10.5px;color:var(--mut);margin-top:6px;line-height:1.4}';
   document.head.appendChild(css);
 
-  let box = null, stBox = null, sw = null, ivBox = null, ivSel = null, body = null, timer = 0, busy = false, loaded = false;
+  let box = null, stBox = null, sw = null, ivBox = null, ivSel = null, ivHint = null, body = null, timer = 0, busy = false, loaded = false, mismatchTries = 0;
   function draw(s) {
     const p = statusParts(s);
     stBox.textContent = '';
@@ -10142,6 +10147,13 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     sw.hidden = !s.available && !s.on; sw.textContent = s.on ? 'Turn off' : 'Turn on'; sw.setAttribute('aria-pressed', String(s.on));
     ivSel.value = String(s.interval);
     ivBox.hidden = !s.available;
+    ivHint.textContent = costHint(s.interval, s.report && s.report.scan_ms);
+    // The badge shows the interval the running guard reports; the box shows the saved one. A moment after a change they differ until the new run
+    // writes its first report, so say so and look again (3 tries); if they still differ, the note stays so the mismatch is not hidden.
+    if (s.running && s.report && num(s.report.interval_s) !== s.interval) {
+      stBox.appendChild(el('span', 'gd-note1', 'Applying ' + s.interval + ' s (running at ' + num(s.report.interval_s) + ' s)'));
+      if (mismatchTries++ < 3) setTimeout(() => load(true), 3000);
+    } else mismatchTries = 0;
     body.textContent = '';
     if (!s.report) return;
     const wrap = el('div', 'gd-tbl'), tb = el('table'), hd = el('tr');
@@ -10177,7 +10189,7 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     ivSel = el('select'); ivSel.setAttribute('aria-label', 'Check every');   // the page turns every select into its own popup (pick-ui.js)
     for (const n of INTERVALS) { const o = el('option', '', n + ' s'); o.value = String(n); ivSel.appendChild(o); }
     ivBox.appendChild(ivSel);
-    ivBox.appendChild(el('span', '', '1 s uses about 2.5 % of one core'));
+    ivHint = el('span', '', costHint(10)); ivBox.appendChild(ivHint);
     body = el('div'); box.appendChild(top); box.appendChild(stBox); box.appendChild(ivBox); box.appendChild(body); home.appendChild(box);
     // Fixed place: right after the Radio settings card. That card is added by another script at its own time, so on a fresh sign-in this card used
     // to land above it and after a reload below it. Keep it after #dash_radio whenever that card appears (only moved when out of place).

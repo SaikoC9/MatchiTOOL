@@ -40,6 +40,11 @@ t('others: busy untagged processes, busiest first, at most 5, bad entries droppe
   const o = ui.otherRows(rep({ others }));
   assert.strictEqual(o.length, 5); assert.strictEqual(o[0].comm, 'p7'); assert.deepStrictEqual(ui.norm(ans({ report: rep({}) })).others, []);
 });
+t('cost hint follows the chosen interval and uses the measured sweep time when there is one', () => {
+  assert.strictEqual(ui.costHint(1), 'At 1 s the guard uses about 2.5 % of one core');
+  assert.strictEqual(ui.costHint(10), 'At 10 s the guard uses about 0.3 % of one core');
+  assert.strictEqual(ui.costHint(5, 16), 'At 5 s the guard uses about 0.3 % of one core');
+});
 t('interval: only 1, 5 or 10 s, anything else reads as 10', () => {
   assert.deepStrictEqual(ui.INTERVALS, [1, 5, 10]);
   for (const [v, want] of [[1, 1], [5, 5], [10, 10], [2, 10], [30, 10], [undefined, 10], ['5', 10]]) assert.strictEqual(ui.norm(ans({ interval: v })).interval, want);

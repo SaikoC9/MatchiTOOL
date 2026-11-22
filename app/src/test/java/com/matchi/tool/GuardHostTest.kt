@@ -17,6 +17,12 @@ class GuardHostTest {
         assertTrue(s.trimEnd().endsWith("echo started"))
     }
 
+    @Test fun startRemovesTheOldReportBeforeStartingSoItsIntervalIsNotShown() {
+        val s = GuardHost.startScript(dir, 10)!!
+        val rm = s.indexOf("rm -f '$dir/guard/report.json'")
+        assertTrue(rm > s.indexOf("kill ") && rm < s.indexOf("nohup"))
+    }
+
     @Test fun intervalIsChosenFromOneFiveTenAndNothingElse() {
         for (n in listOf(1, 5, 10)) assertTrue(GuardHost.startScript(dir, n)!!.contains("watch --interval $n --report"))
         for (n in listOf(0, 2, 30, -1, 3600)) assertNull(n.toString(), GuardHost.startScript(dir, n))
