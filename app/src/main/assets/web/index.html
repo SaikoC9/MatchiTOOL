@@ -10004,6 +10004,7 @@ document.getElementById('logoutbtn').onclick=async()=>{
   try{await api('/api/logout',{method:'POST',body:'{}'})}catch(_){}
   sessionLost('');
 };
+document.getElementById('tok').addEventListener('keydown',function(ev){if((ev.key==='Enter'||ev.keyCode===13)&&!ev.isComposing){ev.preventDefault();document.getElementById('tokbtn').click()}});   // Enter signs in, same as the button
 document.getElementById('tokbtn').onclick=async()=>{
   const pw=document.getElementById('tok').value;
   document.getElementById('tokerr').textContent='Connecting…';
