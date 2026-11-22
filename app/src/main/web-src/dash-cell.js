@@ -22,7 +22,7 @@ function mountDashCell() {
 #dash_cell .dc-h{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 #dash_cell .dc-t{font-weight:800;font-size:13px;background:none;border:0;padding:2px 0;color:inherit;cursor:pointer;min-height:0}
 #dash_cell .dc-hb{display:flex;gap:6px;flex-wrap:wrap}
-#dash_cell .dc-body{margin-top:8px}
+#dash_cell .dc-body{margin-top:2px}
 #dash_cell .dc-l{font-size:11.5px;color:var(--mut);margin:8px 0 3px}
 #dash_cell .dc-note{font-size:11px;color:var(--mut);margin:2px 0 6px}
 #dash_cell .dc-warn{font-size:11px;color:#ff9a9a;margin:0 0 6px}
@@ -31,7 +31,8 @@ function mountDashCell() {
 #dash_cell .dc-cell>span{flex:1 1 220px;min-width:0}
 #dash_cell button,#dash_cell select,#dash_cell input[type=text]{min-height:28px;padding:3px 10px;font-size:12px;border-radius:7px}
 #dash_cell input[type=text]{width:84px;min-width:0}
-#dash_cell .dc-s{font-size:11.5px;min-height:15px;margin-top:4px}
+#dash_cell .dc-s{font-size:11.5px;margin-top:4px}
+#dash_cell .dc-s:empty{display:none}
 #dash_cell .dc-log{display:none;margin:6px 0 0;padding:6px 8px;max-height:96px;overflow:auto;white-space:pre-wrap;font-size:10.5px;line-height:1.4;background:var(--bg);border:1px solid var(--bd);border-radius:8px}
 #dash_cell .dc-c1,#dash_cell .dc-c2{min-width:0}
 /* Wide screens: the card sits under Live device status (right column) in two columns. Narrow screens keep it under Radio settings, one column. */
