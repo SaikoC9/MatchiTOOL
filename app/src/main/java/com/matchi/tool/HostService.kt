@@ -358,6 +358,11 @@ T=25
 # One script, its own time limit: a slow or failing script is logged to events.log and the next one still runs.
 runone() {
   echo "§1" > §D/boot.current 2>/dev/null   # if the whole run is killed by the outer limit, the app reads this to log which script hung
+  # Everything this script starts carries MATCHI_PLUGIN=boot-NAME (NAME = the script's file name), so the Plugin guard can see programs that
+  # only start at boot (AdGuard Home, Bypass). Without a tag they were invisible to it until the plugin was switched off and on again.
+  b=§(basename "§1" .sh | sed 's/[^A-Za-z0-9._-]/_/g' | cut -c1-34)
+  if [ "§b" = boot ] || [ -z "§b" ]; then G=boot; else G="boot-§b"; fi
+  export MATCHI_PLUGIN="§G"
   if command -v timeout >/dev/null 2>&1; then timeout §T /system/bin/sh "§1"; rc=§?
   else
     # No timeout command on this ROM: a small watchdog stops the script after §T s, so one hanging script cannot block the rest.
@@ -366,6 +371,7 @@ runone() {
     wait §P; rc=§?
     kill §W 2>/dev/null
   fi
+  unset MATCHI_PLUGIN
   case §rc in
     0) ;;
     124|137|143) note "§1 stopped: no answer within §{T}s (timeout), later scripts continue" ;;
