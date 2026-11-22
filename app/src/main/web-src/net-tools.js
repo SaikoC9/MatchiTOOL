@@ -1112,11 +1112,12 @@ function mountNetTools() {
    The page has many !important button rules, so the selectors below carry extra ids (:not(#x) adds weight) to win over them. */
 #matchi_net_modal .net-top{display:flex;gap:6px;align-items:center;justify-content:space-between;flex-wrap:nowrap;margin:0 0 6px}
 #matchi_net_tabs{display:flex;gap:4px;flex:1 1 auto;min-width:0;flex-wrap:wrap}
-#matchi_net_tabs>button{flex:1 1 0;min-width:0}
+#matchi_net_tabs>button{flex:1 1 auto;min-width:0}
 html body #matchi_net_modal:not(#a):not(#b):not(#c) button:not(.mt-tip-btn):not([role=switch]){box-sizing:border-box!important;height:28px!important;min-height:28px!important;max-height:28px!important;min-width:72px!important;padding:0 10px!important;margin:0!important;font-size:12px!important;font-weight:600!important;line-height:1!important;border-radius:7px!important;white-space:nowrap;display:inline-flex!important;align-items:center;justify-content:center;border:1px solid rgba(119,166,225,.28)!important;box-shadow:none!important;background:linear-gradient(180deg,#1b3454,#172b46)!important;color:var(--fg)!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button:not(.mt-tip-btn):not([role=switch]){box-sizing:border-box!important;width:auto!important;min-width:72px!important;max-width:none!important;height:28px!important;min-height:28px!important;max-height:28px!important;flex:0 0 auto!important;padding:0 10px!important;margin:0!important;font-size:12px!important;font-weight:600!important;border:1px solid rgba(119,166,225,.28)!important;border-radius:7px!important;background:linear-gradient(180deg,#1b3454,#172b46)!important;color:var(--fg)!important;box-shadow:none!important}
-html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 0!important;min-width:0!important;padding:0 4px!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 auto!important;width:auto!important;min-width:0!important;height:26px!important;min-height:26px!important;max-height:26px!important;padding:0 9px!important;font-size:11.5px!important;letter-spacing:0!important;white-space:nowrap!important;overflow:hidden;text-overflow:clip}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button.net-act{min-width:0!important;padding:0 8px!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]){width:64px!important;min-width:64px!important;padding:0 4px!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) :is(button.net-danger,button.danger,button[class*=danger]){border:1px solid rgba(119,166,225,.28)!important;box-shadow:none!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button[role=tab].on:not(.mt-tip-btn):not([role=switch]){border-color:var(--acc)!important;background:#1d395c!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button:disabled{opacity:.55}
@@ -1143,7 +1144,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 #matchi_net_modal .net-tbl td.net-rowact{white-space:nowrap;min-width:0}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]){margin:0 0 0 6px!important}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(100px,30%) 1fr;gap:6px;align-items:center;margin:3px 0}
-#matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:28px!important;height:28px;padding:0 8px!important}
+#matchi_net_modal .net-frow label{line-height:1.25}
+#matchi_net_modal .net-frow :is(input:not([type=checkbox]),select){box-sizing:border-box;width:100%;min-height:28px!important;height:28px;padding:0 8px!important}
+#matchi_net_modal .net-frow input[type=checkbox]{justify-self:start;align-self:center;flex:0 0 auto;width:32px!important;min-width:32px!important;height:18px!important;min-height:0!important;max-height:18px!important;padding:0!important;margin:0!important;border:0!important;border-radius:999px!important;box-sizing:border-box}
 #matchi_net_modal .net-prog{padding:5px 8px;border-radius:7px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
 #matchi_net_modal .net-sum{margin:2px 0 8px;color:var(--mut);font-size:13.5px}
 #matchi_net_modal .net-tbl th{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);padding-bottom:6px}
@@ -1154,7 +1157,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 #matchi_net_modal .net-sub{display:block;color:var(--mut);font-size:12px}
 #matchi_net_modal .net-limv{display:block;color:var(--mut)}
 #matchi_net_modal .net-limv.on{color:var(--acc2)}
-#matchi_net_modal .net-me{display:inline-block;margin-left:8px;max-width:56px;white-space:normal;line-height:1.2;text-align:right;vertical-align:middle;font-size:12.5px}
+#matchi_net_modal .net-me{display:inline-block;box-sizing:border-box;width:64px;margin-left:6px;white-space:normal;line-height:1.15;text-align:center;vertical-align:middle;font-size:12px;color:var(--mut)}
 #matchi_net_modal .net-limp{border:1px solid var(--bd);border-radius:10px;padding:8px 12px 10px;margin:12px 0 4px;background:rgba(255,255,255,.015)}
 #matchi_net_modal .net-limhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px}
 html body #matchi_net_modal .net-limhead button.mt-tip-btn{height:19px!important;padding:0 9px 0 6px!important;font-size:11px!important;margin:0!important}
@@ -1165,14 +1168,14 @@ html body #matchi_net_modal .net-limhead button.mt-tip-btn{height:19px!important
 #matchi_net_modal .net-limhint{color:var(--mut);font-size:12.5px;white-space:nowrap}
 #matchi_net_modal .net-actions.net-end{justify-content:flex-end}
 @media (max-width:520px){
-html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 30%!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 auto!important;padding:0 7px!important;font-size:11px!important}
 #matchi_net_modal .net-tbl thead{display:none}
 #matchi_net_modal .net-tbl,#matchi_net_modal .net-tbl tbody{display:block}
 #matchi_net_modal .net-tbl tr{display:grid;grid-template-columns:auto 1fr;gap:0 14px;border-bottom:1px solid var(--bd);padding:8px 0}
 #matchi_net_modal .net-tbl td{border:0!important;padding:0!important}
 #matchi_net_modal .net-tbl td.net-rowact{grid-column:1/-1;text-align:left;padding-top:8px!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]):first-child{margin-left:0!important}
-#matchi_net_modal .net-me{max-width:none;text-align:left}
+#matchi_net_modal .net-me{width:64px;text-align:center}
 }
 #matchi_net_modal .title{display:flex!important;align-items:center;justify-content:space-between;gap:8px}
 #matchi_net_modal .mfoot #matchi_net_status{flex:1 1 auto;margin:0 auto 0 0;text-align:left;font-size:12px;color:var(--mut)}
