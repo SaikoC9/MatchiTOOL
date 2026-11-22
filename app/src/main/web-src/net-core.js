@@ -865,6 +865,18 @@
   }
   const limitSide = (v) => (v === null ? 'Unlimited' : v + ' KB/s');
   const limitText = (down, up) => 'Download ' + limitSide(down) + ', Upload ' + limitSide(up);
+  // The short form shown in the Devices list: "\u2193 1000 \u00b7 \u2191 1000 KB/s" when both sides are set, else each side keeps its own unit ("\u2193 300 KB/s \u00b7 \u2191 Unlimited").
+  const limitShort = (down, up) => (down !== null && up !== null ? '\u2193 ' + down + ' \u00b7 \u2191 ' + up + ' KB/s'
+    : '\u2193 ' + (down === null ? 'Unlimited' : down + ' KB/s') + ' \u00b7 \u2191 ' + (up === null ? 'Unlimited' : up + ' KB/s'));
+  // The hint beside a Download / Upload field while typing: KB/s -> Mbps (1 KB/s = 8 kbit/s). '' for text that is not a number, 'Unlimited' for an empty field.
+  function limitMbps(text) {
+    const t = String(text == null ? '' : text).trim();
+    if (t === '') return 'Unlimited';
+    if (!/^\d{1,9}$/.test(t)) return '';
+    const m = Number(t) * 8 / 1000;
+    const r = m >= 100 ? Math.round(m) : m >= 10 ? Math.round(m * 10) / 10 : Math.round(m * 100) / 100;
+    return '\u2248 ' + r + ' Mbps';
+  }
   // After a change: does the phone report exactly the wanted limit, and (when there is one) is it on the phone now? Not active = not reached.
   function limitReached(parsed, mac, down, up) {
     if (!parsed) return false;
@@ -888,6 +900,6 @@
     parseMtu, sections, parseRootNet,
     MTU_MIN, MTU_MAX, MSS_MIN, mtuDefaultMss, mtuCheck, mtuCall, MTU_BACKUP_PATH, mtuBackupWriteSh, MTU_BACKUP_READ_SH, MTU_BACKUP_DELETE_SH, parseMtuBackup,
     wanFollowed, PING_SH, parsePing, isAuthError,
-    LIMIT_MIN, LIMIT_MAX, limitIp, limitMac, limitField, limitCheck, limitCall, parseLimits, limitFor, limitText, limitReached,
+    LIMIT_MIN, LIMIT_MAX, limitIp, limitMac, limitField, limitCheck, limitCall, parseLimits, limitFor, limitText, limitShort, limitMbps, limitReached,
   };
 });

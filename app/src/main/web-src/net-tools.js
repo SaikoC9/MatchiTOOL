@@ -43,6 +43,7 @@ function mountNetTools() {
     return e;
   };
   const $ = (id) => document.getElementById(id);
+  const clock = (t) => new Date(t === undefined ? Date.now() : t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });   // "12:45 AM"
   const notReported = () => h('span', { class: 'net-mut' }, NOT);
   const val = (v) => (v === null || v === undefined || v === '' ? notReported() : String(v));
   const kv = (rows) => h('dl', { class: 'net-kv' }, rows.map(([k, v, note]) => [h('dt', {}, k), h('dd', {}, val(v), note ? h('span', { class: 'net-note' }, ' ' + note) : null)]));
@@ -72,7 +73,7 @@ function mountNetTools() {
     const mode = N.wifiMode(w), busy = anyAct();
     const top = kv([['Wi-Fi', w.moduleOn === null ? null : w.moduleOn ? 'On' : 'Off'], ['Band in use', N.wifiSummary(w)], ['Devices on Wi-Fi', w.clients === null ? null : String(w.clients)]]);
     const msg = st.wifiMsg ? h('div', {}, st.wifiMsg.lines.map((t) => note(t, st.wifiMsg.bad ? 'net-warn' : ''))) : null;
-    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     // band choice
     if (!st.wifiBandSel || st.wifiBandSel.base !== String(mode)) st.wifiBandSel = { base: String(mode), value: mode === '2g' || mode === '5g' || mode === 'off' ? mode : '' };
     const sel = h('select', { id: 'matchi_wifi_band' }, (st.wifiBandSel.value ? [] : [h('option', { value: '' }, '(choose)')]).concat(N.WIFI_BANDS.map(([k, t]) => h('option', { value: k }, t))));
@@ -142,7 +143,7 @@ function mountNetTools() {
     for (const e of [ssid, auth, pass, show, vis, max]) if (busy) e.disabled = true;
     syncPass();
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_wifi_err' }, '');
-    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change Wi-Fi settings (' + act.band + ')'),
       row('Network name (SSID)', ssid), row('Broadcast SSID (visible)', vis), row('Security mode', auth),
       row('Wi-Fi password', pass), row('Display password', show), row('Max devices', max), err,
@@ -154,7 +155,7 @@ function mountNetTools() {
     const p = N.parseDevices(d);
     if (!p) return note(NOT + ' (device lists).');
     const acl = N.parseAcl(d);
-    const head = note(p.rows.length + (p.rows.length === 1 ? ' device' : ' devices') + ': ' + p.wifi + ' on Wi-Fi, ' + p.cable + ' on cable.');
+    const head = note(p.rows.length + (p.rows.length === 1 ? ' device' : ' devices') + ' \u00b7 ' + p.wifi + ' on Wi-Fi \u00b7 ' + p.cable + ' on cable', 'net-sum');
     const extra = [];
     if (!p.cableReported) extra.push(note('The cable list is ' + NOT.toLowerCase() + '.', 'net-mut'));
     if (!p.wifiReported) extra.push(note('The Wi-Fi list is ' + NOT.toLowerCase() + '.', 'net-mut'));
@@ -162,23 +163,27 @@ function mountNetTools() {
     const msg = st.devMsg ? note(st.devMsg.text, st.devMsg.bad ? 'net-warn' : '') : null;
     const refusal = N.aclRefusal(acl);
     const blockedMacs = new Set(acl ? acl.black.map((b) => b.mac) : []);
-    const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (st.devAct || st.limAct) b.disabled = true; b.onclick = fn; return b; };
+    const act = (label, fn, danger) => { const b = h('button', { type: 'button', class: 'net-act' }, label); if (st.devAct || st.limAct) b.disabled = true; b.onclick = fn; return b; };
     const limMsg = st.limMsg ? h('p', { class: 'net-p' + (st.limMsg.bad ? ' net-warn' : ''), id: 'matchi_lim_msg', role: 'status' }, st.limMsg.text) : null;   // always plain text: a result must never hide behind an Info chip
     let noLimit = 0;
     let table = null;
     if (p.rows.length) {
       table = h('div', { class: 'net-scroll' }, h('table', { class: 'net-tbl' },
-        h('thead', {}, h('tr', {}, ['Name', 'IP address', 'MAC address', 'Type', 'Limit', ''].map((t) => h('th', { scope: 'col' }, t)))),
+        h('thead', {}, h('tr', {}, [['Device', ''], ['Limit', ''], ['Actions', 'net-end']].map(([t, c]) => h('th', { scope: 'col', class: c }, t)))),
         h('tbody', {}, p.rows.map((r) => {
           const self = N.isSelf(r.ip, st.me), canAct = N.isMac(r.mac);
           const cell = h('td', { class: 'net-rowact' });
           if (canAct) cell.append(act('Rename', () => devRename(r)));
           const limitable = canAct && !!N.limitMac(r.mac) && !!N.limitIp(r.ip);
-          if (limitable) cell.append(act('Limit speed', () => limOpen(r)));
+          if (limitable) cell.append(act('Limit', () => limOpen(r)));
           else if (canAct) noLimit++;
-          if (self) cell.append(h('span', { class: 'net-mut' }, ' this device'));
+          if (self) cell.append(h('span', { class: 'net-mut net-me' }, 'this device'));
           else if (canAct && !refusal && !blockedMacs.has(r.mac)) cell.append(act('Block', () => devBlock(r, acl), true));
-          return h('tr', {}, h('td', {}, r.name || '(no name)'), h('td', {}, r.ip || '-'), h('td', {}, r.mac || '-'), h('td', {}, r.type), h('td', { class: 'net-lim' }, limCell(r.mac)), cell);
+          const lim = limCell(r.mac);
+          return h('tr', {},
+            h('td', { class: 'net-dev' }, h('span', { class: 'net-nm' }, r.name || '(no name)'), h('span', { class: 'net-sub' }, r.ip || '-')),
+            h('td', { class: 'net-lim' }, h('span', { class: 'net-limv' + (lim.on ? ' on' : '') }, lim.text), h('span', { class: 'net-sub' }, (r.mac || '-') + ' \u00b7 ' + r.type + (lim.saved ? ' \u00b7 ' + lim.saved : ''))),
+            cell);
         }))));
     }
     const blocked = [];
@@ -189,7 +194,7 @@ function mountNetTools() {
     }
     if (refusal) extra.push(note(refusal, 'net-mut'));
     if (!st.me) extra.push(note('Your device wasn\'t identified. Don\'t block your own device.', 'net-mut'));
-    if (noLimit) extra.push(note('Limit speed needs a device address 192.168.0.2 to 192.168.0.254 and a normal MAC address. ' + noLimit + (noLimit === 1 ? ' device has' : ' devices have') + ' none, so it has no Limit speed button.', 'net-mut'));
+    if (noLimit) extra.push(note('Limit speed needs a device address 192.168.0.2 to 192.168.0.254 and a normal MAC address. ' + noLimit + (noLimit === 1 ? ' device has' : ' devices have') + ' none, so it has no Limit button.', 'net-mut'));
     if (st.limErr) extra.push(note('Speed limits not read: ' + N.maskSecrets(st.limErr) + '. Press Refresh to try again.', 'net-mut'));
     else if (st.lim && st.lim.note) extra.push(note('Speed limits: ' + st.lim.note + '.', st.lim.rootBusy ? 'net-warn' : 'net-mut'));
     return h('div', {}, head, msg, limMsg, table, st.limForm ? limitFormView(st.limForm) : null, blocked, extra);
@@ -198,7 +203,7 @@ function mountNetTools() {
     const a = N.parseApn(d);
     if (!a || (!a.mode && !a.hasSlots && !a.inUse && !a.auto)) return note(NOT + ' (APN).');
     const refusal = N.apnRefusal(a), busy = st.apnAct || st.act || st.devAct || st.wifiAct;
-    const act = (label, fn, danger, id) => { const b = h('button', { type: 'button', class: 'net-act' + (danger ? ' net-danger' : '') }, label); if (id) b.id = id; if (busy) b.disabled = true; b.onclick = fn; return b; };
+    const act = (label, fn, danger, id) => { const b = h('button', { type: 'button', class: 'net-act' }, label); if (id) b.id = id; if (busy) b.disabled = true; b.onclick = fn; return b; };
     const line = (p) => (p ? (p.name || '(no name)') + (p.apn ? ' · ' + p.apn : '') : null);
     const modeWord = a.mode === 'auto' ? 'Auto' : a.mode === 'manual' ? 'Manual' : a.mode;
     const top = kv([['APN mode', modeWord], ['In use', line(a.inUse)], ['Automatic profile', a.auto ? line(a.auto) : null]]);
@@ -267,7 +272,7 @@ function mountNetTools() {
     const busy = lanBusy();
     const e = h('input', { type: 'text', id: 'matchi_lan_ip', maxlength: '15', autocomplete: 'off', placeholder: 'for example 192.168.1.1' }); e.value = st.lanIp || ''; e.oninput = () => { st.lanIp = e.value; }; if (busy) e.disabled = true;
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lan_ip_err' }, '');
-    const x = h('button', { type: 'button', id: 'matchi_lan_ip_apply', class: 'net-danger' }, 'Change router IP'); if (busy) x.disabled = true; x.onclick = () => lanIpSubmit(e.value, err);
+    const x = h('button', { type: 'button', id: 'matchi_lan_ip_apply' }, 'Change router IP'); if (busy) x.disabled = true; x.onclick = () => lanIpSubmit(e.value, err);
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change router IP address'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_lan_ip' }, 'New router IP'), e), err, h('div', { class: 'net-actions' }, x),
       note('Highest risk. DHCP pool moves to the new subnet. Mask unchanged (' + p.mask + '). The router restarts, then the OLD address ' + p.ip + ' answers nothing and this console is at the new address: your PC or phone must get an address in the new subnet (reconnect; a fixed address must be changed). The old values are saved first, and after the restart MatchiTOOL checks the router and puts them back if it came up with something else. Do this from a cable device you can reach again. \"Restore\" also works from the new address.', 'net-mut'));
@@ -275,7 +280,7 @@ function mountNetTools() {
   // DHCP is Off (switched off on the stock page): the one change offered is putting it back On with the pool the router still reports (or the stock pool for a /24).
   function lanDhcpOff(p) {
     const busy = lanBusy();
-    const x = h('button', { type: 'button', id: 'matchi_lan_dhcpon', class: 'net-danger' }, 'Restore DHCP'); if (busy) x.disabled = true; x.onclick = lanDhcpOn;
+    const x = h('button', { type: 'button', id: 'matchi_lan_dhcpon' }, 'Restore DHCP'); if (busy) x.disabled = true; x.onclick = lanDhcpOn;
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'DHCP server is Off'),
       note('Devices get no address while the DHCP server is Off. Restore DHCP sends the stock call with the pool the router reports (or .2 - .253 on a /24) and the lease; the router IP and the mask stay the same. The router restarts.', 'net-warn'),
       h('div', { class: 'net-actions' }, x));
@@ -289,7 +294,7 @@ function mountNetTools() {
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lan_err' }, '');
     const a = inp('matchi_lan_start', st.lanForm.start, 'start', 15), b = inp('matchi_lan_end', st.lanForm.end, 'end', 15), c = inp('matchi_lan_lease', st.lanForm.lease, 'lease', 3);
-    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Change DHCP pool / lease'),
       row('Pool start', a), row('Pool end', b), row('Lease (hours)', c), err,
       h('div', { class: 'net-actions' }, mk('Apply', 'matchi_lan_apply', () => lanSubmit(a.value, b.value, c.value, err), true)),
@@ -315,7 +320,7 @@ function mountNetTools() {
     const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_mtu_err' }, '');
     const mtuIn = inp('matchi_mtu_mtu', st.mtuForm.mtu, 'mtu'), mssIn = inp('matchi_mtu_mss', st.mtuForm.mss, 'mss');
-    const mk = (label, id, fn, danger) => { const b = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) b.disabled = true; b.onclick = fn; return b; };
+    const mk = (label, id, fn, danger) => { const b = h('button', { type: 'button', id, class: '' }, label); if (busy) b.disabled = true; b.onclick = fn; return b; };
     const useDefault = mk('MSS = MTU − 40', 'matchi_mtu_default', () => {
       const m = String(mtuIn.value).trim();
       if (!/^\d{1,4}$/.test(m)) { err.textContent = 'Type a whole-number MTU first, then press this button.'; return; }
@@ -377,7 +382,7 @@ function mountNetTools() {
       if (waRead1) await waRead1;
       if (my !== epoch) return;
       st.cache[tab] = { d, at: Date.now() };
-      paint(tab); setStatus('Updated ' + new Date().toLocaleTimeString());
+      paint(tab); setStatus('Updated ' + clock());
       if (tab === 'devices') limRead();   // best effort, never blocks the list: the Limit column fills in when the phone answers
     } catch (e) {
       if (my !== epoch) return;
@@ -390,7 +395,7 @@ function mountNetTools() {
   function select(tab) {
     if (!VIEWS[tab]) return;
     st.tab = tab; syncButtons();
-    if (st.cache[tab]) { epoch++; st.loading = false; paint(tab); syncButtons(); setStatus('Updated ' + new Date(st.cache[tab].at).toLocaleTimeString()); } else load(tab);
+    if (st.cache[tab]) { epoch++; st.loading = false; paint(tab); syncButtons(); setStatus('Updated ' + clock(st.cache[tab].at)); } else load(tab);
   }
   // ---- mobile data off / on -------------------------------------------------------------------------------------------------
   const readPpp = async () => N.parseData(await R.zte('get', { multi_data: '1', cmd: N.READ.data }));
@@ -422,7 +427,7 @@ function mountNetTools() {
         ? { bad: false, text: action === 'off' ? 'Mobile data is off (' + now + ').' : 'Mobile data is on (' + now + ').' }
         : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' };
     } finally {
-      if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   // ---- devices: rename, block, unblock ----------------------------------------------------------------------------
@@ -459,7 +464,7 @@ function mountNetTools() {
       if (d) st.cache.devices = { d, at: Date.now() };
       st.devMsg = good ? { bad: false, text: okText } : { bad: true, text: badText + ' Press Refresh to read the lists again.' };
     } finally {
-      if (my === actId) { st.devAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.devMsg && st.devMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.devAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.devMsg && st.devMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   async function devRename(r) {
@@ -494,8 +499,8 @@ function mountNetTools() {
   // Reading needs the fresh root sign-in: when it fails the column stays "-" and the reason is shown under the table. Nothing is claimed without the re-read.
   function limCell(mac) {
     const r = N.limitFor(st.lim, mac);
-    if (!r) return '-';
-    return N.limitText(r.down, r.up).replace('Download ', 'Down ').replace('Upload ', 'Up ') + (r.active === false ? ' (saved, not on the phone now)' : '');
+    if (!r) return { text: st.lim ? 'No limit' : '-', on: false, saved: '' };   // '-' = the phone was not read, so nothing is claimed
+    return { text: N.limitShort(r.down, r.up), on: true, saved: r.active === false ? 'saved, not on the phone now' : '' };
   }
   async function limRead() {
     const my = ++limSeq;
@@ -516,17 +521,29 @@ function mountNetTools() {
   function limClose() { st.limForm = null; paint('devices'); }
   function limitFormView(f) {
     const busy = st.limAct, self = N.isSelf(f.ip, st.me);
-    const row = (label, el) => h('div', { class: 'net-frow' }, h('label', { for: el.id }, label), el);
-    const mkIn = (id, key, label) => { const e = h('input', { type: 'text', id, inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false', placeholder: 'Unlimited', 'aria-label': label }); e.value = f[key]; e.oninput = () => { f[key] = e.value; }; if (busy) e.disabled = true; return e; };
-    const down = mkIn('matchi_lim_down', 'down', 'Download limit in KB/s'), up = mkIn('matchi_lim_up', 'up', 'Upload limit in KB/s');
+    const hint = (key) => { const m = N.limitMbps(f[key]); return 'KB/s' + (m ? (m === 'Unlimited' ? ' \u00b7 ' : ' ') + m : ''); };
+    const mkRow = (id, key, label, aria) => {
+      const e = h('input', { type: 'text', id, inputmode: 'numeric', autocomplete: 'off', spellcheck: 'false', placeholder: 'Unlimited', 'aria-label': aria }); e.value = f[key];
+      const hl = h('span', { class: 'net-limhint', id: id + '_hint' }, hint(key));
+      e.oninput = () => { f[key] = e.value; hl.textContent = hint(key); };
+      if (busy) e.disabled = true;
+      return { e, row: h('div', { class: 'net-limrow' }, h('label', { for: id }, label), e, hl) };
+    };
+    const dn = mkRow('matchi_lim_down', 'down', 'Download', 'Download limit in KB/s'), up = mkRow('matchi_lim_up', 'up', 'Upload', 'Upload limit in KB/s');
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
-    const mk = (label, id, fn, danger) => { const x = h('button', { type: 'button', id, class: danger ? 'net-danger' : '' }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
-    return h('section', { class: 'net-sec net-form', id: 'matchi_lim_form' }, h('h4', {}, 'Limit Speed Settings'),
-      h('p', { class: 'net-p' }, (f.name || '(no name)') + ' · ' + f.ip + ' · ' + f.mac),
-      row('Download (KB/s)', down), row('Upload (KB/s)', up), err,
+    const mk = (label, id, fn) => { const x = h('button', { type: 'button', id }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
+    // The long explanation is the Info chip in the panel's top right corner; its text opens under the title. Without the tip helper it is a plain note.
+    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). Only IPv4 traffic is limited: a device that also uses IPv6 can go around it. The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
+    const tip = window.MatchiTip ? window.MatchiTip.make(infoText) : null;
+    const chip = tip ? tip.firstChild : null, tipBody = tip ? tip.lastChild : null;
+    const title = h('h4', {}, 'Limit speed \u00b7 ' + (f.name || '(no name)') + ' (' + f.ip + ')');
+    return h('section', { class: 'net-sec net-form net-limp', id: 'matchi_lim_form' },
+      h('div', { class: 'net-limhead' }, title, chip),
+      tipBody,
+      dn.row, up.row, err,
       self ? note('This is the device you are using: limiting it slows this console down too.', 'net-warn') : (!st.me ? note('This page could not tell which device you are using. If this is it, the limit slows this console down too.', 'net-mut') : null),
-      note('Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). Only IPv4 traffic is limited: a device that also uses IPv6 can go around it. The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.', 'net-mut'),
-      h('div', { class: 'net-actions' }, mk('Cancel', 'matchi_lim_cancel', limClose, false), mk('Apply', 'matchi_lim_apply', () => { f.down = down.value; f.up = up.value; limSubmit(f, err); }, true)));
+      tip ? null : h('p', { class: 'net-p net-mut' }, infoText),
+      h('div', { class: 'net-actions net-end' }, mk('Cancel', 'matchi_lim_cancel', limClose), mk('Apply', 'matchi_lim_apply', () => { f.down = dn.e.value; f.up = up.e.value; limSubmit(f, err); })));
   }
   function limSubmit(f, errEl) {
     if (anyAct()) return;
@@ -564,7 +581,7 @@ function mountNetTools() {
       st.limMsg = good ? { bad: false, text: none ? 'Limit removed from ' + call.mac + '.' : 'Limit set for ' + call.mac + ': ' + N.limitText(call.down, call.up) + '. The phone reports it as active.' }
         : { bad: true, text: 'The phone does not report this limit as active' + (p && p.note ? ' (' + p.note + ')' : '') + '. Press Refresh to read it again.' };
     } finally {
-      if (my === actId) { st.limAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.limMsg && st.limMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.limAct = false; if (st.tab === 'devices') { paint('devices'); setStatus(st.limMsg && st.limMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   // ---- APN ---------------------------------------------------------------------------------------------------------
@@ -610,7 +627,7 @@ function mountNetTools() {
       st.apnMsg = ppp && ppp.state === 'connected' ? { bad: false, text: okText + ' Mobile data is connected (' + ppp.ppp + ').' }
         : { bad: true, text: okText + ' But mobile data is not connected (' + (ppp && ppp.ppp ? ppp.ppp : 'no answer') + '). If it does not come back, press "Switch to Auto".' };
     } finally {
-      if (my === actId) { st.apnAct = false; st.prog = ''; if (st.tab === 'apn') { paint('apn'); setStatus(st.apnMsg && st.apnMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.apnAct = false; st.prog = ''; if (st.tab === 'apn') { paint('apn'); setStatus(st.apnMsg && st.apnMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   const profText = (p) => '"' + (p.name || '(no name)') + '"\nAPN ' + (p.apn || '(none)') + '\n' + N.pdpLabel(p.pdp) + ' · login ' + N.authLabelApn(p.auth);
@@ -777,7 +794,7 @@ function mountNetTools() {
       done(bad, lines);
       st.mtuForm = null;
     } finally {
-      if (my === actId) { st.mtuAct = false; st.prog = ''; if (st.tab === 'mtu') { paint('mtu'); setStatus(st.mtuMsg && st.mtuMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.mtuAct = false; st.prog = ''; if (st.tab === 'mtu') { paint('mtu'); setStatus(st.mtuMsg && st.mtuMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   async function mtuSubmit(mtuText, mssText, errEl) {
@@ -915,7 +932,7 @@ function mountNetTools() {
       done(bad, lines);
       st.lanForm = null; st.lanIp = '';
     } finally {
-      if (my === actId) { st.lanAct = false; st.prog = ''; if (st.tab === 'lan') { paint('lan'); setStatus(st.lanMsg && st.lanMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); }
+      if (my === actId) { st.lanAct = false; st.prog = ''; if (st.tab === 'lan') { paint('lan'); setStatus(st.lanMsg && st.lanMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   async function lanIpSubmit(ipT, errEl) {
@@ -963,7 +980,7 @@ function mountNetTools() {
     }
     return { w, raw, wentDown, authStop, got, ok };
   }
-  const wifiEnd = (my) => { if (my === actId) { st.wifiAct = false; st.prog = ''; if (st.tab === 'wifi') { paint('wifi'); setStatus(st.wifiMsg && st.wifiMsg.bad ? 'Check the result above' : 'Updated ' + new Date().toLocaleTimeString()); } syncButtons(); } };
+  const wifiEnd = (my) => { if (my === actId) { st.wifiAct = false; st.prog = ''; if (st.tab === 'wifi') { paint('wifi'); setStatus(st.wifiMsg && st.wifiMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); } };
   async function wifiBandSubmit(mode) {
     if (anyAct()) return;
     if (mode !== '2g' && mode !== '5g' && mode !== 'off') { st.wifiMsg = { bad: true, lines: ['Choose 2.4 GHz only, 5 GHz only or Off first.'] }; paint('wifi'); return; }
@@ -1100,8 +1117,8 @@ html body #matchi_net_modal:not(#a):not(#b):not(#c) button:not(.mt-tip-btn):not(
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button:not(.mt-tip-btn):not([role=switch]){box-sizing:border-box!important;width:auto!important;min-width:72px!important;max-width:none!important;height:28px!important;min-height:28px!important;max-height:28px!important;flex:0 0 auto!important;padding:0 10px!important;margin:0!important;font-size:12px!important;font-weight:600!important;border:1px solid rgba(119,166,225,.28)!important;border-radius:7px!important;background:linear-gradient(180deg,#1b3454,#172b46)!important;color:var(--fg)!important;box-shadow:none!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 0!important;min-width:0!important;padding:0 4px!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button.net-act{min-width:0!important;padding:0 8px!important}
-html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button.net-danger{border:1px solid rgba(119,166,225,.28)!important}
-html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) [role=tab].on{border-color:var(--acc)!important;background:#1d395c!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) :is(button.net-danger,button.danger,button[class*=danger]){border:1px solid rgba(119,166,225,.28)!important;box-shadow:none!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button[role=tab].on:not(.mt-tip-btn):not([role=switch]){border-color:var(--acc)!important;background:#1d395c!important}
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) button:disabled{opacity:.55}
 #matchi_net_modal .modal-foot,#matchi_net_modal .mfoot{margin-top:6px!important;padding-top:6px!important}
 #matchi_net_body{min-height:0}
@@ -1124,11 +1141,41 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 #matchi_net_modal .net-ul{margin:2px 0;padding-left:16px}
 #matchi_net_modal .net-ul li{margin:2px 0}
 #matchi_net_modal .net-tbl td.net-rowact{white-space:nowrap;min-width:0}
-#matchi_net_modal .net-tbl td.net-rowact>button{margin:0 4px 0 0!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]){margin:0 0 0 6px!important}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(100px,30%) 1fr;gap:6px;align-items:center;margin:3px 0}
 #matchi_net_modal .net-frow input,#matchi_net_modal .net-frow select{min-height:28px!important;height:28px;padding:0 8px!important}
 #matchi_net_modal .net-prog{padding:5px 8px;border-radius:7px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
-#matchi_net_modal .net-tbl td.net-lim{font-size:11.5px;white-space:normal;min-width:80px;max-width:150px}
+#matchi_net_modal .net-sum{margin:2px 0 8px;color:var(--mut);font-size:13.5px}
+#matchi_net_modal .net-tbl th{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);padding-bottom:6px}
+#matchi_net_modal .net-tbl th.net-end,#matchi_net_modal .net-tbl td.net-rowact{text-align:right}
+#matchi_net_modal .net-tbl td.net-dev,#matchi_net_modal .net-tbl td.net-lim{padding:8px 10px 8px 0;vertical-align:middle;font-size:13px}
+#matchi_net_modal .net-tbl td.net-rowact{vertical-align:middle;padding:8px 0}
+#matchi_net_modal .net-nm{display:block;font-weight:700;font-size:13.5px}
+#matchi_net_modal .net-sub{display:block;color:var(--mut);font-size:12px}
+#matchi_net_modal .net-limv{display:block;color:var(--mut)}
+#matchi_net_modal .net-limv.on{color:var(--acc2)}
+#matchi_net_modal .net-me{display:inline-block;margin-left:8px;max-width:56px;white-space:normal;line-height:1.2;text-align:right;vertical-align:middle;font-size:12.5px}
+#matchi_net_modal .net-limp{border:1px solid var(--bd);border-radius:10px;padding:8px 12px 10px;margin:12px 0 4px;background:rgba(255,255,255,.015)}
+#matchi_net_modal .net-limhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px}
+html body #matchi_net_modal .net-limhead button.mt-tip-btn{height:19px!important;padding:0 9px 0 6px!important;font-size:11px!important;margin:0!important}
+#matchi_net_modal .net-limhead h4{margin:0;font-size:14px;letter-spacing:0;line-height:1.3}
+#matchi_net_modal .net-limrow{display:grid;grid-template-columns:76px 104px 1fr;gap:6px 10px;align-items:center;margin:6px 0}
+#matchi_net_modal .net-limrow label{color:var(--mut)}
+#matchi_net_modal .net-limrow input{box-sizing:border-box;width:100%;min-height:28px!important;height:28px;padding:0 8px!important}
+#matchi_net_modal .net-limhint{color:var(--mut);font-size:12.5px;white-space:nowrap}
+#matchi_net_modal .net-actions.net-end{justify-content:flex-end}
+@media (max-width:520px){
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) #matchi_net_tabs>button{flex:1 1 30%!important}
+#matchi_net_modal .net-tbl thead{display:none}
+#matchi_net_modal .net-tbl,#matchi_net_modal .net-tbl tbody{display:block}
+#matchi_net_modal .net-tbl tr{display:grid;grid-template-columns:auto 1fr;gap:0 14px;border-bottom:1px solid var(--bd);padding:8px 0}
+#matchi_net_modal .net-tbl td{border:0!important;padding:0!important}
+#matchi_net_modal .net-tbl td.net-rowact{grid-column:1/-1;text-align:left;padding-top:8px!important}
+html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]):first-child{margin-left:0!important}
+#matchi_net_modal .net-me{max-width:none;text-align:left}
+}
+#matchi_net_modal .title{display:flex!important;align-items:center;justify-content:space-between;gap:8px}
+#matchi_net_modal .mfoot #matchi_net_status{flex:1 1 auto;margin:0 auto 0 0;text-align:left;font-size:12px;color:var(--mut)}
 #matchi_net_modal .net-pre{background:var(--bg);border:1px solid var(--bd);border-radius:7px;padding:6px;margin:4px 0;font-size:11px;line-height:1.4;white-space:pre-wrap;overflow:auto;max-height:160px}`;
     document.head.appendChild(s);
   }
@@ -1140,10 +1187,16 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false; st.lim = null; st.limErr = ''; st.limForm = null; st.limAct = false; st.limMsg = null; limSeq++;
     createModal({
       name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
-      content: '<div class="net-top">' + (st.only ? '<span></span>' : '<div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button></div>' +
+      content: (st.only ? '' : '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });
     showModal(MODAL);
+    {   // Refresh goes up beside the title, the "Updated" line goes down beside Close (same elements, same ids and handlers)
+      const bg = $(MODAL), q = (sel) => (bg && bg.querySelector ? bg.querySelector(sel) : null);
+      const ttl = q('.title'), foot = q('.mfoot'), rb = $('matchi_net_refresh'), sb = $('matchi_net_status');
+      if (ttl && rb) ttl.appendChild(rb);
+      if (foot && sb) foot.insertBefore(sb, foot.firstChild);
+    }
     const tabs = $('matchi_net_tabs');
     if (tabs) for (const [id, label] of N.TABS) {
       const b = h('button', { type: 'button', role: 'tab', 'data-tab': id, id: 'matchi_net_tab_' + id }, label);

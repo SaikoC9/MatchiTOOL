@@ -492,7 +492,10 @@ eq([pl.lanUp, pl.rootBusy, pl.note], [true, false, '']);
 eq(N.parseLimits({ success: true, lanUp: false, rootBusy: true, note: ' br0 busy ', limits: [] }), { rows: [], lanUp: false, rootBusy: true, note: 'br0 busy' });
 for (const bad of [null, undefined, 'x', [], {}, { success: false, error: 'no', limits: [] }, { success: true }, { success: true, limits: 'x' }]) eq(N.parseLimits(bad), null);
 eq(N.limitFor(pl, 'AA:BB:CC:DD:EE:01').down, 500); eq(N.limitFor(pl, 'aa:bb:cc:dd:ee:03'), null, 'a row with both sides Unlimited is no limit'); eq(N.limitFor(pl, 'aa:bb:cc:dd:ee:09'), null); eq(N.limitFor(null, 'aa:bb:cc:dd:ee:01'), null); eq(N.limitFor(pl, 'junk'), null);
-eq(N.limitText(500, null), 'Download 500 KB/s, Upload Unlimited'); eq(N.limitText(null, 250), 'Download Unlimited, Upload 250 KB/s');
+eq(N.limitText(500, null), 'Download 500 KB/s, Upload Unlimited');
+// the Devices list shows the short form, the form shows KB/s -> Mbps while typing
+eq(N.limitShort(1000, 1000), '\u2193 1000 \u00b7 \u2191 1000 KB/s'); eq(N.limitShort(300, null), '\u2193 300 KB/s \u00b7 \u2191 Unlimited'); eq(N.limitShort(null, 250), '\u2193 Unlimited \u00b7 \u2191 250 KB/s');
+eq(N.limitMbps('1000'), '\u2248 8 Mbps'); eq(N.limitMbps('1500'), '\u2248 12 Mbps'); eq(N.limitMbps('125000'), '\u2248 1000 Mbps'); eq(N.limitMbps('8'), '\u2248 0.06 Mbps'); eq(N.limitMbps(''), 'Unlimited'); eq(N.limitMbps('  '), 'Unlimited'); eq(N.limitMbps('12x'), ''); eq(N.limitMbps(null), 'Unlimited'); eq(N.limitText(null, 250), 'Download Unlimited, Upload 250 KB/s');
 assert(N.limitReached(pl, 'aa:bb:cc:dd:ee:01', 500, 250), 'same values and active'); assert(!N.limitReached(pl, 'aa:bb:cc:dd:ee:01', 500, 300), 'other values'); assert(!N.limitReached(pl, 'aa:bb:cc:dd:ee:02', null, 300), 'saved but not active is not reached');
 assert(N.limitReached(pl, 'aa:bb:cc:dd:ee:03', null, null) && N.limitReached(pl, 'aa:bb:cc:dd:ee:09', null, null) && !N.limitReached(pl, 'aa:bb:cc:dd:ee:01', null, null), 'removal is reached only when the row is gone'); assert(!N.limitReached(null, 'aa:bb:cc:dd:ee:01', 500, 250));
 assert(!N.limitReached({ rows: [{ mac: 'aa:bb:cc:dd:ee:05', down: 9, up: null, ip: null, online: true, active: null }], lanUp: true, rootBusy: false, note: '' }, 'aa:bb:cc:dd:ee:05', 9, null) === false, 'active unknown (null) is accepted: only an explicit false fails');
