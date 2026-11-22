@@ -54,8 +54,16 @@ internal fun WebServer.guardSet(s: IHTTPSession): Response {
     return json(Response.Status.OK, guardState().put("ok", true))
 }
 
-/** Called once from the WebServer constructor's worker thread: bring the program back after a host restart when the owner switched it on. */
+/**
+ * Called once from the WebServer constructor's worker thread: bring the program back after a host restart or a reboot when the owner
+ * switched it on. Right after a boot root may not be ready yet (the root manager is still starting), so a failed start is tried again
+ * after 20, 60 and 120 s instead of leaving the guard off until the person switches it off and on.
+ */
 internal fun WebServer.guardAutostart() {
-    if (!Prefs.guardOn(ctx)) return
-    guardApply(true)?.let { LogCatcher.log("WARNING", "Guard", "matchi-guard did not start: $it") }
+    for ((i, wait) in longArrayOf(0, 20_000, 60_000, 120_000).withIndex()) {
+        if (wait > 0) try { Thread.sleep(wait) } catch (_: InterruptedException) { return }
+        if (!Prefs.guardOn(ctx)) return   // switched off meanwhile
+        val why = guardApply(true) ?: return
+        LogCatcher.log("WARNING", "Guard", "matchi-guard did not start (try ${i + 1} of 4): $why")
+    }
 }

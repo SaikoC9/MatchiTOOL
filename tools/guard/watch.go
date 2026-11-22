@@ -78,7 +78,8 @@ type report struct {
 type watcher struct {
 	c       cfg
 	prev    map[key]uint64
-	tags    map[key]string
+	tags    map[key]string  // tag of every process seen in the last sweep (own tag, or the one inherited from a tagged ancestor)
+	own     map[key]tagMemo // what reading the environ of a process gave; see tagFor
 	plugins map[string]*plugState
 	actions []action
 	last    time.Time
@@ -86,7 +87,7 @@ type watcher struct {
 }
 
 func newWatcher(c cfg) *watcher {
-	return &watcher{c: c, prev: map[key]uint64{}, tags: map[key]string{}, plugins: map[string]*plugState{}}
+	return &watcher{c: c, prev: map[key]uint64{}, tags: map[key]string{}, own: map[key]tagMemo{}, plugins: map[string]*plugState{}}
 }
 
 func (w *watcher) act(what, plugin string, p *procInfo, why string) {
@@ -104,6 +105,33 @@ type usage struct {
 	ticks uint64
 	rss   int64
 	procs []procInfo
+}
+
+// tagMemo is what the last read of one process's environ gave. A found tag never changes and is kept. "No tag" is NOT final: at boot
+// a process can be seen before its environment is complete (between fork and exec), or the read can time out while the phone is busy
+// starting everything. Remembering that forever left plugins started by boot.sh invisible until the guard was switched off and on
+// (which emptied the memory). So an empty answer is asked again: every sweep while the process is young, every 10th sweep later.
+type tagMemo struct {
+	tag   string
+	round int
+}
+
+const (
+	youngSecs   = 300 // a process younger than this is asked again at every sweep
+	oldRetryGap = 10  // an older process without a tag is asked again every this many sweeps
+)
+
+func (w *watcher) tagFor(k key, p *procInfo, up float64) tagMemo {
+	if m, ok := w.own[k]; ok {
+		if m.tag != "" {
+			return m
+		}
+		young := up-float64(p.Start)/clkTck < youngSecs
+		if !young && w.n-m.round < oldRetryGap {
+			return m
+		}
+	}
+	return tagMemo{tag: readTag(w.c.root, p.PID), round: w.n}
 }
 
 func (w *watcher) budget(name string) float64 {
@@ -124,8 +152,8 @@ func (w *watcher) round(now time.Time) report {
 
 	cur := map[key]uint64{}
 	tags := map[key]string{}
+	own := map[key]tagMemo{}
 	byPID := map[int]*procInfo{}
-	agg := map[string]*usage{}
 	for i := range procs {
 		p := &procs[i]
 		byPID[p.PID] = p
@@ -133,13 +161,36 @@ func (w *watcher) round(now time.Time) report {
 			continue
 		}
 		k := key{p.PID, p.Start}
-		tag, ok := w.tags[k]
-		if !ok {
-			tag = readTag(w.c.root, p.PID)
-		}
-		tags[k] = tag
+		m := w.tagFor(k, p, up)
+		own[k] = m
+		tags[k] = m.tag
 		cur[k] = p.Ticks
-		if tag == "" {
+	}
+	w.own = own
+	// A process that carries no tag of its own (its environment was cleared, e.g. by su or env -i) still belongs to the plugin whose
+	// tagged process started it. Parents are looked up through the pid table, up to 6 steps.
+	for i := range procs {
+		p := &procs[i]
+		k := key{p.PID, p.Start}
+		if _, ok := cur[k]; !ok || tags[k] != "" {
+			continue
+		}
+		q := byPID[p.PPID]
+		for d := 0; d < 6 && q != nil && q.PID > 2; d++ {
+			if t := tags[key{q.PID, q.Start}]; t != "" {
+				tags[k] = t
+				break
+			}
+			q = byPID[q.PPID]
+		}
+	}
+	w.tags = tags
+	agg := map[string]*usage{}
+	for i := range procs {
+		p := &procs[i]
+		k := key{p.PID, p.Start}
+		tag := tags[k]
+		if _, ok := cur[k]; !ok || tag == "" {
 			continue
 		}
 		u := agg[tag]
@@ -155,7 +206,7 @@ func (w *watcher) round(now time.Time) report {
 		u.rss += p.RSSPages * int64(os.Getpagesize()) / 1024
 		u.procs = append(u.procs, *p)
 	}
-	w.tags, w.prev = tags, cur
+	w.prev = cur
 
 	// 1. stuck helpers that belong to a plugin (tagged, or a parent within 6 steps is tagged)
 	for i := range procs {

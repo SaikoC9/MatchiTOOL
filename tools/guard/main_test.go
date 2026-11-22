@@ -350,3 +350,45 @@ func TestDispatch(t *testing.T) {
 		t.Error("argument checks")
 	}
 }
+
+// Boot case: a plugin process first seen with no tag (environ not ready yet) must show up once its tag can be read, without the guard
+// being restarted. A process whose environ never carries a tag but whose parent does is counted for the parent's plugin.
+func TestWatchTagSeenLaterAndInherited(t *testing.T) {
+	var c calls
+	defer hook(&c)()
+	root := t.TempDir()
+	os.MkdirAll(root+"/proc", 0o755)
+	os.WriteFile(root+"/proc/uptime", []byte("1000.0 0\n"), 0o644)
+	w := newWatcher(testCfg(root, "throttle"))
+	fakeProc(t, root, 500, statLine(500, "AdGuardHome", "S", 1, 500, 1, 0, 99000, 1000), "A=b\x00") // young, no tag yet
+	r := w.round(time.Unix(1000, 0))
+	if len(r.Plugins) != 0 {
+		t.Fatalf("no tag yet, expected no plugin rows: %+v", r.Plugins)
+	}
+	fakeProc(t, root, 500, statLine(500, "AdGuardHome", "S", 1, 500, 1, 0, 99000, 1000), "A=b\x00MATCHI_PLUGIN=AdGuard\x00")
+	fakeProc(t, root, 501, statLine(501, "child", "S", 500, 500, 1, 0, 99500, 100), "") // environment cleared, parent is tagged
+	r = w.round(time.Unix(1030, 0))
+	if len(r.Plugins) != 1 || r.Plugins[0].Name != "AdGuard" || r.Plugins[0].Procs != 2 {
+		t.Fatalf("expected AdGuard with 2 processes: %+v", r.Plugins)
+	}
+}
+
+// An OLD process without a tag is asked again only every oldRetryGap sweeps (cost), but it is asked again.
+func TestWatchOldUntaggedRetried(t *testing.T) {
+	var c calls
+	defer hook(&c)()
+	root := t.TempDir()
+	os.MkdirAll(root+"/proc", 0o755)
+	os.WriteFile(root+"/proc/uptime", []byte("100000.0 0\n"), 0o644)
+	w := newWatcher(testCfg(root, "throttle"))
+	fakeProc(t, root, 500, statLine(500, "x", "S", 1, 500, 1, 0, 100, 1000), "")
+	w.round(time.Unix(1000, 0))
+	fakeProc(t, root, 500, statLine(500, "x", "S", 1, 500, 1, 0, 100, 1000), "MATCHI_PLUGIN=Late\x00")
+	var r report
+	for i := 1; i <= oldRetryGap+1; i++ {
+		r = w.round(time.Unix(1000+int64(30*i), 0))
+	}
+	if len(r.Plugins) != 1 || r.Plugins[0].Name != "Late" {
+		t.Fatalf("old process never re-read: %+v", r.Plugins)
+	}
+}

@@ -10156,6 +10156,11 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     const rf = el('button', '', 'Refresh'); rf.type = 'button';
     btns.appendChild(sw); btns.appendChild(rf); top.appendChild(el('span', 'gd-title', 'Plugin guard')); top.appendChild(btns);
     body = el('div'); box.appendChild(top); box.appendChild(stBox); box.appendChild(body); home.appendChild(box);
+    // Fixed place: right after the Radio settings card. That card is added by another script at its own time, so on a fresh sign-in this card used
+    // to land above it and after a reload below it. Keep it after #dash_radio whenever that card appears (only moved when out of place).
+    const place = () => { const rad = document.getElementById('dash_radio'); if (rad && rad.parentNode === home && rad.nextElementSibling !== box) rad.after(box); };
+    place();
+    try { new MutationObserver(place).observe(home, { childList: true }); } catch (e) { setTimeout(place, 1500); setTimeout(place, 5000); }
     rf.onclick = () => load(false);
     sw.onclick = async () => {
       if (busy) return; busy = true; sw.disabled = true;
