@@ -6410,16 +6410,11 @@ function mountNetTools() {
       h('div', { class: 'net-actions' }, mk('Apply', 'matchi_wifi_band_apply', () => wifiBandSubmit(sel.value), true)),
       note('One band at a time. Switching or turning Wi-Fi off disconnects all devices, including yours. If Wi-Fi is off, use a cable and pick a band.', 'net-mut'));
     const act = N.wifiActive(w), snap = N.wifiSnapOf(act);
-    const blocks = w.entries.map((e) => h('section', { class: 'net-sec' },
-      h('h4', {}, e.band + (e.on === null ? '' : e.on ? ' · on' : ' · off')),
-      kv([['Network name (SSID)', e.ssid], ['Security', e.auth], ['SSID broadcast', e.broadcast === null ? null : e.broadcast ? 'Visible' : 'Hidden'],
-        ['Max devices', e.maxStations === null ? null : String(e.maxStations)], ['Country code', e.country]])));
     let form;
     if (mode === 'off') form = note('Wi-Fi is Off. Choose a band above to turn it on; the settings form appears for the band that is on.', 'net-mut');
     else if (!act || !snap) form = note('The settings are not changed here: the router must report one band on, with its name, security mode (one this tool offers), SSID broadcast and max devices.', 'net-mut');
     else form = wifiForm(snap, act, busy);
-    return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, waSection(), form, blocks,
-      note('Changes restart Wi-Fi.', 'net-mut'));
+    return h('div', {}, st.wifiAct ? progNote() : null, top, msg, bandSec, waSection(), form);
   }
   // Switch + status line: "Turn Wi-Fi off while USB tethering is on". The host does the watching; this only sets the switch and shows what the host reports
   // (read when the tab is read, never polled). The status text comes from the host and is put on the page as text.

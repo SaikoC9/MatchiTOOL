@@ -167,7 +167,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
 
   await click(tabBtn('wifi'));
   let t = bodyText();
-  assert(/HomeNet/.test(t) && /5 GHz only/.test(t) && /WPA2-PSK \/ WPA3-PSK/.test(t) && /Chip 0/.test(t) && /Visible/.test(t), 'wifi tab: ' + t);
+  assert(/5 GHz only/.test(t) && /WPA2-PSK \/ WPA3-PSK/.test(t) && !/Chip 0/.test(t) && !/Country code/.test(t) && !/Changes restart Wi-Fi/.test(t), 'wifi tab: ' + t);   // the per-chip read-only summaries and the footer line are gone; the form holds the values
   assert(!t.includes('TopSecret'), 'the Wi-Fi password is never written as visible text');
   const pwBox = doc.getElementById('matchi_wifi_pass');
   assert(pwBox && pwBox.value === 'TopSecret-pass-1' && pwBox.attrs.type === 'password', 'the password box is pre-filled and masked, like the stock page');
