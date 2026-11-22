@@ -53,7 +53,7 @@ function env() {
   const sent = del ? JSON.parse(del[1].body).ids : [];
   ok(JSON.stringify(sent) === JSON.stringify(['session:done.log', 'audit:shell_audit.log', 'boot:logcat.log.1']), 'delete sends only deletable rows: ' + JSON.stringify(sent));
   ok(!sent.includes('session:live.log') && !sent.includes('boot:logcat.log'), 'active session and live boot file are never sent');
-  ok(/audit log/.test(e.st.confirm) && /root sign-in/.test(e.st.confirm) && /Boot capture/.test(e.st.confirm), 'confirm explains audit and boot rows');
+  ok(/audit log/.test(e.st.confirm) && /root sign-in/i.test(e.st.confirm) && /boot capture/i.test(e.st.confirm), 'confirm explains audit and boot rows');
   ok(/2 selected row\(s\) cannot be deleted/.test(e.st.confirm), 'confirm counts the rows that stay');
 
   e.tick(['session:live.log', 'boot:logcat.log']); e.calls.length = 0; await e.el('lbdelete').onclick();

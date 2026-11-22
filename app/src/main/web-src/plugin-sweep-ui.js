@@ -40,26 +40,26 @@ function sweepDialogText(sw,mode,noRoot){
   if(!sw.checked){
     if(!noRoot){
       const why=(sw.notes[0]||'').replace(/^cannot be checked:\s*/,'');
-      m+='\n\nIt could not be checked whether anything it started is still running'+(why?' ('+why+')':'')+'. Nothing will be listed or ended by a scan.';
+      m+='\n\nCan\'t verify whether its processes are still running'+(why?' ('+why+')':'')+'. Nothing will be listed or ended by a scan.';
     }
     return m;
   }
   const lines=sw.cands.map(sweepProcLine);
   if(mode==='toomany'){
-    m+='\n\nMore than 50 running processes match what it started ('+sw.found+' found). That is too many to end automatically, so nothing will be stopped. The first ones:'+bullets(lines)+'\n\nStop them by hand, or delete without stopping.';
+    m+='\n\n50+ matching processes ('+sw.found+' found). Too many to stop automatically. Nothing stopped. The first ones:'+bullets(lines)+'\n\nStop them manually, or delete without stopping.';
   }else if(lines.length){
-    if(mode==='sweep')m+='\n\nThese processes are running now and match what this plugin started:'+bullets(lines)+'\n\nDeleting and stopping ends them as root, and everything they started. Forcefully, if they do not stop.';
+    if(mode==='sweep')m+='\n\nThese processes are running now and match what this plugin started:'+bullets(lines)+'\n\nDelete and stop ends them and their child processes as root. Forced if needed.';
     else if(mode==='cannot')m+='\n\nThese processes are running now and will keep running:'+bullets(lines);
     else if(mode==='shared')m+='\n\nThese processes are running now. If the stop runs, it also ends them and everything they started:'+bullets(lines);
     else m+='\n\nThen it ends these processes, which are running now, and everything they started:'+bullets(lines);
   }else if(mode==='plain'||mode==='hook'){
-    m+=sw.notStopped.length?'\n\nNothing will be ended, because the processes found are used by another plugin too.':'\n\nNo running process was found for it.';
+    m+=sw.notStopped.length?'\n\nNothing ended. Another plugin shares these processes.':'\n\nNo running processes found.';
   }else if(mode==='stop'||mode==='shared'){
-    m+='\n\nAfter the stop it scans for running processes it started and reports any that are left.';
+    m+='\n\nAfter stopping, it scans for leftover processes.';
   }
   if(sw.notStopped.length)m+='\n\nLeft running on purpose, because another plugin also uses their files:'+bullets(sw.notStopped);
   if(!sw.complete)m+='\n\nThe process list was cut short, so it may be incomplete.';
-  if(sw.cands.length&&!sw.notStopped.length&&mode!=='cannot'&&mode!=='toomany')m+='\n\nProcesses that use files another plugin also uses are never ended.';
+  if(sw.cands.length&&!sw.notStopped.length&&mode!=='cannot'&&mode!=='toomany')m+='\n\nProcesses sharing files with another plugin are never ended.';
   return m;
 }
 /* The retry dialog after a failed stop: what is running right now and would be ended by "Try again". */
@@ -71,9 +71,9 @@ function sweepRetryText(sw){
 function hookDialogText(granted,mode){
   if(mode!=='stop'&&mode!=='sweep'&&mode!=='hook'&&mode!=='shared')return '';
   const g=(Array.isArray(granted)?granted:[]).map(String);
-  let m=mode==='shared'?'\n\nIf the stop runs, it also runs its own stop code first':'\n\nIt also runs its own stop code first';
-  m+=', inside its sandbox (15 s at most). That code can only do what you approved for this plugin'+(g.length?':'+g.map(x=>'\n\u2022 '+x).join(''):' (nothing beyond toasts and its own saved data)')+'.';
-  m+='\nWhat it reports is not believed: a scan afterwards decides. If its code fails or does not finish, the plugin is kept.';
+  let m=mode==='shared'?'\n\nIf the stop runs, it runs its own stop code first':'\n\nRuns its own stop code first';
+  m+=', in the sandbox (max 15 s). That code can only do what you approved for this plugin'+(g.length?':'+g.map(x=>'\n\u2022 '+x).join(''):' (nothing beyond toasts and its own saved data)')+'.';
+  m+='\nIts report isn\'t trusted. A scan decides. If its code fails or stalls, the plugin is kept.';
   return m;
 }
 /* True when every process of [after] was already listed in [before] (same PID, start time and command line). */

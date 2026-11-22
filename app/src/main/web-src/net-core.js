@@ -201,8 +201,8 @@
   }
   // Why blocking / unblocking must not touch the lists (null = fine). A white list in use is a mode we never captured: do not guess it.
   function aclRefusal(acl) {
-    if (!acl) return 'The router did not report its block list, so it is not changed here.';
-    if (acl.whiteMacs.length || acl.mode === '1') return 'The router uses an allow list (white list). Blocking is not changed here because that mode was not captured.';
+    if (!acl) return 'Block list unavailable. No change made.';
+    if (acl.whiteMacs.length || acl.mode === '1') return 'Router uses an allow list. Blocking is unavailable.';
     return null;
   }
   // Host names: letters, digits, space, dot, dash, underscore; 1 to 31 characters. (Narrower than the router, on purpose: ";" "&" "=" "%" would break the
@@ -210,8 +210,8 @@
   const hostnameError = (n) => {
     const t = String(n == null ? '' : n).trim();
     if (!t) return 'The name is empty.';
-    if (t.length > 31) return 'The name is longer than 31 characters.';
-    if (!/^[A-Za-z0-9 ._-]+$/.test(t)) return 'Use only letters, digits, space, dot, dash and underscore.';
+    if (t.length > 31) return 'Name exceeds 31 characters.';
+    if (!/^[A-Za-z0-9 ._-]+$/.test(t)) return 'Allowed: letters, digits, space, . - _';
     return null;
   };
   function renameCall(mac, name) {
@@ -228,13 +228,13 @@
     const r = aclRefusal(acl); if (r) throw new Error(r);
     if (!isMac(mac)) throw new Error('Not a MAC address: ' + mac);
     const m = normMac(mac);
-    if (acl.black.some((b) => b.mac === m)) throw new Error('This device is already blocked.');
+    if (acl.black.some((b) => b.mac === m)) throw new Error('Already blocked.');
     return aclCall(acl.black.concat([{ mac: m, name }]));
   }
   function unblockCall(acl, mac) {
     const r = aclRefusal(acl); if (r) throw new Error(r);
     const m = normMac(mac);
-    if (!acl.black.some((b) => b.mac === m)) throw new Error('This device is not in the block list.');
+    if (!acl.black.some((b) => b.mac === m)) throw new Error('Not blocked.');
     return aclCall(acl.black.filter((b) => b.mac !== m));
   }
   // The address a request comes from, as the router lists it ("::ffff:192.168.0.179" -> "192.168.0.179").
@@ -298,9 +298,9 @@
   }
   // Why APN writes must not go out (null = fine to offer). Nothing is guessed: no mode, no slot keys, or the other key set means hands off.
   function apnRefusal(a) {
-    if (!a) return 'The router did not report its APN settings.';
+    if (!a) return 'APN settings unavailable.';
     if (a.uiVersion) return 'This firmware reports APN settings in a second format (apn_interface_version 2 or more) that was not captured. APN is read only here.';
-    if (a.mode !== 'auto' && a.mode !== 'manual') return 'The router did not report whether APN mode is Auto or Manual, so it is not changed here.';
+    if (a.mode !== 'auto' && a.mode !== 'manual') return 'APN mode unknown. No change made.';
     if (!a.hasSlots) return 'The router did not report its profile list, so it is not changed here.';
     return null;
   }
@@ -331,9 +331,9 @@
   function apnFormError(f) {
     if (!f || typeof f !== 'object') return 'No form.';
     return apnNameError(f.name) || apnApnError(f.apn)
-      || (PDP_TYPES.includes(f.pdp) ? null : 'Pick a PDP type (IPv4v6, IPv4 or IPv6).')
-      || (APN_AUTH.includes(f.auth) ? null : 'Pick an authentication (none, PAP or CHAP).')
-      || (f.auth !== 'none' && !credOk(f.user) ? 'User name: 1 to 64 characters, no spaces.' : null)
+      || (PDP_TYPES.includes(f.pdp) ? null : 'Select a PDP type: IPv4v6, IPv4 or IPv6.')
+      || (APN_AUTH.includes(f.auth) ? null : 'Select authentication: none, PAP or CHAP.')
+      || (f.auth !== 'none' && !credOk(f.user) ? 'User name: 1–64 characters, no spaces.' : null)
       || (f.auth !== 'none' && !credOk(f.pass) ? 'Password: 1 to 64 characters, no spaces. It is not read back from the router, so type it again.' : null);
   }
   const apnSlotOk = (n) => Number.isInteger(n) && n >= 0 && n < APN_SLOTS;
@@ -367,10 +367,10 @@
   // Delete: Manual mode only, never the profile in use, never the last usable profile.
   function apnDeleteRefusal(a, p) {
     const r = apnRefusal(a); if (r) return r;
-    if (a.mode !== 'manual') return 'Delete works only in Manual mode.';
+    if (a.mode !== 'manual') return 'Delete requires Manual mode.';
     if (!p) return 'No such profile.';
-    if (slotLooksActive(a, p)) return 'This profile is in use. Make another profile the default first, or switch to Auto.';
-    if (a.profiles.filter((x) => x.slot !== p.slot && x.apn).length < 1) return 'This is the only usable profile. Add another first, or switch to Auto.';
+    if (slotLooksActive(a, p)) return 'Profile in use. Set another as default, or switch to Auto.';
+    if (a.profiles.filter((x) => x.slot !== p.slot && x.apn).length < 1) return 'Only profile. Add another, or switch to Auto.';
     return null;
   }
   // The add form copies the Auto profile (name, APN, auth, PDP) as a starting point; user name and password are never taken from the router.
@@ -424,19 +424,19 @@
     if (!lan || !lan.ip || !lan.mask) return { error: 'The router did not report its IP address and subnet mask.' };
     if (lan.dhcp !== 'On') return { error: 'The DHCP server is not On (or not reported). Only the pool and the lease are changed here, and only while DHCP is On.' };
     const ip = ipv4Int(lan.ip), mask = maskInt(lan.mask);
-    if (!isPrivateIp(ip)) return { error: 'The router IP ' + lan.ip + ' is not a private address (10.x, 172.16-31.x or 192.168.x).' };
-    if (mask === null) return { error: 'The subnet mask ' + lan.mask + ' is not valid (it must run from /8 to /29).' };
+    if (!isPrivateIp(ip)) return { error: 'Router IP ' + lan.ip + ' must be private (10.x, 172.16–31.x, 192.168.x).' };
+    if (mask === null) return { error: 'Invalid mask ' + lan.mask + '. Use /8 to /29.' };
     const start = ipv4Int(startT), end = ipv4Int(endT);
     if (start === null) return { error: 'The pool start is not a valid IPv4 address.' };
     if (end === null) return { error: 'The pool end is not a valid IPv4 address.' };
     const net = (ip & mask) >>> 0, bc = (net | ((~mask) >>> 0)) >>> 0;
     for (const [n, label] of [[start, 'start'], [end, 'end']]) {
-      if (((n & mask) >>> 0) !== net) return { error: 'The pool ' + label + ' is outside the router network (' + lan.ip + ' / ' + lan.mask + ').' };
+      if (((n & mask) >>> 0) !== net) return { error: 'Pool ' + label + ' is outside the router network (' + lan.ip + ' / ' + lan.mask + ').' };
       if (n === net || n === bc) return { error: 'The pool ' + label + ' must not be the network or the broadcast address.' };
     }
-    if (start > end) return { error: 'The pool start must not be after the pool end.' };
+    if (start > end) return { error: 'Pool start must come before pool end.' };
     if (ip >= start && ip <= end) return { error: 'The router IP ' + lan.ip + ' must not be inside the pool.' };
-    if (!leaseOk(leaseT)) return { error: 'The lease must be a whole number of hours from ' + LEASE_MIN + ' to ' + LEASE_MAX + '.' };
+    if (!leaseOk(leaseT)) return { error: 'Lease must be whole hours, ' + LEASE_MIN + ' to ' + LEASE_MAX + '.' };
     return { start: String(startT).trim(), end: String(endT).trim(), lease: parseInt(leaseT, 10) };
   }
   // The whole set, as the stock page sends it. cur = parseLan(...) (IP and mask are sent back unchanged); want = {start, end, lease}.
@@ -500,13 +500,13 @@
     if (a === null || b === null || a > b || !Number.isInteger(cur.leaseHours)) return { error: 'The router did not report a complete pool and lease.' };
     const nip = ipv4Int(newIpT);
     if (nip === null) return { error: 'The new router IP is not a valid IPv4 address.' };
-    if (!isPrivateIp(nip)) return { error: 'The new router IP must be a private address (10.x, 172.16-31.x or 192.168.x).' };
-    if (nip === ip) return { error: 'The new router IP is the same as the current one.' };
+    if (!isPrivateIp(nip)) return { error: 'New IP must be private (10.x, 172.16–31.x, 192.168.x).' };
+    if (nip === ip) return { error: 'New IP matches the current IP.' };
     const net = (nip & mask) >>> 0, inv = (~mask) >>> 0, bc = (net | inv) >>> 0;
-    if (nip === net || nip === bc) return { error: 'The new router IP must not be the network or the broadcast address of its subnet.' };
+    if (nip === net || nip === bc) return { error: 'IP can\'t be the network or broadcast address.' };
     const start = (net | (a & inv)) >>> 0, end = (net | (b & inv)) >>> 0;
-    if (start === net || start === bc || end === net || end === bc) return { error: 'The pool would land on the network or broadcast address in the new subnet. Change the pool first.' };
-    if (nip >= start && nip <= end) return { error: 'The new router IP would be inside the pool (' + ipText(start) + ' - ' + ipText(end) + '). Change the pool first so it leaves the address free.' };
+    if (start === net || start === bc || end === net || end === bc) return { error: 'Pool hits the network or broadcast address. Change the pool first.' };
+    if (nip >= start && nip <= end) return { error: 'New IP is inside the pool (' + ipText(start) + ' - ' + ipText(end) + '). Change the pool first.' };
     return { ip: ipText(nip), start: ipText(start), end: ipText(end), lease: cur.leaseHours };
   }
   const ipText = (n) => [n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
@@ -536,8 +536,8 @@
   // Lease: the reported whole number of hours, else 24. mac_ip_reset=0 (the router IP does not change). Returns {call, start, end, lease} or throws.
   function lanDhcpOnCall(cur) {
     if (!cur || !cur.ip || !cur.mask) throw new Error('The router did not report its IP address and subnet mask.');
-    if (cur.dhcp === 'On') throw new Error('The DHCP server is already On.');
-    if (cur.dhcp !== 'Off') throw new Error('The DHCP server state is not reported, so nothing is changed.');
+    if (cur.dhcp === 'On') throw new Error('DHCP already On.');
+    if (cur.dhcp !== 'Off') throw new Error('DHCP state unknown. No change made.');
     const ip = ipv4Int(cur.ip), mask = maskInt(cur.mask);
     if (!isPrivateIp(ip) || mask === null) throw new Error('The router IP or the subnet mask read from the router is not usable here.');
     let lease = Number.isInteger(cur.leaseHours) && cur.leaseHours >= LEASE_MIN && cur.leaseHours <= LEASE_MAX ? cur.leaseHours : 24;
@@ -546,7 +546,7 @@
       if (cur.mask !== '255.255.255.0') throw new Error('The router does not report a usable pool for this subnet mask, so Restore DHCP cannot choose one.');
       const net = (ip & mask) >>> 0;
       c = lanPoolCheck({ ip: cur.ip, mask: cur.mask, dhcp: 'On' }, ipText(net + 2), ipText(net + 253), lease);
-      if (c.error) throw new Error('The stock pool .2 - .253 does not fit with the router IP ' + cur.ip + '.');
+      if (c.error) throw new Error('Default pool (.2–.253) doesn\'t fit router IP ' + cur.ip + '.');
     }
     return { start: c.start, end: c.end, lease: c.lease, call: { goformId: 'DHCP_SETTING', lanIp: cur.ip, lanNetmask: cur.mask, lanDhcpType: 'SERVER', dhcpStart: c.start, dhcpEnd: c.end, dhcpLease: String(c.lease), dhcp_reboot_flag: '1', mac_ip_reset: '0' } };
   }
@@ -556,7 +556,7 @@
     if (!isObj(d)) return null;
     const mtu = num(d.mtu), mss = num(d.tcp_mss);
     // The stock default is MSS = MTU - 40 (1500 / 1460). A larger MSS is worth a note; smaller is fine.
-    const warn = mtu !== null && mss !== null && mss > mtu - 40 ? 'MSS is larger than MTU minus 40 (' + (mtu - 40) + ')' : null;
+    const warn = mtu !== null && mss !== null && mss > mtu - 40 ? 'MSS must not exceed MTU − 40 (' + (mtu - 40) + ')' : null;
     return { mtu, mss, warn };
   }
   // One root command, read-only. Section marker lines split the output. Nothing here changes a rule or an interface.
@@ -615,7 +615,7 @@
   // Base64 of printable ASCII only (a password with other characters is refused: how the stock page encodes them is not known).
   function b64Ascii(s) {
     const t = String(s); let out = '';
-    if (!/^[\x20-\x7e]*$/.test(t)) throw new Error('The password may use only printable ASCII characters (letters, digits, symbols, space).');
+    if (!/^[\x20-\x7e]*$/.test(t)) throw new Error('Password: printable ASCII only.');
     for (let i = 0; i < t.length; i += 3) {
       const a = t.charCodeAt(i), b = i + 1 < t.length ? t.charCodeAt(i + 1) : -1, c = i + 2 < t.length ? t.charCodeAt(i + 2) : -1, n = (a << 16) | ((b < 0 ? 0 : b) << 8) | (c < 0 ? 0 : c);
       out += B64A[(n >> 18) & 63] + B64A[(n >> 12) & 63] + (b < 0 ? '=' : B64A[(n >> 6) & 63]) + (c < 0 ? '=' : B64A[n & 63]);
@@ -639,8 +639,8 @@
   function wifiSsidError(s, strict) {
     if (typeof s !== 'string' || s === '') return 'The network name must not be empty.';
     if (/[\u0000-\u001f\u007f]/.test(s)) return 'The network name must not contain control characters.';
-    if (utf8Len(s) > 32) return 'The network name must be at most 32 bytes (accented letters and symbols take 2 to 4 bytes each).';
-    if (strict && s !== s.trim()) return 'The network name must not start or end with a space.';
+    if (utf8Len(s) > 32) return 'Name max 32 bytes. Accents and symbols use 2–4 bytes each.';
+    if (strict && s !== s.trim()) return 'Name can\'t start or end with a space.';
     return null;
   }
   // The plain password of one router entry. PASSWORD_ENCODE is on, so a firmware may hand back Password as Base64 and PasswordShow as the plain text (or the other way round):
@@ -658,8 +658,8 @@
   function wifiCurrentPw(raw) {
     const entries = toList(pick(raw, 'ResponseList')).filter(isObj), on = entries.filter((e) => clean(e.AccessPointSwitchStatus) === '1'), use = on.length ? on : entries, set = new Set();
     for (const e of use) { const p = wifiEntryPlain(e); if (p !== null) set.add(p); }
-    if (!set.size) return { error: 'The router reports no Wi-Fi password to keep: type one.' };
-    if (set.size > 1) return { error: 'The router reports different passwords for its two chips: type a new password.' };
+    if (!set.size) return { error: 'No saved Wi-Fi password. Enter one.' };
+    if (set.size > 1) return { error: 'Passwords differ between chips. Enter a new one.' };
     return { pw: [...set][0] };
   }
   // true / false: does the router report exactly this password now? (Used to confirm a password change without ever returning the password.)
@@ -681,13 +681,13 @@
     if (!wifiAuthKnown(x.auth)) return { error: 'Choose a security mode from the list.' };
     if (typeof x.hidden !== 'boolean') return { error: 'Broadcast SSID must be ticked or not.' };
     const mt = String(x.max == null ? '' : x.max).trim();
-    if (!/^\d{1,2}$/.test(mt) || parseInt(mt, 10) < 1 || parseInt(mt, 10) > WIFI_MAX_STATIONS) return { error: 'Max devices must be a whole number from 1 to ' + WIFI_MAX_STATIONS + '.' };
+    if (!/^\d{1,2}$/.test(mt) || parseInt(mt, 10) < 1 || parseInt(mt, 10) > WIFI_MAX_STATIONS) return { error: 'Max devices: whole number from 1 to ' + WIFI_MAX_STATIONS + '.' };
     const out = { ssid: x.ssid, auth: x.auth, hidden: x.hidden, max: parseInt(mt, 10), pw: null };
     if (x.auth === 'OPEN') return out;
     const pw = typeof x.pw === 'string' ? x.pw : '';
     if (pw !== '') {
-      if (!/^[\x20-\x7e]*$/.test(pw)) return { error: 'The password may use only printable ASCII characters (letters, digits, symbols, space).' };
-      if (!pwOk(pw)) return { error: 'The password must be 8 to 63 characters long.' };
+      if (!/^[\x20-\x7e]*$/.test(pw)) return { error: 'Password: printable ASCII only.' };
+      if (!pwOk(pw)) return { error: 'Password must be 8–63 characters.' };
       out.pw = pw; return out;
     }
     if (!entry || !entry.pwSet || entry.authRaw === 'OPEN') return { error: 'Type a password (8 to 63 characters): the router has none to keep.' };
@@ -727,7 +727,7 @@
     if (cur.hidden !== want.hidden) out.push('SSID broadcast: ' + (cur.hidden ? 'Hidden' : 'Visible') + ' → ' + (want.hidden ? 'Hidden' : 'Visible'));
     if (cur.max !== want.max) out.push('Max devices: ' + cur.max + ' → ' + want.max);
     if (pwChanges) out.push('Password: will change');
-    if (want.auth === 'OPEN' && cur.auth !== 'OPEN') out.push('The network will have NO password: anyone in range can join.');
+    if (want.auth === 'OPEN' && cur.auth !== 'OPEN') out.push('No password. Anyone in range can join.');
     return out;
   }
   // Band switch: '2g' / '5g' / 'off'. Which one is on is read back by wifiMode.
@@ -782,7 +782,7 @@
     if (!/^\d{1,4}$/.test(a)) return { error: 'MTU must be a whole number.' };
     if (!/^\d{1,4}$/.test(b)) return { error: 'MSS must be a whole number.' };
     const mtu = parseInt(a, 10), mss = parseInt(b, 10);
-    if (mtu < MTU_MIN || mtu > MTU_MAX) return { error: 'MTU must be between ' + MTU_MIN + ' and ' + MTU_MAX + ' (1280 is the IPv6 minimum).' };
+    if (mtu < MTU_MIN || mtu > MTU_MAX) return { error: 'MTU out of range (' + MTU_MIN + ' to ' + MTU_MAX + '). Minimum for IPv6 is 1280.' };
     if (mss < MSS_MIN) return { error: 'MSS must be at least ' + MSS_MIN + '.' };
     if (mss > mtuDefaultMss(mtu)) return { error: 'MSS must not be larger than MTU minus 40 (' + mtuDefaultMss(mtu) + ' for MTU ' + mtu + ').' };
     return { mtu, mss };

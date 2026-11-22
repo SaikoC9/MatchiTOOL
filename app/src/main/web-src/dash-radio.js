@@ -30,7 +30,7 @@ function mountDashRadio() {
   document.head.appendChild(css);
   const card = document.createElement('div'); card.id = 'dash_radio';
   card.innerHTML = '<div class="dr-h"><span class="dr-t">Radio settings</span><button type="button" data-a="refresh">Refresh</button></div>' +
-    '<div class="dr-note" data-tip="info">Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.</div>' +
+    '<div class="dr-note" data-tip="info">Applies to the whole router, not one SIM. Loads on open and after changes.</div>' +
     '<div class="dr-body">reading…</div><div class="dr-s"></div><pre class="dr-log"></pre>';
   const inl = document.getElementById('liv_inline');
   if (inl && inl.parentNode === home) inl.after(card); else home.appendChild(card);
@@ -61,7 +61,7 @@ function mountDashRadio() {
   const lockActive = () => (st.haveLte && st.routerLte.length > 0 && st.lteSup.length > 0 && !st.lteSup.every((b) => st.routerLte.includes(b))) || (st.haveNr && st.routerNr.length > 0 && st.nrSup.length > 0 && !st.nrSup.every((b) => st.routerNr.includes(b)));
   const liveNoService = () => { try { const s = window.MatchiLive && window.MatchiLive.snapshot(); return !!(s && s.noService); } catch (_) { return false; } };
   const lockWarnHtml = () => (lockActive() && liveNoService() && !R.isBusy()
-    ? '<div class="dr-warn" role="alert" style="margin:0 0 8px;padding:6px 8px;border:1px solid #ff9a9a;border-radius:8px;color:#ff9a9a;font-size:11.5px">A band lock is active and Live Status shows no service. If the signal went away after a band change, the lock may be the cause: press <b>Unlock all</b>.</div>' : '');
+    ? '<div class="dr-warn" role="alert" style="margin:0 0 8px;padding:6px 8px;border:1px solid #ff9a9a;border-radius:8px;color:#ff9a9a;font-size:11.5px">Band lock active and no service. The lock may be the cause. Tap <b>Unlock all</b>.</div>' : '');
   // A band tick only changes colours and two buttons. Painting the whole card again re-created the Network mode drop-down on every click
   // (a visible jump / flash), so the chips and buttons are updated where they stand and nothing else is touched.
   function tickInPlace() {
@@ -90,10 +90,10 @@ function mountDashRadio() {
     if (st.haveLte || st.haveNr) {
       h += `<div class="dr-row"><button type="button" data-a="lock"${dis || (dirty() ? '' : ' disabled')}>Lock ticked bands</button><button type="button" data-a="unlock"${dis}>Unlock all</button>` +
         `<button type="button" data-a="reset"${dis || (dirty() ? '' : ' disabled')}>Reset ticks</button></div>` +
-        '<div class="dr-note" data-tip="info" style="margin:0">Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.</div>';
+        '<div class="dr-note" data-tip="info" style="margin:0">Green: locked. Yellow: not saved. Strikethrough: will be removed.</div>';
     }
     warnShown = !!lockWarnHtml();
-    body.innerHTML = h ? lockWarnHtml() + h : 'The router reports neither a network mode nor band locks.';
+    body.innerHTML = h ? lockWarnHtml() + h : 'No network mode or band locks reported.';
     if (window.MatchiTip) window.MatchiTip.enhance(body);
   }
   // Live Status painted again: show or clear the warning without reading the router. Ticks are kept (they live in st), only the warning line changes.
@@ -136,13 +136,13 @@ function mountDashRadio() {
       const r = await R.setBands(parts, expect);
       addLog('> ' + parts.map((p) => p[0] + ' ' + p[2]).join(' + ')); addLog('Router answered success: ' + r.sent.join(', '));
       if (r.notes.length) addLog('Note: ' + r.notes.join('; ') + '.');
-      if (!r.read) { setStatus('Saved, but the router could not be read back. Press Refresh.'); toast('Sent, but the router could not be read back', 'red'); return; }
+      if (!r.read) { setStatus('Saved. Couldn\'t verify. Tap Refresh.'); toast('Sent, but the router could not be read back', 'red'); return; }
       if (r.bad.length) { setStatus('Router accepted the change but ' + r.bad.join('; ') + '. Press Refresh.'); toast('Sent, but the router does not report the new bands yet', 'red'); return; }
-      setStatus('Band lock saved. Restarting the radio (about 30 s)…');
+      setStatus('Band lock saved. Restarting radio (~30 s)…');
       const ok = await R.radioCycle({ log: addLog, toast: () => {} });
-      if (!ok) { setStatus('The radio restart did not confirm. Open AT & Radio and run AT+SFUN=4, or reboot the device.'); toast('Radio may still be off: run AT+SFUN=4', 'red'); return; }
+      if (!ok) { setStatus('Radio restart unconfirmed. Run AT+SFUN=4 or reboot.'); toast('Radio may still be off: run AT+SFUN=4', 'red'); return; }
       const reg = await R.waitRegistered(0, { everyMs: 3000, timeoutMs: 90000, onTick: (s) => setStatus('Waiting for the modem to register… ' + s + ' s') });
-      setStatus(reg ? 'Registered. Live values resume.' : 'Not registered after 90 s. Check Live Status, or press Unlock all.');
+      setStatus(reg ? 'Registered. Live values resume.' : 'Not registered after 90 s. Check Live Status or Unlock all.');
       toast(reg ? 'Band lock applied' : 'Not registered yet', reg ? 'green' : 'red');
     } catch (e) { setStatus('Band lock failed: ' + e.message); toast(e.message, 'red'); }
     finally { done(); }   // listeners run: this card re-reads, Live Status reads once
@@ -154,9 +154,9 @@ function mountDashRadio() {
     const parts = [], expect = {};
     if (l.length) { parts.push(['LTE_BAND_LOCK', 'lte_band_lock', R.bandText(l)]); expect.lte = l; }
     if (n.length) { parts.push(['NR_BAND_LOCK', 'nr_band_lock', R.bandText(n)]); expect.nr = n; }
-    if (!parts.length) { toast('Tick at least one band first', 'red'); return; }
+    if (!parts.length) { toast('Select a band first.', 'red'); return; }
     const note = (!st.pendLte.size && st.haveLte) || (!st.pendNr.size && st.haveNr) ? '\n(A type with nothing ticked is sent again unchanged.)' : '';
-    if (!(await askConfirm('Lock these bands?\n\n' + listText(parts) + note + '\n\nWrong bands can leave the phone without signal. After saving, the modem radio is restarted (signal drops for about 30 s). To go back use "Unlock all".', 'Lock', true))) return;
+    if (!(await askConfirm('Lock these bands?\n\n' + listText(parts) + note + '\n\nWrong bands can cause signal loss. Radio restarts (~30 s). Undo with Unlock all.', 'Lock', true))) return;
     await apply(parts, expect);
   }
   async function unlock() {
@@ -165,14 +165,14 @@ function mountDashRadio() {
     if (st.haveLte && st.lteSup.length) { parts.push(['LTE_BAND_LOCK', 'lte_band_lock', R.bandText(st.lteSup)]); expect.lte = st.lteSup; }
     if (st.haveNr && st.nrSup.length) { parts.push(['NR_BAND_LOCK', 'nr_band_lock', R.bandText(st.nrSup)]); expect.nr = st.nrSup; }
     if (!parts.length) { toast('No band list to unlock with', 'red'); return; }
-    if (!(await askConfirm('Unlock all: allow every listed band?\n\n' + listText(parts) + '\n\nThe modem radio is restarted afterwards (signal drops for about 30 s).', 'Unlock all'))) return;
+    if (!(await askConfirm('Allow all bands?\n\n' + listText(parts) + '\n\nRadio restarts (~30 s).', 'Unlock all'))) return;
     await apply(parts, expect);
   }
   async function changeNet(sel) {
     const next = sel.value, prev = st.net;
     if (R.isBusy() || !next || next === prev) return;
     const hard = next === 'Only_5G' || next === 'Only_LTE';
-    if (!(await askConfirm('Change network mode from "' + R.netLabel(prev) + '" to "' + R.netLabel(next) + '"?\n\n' + (hard ? 'The phone may lose signal if this network is not available here. ' : '') + 'To go back, choose "Auto 5G/4G/3G".', 'Change'))) { sel.value = prev; return; }
+    if (!(await askConfirm('Change network mode from "' + R.netLabel(prev) + '" to "' + R.netLabel(next) + '"?\n\n' + (hard ? 'You may lose signal if this network is unavailable. ' : '') + 'To go back, choose "Auto 5G/4G/3G".', 'Change'))) { sel.value = prev; return; }
     const done = R.beginBusy('Network mode changing…');
     try {
       setStatus('Changing network mode…');

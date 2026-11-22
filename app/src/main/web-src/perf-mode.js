@@ -17,11 +17,11 @@ function mountPerfMode() {
     busy = true; b.disabled = true;
     try {
       const cur = (await R.readRadio()).perf;
-      if (cur !== '0' && cur !== '1') { toast('This router does not report performance mode', 'red'); return; }
+      if (cur !== '0' && cur !== '1') { toast('Performance mode not supported.', 'red'); return; }
       const next = cur === '1' ? '0' : '1';
       await R.setRouter({ goformId: 'PERFORMANCE_MODE_SETTING', performance_mode: next }, true);
       let r = null; try { r = await R.readRadio(); } catch (_) { /* shown below */ }
-      if (r && r.perf === next) toast(next === '1' ? 'Performance mode ON. Effective after reboot' : 'Performance mode OFF. Effective after reboot', 'green');
+      if (r && r.perf === next) toast(next === '1' ? 'Performance mode ON. Reboot to apply.' : 'Performance mode OFF. Reboot to apply.', 'green');
       else toast('Performance mode sent: ' + word(next) + ', but the router reports ' + (r && r.perf ? word(r.perf) : 'nothing') + '. Reboot to check', 'red');
     } catch (e) { toast('Performance mode failed: ' + e.message, 'red'); }
     finally { busy = false; b.disabled = false; }

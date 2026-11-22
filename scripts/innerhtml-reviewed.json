@@ -11,7 +11,7 @@
  "7a1fc8d3b8": "pmIcon() returns a fixed svg string; the text beside it is fixed.",
  "c89715bd07": "pmIcon() returns a fixed svg string.",
  "c3033825fb": "Log Catcher boot files: bootOptions() escapes every file name and label.",
- "f49165b761": "Radio settings: h is built with esc() for the mode names and band text; band numbers and data-* come from the supported-band lists. The warning line in front is fixed text.",
+ "85a8175cc6": "Radio settings: h is built with esc() for the mode names and band text; band numbers and data-* come from the supported-band lists. The warning line in front is fixed text.",
  "72657fb99e": "Plugin list Sandbox/Trust button: pmIcon() wraps one fixed literal SVG path; the label is added afterwards with textContent.",
  "a8da4bfcd1": "CPU Governor drop-down: CHECK is a fixed svg string; the option text beside it is set with textContent.",
  "edc4b623c4": "CPU Governor core tiles: only numbers (core index, MHz, percent), booleans and fixed text (L1..B4 labels are built from the index)."

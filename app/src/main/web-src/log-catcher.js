@@ -157,7 +157,7 @@ function redactText(text){const counts={};const out=String(text).split('\n').map
 function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{text:String(text),total:0};return redactText(text)}
  window.__lcRedact=redactText;
  /* ---- buttons ---- */
- $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('The log writer could not start a session. Check storage space and try again.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){askNotice('Could not start logging: '+e.message)}};
+ $('lcstart').onclick=async()=>{try{const d=await api('/api/logs/start',{method:'POST'});if(!d||d.ok!==true)throw new Error('Couldn\'t start a session. Check storage and retry.');historyMode='';rows=[];lastId=0;lastKey='';searchMode=false;$('lcsearchclose').style.display='none';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();await refresh();loadDevice();}catch(e){askNotice('Could not start logging: '+e.message)}};
  $('lcstop').onclick=async()=>{try{await api('/api/logs/stop',{method:'POST'});await refresh();loadHistory();loadDevice();}catch(e){askNotice('Could not stop logging: '+e.message)}};
  function saveBlob(blob,name){const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}
  function exportLogs(ext){const r=maybeRedact(rows.filter(makeFilter()).map(lineOf).join('\n'));const text=r.text;if(r.total)createToast('Private data hidden in '+r.total+' line(s)');const a=document.createElement('a');const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.href=url;a.download='matchitool_logs_'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)} $('lcexport').onclick=()=>exportLogs('txt');$('lcexportlog').onclick=()=>exportLogs('log');
@@ -172,28 +172,28 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
   finally{btn.disabled=false;btn.textContent=old}
  }
  const redactQ=()=>'&redact='+($('lcredact').checked?'1':'0');
- const confirmRaw=async()=>$('lcredact').checked||(await askConfirm('Private data (SMS text, phone numbers, IMEI, passwords, tokens) will NOT be hidden in this zip. Continue?','Continue'));
+ const confirmRaw=async()=>$('lcredact').checked||(await askConfirm('This zip includes private data (SMS, numbers, IMEI, passwords, tokens). Continue?','Continue'));
  $('lcexportall').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=all'+redactQ(),$('lcexportall'))};
  $('lcreport').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=report'+redactQ(),$('lcreport'))};
  $('lcbundle').onclick=async()=>{if(await confirmRaw())downloadZip('/api/logs/export?kind=bundle'+redactQ(),$('lcbundle'))};
  ['lclevel','lcsource','lcfunction','lcsearch','lcregex','lcfrom','lcuntil','lcgroup','lcbm'].forEach(id=>$(id).addEventListener('input',()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>render(true),150)}));
  ['lcalerterr','lcalert'].forEach(id=>$(id).addEventListener('input',()=>{clearAlerts();syncStream()}));
  $('lcpause').onclick=()=>{paused=!paused;$('lcpause').textContent=paused?'Resume':'Pause';syncStream();if(paused)render(true);else refresh(true)};
- $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const rv=maybeRedact($('lcout').innerText);const text=rv.text;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log'+(rv.total?' (private data hidden in '+rv.total+' line(s))':''))}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);askNotice('Automatic copy is not available over plain HTTP. The log is selected: use your browser Copy command.')}};
+ $('lccopy').onclick=async()=>{if(historyMode.startsWith('boot:')&&vFile){const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;createToast('Copy failed: '+e.message,'red')}return}const rv=maybeRedact($('lcout').innerText);const text=rv.text;try{await navigator.clipboard.writeText(text);createToast('Copied the visible log'+(rv.total?' (private data hidden in '+rv.total+' line(s))':''))}catch(e){const r=document.createRange();r.selectNodeContents($('lcout'));const sel=getSelection();sel.removeAllRanges();sel.addRange(r);askNotice('Auto-copy needs HTTPS. Log selected: use your browser\'s Copy.')}};
  $('lcdelete').onclick=async()=>{if(!historyMode||!(await askConfirm('Delete '+historyMode+' (.log and .txt) permanently?','Delete',true)))return;try{await api('/api/logs/delete',{method:'POST',body:JSON.stringify({name:historyMode})});historyMode='';lastKey='';$('lchistory').value='';$('lcdelete').disabled=true;await loadHistory();rows=[];lastId=0;await refresh()}catch(e){askNotice('Could not delete: '+e.message)}};
 
  /* ---- search across every saved session ---- */
  $('lcsearchall').onclick=async()=>{
   const q=$('lcsearch').value.trim(), level=$('lclevel').value, from=stamp($('lcfrom').value), until=stamp($('lcuntil').value);
-  if(!q&&level==='ALL'&&!from&&!until){askNotice('Type a keyword or regex, pick a level, or set a time range to search all saved sessions.');return}
+  if(!q&&level==='ALL'&&!from&&!until){askNotice('Enter a keyword or regex, level or time range to search all sessions.');return}
   $('lcout').textContent='Searching all saved sessions…';
   try{
    const p=new URLSearchParams({q,regex:$('lcregex').checked?'1':'0',level:level==='ALL'?'':level,from,until,limit:'500'});
    const d=await api('/api/logs/search?'+p.toString());
    if(d.error)throw new Error(d.error);
    searchMode=true; $('lcsearchclose').style.display=''; const hits=d.hits||[];
-   $('lccount').textContent=hits.length+' match(es) in '+d.scanned+' session file(s)'+(d.truncated?' · more exist, narrow the search':'');
-   $('lcout').innerHTML=hits.length?hits.map(h=>`<span class="lcl lchit" data-session="${esc(h.session)}"><b>${esc(h.session)}</b> #${h.line}  ${esc(h.text)}</span>`).join('\n')+'\n\nTap a result to open that session.':'No matches in saved sessions';
+   $('lccount').textContent=hits.length+' match(es) in '+d.scanned+' session file(s)'+(d.truncated?' More results exist. Narrow the search.':'');
+   $('lcout').innerHTML=hits.length?hits.map(h=>`<span class="lcl lchit" data-session="${esc(h.session)}"><b>${esc(h.session)}</b> #${h.line}  ${esc(h.text)}</span>`).join('\n')+'\n\nTap a result to open it.':'No matches in saved sessions';
   }catch(e){searchMode=false;$('lcsearchclose').style.display='none';$('lcout').textContent='Search failed: '+e.message}
  };
  $('lcsearchclose').onclick=()=>{searchMode=false;$('lcsearchclose').style.display='none';lastKey='';render(true)};
@@ -233,8 +233,8 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  async function loadCounters(){try{const d=await api('/api/logs/status');const c=d.counters||{};
   const line=(k)=>k+': seen '+cnum(c[k].seen)+' · shown '+cnum(c[k].passed)+' · collapsed '+cnum(c[k].collapsed)+' · dropped '+cnum(c[k].dropped)+' · gaps '+cnum(c[k].gaps);
   const parts=['app','device','kernel'].filter(k=>c[k]&&(c[k].seen>0||c[k].gaps>0)).map(line);
-  if(!parts.length)parts.push('No lines counted yet in this session.');
-  const extra=[];if(c.queueDropped>0)extra.push(cnum(c.queueDropped)+' lines refused by a full write queue');if(c.swallowedErrors>0)extra.push(cnum(c.swallowedErrors)+' internal errors (see quiet_* entries)');
+  if(!parts.length)parts.push('No lines counted yet.');
+  const extra=[];if(c.queueDropped>0)extra.push(cnum(c.queueDropped)+' lines dropped (write queue full)');if(c.swallowedErrors>0)extra.push(cnum(c.swallowedErrors)+' internal errors (see quiet_* entries)');
   $('lccounters').textContent=parts.join('\n')+(extra.length?'\n'+extra.join(' · '):'')}catch(e){}}
  async function loadBootCounters(){$('lccounters').textContent='Counting boot capture lines\u2026';try{const d=await api('/api/logs/boot/counters');
   $('lccounters').textContent='boot capture (nothing filtered or collapsed): logcat '+cnum(d.logcatLines)+' lines ('+cnum(d.logcatErrors)+' errors, '+cnum(d.logcatWarnings)+' warnings) · kernel '+cnum(d.dmesgLines)+' lines · gaps '+cnum(d.gaps)}catch(e){$('lccounters').textContent=''}}
@@ -254,7 +254,7 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  $('lchistory').onchange=async()=>{searchMode=false;$('lcsearchclose').style.display='none';historyMode=$('lchistory').value;lastKey='';const isBoot=historyMode.startsWith('boot:');$('lcbootnav').style.display=isBoot?'flex':'none';$('lcbootnav').classList.toggle('on',isBoot);$('lcdelete').disabled=!historyMode||isBoot;syncStream();if(isBoot){await viewBootLatest(historyMode.slice(5));return}$('lccounters').textContent='';if(!historyMode){rows=[];lastId=0;await refresh();loadCounters();return}try{const d=await api('/api/logs/session/'+encodeURIComponent(historyMode));rows=(d.lines||[]).map((line,i)=>{const m=line.match(/^(.*?) \[(.*?)\] \[(.*?)\] (.*)$/);return m?{id:i,timestamp:m[1],level:m[2],function:m[3],message:m[4]}:{id:i,timestamp:'',level:'INFO',function:'Session',message:line}});render(true)}catch(e){$('lcout').textContent='Unable to read session: '+e.message}};
 
  /* ---- device-wide capture (root) ---- */
- async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Captures every process on the device while a session is logging; needs root.'}catch(e){}}
+ async function loadDevice(){try{const d=await api('/api/logs/device');$('lcdevlogcat').checked=!!d.logcat;$('lcdevdmesg').checked=!!d.dmesg;$('lcdevlevel').value=d.level||'W';$('lcdevkeepall').checked=!!d.keepAll;$('lcdevstate').textContent=d.active?'Running: capturing the whole device while this session logs.':(d.logcat||d.dmesg)?'Enabled: starts with the next logging session.':'Off. Logs all processes. Root required.'}catch(e){}}
  $('lcdevapply').onclick=async()=>{try{await api('/api/logs/device',{method:'POST',body:JSON.stringify({logcat:$('lcdevlogcat').checked,dmesg:$('lcdevdmesg').checked,level:$('lcdevlevel').value,keepAll:$('lcdevkeepall').checked})});createToast('Device capture settings saved');await loadDevice()}catch(e){askNotice('Could not save device capture: '+e.message)}};
 
 
@@ -277,13 +277,13 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
  const bootNum=(n)=>Number(n||0).toLocaleString();
  async function loadBoot(){try{const d=await api('/api/logs/boot/status');
   $('lcbootkb').value=d.fileKb;$('lcbootn').value=d.files;$('lcbootfree').value=d.minFreeMb;$('lcbootdays').value=d.retainDays||0;
-  let t;if(!d.installed)t='Not installed. Install it to capture logcat (all buffers) and the kernel log from boot, even when this app is stopped.';
+  let t;if(!d.installed)t='Not installed. Install to capture logcat and kernel logs from boot, even with the app stopped.';
   else{t=(d.running?'Running':'Installed but NOT running')+(d.state&&d.state!=='running'?' ('+d.state+')':'')+'. Script v'+d.installedVersion+(d.outdated?' (outdated: press Update script to get v'+d.bundledVersion+')':'')+'. Disk use '+bootNum(d.usedKb)+' KB of at most '+bootNum(d.maxTotalKb)+' KB; '+(d.freeMb==null?'':bootNum(d.freeMb)+' MB free; ')+'restarts: logcat '+d.logcatRestarts+', kernel '+d.dmesgRestarts+(d.lastRestart&&d.lastRestart!=='-'?' (last '+d.lastRestart+')':'')+'. Heartbeat '+(d.heartbeat||'none')+'.'}
   $('lcbootstate').textContent=t;
   const bi=$('lcbootinstall'),bh=$('lcbootbtnhint'),br=$('lcbootremove');
   if(!d.installed){bi.textContent='Turn on boot capture';bh.textContent='Installs the script and starts recording now. It also starts by itself at every boot.';br.disabled=true}
-  else if(d.outdated){bi.textContent='Update script to v'+d.bundledVersion;bh.textContent='A newer script came with this app. Press to replace the old one (the captured files are kept).';br.disabled=false}
-  else{bi.textContent='Save settings';bh.textContent='Boot capture is on and up to date. Change the numbers above and press this to apply them (it restarts the recording for a moment).';br.disabled=false}
+  else if(d.outdated){bi.textContent='Update script to v'+d.bundledVersion;bh.textContent='Newer script available. Tap to replace (captures are kept).';br.disabled=false}
+  else{bi.textContent='Save settings';bh.textContent='Boot capture is on and current. Change values above, then tap to apply (restarts recording briefly).';br.disabled=false}
   br.textContent='Turn off';
   await loadBootFiles()}catch(e){$('lcbootstate').textContent='Could not read boot capture: '+e.message}}
  async function loadBootFiles(){const d=await api('/api/logs/boot/files');bootFiles=d.files||[];const sel=$('lcbootfile');const old=sel.value;sel.innerHTML=bootOptions(bootFiles,'');if(old&&bootFiles.some(f=>f.name===old))sel.value=old}
@@ -301,8 +301,8 @@ function maybeRedact(text){const box=$('lcredact');if(!box||!box.checked)return{
   if(!$('lcbootcopyall').checked){await copyText($('lcbootout').textContent,'this page');return}
   const pos=$('lcbootpos'),keep=pos.textContent;try{const t=await bootWholeFile(f,(a,b)=>{pos.textContent='Reading '+bootNum(a)+' of '+bootNum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,f+' ('+bootNum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;askNotice('Copy failed: '+e.message)}};
  $('lcvcopyall').onclick=async()=>{if(!vFile)return;const pos=$('lcvpos'),keep=pos.textContent;try{const t=await bootWholeFile(vFile,(a,b)=>{pos.textContent='Reading '+cnum(a)+' of '+cnum(b)+' lines\u2026'});pos.textContent=keep;await copyText(t,vFile+' ('+cnum(t.split('\n').length)+' lines)')}catch(e){pos.textContent=keep;askNotice('Copy failed: '+e.message)}};
- $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Working (about 10 s, includes a test that a test line reaches the log)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200,retainDays:Math.max(0,+$('lcbootdays').value||0)})});createToast(d.selftest?'Boot capture is on; self-test passed':'Boot capture is on; self-test not confirmed yet');await loadBoot()}catch(e){askNotice('Could not turn on boot capture: '+e.message);loadBoot()}};
- $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!(await askConfirm(purge?'Turn off boot capture AND delete all captured files?':'Turn off boot capture? (captured files are kept)','Continue')))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture turned off');await loadBoot()}catch(e){askNotice('Could not turn off boot capture: '+e.message)}};
+ $('lcbootinstall').onclick=async()=>{$('lcbootstate').textContent='Working (~10 s, includes a test line)\u2026';try{const d=await api('/api/logs/boot/install',{method:'POST',body:JSON.stringify({fileKb:+$('lcbootkb').value||2048,files:+$('lcbootn').value||10,minFreeMb:+$('lcbootfree').value||200,retainDays:Math.max(0,+$('lcbootdays').value||0)})});createToast(d.selftest?'Boot capture is on; self-test passed':'Boot capture is on; self-test not confirmed yet');await loadBoot()}catch(e){askNotice('Could not turn on boot capture: '+e.message);loadBoot()}};
+ $('lcbootremove').onclick=async()=>{const purge=$('lcbootpurge').checked;if(!(await askConfirm(purge?'Turn off boot capture and delete all captures?':'Turn off boot capture? Captures are kept.','Continue')))return;try{await api('/api/logs/boot/uninstall',{method:'POST',body:JSON.stringify({purge})});createToast('Boot capture turned off');await loadBoot()}catch(e){askNotice('Could not turn off boot capture: '+e.message)}};
 
  setInterval(()=>{if(panelOpen()&&!document.hidden&&!historyMode)loadCounters()},5000);
  const priorOpen=window.openPop; window.openPop=function(id){priorOpen(id);if(id==='logcatcher'){streamFails=0;loadHistory();loadDevice();refresh();syncStream();loadCounters();}};

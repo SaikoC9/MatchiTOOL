@@ -26,9 +26,9 @@ function hostDecide(name, op, args) {
   if (!pl || pl.mode !== 'sandbox') return ['not-sandboxed', 'This plugin does not run in the sandbox'];
   const grant = pl.integrity === 'ok' && !state.changed.has(name) ? pl.grant : [];
   const bad = (m) => ['not-approved', m];
-  if (op === 'at') return !grant.includes('sbx:at.read') ? bad('not approved: at.read') : (args.length !== 1 || !isReadAt(args[0]) ? bad('only read-only AT commands are allowed') : null);
+  if (op === 'at') return !grant.includes('sbx:at.read') ? bad('not approved: at.read') : (args.length !== 1 || !isReadAt(args[0]) ? bad('Read-only AT commands only.') : null);
   if (op === 'router.get') { const ok = grant.filter((g) => g.startsWith('sbx:router:')).map((g) => g.slice(11)); return !ok.length ? bad('not approved: router') : (!args.length || args.length > 20 || args.some((a) => !ok.includes(a.trim())) ? bad('a router field was not approved') : null); }
-  if (op === 'shell') return args.length === 1 && grant.includes('sbx:shell:' + args[0]) ? null : bad('not approved: only the exact commands this plugin declared with "shell:" may run');
+  if (op === 'shell') return args.length === 1 && grant.includes('sbx:shell:' + args[0]) ? null : bad('Denied: only declared "shell:" commands may run.');
   return bad('unknown operation');
 }
 const sessions = new Set(), log = [], otherLog = [], otherPageHits = []; let basePort = 0, otherPort = 0;

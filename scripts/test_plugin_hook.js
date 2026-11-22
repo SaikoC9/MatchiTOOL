@@ -144,13 +144,13 @@ test('mode: a registered hook turns "plain" into "hook"; everything else is unch
 });
 test('text: the hook line says what it can do, that it is not believed, and that failure keeps the plugin', async () => {
   const m = ui.hookDialogText(['runs this root command: pkill -f beat.sh'], 'hook');
-  assert.ok(m.includes('own stop code')); assert.ok(m.includes('15 s')); assert.ok(m.includes('pkill -f beat.sh')); assert.ok(m.includes('not believed')); assert.ok(m.includes('plugin is kept'));
+  assert.ok(m.includes('own stop code')); assert.ok(m.includes('15 s')); assert.ok(m.includes('pkill -f beat.sh')); assert.ok(m.includes('isn\'t trusted')); assert.ok(m.includes('plugin is kept'));
   assert.ok(ui.hookDialogText([], 'hook').includes('nothing beyond toasts'));
   assert.ok(ui.hookDialogText([], 'shared').includes('If the stop runs'));
   for (const mode of ['plain', 'cannot', 'toomany']) assert.strictEqual(ui.hookDialogText(['x'], mode), '');
 });
 test('text: mode "hook" with nothing found says so', async () => {
-  assert.ok(ui.sweepDialogText(sw({}), 'hook', false).includes('No running process was found for it.'));
+  assert.ok(ui.sweepDialogText(sw({}), 'hook', false).includes('No running processes found.'));
 });
 test('subset: same PID + start + command line only', async () => {
   const before = [cand(1, 'a'), cand(2, 'b')];
@@ -258,7 +258,7 @@ test('handler: hook ok and nothing left -> stop request with the empty hash; the
 test('handler: hook fails -> NO delete request; the retry dialog says why; cancelling ends it', async () => {
   const r = await drive({ plugin: sbxP, entries: hooked(), hookResults: [{ status: 'failed', ran: true, error: 'boom' }], datas: [mkInfo([c1], 'H0'), mkInfo([c1], 'H0')], dialogs: [true, null] });
   assert.strictEqual(r.deletes.length, 0);
-  assert.strictEqual(r.dlgs[1].title, 'Stop did not finish'); assert.ok(r.dlgs[1].message.includes('failed: boom') && r.dlgs[1].message.includes('NOT deleted') && r.dlgs[1].message.includes('PID 11'));
+  assert.strictEqual(r.dlgs[1].title, 'Stop did not finish'); assert.ok(r.dlgs[1].message.includes('failed: boom') && r.dlgs[1].message.includes('Not deleted') && r.dlgs[1].message.includes('PID 11'));
   assert.strictEqual(r.dlgs[1].okText, 'Try again');
 });
 test('handler: hook times out, then "Delete without stopping" -> skipStop, no sweepHash, the host is told it did not run', async () => {
@@ -281,7 +281,7 @@ test('handler: hook ok but the scan afterwards could not run -> NO delete reques
 test('handler: hook ok but a NEW process appears -> no request, dialog opens again with the new list', async () => {
   const fresh = { pid: 99, start: 999, how: 'tag', args: 'respawned.sh' };
   const r = await drive({ plugin: sbxP, entries: hooked(), hookResults: [{ status: 'ok', ran: true }], datas: [mkInfo([c1], 'H0'), mkInfo([c1, fresh], 'H5'), mkInfo([c1, fresh], 'H5')], dialogs: [true, null] });
-  assert.strictEqual(r.deletes.length, 0); assert.ok(r.toasts.some((m) => /not listed before/.test(m)));
+  assert.strictEqual(r.deletes.length, 0); assert.ok(r.toasts.some((m) => /new process is running/.test(m)));
   assert.strictEqual(r.dlgs.length, 2); assert.ok(r.dlgs[1].message.includes('respawned.sh') && r.dlgs[1].title === 'Confirm');
 });
 test('handler: a plugin that is not sandboxed, or has no hook, or is not loaded, never runs a hook (hook runner would throw)', async () => {

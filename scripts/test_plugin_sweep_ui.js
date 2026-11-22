@@ -59,24 +59,24 @@ t('text sweep: lists every process, says "and everything they started"', () => {
   const w = sw({ candidates: [cand(1234, 'tag', 'beat.sh'), cand(1300, 'pidfile', 'beat.sh --loop')] });
   const m = ui.sweepDialogText(w, 'sweep', false);
   assert.ok(m.includes('PID 1234 beat.sh (found by tag)')); assert.ok(m.includes('PID 1300 beat.sh --loop (found by its pid file)'));
-  assert.ok(m.includes('everything they started')); assert.ok(m.includes('as root'));
+  assert.ok(m.includes('child processes')); assert.ok(m.includes('as root'));
 });
 t('text plain: nothing found says so; the old sentence stays in the handler', () => {
   const m = ui.sweepDialogText(sw({}), 'plain', false);
-  assert.ok(m.includes('No running process was found for it.'));
-  assert.ok(page.includes('This plugin declares no stop commands. Anything it started may keep running.'));
+  assert.ok(m.includes('No running processes found.'));
+  assert.ok(page.includes('No stop commands declared. Anything it started may keep running.'));
 });
 t('text plain with only guarded processes: says nothing will be ended, not "no process found"', () => {
   const w = ui.sweepNorm({ sweep: { rootOk: true, complete: true, candidates: [], notStopped: ['PID 4031 sh -c loop: also used by Other.js'] } });
   const m = ui.sweepDialogText(w, 'plain', false);
-  assert.ok(m.includes('Nothing will be ended')); assert.ok(m.includes('Left running on purpose')); assert.ok(m.includes('also used by Other.js'));
-  assert.ok(!m.includes('No running process was found'));
-  assert.ok(ui.sweepDialogText(w, 'hook', false).includes('Nothing will be ended'));
+  assert.ok(m.includes('Nothing ended')); assert.ok(m.includes('Left running on purpose')); assert.ok(m.includes('also used by Other.js'));
+  assert.ok(!m.includes('No running processes found'));
+  assert.ok(ui.sweepDialogText(w, 'hook', false).includes('Nothing ended'));
 });
 t('text unchecked: says it could not be checked, lists nothing, with the reason', () => {
   const w = ui.sweepNorm({ sweep: { rootOk: false, notes: ['cannot be checked: the process check did not finish in time'] } });
   const m = ui.sweepDialogText(w, 'plain', false);
-  assert.ok(m.includes('could not be checked')); assert.ok(m.includes('did not finish in time')); assert.ok(!m.includes('No running process was found'));
+  assert.ok(m.includes('Can\'t verify')); assert.ok(m.includes('did not finish in time')); assert.ok(!m.includes('No running processes found'));
   assert.ok(!m.includes('PID'));
 });
 t('text unchecked: no second sentence when the data probe already said root is missing', () => {
@@ -88,13 +88,13 @@ t('text cannot: running processes are listed as staying running', () => {
   assert.ok(m.includes('will keep running')); assert.ok(m.includes('PID 8'));
 });
 t('text shared / stop: scan sentence when nothing found; list when found', () => {
-  assert.ok(ui.sweepDialogText(sw({}), 'stop', false).includes('scans for running processes'));
+  assert.ok(ui.sweepDialogText(sw({}), 'stop', false).includes('scans for leftover processes'));
   const m = ui.sweepDialogText(sw({ candidates: [cand(3, 'cmdline', 'job.sh')] }), 'shared', false);
   assert.ok(m.includes('If the stop runs')); assert.ok(m.includes('PID 3 job.sh'));
 });
 t('text toomany: states the count, lists the shown ones, offers no stop', () => {
   const m = ui.sweepDialogText(sw({ overCap: true, found: 61, candidates: [cand(1, 'tag', 'a')] }), 'toomany', false);
-  assert.ok(m.includes('61')); assert.ok(m.includes('nothing will be stopped')); assert.ok(m.includes('PID 1'));
+  assert.ok(m.includes('61')); assert.ok(m.includes('Nothing stopped')); assert.ok(m.includes('PID 1'));
 });
 t('text: processes left on purpose (shared guard) are listed; incomplete scan is flagged', () => {
   const m = ui.sweepDialogText(sw({ notStopped: ['PID 9 new.sh: also used by New.js'], complete: false }), 'plain', false);

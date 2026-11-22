@@ -37,12 +37,12 @@
     'Auto-unlock if not registered after 60 s':'Auto-unlock kung hindi rehistrado pagkatapos ng 60 s',
     'reading…':'binabasa…','Lock by hand':'I-lock nang mano-mano','Lock cell':'I-lock ang cell',
     'Radio settings':'Mga setting ng radio','Lock ticked bands':'I-lock ang mga naka-tick na band','Unlock all':'I-unlock lahat','Reset ticks':'I-reset ang mga tick',
-    'Network mode and bands apply to the whole router, not to one SIM slot. Read when this page opens and after a change, never on the live timer.':'Ang network mode at mga band ay para sa buong router, hindi sa isang SIM slot. Binabasa kapag binuksan ang page at pagkatapos ng pagbabago, hindi sa live timer.',
-    'Green = locked on the router. Yellow = ticked, not saved yet. Struck through = locked now, will be removed.':'Berde = naka-lock sa router. Dilaw = naka-tick, hindi pa na-save. May guhit = naka-lock ngayon, tatanggalin.',
-    'Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.':'Babala: ang pag-lock sa maling cell ay maaaring mawalan ng signal o maging hindi stable ang telepono. Binabasa kapag binuksan ang card o sa Refresh, hindi sa live timer.',
+    'Applies to the whole router, not one SIM. Loads on open and after changes.':'Para sa buong router, hindi sa isang SIM. Binabasa pagbukas at pagkatapos ng pagbabago.',
+    'Green: locked. Yellow: not saved. Strikethrough: will be removed.':'Berde: naka-lock. Dilaw: hindi pa na-save. May guhit: tatanggalin.',
+    'Warning: the wrong cell can cause no signal or an unstable one.':'Babala: ang maling cell ay maaaring magdulot ng walang signal o hindi stable na signal.',
     /* Tool windows (AT & Radio, Screen control, Log basket, Diagnostics, USB, Firmware, Update, Plugins) and the Performance mode toasts. */
-    'Performance mode':'Mode ng performance','Performance mode ON. Effective after reboot':'Performance mode ON. Epektibo pagkatapos ng reboot','Performance mode OFF. Effective after reboot':'Performance mode OFF. Epektibo pagkatapos ng reboot',
-    'This router does not report performance mode':'Hindi nag-uulat ng performance mode ang router na ito',
+    'Performance mode':'Mode ng performance','Performance mode ON. Reboot to apply.':'Performance mode ON. I-reboot para ilapat.','Performance mode OFF. Reboot to apply.':'Performance mode OFF. I-reboot para ilapat.',
+    'Performance mode not supported.':'Hindi suportado ang performance mode.',
     'Signal quality':'Kalidad ng signal','Registration':'Rehistrasyon','Modem info':'Impormasyon ng modem','NR bands':'Mga NR band','Restart modem':'I-restart ang modem',
     'Radio report':'Ulat ng radyo','Change IMEI':'Palitan ang IMEI','Apply':'Ilapat','AT command, e.g. AT+CSQ':'AT command, hal. AT+CSQ',
     'Back':'Bumalik','Recents':'Kamakailan','Wake':'Gisingin','Auto (smooth)':'Auto (makinis)','Low quality (fastest)':'Mababang kalidad (pinakamabilis)',
@@ -50,17 +50,17 @@
     'Select all':'Piliin lahat','Live view':'Live view','Snapshot: before update':'Snapshot: bago mag-update','Snapshot: after update':'Snapshot: pagkatapos mag-update',
     'Hide private data in copies':'Itago ang pribadong data sa mga kopya','Full file (not just the last 500 lines)':'Buong file (hindi lang ang huling 500 linya)',
     'All':'Lahat','Errors':'Mga error','Plugins':'Mga plugin','Back to basket':'Bumalik sa basket',
-    'Read-only checks for root, Android build, network, storage and available tools.':'Mga read-only na check para sa root, Android build, network, storage at mga available na tool.',
-    'Checks every function in one run: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager and the built-in tools. It is read-only: nothing is changed on the device and no SMS is sent. The report never contains your password or token.':'Sinusuri ang bawat function sa isang takbo: login, root shell, modem AT, router web API, USB status, firmware inspector, plugin manager at ang mga built-in na tool. Read-only ito: walang binabago sa device at walang SMS na ipinapadala. Hindi kailanman nilalaman ng ulat ang iyong password o token.',
-    'Choose how the USB Ethernet (tethering) connection works. This is the same setting as the router\'s own page (USB Internet Protocol).':'Piliin kung paano gagana ang USB Ethernet (tethering) na koneksyon. Ito ang parehong setting ng sariling page ng router (USB Internet Protocol).',
+    'Checks root, Android, network, storage and tools.':'Sinusuri ang root, Android, network, storage at mga tool.',
+    'Tests all functions in one run. Read-only. No SMS sent. The report has no passwords or tokens.':'Sinusuri ang lahat ng function sa isang takbo. Read-only. Walang SMS na ipinapadala. Walang password o token ang ulat.',
+    'USB Ethernet (tethering) mode. Same as the router\'s USB Internet Protocol setting.':'USB Ethernet (tethering) mode. Kapareho ng USB Internet Protocol na setting ng router.',
     'Unknown':'Hindi alam','Enabled':'Naka-enable','Disabled':'Naka-disable','CDC-ECM active':'Aktibo ang CDC-ECM','RNDIS active':'Aktibo ang RNDIS','No USB Ethernet mode detected':'Walang nakitang USB Ethernet mode',
-    'Auto lets the router choose. The router saves your choice and it is applied right away, without a restart. The USB connection may drop for a few seconds. Needs a fresh sign-in and root access.':'Ang Auto ay hinahayaan ang router na pumili. Sine-save ng router ang pinili mo at inilalapat ito agad, nang walang restart. Maaaring maputol ang USB connection nang ilang segundo. Kailangan ng bagong sign-in at root access.',
-    'Inspect XML/scatter metadata and calculate SHA-256. This does not flash or modify partitions.':'Suriin ang XML/scatter metadata at kalkulahin ang SHA-256. Hindi ito nagfa-flash o nagbabago ng mga partition.',
-    'Or update online from the MatchiTOOL releases.':'O mag-update online mula sa mga release ng MatchiTOOL.',
+    'Auto: the router chooses. Applies instantly, no restart. USB may drop briefly. Needs fresh sign-in and root.':'Auto: ang router ang pipili. Agad na inilalapat, walang restart. Maaaring maputol saglit ang USB. Kailangan ng bagong sign-in at root.',
+    'Reads XML/scatter metadata and SHA-256. No flashing.':'Binabasa ang XML/scatter metadata at SHA-256. Walang flashing.',
+    'Or update online.':'O mag-update online.',
     'Add plugin (.js file)':'Magdagdag ng plugin (.js file)','Search plugins':'Maghanap ng plugin','On':'Naka-on','Off':'Naka-off',
     'Cancel':'Kanselahin','Confirm':'Kumpirmahin','Next':'Susunod','Notice':'Paunawa','Network rules':'Mga network rule','Root over HTTP':'Root sa HTTP','Allow':'Payagan','Block':'I-block','Continue':'Magpatuloy',
     'Network rules…':'Mga network rule…','Root over HTTP…':'Root sa HTTP…',
-    'Plugins can run any command as root through this console. Install only code you trust.':'Ang mga plugin ay maaaring magpatakbo ng anumang command bilang root sa console na ito. Mag-install lang ng code na pinagkakatiwalaan mo.'
+    'Plugins run commands as root. Install only trusted code.':'Nagpapatakbo ng command bilang root ang mga plugin. Mag-install lang ng pinagkakatiwalaang code.'
   }};
   /* Pieces of texts that carry a changing value (a number, a band list): replaced inside the text, in this order. */
   var SUBS={fil:[

@@ -64,7 +64,7 @@ const ok = (c, n) => { if (!c) { bad++; console.error('FAIL', n); } };
     ok(!mk(undefined).includes('ROOT:') && !mk(undefined).includes('Delete dialog'), 'summary: no stop lines when the argument is missing');
     ok(!mk({ commands: [], check: null, boot: [] }).includes('Delete dialog'), 'summary: no stop lines when the plugin declares nothing');
     let t = mk(D('// @matchi-uninstall pkill -f beat\n// @matchi-check pgrep -f beat\n// @matchi-boot /data/local/matchitool/boot.d/20-x.sh\n'));
-    ok(t.includes('When deleted with Stop, it runs these commands as ROOT:\n\u2022 pkill -f beat') && t.includes('Then it checks with:\n\u2022 pgrep -f beat') && t.includes('\u2022 /data/local/matchitool/boot.d/20-x.sh') && t.includes('The Delete dialog shows each command in full before anything runs.'), 'summary: lists the commands, the check and the boot file');
+    ok(t.includes('Stop runs these commands as root:\n\u2022 pkill -f beat') && t.includes('Then it checks with:\n\u2022 pgrep -f beat') && t.includes('\u2022 /data/local/matchitool/boot.d/20-x.sh') && t.includes('Delete shows each command before running.'), 'summary: lists the commands, the check and the boot file');
     ok(t.indexOf('ROOT:') < t.indexOf('This list comes from a text search'), 'summary: the stop lines come before the closing hint');
     t = mk({ commands: ['x'.repeat(130), 'y'.repeat(120)], check: null, boot: [] });
     ok(t.includes('\u2022 ' + 'x'.repeat(120) + '...\n') && !t.includes('x'.repeat(121)) && t.includes('\u2022 ' + 'y'.repeat(120) + '\n'), 'summary: a command is cut at 120 characters with "...", a 120 character one is not');

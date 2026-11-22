@@ -120,8 +120,8 @@ function sbxAuthorize(g,op,args,atIsRead){
     case 'storage.get':case 'storage.remove':return str(args[0],64)?{ok:true,op,args:[args[0]]}:{ok:false,error:'bad storage key'};
     case 'storage.set':return str(args[0],64)&&typeof args[1]==='string'?{ok:true,op,args:[args[0],args[1]]}:{ok:false,error:'bad storage key or value'};
     case 'at':{
-      if(!g.at)return {ok:false,error:'not approved: this plugin did not declare "at.read"'};
-      if(typeof args[0]!=='string'||typeof atIsRead!=='function'||!atIsRead(args[0]))return {ok:false,error:'only read-only AT commands are allowed'};
+      if(!g.at)return {ok:false,error:'Denied: "at.read" not declared.'};
+      if(typeof args[0]!=='string'||typeof atIsRead!=='function'||!atIsRead(args[0]))return {ok:false,error:'Read-only AT commands only.'};
       return {ok:true,op,args:[args[0].trim()]};
     }
     case 'router.get':{
@@ -132,7 +132,7 @@ function sbxAuthorize(g,op,args,atIsRead){
       return {ok:true,op,args:[f.map(x=>x.trim())]};
     }
     case 'shell':
-      if(typeof args[0]!=='string'||!g.shell.has(args[0]))return {ok:false,error:'not approved: only the exact commands this plugin declared with "shell:" may run'};
+      if(typeof args[0]!=='string'||!g.shell.has(args[0]))return {ok:false,error:'Denied: only declared "shell:" commands may run.'};
       return {ok:true,op,args:[args[0]]};
     default:return {ok:false,error:'unknown operation'};
   }
@@ -143,7 +143,7 @@ function sbxMemStorage(){const m=new Map();return {get length(){return m.size},k
 function sbxStore(storage,name){
   const pre='matchi_sbx:'+name+'/';
   const okKey=(k)=>typeof k==='string'&&/^[A-Za-z0-9._-]{1,64}$/.test(k);
-  const need=(k)=>{if(!okKey(k))throw new Error('storage keys use letters, digits . _ - (64 at most)')};
+  const need=(k)=>{if(!okKey(k))throw new Error('Storage keys: letters, digits, . _ - (max 64).')};
   const keys=()=>{const out=[];for(let i=0;i<storage.length;i++){const k=storage.key(i);if(k&&k.startsWith(pre))out.push(k.slice(pre.length))}return out.sort()};
   const total=()=>keys().reduce((n,k)=>n+k.length+String(storage.getItem(pre+k)||'').length,0);
   return {
@@ -151,10 +151,10 @@ function sbxStore(storage,name){
     get(k){need(k);const v=storage.getItem(pre+k);return v===null?null:v},
     set(k,v){
       need(k);v=String(v);
-      if(v.length>SBX_STORE_ITEM)throw new Error('value too large (32 KB at most)');
+      if(v.length>SBX_STORE_ITEM)throw new Error('Value too large (max 32 KB).');
       const ks=keys(),old=ks.includes(k)?String(storage.getItem(pre+k)||'').length+k.length:0;
       if(!ks.includes(k)&&ks.length>=SBX_STORE_KEYS)throw new Error('too many keys ('+SBX_STORE_KEYS+' at most)');
-      if(total()-old+k.length+v.length>SBX_STORE_TOTAL)throw new Error('this plugin\'s storage is full (256 KB)');
+      if(total()-old+k.length+v.length>SBX_STORE_TOTAL)throw new Error('Plugin storage full (256 KB).');
       storage.setItem(pre+k,v);return true;
     },
     remove(k){need(k);storage.removeItem(pre+k);return true},
@@ -209,7 +209,7 @@ function sbxOnMessage(entry,m){
   const reply=(ok,v)=>{if(m.id===0||entry.dead)return;try{entry.port.postMessage(ok?{id:m.id,ok:true,value:v===undefined?null:v}:{id:m.id,ok:false,error:String(v)})}catch(_){}};
   let size=0;try{size=JSON.stringify(m).length}catch(_){return}
   if(size>SBX_MAX_MSG)return reply(false,'message too large');
-  if(!sbxRateOk(entry))return reply(false,'too many calls, slow down');
+  if(!sbxRateOk(entry))return reply(false,'Too many calls. Slow down.');
   const a=sbxAuthorize(entry.g,m.op,m.args,window.__matchiAtIsRead);
   if(!a.ok)return reply(false,a.error);
   sbxRun(entry,a).then((v)=>reply(true,v),(e)=>reply(false,(e&&e.message)||'failed'));
@@ -251,7 +251,7 @@ function sbxMount(p){
   frame.addEventListener('load',()=>{
     if(entry.loaded){   // the plugin sent its own frame elsewhere: the bridge is closed, the new page never gets a port
       entry.dead=true;try{entry.port&&entry.port.close()}catch(_){}
-      createToast('['+title+'] left its sandbox page, so its bridge was closed. Reload the page to start it again.','orange',8000);return;
+      createToast('['+title+'] Left its sandbox. Bridge closed. Reload the page.','orange',8000);return;
     }
     entry.loaded=true;
     const ch=new MessageChannel();entry.port=ch.port1;
@@ -262,7 +262,7 @@ function sbxMount(p){
   const m=createModal({name:modalId,title:title,maxWidth:'680px',showConfirm:false,content:'',onClose:async()=>{sbxHide(entry);return false}});
   const body=m.el.querySelector('.content');
   const note=document.createElement('p');note.className='mut';note.style.margin='0 0 8px';
-  note.textContent='Sandboxed plugin. '+(grant.length?'It may: '+grant.map(sbxDescribe).join('; ')+'.':'It has no device access.')+' If this window stays empty, the plugin draws its screen in the console page, which the sandbox hides. Press Trust on its row in Plugins to run it normally.';
+  note.textContent='Sandboxed. '+(grant.length?'It may: '+grant.map(sbxDescribe).join('; ')+'.':'No device access.')+' Window empty? The plugin draws in the console page. Tap Trust on its row.';
   body.append(note,frame);
   sbxEntries.set(name,entry);
   const box=document.querySelector('.matchi-menu-box');
@@ -274,13 +274,13 @@ function sbxPurge(name){try{sbxStore(sbxStorage(),name).purge()}catch(_){}}
 /* The two confirm texts for the Sandbox / Trust button of a plugin row (p from GET /api/plugins). */
 function sbxSandboxMsg(p){
   const d=Array.isArray(p.declared)?p.declared:[],bad=Array.isArray(p.sbxProblems)?p.sbxProblems:[];
-  let m='Run '+p.name+' in the sandbox?\n\nIt will run in an isolated frame: it cannot read this page, your session or the console API, and it reaches the console only through a small bridge.';
-  m+=d.length?'\n\nIt asked for, and will get:\n'+d.map((c)=>'\u2022 '+sbxDescribe(c)).join('\n'):'\n\nIt asked for nothing beyond toasts, its own saved data and its own window.';
-  if(bad.length)m+='\n\nThese header lines are ignored and grant nothing:\n'+bad.map((x)=>'\u2022 '+x).join('\n');
+  let m='Run '+p.name+' in the sandbox?\n\nRuns isolated. No access to this page, your session or the API.';
+  m+=d.length?'\n\nIt asked for, and will get:\n'+d.map((c)=>'\u2022 '+sbxDescribe(c)).join('\n'):'\n\nRequests only notifications, its own data and its own window.';
+  if(bad.length)m+='\n\nThese header lines are ignored:\n'+bad.map((x)=>'\u2022 '+x).join('\n');
   m+='\n\nA plugin that needs the page itself (matchi.root, matchi.modal, document ...) will not work here; give it the trusted mode instead. The file is approved as it is now. The sign-in password is asked next.';
   return m;
 }
 function sbxTrustMsg(p){
-  return 'Make '+p.name+' trusted?\n\nIt will run inside the console page with your signed-in session. It can then run root commands and call every console route, like any plugin that is not sandboxed. Only do this if you trust where it came from. The file is approved as it is now. The sign-in password is asked next.';
+  return 'Make '+p.name+' trusted?\n\nRuns with full access: root commands and all routes. Trust only known sources. The current file is approved. Password required next.';
 }
 /* ===== end sandboxed plugins ===== */

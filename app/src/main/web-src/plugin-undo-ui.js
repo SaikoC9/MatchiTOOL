@@ -27,7 +27,7 @@ function undoDialogText(un,mode,noRoot){
     else m+='\n\nThe stop does not run, so these stay in the system:'+bullets(lines);
     if(undoModeRuns(mode)||mode==='shared'){
       m+='\n\nOnly firewall chains and boot scripts that this plugin\'s own commands created are listed. Each is checked again afterwards; if one is still there, the plugin is kept.';
-      if(noRoot)m+='\n\nRoot is not available, so none of this can run and the plugin would be kept.';
+      if(noRoot)m+='\n\nNo root. Nothing can run. Plugin is kept.';
     }
   }
   if(un.notUndone.length)m+='\n\nNot undone:'+bullets(un.notUndone);

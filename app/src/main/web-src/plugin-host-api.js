@@ -371,7 +371,7 @@ const matchiRouter={
   async set(params){
     const o=params||{};
     if(String(o.goformId||'').toUpperCase()==='ENABLE_PIN'&&!matchiRouter._pinOk){
-      if(!(await askConfirm('A plugin wants to send a SIM PIN command (ENABLE_PIN) to the router.\n\nA wrong value counts as a failed PIN attempt and can lock the SIM.\n\nSend it anyway?','Send it anyway',true)))throw new Error('Cancelled: SIM PIN command not sent');
+      if(!(await askConfirm('A plugin wants to send a SIM PIN command.\n\nA wrong value can lock the SIM.\n\nSend anyway?','Send it anyway',true)))throw new Error('Cancelled: SIM PIN command not sent');
       matchiRouter._pinOk=true;
     }
     const r=await api('/api/zte',{method:'POST',body:JSON.stringify({op:'set',params:o})});
@@ -389,10 +389,10 @@ const matchiGate=Object.freeze({
     const fail=(msg)=>{try{if(w)w.close()}catch(_){}return msg};
     name=String(name==null?'':name);
     if(!/^[a-z0-9-]{1,32}$/.test(name))return fail('The web page name must use a-z, 0-9 and - (1 to 32 characters).');
-    if(!w)return 'The browser blocked the new tab. Allow pop-ups for this page and press Open again.';
+    if(!w)return 'Pop-up blocked. Allow pop-ups, then tap Open.';
     try{
       const r=await api('/api/gate/open',{method:'POST',body:JSON.stringify({name})});
-      if(!r||!r.ticket||!(r.port>0))return fail('The host did not return an entry link.');
+      if(!r||!r.ticket||!(r.port>0))return fail('No entry link returned.');
       w.location.replace('http://'+location.hostname+':'+r.port+'/__matchi/enter?t='+encodeURIComponent(r.ticket));
       return '';
     }catch(e){return fail(String((e&&e.message)||e||'Could not open the page'))}

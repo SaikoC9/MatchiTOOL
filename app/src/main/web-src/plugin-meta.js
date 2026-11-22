@@ -64,16 +64,16 @@ function plugSummary(name,scan,replaces,stop){
   if(scan.risky.length)L.push('Careful: it '+scan.risky.join('; ')+'.');
   if(scan.endpoints.length)L.push('MatchiTOOL routes it calls: '+scan.endpoints.join(', ')+'.');
   if(scan.token)L.push('Careful: it mentions the sign-in token.');
-  if(scan.net&&!scan.hosts.length)L.push('It makes network requests (no host named in the text).');
+  if(scan.net&&!scan.hosts.length)L.push('Makes network requests. No host named.');
   if(scan.hosts.length)L.push('Web hosts it contacts or names: '+scan.hosts.join(', ')+'.');
   /* Only given when the plugin declares them (plugin manager). Each command is cut at 120 characters and at most 10 are listed; the Delete dialog shows them in full. */
   if(stop&&(stop.commands.length||stop.check||stop.boot.length)){
     const cut=c=>c.length>120?c.slice(0,120)+'...':c,B=a=>a.map(x=>'\n\u2022 '+cut(x)).join('');
     let t='';
-    if(stop.commands.length)t+='When deleted with Stop, it runs these commands as ROOT:'+B(stop.commands.slice(0,10));
+    if(stop.commands.length)t+='Stop runs these commands as root:'+B(stop.commands.slice(0,10));
     if(stop.check)t+=(t?'\n':'')+'Then it checks with:'+B([stop.check]);
-    if(stop.boot.length)t+=(t?'\n':'')+'Boot files it says it creates (only checked for, to see they are gone):'+B(stop.boot);
-    L.push(t+'\nThe Delete dialog shows each command in full before anything runs.');
+    if(stop.boot.length)t+=(t?'\n':'')+'Boot files it creates (checked for removal):'+B(stop.boot);
+    L.push(t+'\nDelete shows each command before running.');
   }
   L.push('This list comes from a text search of the source; a plugin can build commands while it runs.');
   if(replaces.length)L.push('It will REPLACE: '+replaces.join(', ')+'.');

@@ -51,7 +51,7 @@ function mountDashCell() {
     '<span class="dc-hb"><button type="button" data-a="refresh">Refresh</button><button type="button" data-a="unlock">Unlock all cells</button></span></div>' +
     '<div class="dc-s"></div>' +
     '<div class="dc-body" style="display:none">' +
-    '<div class="dc-warn" data-tip="warning">Warning: locking the wrong cell can leave the phone with no signal or an unstable one. Read when this card is opened or on Refresh, never on the live timer.</div>' +
+    '<div class="dc-warn" data-tip="warning">Warning: the wrong cell can cause no signal or an unstable one.</div>' +
     '<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" data-a="auto"> Auto-unlock if not registered after 60 s</label>' +
     '<div class="dc-dyn">reading…</div>' +
     '<div class="dc-l">Lock by hand</div>' +
@@ -96,7 +96,7 @@ function mountDashCell() {
     h += st.locked.length ? st.locked.map((c) => `<div>${cellText(c, String(c.rat))}</div>`).join('') : '<div>none</div>';
     h += '<div class="dc-l">This phone is on</div>';
     h += st.serving.length ? st.serving.map((c, i) => `<div class="dc-cell"><span>${cellText(c, c.rat)}${c.tele ? ' <i title="The router left its serving cell empty. This is the cell Android telephony reports; it can differ from the router\'s.">(Android telephony)</i>' : ''}</span>${isLockedCell(c) ? '<button type="button" class="dc-lk-on" disabled>Locked ✓</button>' : `<button type="button" class="dc-lk" data-a="sv" data-i="${i}">Lock this cell</button>`}</div>`).join('')
-      : '<div class="dc-note">No serving cell with a valid PCI and channel was reported by the router or by Android telephony (Live Status must have a recent reading). Use a neighbour below or lock by hand.</div>';
+      : '<div class="dc-note">No valid serving cell found. Use a neighbor cell or lock manually.</div>';
     h += '</div><div class="dc-c2"><div class="dc-l">Neighbours</div>';
     h += st.nb.length ? st.nb.map((c, i) => {
       const rat = ['12', '16'].includes(String(c.rat)) ? String(c.rat) : R.guessRat(c.band) || st.rat[i] || '';
@@ -145,8 +145,8 @@ function mountDashCell() {
     if (res === 'cancelled') return;
     clearMark();
     if (res === 'off') { addLog('Auto-unlock is off: the cell lock stays.'); setStatus('Auto-unlock is off: the cell lock stays.'); return; }
-    if (res === 'registered') { addLog('Modem is registered 60 s after the lock: the lock stays. Unlock all cells to remove it.'); setStatus('Registered. The cell lock stays; press Unlock all cells to remove it.'); return; }
-    addLog('Not registered 60 s after the lock: removing the lock.'); setStatus('Not registered after the lock: removing it…');
+    if (res === 'registered') { addLog('Registered after 60 s. Lock kept. Tap Unlock all cells to remove it.'); setStatus('Registered. The cell lock stays; press Unlock all cells to remove it.'); return; }
+    addLog('Not registered after 60 s. Removing lock.'); setStatus('Not registered after the lock: removing it…');
     for (let i = 0; i < 10 && R.isBusy(); i++) await R.sleep(1000);
     await unlock(true);
   }
@@ -155,9 +155,9 @@ function mountDashCell() {
     if (lockOff()) return;
     if (!R.cellOk(pci, earfcn, rat)) { toast('PCI, EARFCN or type is not valid', 'red'); return; }
     const ok = await askConfirm('Lock to this cell?\n\n' + ratLabel(rat) + ' \u00b7 EARFCN ' + earfcn + ' \u00b7 PCI ' + pci +
-      (tele ? '\n\nThis cell comes from Android telephony, because the router did not report its own serving cell. It can differ from the cell the router uses: if unsure, lock a neighbour row or Cancel.' : '') +
+      (tele ? '\n\nCell from Android, not the router. It may differ. If unsure, cancel or pick a neighbor cell.' : '') +
       '\n\nWARNING: a wrong cell can leave the phone with no signal or an unstable one. "Unlock all cells" stays on this card. ' +
-      (R.cellAutoOn() ? 'If the modem is not registered 60 seconds after the lock, the lock is removed automatically.' : 'Automatic unlock is OFF: you must unlock by hand.'), 'Lock cell', true);
+      (R.cellAutoOn() ? 'Lock auto-removes if not registered after 60 s.' : 'Automatic unlock is OFF: you must unlock by hand.'), 'Lock cell', true);
     if (!ok) return;
     st.working = true; sync(); logEl.textContent = '';
     let sent = false;
@@ -171,15 +171,15 @@ function mountDashCell() {
       }
       paint();
       if (r.hit) { addLog('Router now reports the locked cell.'); setStatus('Cell locked.'); toast('Cell locked', 'green'); }
-      else if (r.reply === 'empty') { const why = await R.emptyHint(); addLog('Router answered with an empty reply and no lock appeared (' + (r.attempts || 1) + ' tries, fresh sign-in). ' + why); setStatus('The router ignored the lock. ' + why); toast('Router ignored the cell lock', 'red'); }
-      else { addLog('Router accepted the lock but does not list it (yet). Check Live Status, and unlock if the signal is gone.'); setStatus('Sent, but the router does not list the lock yet.'); toast('Sent, but the router does not list the lock yet', 'red'); }
+      else if (r.reply === 'empty') { const why = await R.emptyHint(); addLog('Router gave an empty reply. No lock applied (' + (r.attempts || 1) + ' tries, fresh sign-in). ' + why); setStatus('The router ignored the lock. ' + why); toast('Router ignored the cell lock', 'red'); }
+      else { addLog('Lock sent but not listed yet. Check Live Status. Unlock if signal is lost.'); setStatus('Sent, but the router does not list the lock yet.'); toast('Sent, but the router does not list the lock yet', 'red'); }
     } catch (e) { addLog('Cell lock failed: ' + e.message); setStatus('Cell lock failed: ' + e.message); toast(e.message, 'red'); }
     finally { st.working = false; sync(); }
     if (sent && R.cellAutoOn()) { setMark(); addLog('Auto-unlock check in 60 s (switch it off with the tick box if you do not want it).'); watch(60000); }
   }
   async function unlock(auto) {
     if (st.unlocking) return;
-    if (!auto && !(await askConfirm('Unlock all cells?\n\nThe modem may re-register for a few seconds.', 'Unlock all'))) return;
+    if (!auto && !(await askConfirm('Unlock all cells?\n\nModem may re-register briefly.', 'Unlock all'))) return;
     st.unlocking = true; clearMark(); sync();
     try {
       setStatus('Unlocking all cells…'); addLog('> UNLOCK_ALL_CELL' + (auto ? ' (automatic)' : ''));
@@ -190,9 +190,9 @@ function mountDashCell() {
         try { const c = await R.readCells(); take(c); r = { ...r, cells: c, none: !c.locked.length }; } catch (_) { /* reported below */ }
       }
       paint();
-      if (r.none) { addLog('Router reports no locked cell.'); setStatus('No locked cell. Live values return once the modem re-registers.'); toast('Cells unlocked', 'green'); }
+      if (r.none) { addLog('Router reports no locked cell.'); setStatus('No locked cell. Live values return after re-registering.'); toast('Cells unlocked', 'green'); }
       else if (r.reply === 'empty' && r.cells) { const why = await R.emptyHint(); addLog('Router answered with an empty reply and the lock is still listed (' + (r.attempts || 1) + ' tries, fresh sign-in). ' + why); setStatus('The router ignored the unlock. ' + why); toast('Router ignored the unlock', 'red'); }
-      else { addLog('Router accepted the unlock but still lists a locked cell, or could not be read. Press Refresh.'); setStatus('Unlock sent, but the router still lists a locked cell. Press Refresh.'); toast('Unlock sent, but a lock is still listed', 'red'); }
+      else { addLog('Router accepted the unlock but still lists a locked cell, or could not be read. Press Refresh.'); setStatus('Unlock sent. Cell still listed. Tap Refresh.'); toast('Unlock sent, but a lock is still listed', 'red'); }
     } catch (e) { addLog('Unlock failed: ' + e.message + '. Try again, or restart the modem.'); setStatus('Unlock failed: ' + e.message); toast(e.message, 'red'); }
     finally { st.unlocking = false; sync(); }
   }
@@ -207,7 +207,7 @@ function mountDashCell() {
     else if (k === 'nb') {
       const c = st.nb[i]; if (!c) return;
       const rat = ['12', '16'].includes(String(c.rat)) ? String(c.rat) : R.guessRat(c.band) || st.rat[i] || '';
-      if (!rat) { toast('Choose 4G or 5G for this cell first', 'red'); return; }   // never guess the type
+      if (!rat) { toast('Select 4G or 5G first.', 'red'); return; }   // never guess the type
       lock(String(c.pci == null ? '' : c.pci).trim(), String(c.earfcn == null ? '' : c.earfcn).trim(), rat);
     } else if (k === 'manual') {
       const f = (n) => card.querySelector('[data-f=' + n + ']').value.trim();
@@ -233,7 +233,7 @@ function mountDashCell() {
     try {
       const c = await R.readCells();
       if (!c.locked.length) { clearMark(); return; }
-      take(c); addLog('Page reloaded after a cell lock: auto-unlock check resumed.'); setStatus('Cell lock active, auto-unlock check resumed.');
+      take(c); addLog('Page reloaded. Auto-unlock check resumed.'); setStatus('Cell lock active, auto-unlock check resumed.');
       watch(Math.max(0, 60000 - age));
     } catch (_) { clearMark(); }
   })();

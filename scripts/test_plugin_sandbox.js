@@ -110,8 +110,8 @@ const words = [...kt.matchAll(/"in the sandbox: ([^"]*)"/g)].map((m) => m[1]);
 eq(words, ['reads the modem with read-only AT commands', 'reads router field ', 'runs this root command: ', 'contacts '], 'Kotlin wording list');
 eq([api.sbxDescribe('sbx:at.read'), api.sbxDescribe('sbx:router:x'), api.sbxDescribe('sbx:shell:id'), api.sbxDescribe('sbx:net:h.com')],
   [words[0], words[1] + 'x', words[2] + 'id', words[3] + 'h.com'], 'dialog wording (page and Kotlin)');
-for (const t of [api.sbxSandboxMsg({ name: 'X.js', declared: ['sbx:shell:id'], sbxProblems: ['bad line'] }), api.sbxTrustMsg({ name: 'X.js' })]) yes(t.includes('X.js') && t.includes('password'), 'confirm text names the plugin and the password');
-yes(api.sbxSandboxMsg({ name: 'X.js', declared: [] }).includes('nothing beyond'), 'a plugin that asks for nothing says so');
+for (const t of [api.sbxSandboxMsg({ name: 'X.js', declared: ['sbx:shell:id'], sbxProblems: ['bad line'] }), api.sbxTrustMsg({ name: 'X.js' })]) yes(t.includes('X.js') && /password/i.test(t), 'confirm text names the plugin and the password');
+yes(api.sbxSandboxMsg({ name: 'X.js', declared: [] }).includes('Requests only'), 'a plugin that asks for nothing says so');
 
 // ---- The page relays device calls to the host route, and the host knows the same operations
 yes(html.includes("/api/plugins/call") && !/sbxRun[\s\S]*?api\('\/api\/shell'/.test(html.slice(a, b)), 'the bridge relays device calls to /api/plugins/call');

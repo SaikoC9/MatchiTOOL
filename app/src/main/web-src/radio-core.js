@@ -89,8 +89,8 @@ window.MatchiRadio = (() => {
   async function emptyHint() {
     let set = null; try { const c = await api('/api/zte/config'); set = !!(c && c.passwordSet); } catch (_) { /* unknown */ }
     return set === false
-      ? 'MatchiTOOL has no router admin password saved, so the router ignores changes. Sign in to the web console with the router password once (that saves it), then try again.'
-      : 'The router ignored the command even after a fresh sign-in. Reboot the device and try again.';
+      ? 'No router password saved. Sign in once with it, then retry.'
+      : 'Router ignored the command. Reboot and retry.';
   }
   const NET_MODES = [
     ['WL_AND_5G', 'Auto 5G/4G/3G'], ['LTE_AND_5G', '5G NSA'], ['Only_5G', '5G SA'], ['Only_LTE', '4G only'],
@@ -299,7 +299,7 @@ window.MatchiRadio = (() => {
     const get = (k) => { const m = text.match(new RegExp('^' + k + ':(.*)$', 'm')); return m ? m[1].trim() : ''; };
     if (!lost) {
       if (/NOSENDAT/.test(text)) { log('The AT tool (sendat) was not found on the device. Nothing was changed.'); toast('Radio restart failed, nothing changed', 'red'); return false; }
-      if (/^NOAT:/m.test(text)) { log('The modem did not answer a plain AT on either slot (sendat gave no OK), so the radio was NOT switched off. Nothing was changed. Run Full diagnose and look at "sendat architecture & execution".'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
+      if (/^NOAT:/m.test(text)) { log('Modem didn\'t answer AT. Radio unchanged. Run Full diagnose.'); toast('Modem does not answer AT, nothing changed', 'red'); return false; }
       for (const sl of [0, 1]) { if (/NOSLOT/.test(get('OFF' + sl))) { log('slot ' + sl + ': not present on this device, skipped'); continue; } log('slot ' + sl + ' off: ' + (get('OFF' + sl) || '(no output)')); const o = get('ON' + sl); log('slot ' + sl + ' on: ' + (o ? o.replace(/^[01]:/, '') : '(no output)')); }
       const dataMsg = { ok: 'Mobile data: the internet works (ping answered).', toggled: 'Mobile data: no internet after the restart, so mobile data was switched off and on (svc data). The internet works again.', none: 'Mobile data: no internet (ping failed) after switching mobile data off and on. Check Live Status; run "svc data disable; sleep 3; svc data enable" by hand if there is still no internet.', off: 'Mobile data is switched off in Android, so it was left alone.' }[get('DATA')];
       if (dataMsg) log(dataMsg);

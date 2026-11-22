@@ -109,7 +109,7 @@ assert(N.apnCanUse(mAuto, mAuto.profiles[0]) && !N.apnCanEdit(mAuto, mAuto.profi
 assert(!N.apnCanUse(mMan, mMan.profiles[0]), 'the profile in use has no Use'); assert(N.apnCanUse(mMan, mMan.profiles[1]) && N.apnCanEdit(mMan, mMan.profiles[1]) && N.apnCanAdd(mMan));
 assert(/in use/.test(N.apnDeleteRefusal(mMan, mMan.profiles[0])), 'the profile in use is never deleted'); eq(N.apnDeleteRefusal(mMan, mMan.profiles[1]), null);
 assert(/in use/.test(N.apnDeleteRefusal(mk('manual', [HOME, WORK], ['', ''], 1), mk('manual', [HOME, WORK], ['', ''], 1).profiles[1])), 'the slot the router names as current is refused even when the name keys are empty');
-assert(/only usable profile/.test(N.apnDeleteRefusal(mk('manual', [HOME, ''], ['Other', 'x']), mk('manual', [HOME, ''], ['Other', 'x']).profiles[0])), 'the last usable profile stays');
+assert(/Only profile/.test(N.apnDeleteRefusal(mk('manual', [HOME, ''], ['Other', 'x']), mk('manual', [HOME, ''], ['Other', 'x']).profiles[0])), 'the last usable profile stays');
 assert(!N.apnCanUse(mk('auto', ['Blank($)($)manual($)*99#($)none($)($)($)IPv4v6($)'], ['DITO', 'x']), { slot: 0, name: 'Blank', apn: '', pdp: 'IPv4v6' }), 'a profile with no APN cannot be used');
 assert(!N.apnCanAdd(mk('manual', Array.from({ length: 20 }, () => HOME), ['x', 'y'])), 'no free slot, no Add');
 eq(N.autoAsForm(apnAuto), { name: 'DITO', apn: 'internet.dito.ph', pdp: 'IPv4v6', auth: 'none', user: '', pass: '' }); eq(N.autoAsForm({ auto: null }), null);
@@ -152,7 +152,7 @@ eq(N.parseLan({ dhcpLease_hour: 'weird' }).leaseHours, null); eq(N.parseLan({ dh
 // ---- MTU / MSS ------------------------------------------------------------------------------------------------------------
 eq(N.parseMtu({ mtu: '1500', tcp_mss: '1460' }), { mtu: 1500, mss: 1460, warn: null });
 eq(N.parseMtu({ mtu: '1500', tcp_mss: '1459' }).warn, null);   // lower than MTU - 40 is fine
-eq(N.parseMtu({ mtu: '1500', tcp_mss: '1461' }).warn, 'MSS is larger than MTU minus 40 (1460)');
+eq(N.parseMtu({ mtu: '1500', tcp_mss: '1461' }).warn, 'MSS must not exceed MTU − 40 (1460)');
 eq(N.parseMtu({ mtu: '', tcp_mss: '' }), { mtu: null, mss: null, warn: null });
 
 // ---- Root read of the real values (read-only commands) -----------------------------------------------------------------
@@ -205,7 +205,7 @@ eq(N.blockCall(acl1, 'aa:bb:cc:dd:ee:01', 'Tab').BlackMacList, '02:00:00:00:00:a
 eq(N.unblockCall(N.parseAcl({ BlackMacList: '02:00:00:00:00:a5;aa:bb:cc:dd:ee:01;', BlackNameList: 'A;B;' }), 'aa:bb:cc:dd:ee:01').BlackNameList, 'A;');
 eq(N.blockCall(acl0, '02:00:00:00:00:a5', 'bad;name&x=1').BlackNameList, 'badnamex1;');                  // separators never reach the form
 eq(N.blockCall(acl0, '02:00:00:00:00:a5', ';;;').BlackNameList, 'device;');
-assert.throws(() => N.blockCall(acl1, '02:00:00:00:00:a5', 'x'), /already blocked/); assert.throws(() => N.unblockCall(acl0, '02:00:00:00:00:a5'), /not in the block list/);
+assert.throws(() => N.blockCall(acl1, '02:00:00:00:00:a5', 'x'), /Already blocked/); assert.throws(() => N.unblockCall(acl0, '02:00:00:00:00:a5'), /Not blocked/);
 assert.throws(() => N.blockCall(acl0, 'not-a-mac', 'x')); assert.throws(() => N.blockCall(null, '02:00:00:00:00:a5', 'x'));
 const aclW = N.parseAcl({ AclMode: '1', WhiteMacList: 'aa:bb:cc:dd:ee:01;', WhiteNameList: 'W;', BlackMacList: '' });   // allow-list mode: never touched
 assert(N.aclRefusal(aclW) && N.aclRefusal(null) && N.aclRefusal(acl0) === null);
@@ -251,9 +251,9 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   const bad = [
     [['192.168.0.2', '192.168.1.5', '24'], /outside the router network/], [['192.168.1.2', '192.168.0.50', '24'], /outside the router network/],
     [['192.168.0.0', '192.168.0.50', '24'], /network or the broadcast/], [['192.168.0.2', '192.168.0.255', '24'], /network or the broadcast/],
-    [['192.168.0.50', '192.168.0.20', '24'], /must not be after/], [['192.168.0.1', '192.168.0.50', '24'], /must not be inside the pool/], [['192.168.0.2', '192.168.0.1', '24'], /must not be after|inside the pool/],
-    [['192.168.0.2', '192.168.0.200', '0'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '169'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '1.5'], /whole number of hours/],
-    [['192.168.0.2', '192.168.0.200', '24h'], /whole number of hours/], [['192.168.0.2', '192.168.0.200', ''], /whole number of hours/], [['192.168.0.2', '192.168.0.200', '-5'], /whole number of hours/],
+    [['192.168.0.50', '192.168.0.20', '24'], /Pool start must come before/], [['192.168.0.1', '192.168.0.50', '24'], /must not be inside the pool/], [['192.168.0.2', '192.168.0.1', '24'], /Pool start must come before|inside the pool/],
+    [['192.168.0.2', '192.168.0.200', '0'], /Lease must be whole hours/], [['192.168.0.2', '192.168.0.200', '169'], /Lease must be whole hours/], [['192.168.0.2', '192.168.0.200', '1.5'], /Lease must be whole hours/],
+    [['192.168.0.2', '192.168.0.200', '24h'], /Lease must be whole hours/], [['192.168.0.2', '192.168.0.200', ''], /Lease must be whole hours/], [['192.168.0.2', '192.168.0.200', '-5'], /Lease must be whole hours/],
     [['abc', '192.168.0.200', '24'], /start is not a valid/], [['192.168.0.2', '192.168.0.300', '24'], /end is not a valid/], [['', '', ''], /start is not a valid/],
   ];
   for (const [args, re] of bad) { const r = ok(...args); assert(r.error && re.test(r.error), JSON.stringify(args) + ' -> ' + JSON.stringify(r)); }
@@ -263,7 +263,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   const L16 = N.parseLan({ lan_ipaddr: '172.20.0.1', lan_netmask: '255.255.0.0', dhcpEnabled: '1', dhcpStart: '172.20.0.2', dhcpEnd: '172.20.0.200', dhcpLease_hour: '24h' });
   assert(!N.lanPoolCheck(L16, '172.20.1.5', '172.20.200.9', '2').error && /network or the broadcast/.test(N.lanPoolCheck(L16, '172.20.0.0', '172.20.9.9', '2').error) && /network or the broadcast/.test(N.lanPoolCheck(L16, '172.20.9.9', '172.20.255.255', '2').error));
   // refused when the router state is not what this step needs
-  for (const [lan, re] of [[null, /did not report/], [{}, /did not report/], [Object.assign({}, L, { dhcp: 'Off' }), /not On/], [Object.assign({}, L, { dhcp: null }), /not On/], [Object.assign({}, L, { ip: '8.8.8.8' }), /not a private address/], [Object.assign({}, L, { mask: '255.0.255.0' }), /not valid/], [Object.assign({}, L, { ip: '192.168.0.300' }), /not a private address/]]) {
+  for (const [lan, re] of [[null, /did not report/], [{}, /did not report/], [Object.assign({}, L, { dhcp: 'Off' }), /not On/], [Object.assign({}, L, { dhcp: null }), /not On/], [Object.assign({}, L, { ip: '8.8.8.8' }), /must be private/], [Object.assign({}, L, { mask: '255.0.255.0' }), /Invalid mask/], [Object.assign({}, L, { ip: '192.168.0.300' }), /must be private/]]) {
     const r = N.lanPoolCheck(lan, '192.168.0.2', '192.168.0.100', '24'); assert(r.error && re.test(r.error), JSON.stringify(lan) + ' -> ' + JSON.stringify(r));
   }
   // the call: the WHOLE set, as captured (part C); key order starts with goformId; IP and mask sent back unchanged; strings only
@@ -306,8 +306,8 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(N.lanIpCall(Lb, { ip: '192.168.0.1' }), { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease: '24', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
   eq(N.lanIpCheck(La, '10.0.0.1'), { ip: '10.0.0.1', start: '10.0.0.2', end: '10.0.0.253', lease: 24 });
   eq(N.lanIpCheck(Object.assign({}, La, { mask: '255.255.0.0' }), '192.168.5.1').start, '192.168.0.2', 'same /16: the pool keeps its numbers');
-  for (const [v, re] of [['x', /not a valid IPv4/], ['', /not a valid IPv4/], ['010.0.0.1', /not a valid IPv4/], ['8.8.8.8', /must be a private/], ['192.168.0.1', /same as the current/], ['192.168.0.0', /network or the broadcast/],
-    ['192.168.0.255', /network or the broadcast/], ['192.168.0.100', /inside the pool/], ['192.168.0.1; reboot', /not a valid IPv4/]])
+  for (const [v, re] of [['x', /not a valid IPv4/], ['', /not a valid IPv4/], ['010.0.0.1', /not a valid IPv4/], ['8.8.8.8', /must be private/], ['192.168.0.1', /matches the current/], ['192.168.0.0', /network or broadcast/],
+    ['192.168.0.255', /network or broadcast/], ['192.168.0.100', /inside the pool/], ['192.168.0.1; reboot', /not a valid IPv4/]])
     assert(N.lanIpCheck(La, v).error && re.test(N.lanIpCheck(La, v).error), v + ': ' + JSON.stringify(N.lanIpCheck(La, v)));
   assert.throws(() => N.lanIpCall(La, { ip: '192.168.0.50' }), /inside the pool/);
   assert(/not On/.test(N.lanIpCheck(Object.assign({}, La, { dhcp: 'Off' }), '192.168.1.1').error) && /did not report/.test(N.lanIpCheck(Object.assign({}, La, { mask: null }), '192.168.1.1').error) && /did not report/.test(N.lanIpCheck(null, '192.168.1.1').error));
@@ -328,7 +328,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   eq(N.lanDhcpOnCall(off({ start: '192.168.0.1', end: '192.168.0.9' })).call.dhcpStart, '192.168.0.2', 'a reported pool that holds the router IP is replaced');
   eq(N.lanDhcpOnCall(off({ leaseHours: 999 })).call.dhcpLease, '24', 'a lease outside this tool\'s limits is replaced');
   assert.throws(() => N.lanDhcpOnCall(off({ mask: '255.255.0.0', start: null, end: null })), /does not report a usable pool/);
-  assert.throws(() => N.lanDhcpOnCall(La), /already On/); assert.throws(() => N.lanDhcpOnCall(off({ dhcp: null })), /not reported/); assert.throws(() => N.lanDhcpOnCall(off({ ip: null })), /did not report/);
+  assert.throws(() => N.lanDhcpOnCall(La), /already On/); assert.throws(() => N.lanDhcpOnCall(off({ dhcp: null })), /DHCP state unknown/); assert.throws(() => N.lanDhcpOnCall(off({ ip: null })), /did not report/);
   assert.throws(() => N.lanDhcpOnCall(off({ ip: '8.8.8.8' })), /not usable/);
   // the pending note: same JSON as the backup, its own file
   const psh = N.lanPendingWriteSh(sa, sb, 1700000000000);
@@ -376,8 +376,8 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   const fromOpen = N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'TestWiFi', auth: 'WPA3PSK', hidden: false, max: 10, pw: 'new-pass-1234' });   // "OPEN to wpa3 plus the password"
   eq(fromOpen.Password, Buffer.from('new-pass-1234').toString('base64')); eq(fromOpen.EncrypType, 'CCMP');
   // keep-the-password needs one to keep; a typed one wins; a saved one (base64) is used as is; bad ones are refused
-  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'x', auth: 'WPA2PSK', hidden: false, max: 5 }), /no Wi-Fi password to keep/);
-  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(0, false, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep) && N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep), /different passwords/);
+  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] }, { ssid: 'x', auth: 'WPA2PSK', hidden: false, max: 5 }), /No saved Wi-Fi password/);
+  assert.throws(() => N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(0, false, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep) && N.wifiSaveCall({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { Password: 'aaaaaaaa1', PasswordShow: 'aaaaaaaa1' }), ent(1, true, { Password: 'bbbbbbbb2', PasswordShow: 'bbbbbbbb2' })] }, keep), /Passwords differ between chips/);
   eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pw: 'typed-pass-77' }).Password, Buffer.from('typed-pass-77').toString('base64'));
   eq(N.wifiSaveCall(raw5, { ssid: 'a', auth: 'WPA3PSK', hidden: false, max: 3, pwB64: Buffer.from('saved-pass-88').toString('base64') }).Password, Buffer.from('saved-pass-88').toString('base64'));
   for (const bad of [{ ssid: '', auth: 'OPEN', hidden: false, max: 1 }, { ssid: 'a', auth: 'WEP', hidden: false, max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: 'no', max: 1 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 0 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: 11 }, { ssid: 'a', auth: 'OPEN', hidden: false, max: '5' },
@@ -386,7 +386,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   // the form check
   const fc = (o) => N.wifiFormCheck(act, Object.assign({ ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: '7', pw: '' }, o));
   eq(fc({}), { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7, pw: null });
-  eq(fc({ pw: 'abcdefgh' }).pw, 'abcdefgh'); assert(/8 to 63/.test(fc({ pw: 'abcdefg' }).error)); assert(/8 to 63/.test(fc({ pw: 'a'.repeat(64) }).error)); assert(/ASCII/.test(fc({ pw: 'caf\u00e9caf\u00e9' }).error));
+  eq(fc({ pw: 'abcdefgh' }).pw, 'abcdefgh'); assert(/8–63/.test(fc({ pw: 'abcdefg' }).error)); assert(/8–63/.test(fc({ pw: 'a'.repeat(64) }).error)); assert(/ASCII/.test(fc({ pw: 'caf\u00e9caf\u00e9' }).error));
   assert(/empty/.test(fc({ ssid: '' }).error)); assert(/space/.test(fc({ ssid: 'x ' }).error)); assert(/security/.test(fc({ auth: 'WEP' }).error)); assert(/Max devices/.test(fc({ max: '0' }).error) && /Max devices/.test(fc({ max: '11' }).error) && /Max devices/.test(fc({ max: 'x' }).error) && /Max devices/.test(fc({ max: '' }).error));
   eq(fc({ auth: 'OPEN', pw: 'ignored-1234' }).pw, null);   // open: a typed password is not used
   assert(/none to keep/.test(N.wifiFormCheck(N.wifiActive(N.parseWifi({ WiFiModuleSwitch: '1', ResponseList: [ent(1, true, { AuthMode: 'OPEN', Password: '', PasswordShow: '' })] })), { ssid: 'a', auth: 'WPA2PSK', hidden: false, max: '3', pw: '' }).error));
@@ -396,7 +396,7 @@ for (const m of ['Failed to fetch', 'NetworkError when attempting to fetch resou
   const want7 = { ssid: 'TestWiFi', auth: 'WPA2PSKWPA3PSK', hidden: false, max: 7 };
   eq(N.wifiReached(act, Object.assign({}, want7, { max: 10 })), true); eq(N.wifiReached(act, want7), false); eq(N.wifiReached(null, want7), false);
   eq(N.wifiReached(Object.assign({}, act, { on: false }), Object.assign({}, want7, { max: 10 })), false);
-  eq(N.wifiChangeLines(snap, { ssid: 'TestWiFi2', auth: 'OPEN', hidden: true, max: 3 }, true), ['Network name: "TestWiFi" → "TestWiFi2"', 'Security: WPA2-PSK / WPA3-PSK → Open (no password)', 'SSID broadcast: Visible → Hidden', 'Max devices: 10 → 3', 'Password: will change', 'The network will have NO password: anyone in range can join.']);
+  eq(N.wifiChangeLines(snap, { ssid: 'TestWiFi2', auth: 'OPEN', hidden: true, max: 3 }, true), ['Network name: "TestWiFi" → "TestWiFi2"', 'Security: WPA2-PSK / WPA3-PSK → Open (no password)', 'SSID broadcast: Visible → Hidden', 'Max devices: 10 → 3', 'Password: will change', 'No password. Anyone in range can join.']);
   assert(!N.wifiChangeLines(snap, { ssid: 'TestWiFi2', auth: 'WPA3PSK', hidden: false, max: 10 }, true).join('\n').includes('new-pass'), 'the confirm lines never carry a password');
   // the band calls = the captured bodies
   eq(N.wifiBandCall('2g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' }); eq(N.wifiBandCall('5g'), { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' }); eq(N.wifiBandCall('off'), { goformId: 'switchWiFiModule', SwitchOption: '0' });

@@ -235,7 +235,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   const dbtn = () => doc.getElementById('matchi_net_data_btn');
   assert.strictEqual(dbtn().textContent, 'Turn mobile data off'); assert.strictEqual(dbtn().disabled, false);
   confirmAnswer = false; await click(dbtn());                       // declined: nothing is sent
-  assert.strictEqual(confirms.length, 1); assert(/Internet through the SIM stops/.test(confirms[0].msg) && confirms[0].danger === true); assert.strictEqual(sets.length, 0);
+  assert.strictEqual(confirms.length, 1); assert(/Internet stops for all devices/.test(confirms[0].msg) && confirms[0].danger === true); assert.strictEqual(sets.length, 0);
   confirmAnswer = true; await click(dbtn());                        // confirmed: sent once, re-read, reported only after the re-read
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DISCONNECT_NETWORK', notCallback: 'true' }); assert.strictEqual(sets[0].allowEmpty, true);
   assert(/Mobile data is off \(ppp_disconnected\)/.test(bodyText()) && /Disconnected/.test(bodyText()), 'after off: ' + bodyText());
@@ -264,11 +264,11 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(btns('Block').length, 1, 'Block only on the other device');
   // the block list could not be read: Block / Unblock are hidden, never guessed
   aclMissing = true; await click(doc.getElementById('matchi_net_refresh'));
-  assert.strictEqual(btns('Block').length, 0, 'no Block when the list was not read'); assert(/did not report its block list/.test(bodyText()));
+  assert.strictEqual(btns('Block').length, 0, 'no Block when the list was not read'); assert(/Block list unavailable/.test(bodyText()));
   aclMissing = false; await click(doc.getElementById('matchi_net_refresh')); assert.strictEqual(btns('Block').length, 1);
   // rename
   textAnswer = null; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0, 'cancelled rename sends nothing');
-  textAnswer = 'bad;name'; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0); assert(/Use only letters/.test(bodyText()), 'bad name refused: ' + bodyText());
+  textAnswer = 'bad;name'; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0); assert(/Allowed: letters/.test(bodyText()), 'bad name refused: ' + bodyText());
   textAnswer = 'GL Router'; confirmAnswer = false; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]); assert.strictEqual(sets.length, 0, 'declined rename sends nothing');
   confirmAnswer = true; await click(rowOf('GL-MT3000').findAll((n) => n.textContent === 'Rename')[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'EDIT_HOSTNAME', mac: 'aa:bb:cc:dd:ee:02', hostname: 'GL Router' });
@@ -391,7 +391,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   t = bodyText(); assert(/Saved "Test"/.test(t) && /test2\.apn/.test(t), 'after Edit: ' + t);
   // a login profile needs the login typed again
   await click(apnRow('Test').findAll((n) => n.textContent === 'Edit')[0]); setVal('matchi_apn_auth', 'chap'); sets.length = 0; await click(doc.getElementById('matchi_apn_save'));
-  assert.strictEqual(sets.length, 0); assert(/User name: 1 to 64/.test(doc.getElementById('matchi_apn_err').textContent)); await click(doc.getElementById('matchi_apn_cancel'));
+  assert.strictEqual(sets.length, 0); assert(/User name: 1–64/.test(doc.getElementById('matchi_apn_err').textContent)); await click(doc.getElementById('matchi_apn_cancel'));
   // Use "Test", then Delete "default" (no longer in use) ; the profile in use has no Delete
   sets.length = 0; await click(apnRow('Test').findAll((n) => n.textContent === 'Use')[0]);
   assert.strictEqual(sets[0].params.index, '1'); assert(/Now using "Test"/.test(bodyText()), 'after Use 2: ' + bodyText());
@@ -430,7 +430,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(mb('matchi_mtu_mtu').value === '1500' && mb('matchi_mtu_mss').value === '1460' && mb('matchi_mtu_apply'), 'the form shows the router values');
   // bad input: refused in the form, nothing sent, no root call
   const trySubmit = async (m1, m2) => { mb('matchi_mtu_mtu').value = m1; mb('matchi_mtu_mss').value = m2; await click(mb('matchi_mtu_apply')); };
-  for (const [a, b, re] of [['abc', '1460', /MTU must be a whole number/], ['1500', '', /MSS must be a whole number/], ['1200', '1100', /between 1280 and 1500/], ['1501', '1460', /between 1280 and 1500/], ['1500', '1461', /not be larger than MTU minus 40/], ['1500', '100', /at least 536/]]) {
+  for (const [a, b, re] of [['abc', '1460', /MTU must be a whole number/], ['1500', '', /MSS must be a whole number/], ['1200', '1100', /out of range \(1280 to 1500\)/], ['1501', '1460', /out of range \(1280 to 1500\)/], ['1500', '1461', /not be larger than MTU minus 40/], ['1500', '100', /at least 536/]]) {
     await trySubmit(a, b); assert(re.test(mb('matchi_mtu_err').textContent), a + '/' + b + ': ' + mb('matchi_mtu_err').textContent);
   }
   assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0); assert.strictEqual(confirms.length, 0);
@@ -443,7 +443,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await trySubmit('1500', '1460'); assert.strictEqual(sets.length, 0); assert(/already has MTU 1500 and MSS 1460/.test(mt()), mt());
   // declined confirm: nothing sent, no backup written
   confirmAnswer = false; await trySubmit('1500', '1459'); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup written');
-  assert(/MTU 1500 → 1500/.test(confirms[0].msg) && /MSS 1460 → 1459/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  assert(/MTU 1500 → 1500/.test(confirms[0].msg) && /MSS 1460 → 1459/.test(confirms[0].msg) && /router restarts/i.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
   // the backup cannot be written: nothing is sent
   confirmAnswer = true; failBackup = true; await trySubmit('1500', '1459'); failBackup = false;
   assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(mt()), mt());
@@ -451,11 +451,11 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   shells.length = 0; sets.length = 0; calls.length = 0;
   sleepSpy = []; await trySubmit('1500', '1459'); const spied = sleepSpy; sleepSpy = null;
   assert(spied.length >= 2 && spied.every((x) => x), 'a progress banner is on the screen at every wait: ' + JSON.stringify(spied));
-  assert(/router is restarting now.*Keep this window open/.test(spied[0]) && spied.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'the banner says what is happening: ' + JSON.stringify(spied));
+  assert(/Router restarting.*Keep this window open/.test(spied[0]) && spied.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'the banner says what is happening: ' + JSON.stringify(spied));
   assert(!doc.getElementById('matchi_mtu_apply').disabled && !doc.getElementById('matchi_net_prog'), 'the banner is gone when the change is done');
   assert(shells[0].includes('mtu_backup.json') && shells[0].includes('"old":{"mtu":1500,"mss":1460},"new":{"mtu":1500,"mss":1459}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'SET_DEVICE_MTU', mtu: '1500', tcp_mss: '1459' }); assert.strictEqual(sets[0].allowEmpty, true);
-  t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /ping to 1\.1\.1\.1 through the mobile connection worked/.test(t) && /Restore/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);
+  t = mt(); assert(/The router restarted and reports MTU 1500, MSS 1459/.test(t) && /Mobile data is connected/.test(t) && /MTU was not changed, only MSS/.test(t) && /Ping to 1\.1\.1\.1 worked/.test(t) && /Restore/.test(t) && !/FAILED|did NOT/.test(t), 'after change: ' + t);
   assert.strictEqual(mb('matchi_mtu_mss').value, '1459', 'the form now shows the new values'); assert(!/MTU 1500 → ?1500.*stuck/.test(t));
   assert(mtuState.mss === 1459 && fileText.includes('"old":{"mtu":1500,"mss":1460}'));
   // restore: reads the saved copy, confirms, sends the old pair
@@ -464,18 +464,18 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/reports MTU 1500, MSS 1460/.test(mt()), 'after restore: ' + mt());
   // an MTU change the real interface does not follow is said plainly
   followWan = false; sets.length = 0; await trySubmit('1400', '1360'); followWan = true;
-  t = mt(); assert(/did NOT follow the router setting \(1400\)/.test(t) && /Restore/.test(t), 'no follow: ' + t); mtuState.ifMtu = 1500;
+  t = mt(); assert(/did not follow the router setting \(1400\)/.test(t) && /Restore/.test(t), 'no follow: ' + t); mtuState.ifMtu = 1500;
   // an MTU change the interface follows
   await trySubmit('1500', '1460'); sets.length = 0; await trySubmit('1450', '1410');
-  assert(/mobile interface MTU is 1450: it follows the new MTU/.test(mt()), 'follow: ' + mt());
+  assert(/Interface MTU matches the new setting \(1450\)/.test(mt()), 'follow: ' + mt());
   // ping fails: reported as a problem
   pingOk = false; await trySubmit('1500', '1460'); pingOk = true;
-  assert(/ping to 1\.1\.1\.1 through the mobile connection FAILED/.test(mt()), 'ping: ' + mt());
+  assert(/Ping to 1\.1\.1\.1 failed/.test(mt()), 'ping: ' + mt());
   // the router says success but keeps the old values: the real value is shown, not success
   // (1) the router ignores the command and never restarts (a lost sign-in answers EMPTY and does nothing): the command is sent 3 times, each with a fresh
   // sign-in (levels 0, 1, 2), then it says so at once; it does NOT wait 3 minutes and does NOT say "the router is back"
   stuckMtu = true; sets.length = 0; await trySubmit('1500', '1459'); stuckMtu = false;
-  t = mt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && /still has MTU 1500 and MSS 1460/.test(t) && !/The router restarted and reports|is back but reports|never restarted/.test(t), 'ignored: ' + t);
+  t = mt(); assert(/Router ignored the change after 3 tries/.test(t) && /still has MTU 1500 and MSS 1460/.test(t) && !/The router restarted and reports|is back with different values|didn\'t restart/.test(t), 'ignored: ' + t);
   assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'three sends, fresh sign-in on the 2nd and 3rd');
   assert(!doc.getElementById('matchi_net_prog') && !doc.getElementById('matchi_mtu_apply').disabled, 'the window is free again after the refusal');
   // (2) the first send is ignored, the second (fresh sign-in) is taken: the change goes through and the result is real
@@ -484,15 +484,15 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await trySubmit('1500', '1460');
   // (3) the router restarts but comes back with the OLD values: said plainly, with the real values
   restartOldMtu = true; sets.length = 0; await trySubmit('1500', '1459'); restartOldMtu = false;
-  t = mt(); assert(sets.length === 1 && /is back but reports MTU 1500 and MSS 1460, not the wanted 1500 \/ 1459/.test(t) && !/The router restarted and reports|ignored/.test(t) && !/MTU was not changed, only MSS/.test(t), 'restarted with old values: ' + t);
+  t = mt(); assert(sets.length === 1 && /Router is back with different values: MTU 1500, MSS 1460 \(wanted 1500 \/ 1459\)/.test(t) && !/The router restarted and reports|ignored/.test(t) && !/MTU was not changed, only MSS/.test(t), 'restarted with old values: ' + t);
   // the console asks for a new sign-in after the restart: the wait stops and says so
   mtuReadErr = 'HTTP 401 sign in required'; await trySubmit('1500', '1459'); mtuReadErr = null;
-  assert(/asking for a new sign-in/.test(mt()) && /Restore/.test(mt()), 'auth: ' + mt());
+  assert(/Sign in again, then tap Refresh/.test(mt()) && /Restore/.test(mt()), 'auth: ' + mt());
   // refused write (old sign-in): nothing claimed
   mtuDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await trySubmit('1500', '1458');
   assert(/Not sent: Session too old/.test(mt()) && /Nothing was changed/.test(mt()), 'refused: ' + mt());
   // forget the backup
-  confirms.length = 0; await click(mb('matchi_mtu_forget')); assert(/Delete the saved copy/.test(confirms[0].msg) && /saved copy was deleted/.test(mt()) && fileText === '');
+  confirms.length = 0; await click(mb('matchi_mtu_forget')); assert(/Delete the saved MTU\/MSS backup/.test(confirms[0].msg) && /saved copy was deleted/.test(mt()) && fileText === '');
   await click(mb('matchi_mtu_restore')); assert(/No saved values found/.test(mt()), 'restore without backup: ' + mt());
   await click(tabBtn('data'));
 
@@ -501,10 +501,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await click(tabBtn('lan')); await click(doc.getElementById('matchi_net_refresh'));
   const lb = (id) => doc.getElementById(id), lt = () => bodyText();
   assert(lb('matchi_lan_start').value === '192.168.0.2' && lb('matchi_lan_end').value === '192.168.0.253' && lb('matchi_lan_lease').value === '24' && lb('matchi_lan_apply'), 'the form shows the router values: ' + lt());
-  assert(/subnet mask is not changed in this window/.test(lt()) && shells.length === 0, 'no root command when the tab opens');
+  assert(/Mask unchanged/.test(lt()) && shells.length === 0, 'no root command when the tab opens');
   const lanTry = async (a, b, c) => { lb('matchi_lan_start').value = a; lb('matchi_lan_end').value = b; lb('matchi_lan_lease').value = c; await click(lb('matchi_lan_apply')); };
   for (const [a, b, c, re] of [['x', '192.168.0.9', '24', /start is not a valid/], ['192.168.0.2', '192.168.1.9', '24', /outside the router network/], ['192.168.0.1', '192.168.0.9', '24', /must not be inside the pool/],
-    ['192.168.0.9', '192.168.0.2', '24', /must not be after/], ['192.168.0.2', '192.168.0.9', '0', /whole number of hours/], ['192.168.0.2', '192.168.0.255', '24', /network or the broadcast/]]) {
+    ['192.168.0.9', '192.168.0.2', '24', /Pool start must come before/], ['192.168.0.2', '192.168.0.9', '0', /Lease must be whole hours/], ['192.168.0.2', '192.168.0.255', '24', /network or the broadcast/]]) {
     await lanTry(a, b, c); assert(re.test(lb('matchi_lan_err').textContent), a + '/' + b + '/' + c + ': ' + lb('matchi_lan_err').textContent);
     assert.strictEqual(sets.length, 0); assert.strictEqual(confirms.length, 0); assert.strictEqual(shells.length, 0);
   }
@@ -512,19 +512,19 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await lanTry('192.168.0.2', '192.168.0.253', '24'); assert.strictEqual(sets.length, 0); assert(/already has pool 192\.168\.0\.2 - 192\.168\.0\.253 and lease 24 hours\. Nothing was sent/.test(lt()), lt());
   // declined confirm: nothing sent, no backup
   confirmAnswer = false; await lanTry('192.168.0.10', '192.168.0.200', '12'); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup');
-  assert(/Pool 192\.168\.0\.2 - 192\.168\.0\.253 → 192\.168\.0\.10 - 192\.168\.0\.200/.test(confirms[0].msg) && /Lease 24 hours → 12 hours/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg) && /192\.168\.0\.1 and mask 255\.255\.255\.0 stay the same/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  assert(/Pool 192\.168\.0\.2 - 192\.168\.0\.253 → 192\.168\.0\.10 - 192\.168\.0\.200/.test(confirms[0].msg) && /Lease 24 hours → 12 hours/.test(confirms[0].msg) && /router restarts/i.test(confirms[0].msg) && /192\.168\.0\.1 and mask 255\.255\.255\.0 stay the same/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
   // the backup cannot be written: nothing is sent
   confirmAnswer = true; failLanBackup = true; await lanTry('192.168.0.10', '192.168.0.200', '12'); failLanBackup = false;
   assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(lt()) && /Nothing was changed/.test(lt()), lt());
   // the real change
   shells.length = 0; sets.length = 0; calls.length = 0;
   sleepSpy = []; await lanTry('192.168.0.10', '192.168.0.200', '12'); const lspy = sleepSpy; sleepSpy = null;
-  assert(lspy.length >= 2 && lspy.every((x) => x) && /router is restarting now.*Keep this window open/.test(lspy[0]) && lspy.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'banner at every wait: ' + JSON.stringify(lspy));
+  assert(lspy.length >= 2 && lspy.every((x) => x) && /Router restarting.*Keep this window open/.test(lspy[0]) && lspy.some((x) => /restarting… \d+ s of up to 3 minutes/.test(x)), 'banner at every wait: ' + JSON.stringify(lspy));
   assert(!lb('matchi_net_prog') && !lb('matchi_lan_apply').disabled, 'the banner is gone when done');
   assert(shells[0].includes('lan_backup.json') && shells[0].includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2","end":"192.168.0.253","lease":24}') && shells[0].includes('"new":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.10","end":"192.168.0.200","lease":12}'), 'backup first: ' + shells[0]);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '0' }); assert.strictEqual(sets[0].allowEmpty, true);
-  t = lt(); assert(/The router restarted and reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && /Mobile data is connected/.test(t) && /Devices renew their address/.test(t) && /Restore/.test(t), 'result: ' + t);
-  assert(!/is back but reports/.test(t) && lb('matchi_lan_start').value === '192.168.0.10' && lb('matchi_lan_lease').value === '12', 'the form now shows the new values');
+  t = lt(); assert(/The router restarted and reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours/.test(t) && /Mobile data is connected/.test(t) && /Reconnect any device without internet/.test(t) && /Restore/.test(t), 'result: ' + t);
+  assert(!/is back with different values/.test(t) && lb('matchi_lan_start').value === '192.168.0.10' && lb('matchi_lan_lease').value === '12', 'the form now shows the new values');
   assert(lanState.start === '192.168.0.10' && lanFile.includes('"old":{"ip":"192.168.0.1","mask":"255.255.255.0","start":"192.168.0.2"'));
   // a lease-only change keeps the pool exactly
   sets.length = 0; shells.length = 0; await lanTry('192.168.0.10', '192.168.0.200', '48');
@@ -538,10 +538,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(sets.length, 0); assert(/not the saved one any more/.test(lt()), 'restore with another IP: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
   // the router comes back with other values: said plainly
   stuckLan = true; sets.length = 0; await lanTry('192.168.0.20', '192.168.0.100', '6'); stuckLan = false;
-  t = lt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && !/The router restarted and reports|is back but reports/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'DHCP: three sends, fresh sign-in on the 2nd and 3rd');
+  t = lt(); assert(/Router ignored the change after 3 tries/.test(t) && !/The router restarted and reports|is back with different values/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'DHCP: three sends, fresh sign-in on the 2nd and 3rd');
   // the console asks for a new sign-in after the restart: the wait stops and says so
   lanReadErr = 'HTTP 401 sign in required'; await lanTry('192.168.0.30', '192.168.0.100', '6'); lanReadErr = null;
-  assert(/asking for a new sign-in/.test(lt()) && /Restore/.test(lt()), 'auth: ' + lt());
+  assert(/Sign in again, then tap Refresh/.test(lt()) && /Restore/.test(lt()), 'auth: ' + lt());
   // refused write (old sign-in): nothing claimed
   lanDown = 0; setFail = new Error('Session too old for root commands'); sets.length = 0; await lanTry('192.168.0.40', '192.168.0.100', '6');
   assert(/Not sent: Session too old/.test(lt()) && /Nothing was changed/.test(lt()), 'refused: ' + lt());
@@ -550,20 +550,20 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   lanState.start = '192.168.0.10'; lanState.end = '192.168.0.200'; lanState.lease = 12; await click(lb('matchi_net_refresh'));   // known starting point (the tests above left other values)
   sets.length = 0; confirms.length = 0; shells.length = 0; applied.length = 0; confirmAnswer = true;
   assert(lb('matchi_lan_ip') && ipb() && /Change router IP address/.test(lt()) && shells.length === 0, '6b form: ' + lt());
-  for (const [v, re] of [['x', /not a valid IPv4/], ['8.8.8.8', /must be a private/], ['192.168.0.1', /same as the current/], ['192.168.0.255', /network or the broadcast/], ['192.168.0.100', /inside the pool/]]) {
+  for (const [v, re] of [['x', /not a valid IPv4/], ['8.8.8.8', /must be private/], ['192.168.0.1', /matches the current/], ['192.168.0.255', /network or broadcast/], ['192.168.0.100', /inside the pool/]]) {
     await ipTry(v); assert(re.test(lb('matchi_lan_ip_err').textContent), v + ': ' + lb('matchi_lan_ip_err').textContent);
     assert.strictEqual(sets.length, 0); assert.strictEqual(confirms.length, 0); assert.strictEqual(shells.length, 0); assert.strictEqual(applied.length, 0);
   }
   // declined: nothing sent, nothing written; the confirm names the old and new IP, the new pool, the new console address and the restart
   confirmAnswer = false; await ipTry('192.168.1.1'); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup, no note'); assert.strictEqual(applied.length, 0);
-  assert(/Router IP 192\.168\.0\.1 → 192\.168\.1\.1/.test(confirms[0].msg) && /Pool 192\.168\.0\.10 - 192\.168\.0\.200 → 192\.168\.1\.10 - 192\.168\.1\.200/.test(confirms[0].msg) && /OLD address 192\.168\.0\.1 answers nothing/.test(confirms[0].msg)
-    && /this console is then at http:\/\/192\.168\.1\.1/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg) && /puts the old values back/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  assert(/Router IP 192\.168\.0\.1 → 192\.168\.1\.1/.test(confirms[0].msg) && /Pool 192\.168\.0\.10 - 192\.168\.0\.200 → 192\.168\.1\.10 - 192\.168\.1\.200/.test(confirms[0].msg) && /old address 192\.168\.0\.1 stops working/.test(confirms[0].msg)
+    && /The console moves to http:\/\/192\.168\.1\.1/.test(confirms[0].msg) && /router restarts/i.test(confirms[0].msg) && /restores them if the router comes up with different values/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
   // the pending note cannot be written: nothing is sent
   confirmAnswer = true; failPending = true; await ipTry('192.168.1.1'); failPending = false;
   assert.strictEqual(sets.length, 0); assert.strictEqual(applied.length, 0); assert(/could not be saved/.test(lt()) && /Nothing was changed/.test(lt()), lt());
   // the real change: backup, then the pending note, then the call, then the host is told the new address
   shells.length = 0; sets.length = 0; applied.length = 0; sleepSpy = []; await ipTry('192.168.1.1'); const ispy = sleepSpy; sleepSpy = null;
-  assert(/router is restarting now.*console is then at http:\/\/192\.168\.1\.1/.test(ispy[0]), 'banner names the new console address: ' + ispy[0]);
+  assert(/Router restarting.*console is then at http:\/\/192\.168\.1\.1/.test(ispy[0]), 'banner names the new console address: ' + ispy[0]);
   assert(shells[0].includes('lan_backup.json') && shells[0].includes('"old":{"ip":"192.168.0.1"') && shells[0].includes('"new":{"ip":"192.168.1.1"'), shells[0]);
   const pend = shells.find((c) => c.includes('lan_pending.json') && c.includes("printf '%s' '"));
   assert(pend && pend.includes('"new":{"ip":"192.168.1.1","mask":"255.255.255.0","start":"192.168.1.10","end":"192.168.1.200","lease":12}') && shells.indexOf(pend) > 0, 'pending note after the backup: ' + pend);
@@ -574,13 +574,13 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(lanState.ip, '192.168.1.1');
   // restore from the NEW address: the old IP, pool and lease go back; the backup of the original values is not overwritten; the host is told the old address
   shells.length = 0; sets.length = 0; confirms.length = 0; applied.length = 0; const bkBefore = lanFile; await click(lb('matchi_lan_restore'));
-  assert(/Router IP 192\.168\.1\.1 → 192\.168\.0\.1/.test(confirms[0].msg) && /answers nothing: this console is then at http:\/\/192\.168\.0\.1/.test(confirms[0].msg), confirms[0].msg);
+  assert(/Router IP 192\.168\.1\.1 → 192\.168\.0\.1/.test(confirms[0].msg) && /stops working\. The console moves to http:\/\/192\.168\.0\.1/.test(confirms[0].msg), confirms[0].msg);
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '1' });
   assert(!shells.some((c) => c.includes('lan_backup.json') && c.includes("printf '%s' '")) && lanFile === bkBefore, 'restore keeps the original backup'); assert.deepStrictEqual(applied, [{ method: 'POST', ip: '192.168.0.1' }]);
   assert(/reports router IP 192\.168\.0\.1, pool 192\.168\.0\.10 - 192\.168\.0\.200/.test(lt()) && pendingFile === '' && lanState.ip === '192.168.0.1', 'after the restore: ' + lt());
   // the router ignores the change (never restarts): said plainly, the pending note is removed, no claim of success
   stuckLan = true; shells.length = 0; sets.length = 0; applied.length = 0; await ipTry('192.168.1.1'); stuckLan = false;
-  t = lt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && !/The router restarted and reports|is back but reports/.test(t) && applied.length === 0, 'ignored ip: ' + t + ' / applied ' + applied.length);
+  t = lt(); assert(/Router ignored the change after 3 tries/.test(t) && !/The router restarted and reports|is back with different values/.test(t) && applied.length === 0, 'ignored ip: ' + t + ' / applied ' + applied.length);
   assert(pendingFile === '', 'the router never took the change (three empty replies, no restart): the pending note is removed: ' + pendingFile);
   // the host cannot be told: the change still goes through and the text says so
   applyFail = 'HTTP 500'; sets.length = 0; await ipTry('192.168.1.1'); applyFail = null; assert(/could not be pointed at the new address automatically/.test(lt()), lt());
@@ -592,15 +592,15 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // DHCP Off: no pool form and no IP form, only Restore DHCP, which sends the stock call with the pool the router still reports
   lanState.dhcp = '0'; await click(lb('matchi_net_refresh')); assert(!lb('matchi_lan_apply') && !lb('matchi_lan_ip_apply') && lb('matchi_lan_dhcpon') && /DHCP server is Off/.test(lt()), 'dhcp off: ' + lt());
   sets.length = 0; shells.length = 0; confirms.length = 0; confirmAnswer = false; await click(lb('matchi_lan_dhcpon')); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0);
-  assert(/Switch the DHCP server back On/.test(confirms[0].msg) && /Router IP 192\.168\.0\.1 and mask 255\.255\.255\.0 stay the same/.test(confirms[0].msg) && /router restarts/.test(confirms[0].msg), confirms[0].msg);
+  assert(/Switch the DHCP server back On/.test(confirms[0].msg) && /Router IP 192\.168\.0\.1 and mask 255\.255\.255\.0 stay the same/.test(confirms[0].msg) && /router restarts/i.test(confirms[0].msg), confirms[0].msg);
   applied.length = 0; confirmAnswer = true; await click(lb('matchi_lan_dhcpon'));
   assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: 'DHCP_SETTING', lanIp: '192.168.0.1', lanNetmask: '255.255.255.0', lanDhcpType: 'SERVER', dhcpStart: '192.168.0.10', dhcpEnd: '192.168.0.200', dhcpLease: '12', dhcp_reboot_flag: '1', mac_ip_reset: '0' });
   assert.strictEqual(shells.length, 0, 'Restore DHCP writes no backup and no pending note (the router IP does not change)'); assert.strictEqual(applied.length, 0);
   assert(/reports pool 192\.168\.0\.10 - 192\.168\.0\.200, lease 12 hours, DHCP On/.test(lt()) && lanState.dhcp === '1', 'dhcp back on: ' + lt());
   // a missing value (no IP): no forms, no write
-  lanState.ip = ''; await click(lb('matchi_net_refresh')); assert(!lb('matchi_lan_apply') && !lb('matchi_lan_ip_apply') && !lb('matchi_lan_dhcpon') && /not changed here: the router must report/.test(lt()), 'no ip: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
+  lanState.ip = ''; await click(lb('matchi_net_refresh')); assert(!lb('matchi_lan_apply') && !lb('matchi_lan_ip_apply') && !lb('matchi_lan_dhcpon') && /Pool and lease unchanged/.test(lt()), 'no ip: ' + lt()); lanState.ip = '192.168.0.1'; await click(lb('matchi_net_refresh'));
   // forget the backup
-  confirms.length = 0; await click(lb('matchi_lan_forget')); assert(/Delete the saved copy of the old LAN/.test(confirms[0].msg) && /saved copy was deleted/.test(lt()) && lanFile === '');
+  confirms.length = 0; await click(lb('matchi_lan_forget')); assert(/Delete the saved LAN\/DHCP backup/.test(confirms[0].msg) && /saved copy was deleted/.test(lt()) && lanFile === '');
   await click(lb('matchi_lan_restore')); assert(/No saved values found/.test(lt()), 'restore without backup: ' + lt());
   // one change at a time: the MTU form cannot start while a LAN change runs (flags checked in the source guard); the data tab still works after
   await click(tabBtn('data'));
@@ -617,7 +617,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   // the show-password box only flips the field type
   wb('matchi_wifi_show').checked = true; wb('matchi_wifi_show').onchange(); assert.strictEqual(wb('matchi_wifi_pass').type, 'text'); wb('matchi_wifi_show').checked = false; wb('matchi_wifi_show').onchange(); assert.strictEqual(wb('matchi_wifi_pass').type, 'password');
   // bad values are refused in the form: nothing read for writing, nothing sent, no confirm, no root command
-  for (const [o, re] of [[{ ssid: '' }, /must not be empty/], [{ ssid: 'a'.repeat(33) }, /at most 32 bytes/], [{ ssid: ' x' }, /start or end with a space/], [{ pass: 'short' }, /8 to 63/], [{ pass: 'a'.repeat(64) }, /8 to 63/], [{ max: '0' }, /Max devices/], [{ max: '11' }, /Max devices/]]) {
+  for (const [o, re] of [[{ ssid: '' }, /must not be empty/], [{ ssid: 'a'.repeat(33) }, /max 32 bytes/], [{ ssid: ' x' }, /start or end with a space/], [{ pass: 'short' }, /8–63/], [{ pass: 'a'.repeat(64) }, /8–63/], [{ max: '0' }, /Max devices/], [{ max: '11' }, /Max devices/]]) {
     await wifiTry(o); assert(re.test(wb('matchi_wifi_err').textContent), JSON.stringify(o) + ': ' + wb('matchi_wifi_err').textContent);
     assert.strictEqual(sets.length, 0); assert.strictEqual(confirms.length, 0); assert.strictEqual(shells.length, 0);
   }
@@ -627,7 +627,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await wifiTry({ pass: 'TopSecret-pass-1' }); assert.strictEqual(sets.length, 0); assert(/Nothing was sent/.test(wt()));
   // declined confirm: nothing sent, no backup
   confirmAnswer = false; await wifiTry({ max: '7' }); assert.strictEqual(sets.length, 0); assert.strictEqual(shells.length, 0, 'declined: no backup');
-  assert(/Max devices: 10 → 7/.test(confirms[0].msg) && /Wi-Fi restarts/.test(confirms[0].msg) && /including the one you are using/.test(confirms[0].msg) && confirms[0].danger === true && !/Password/.test(confirms[0].msg), confirms[0].msg);
+  assert(/Max devices: 10 → 7/.test(confirms[0].msg) && /Wi-Fi restarts/.test(confirms[0].msg) && /All devices disconnect/.test(confirms[0].msg) && confirms[0].danger === true && !/Password/.test(confirms[0].msg), confirms[0].msg);
   // the backup cannot be written: nothing is sent
   confirmAnswer = true; failWifiBackup = true; await wifiTry({ max: '7' }); failWifiBackup = false;
   assert.strictEqual(sets.length, 0); assert(/backup copy of the old values could not be saved/.test(wt()) && /Nothing was changed/.test(wt()), wt());
@@ -660,7 +660,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/The router reports the new settings: "HomeNet"/.test(wt()) && wifiState.pw === 'TopSecret-pass-1', 'after restore: ' + wt());
   // an open network: no password is sent, EncrypType NONE, the old password is saved first, the confirm warns
   sets.length = 0; confirms.length = 0; shells.length = 0; await wifiTry({ auth: 'OPEN' });
-  assert(/Security: WPA2-PSK \/ WPA3-PSK → Open \(no password\)/.test(confirms[0].msg) && /NO password: anyone in range can join/.test(confirms[0].msg), confirms[0].msg);
+  assert(/Security: WPA2-PSK \/ WPA3-PSK → Open \(no password\)/.test(confirms[0].msg) && /No password\. Anyone in range can join/.test(confirms[0].msg), confirms[0].msg);
   assert.deepStrictEqual(sets[0].params, { goformId: 'setAccessPointInfo', ChipIndex: '0', AccessPointIndex: '0', SSID: 'HomeNet', ApIsolate: '0', AuthMode: 'OPEN', ApBroadcastDisabled: '0', ApMaxStationNumber: '7', EncrypType: 'NONE' });
   assert(JSON.parse(fs.readFileSync(wifiFile, 'utf8')).old.Password === b64('TopSecret-pass-1') && /reports the new settings: "HomeNet", Open \(no password\)/.test(wt()), 'open: ' + wt());
   // from open back to a password mode: without a typed password the form refuses (nothing to keep); with one it is sent
@@ -671,10 +671,10 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   await wifiTry({ auth: 'WPA2PSKWPA3PSK', pass: 'TopSecret-pass-1' }); assert.strictEqual(wifiState.auth, 'WPA2PSKWPA3PSK');
   // the router says OK but keeps the old values: the real values are shown, not success
   stuckWifi = true; sets.length = 0; await wifiTry({ max: '3' }); stuckWifi = false;
-  t = wt(); assert(/The router ignored the change: it answered 3 times with an empty reply/.test(t) && /Wi-Fi was not changed/.test(t) && !/reports the new settings/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'Wi-Fi settings: three sends, fresh sign-in on the 2nd and 3rd');
+  t = wt(); assert(/Router ignored the change after 3 tries/.test(t) && /Wi-Fi was not changed/.test(t) && !/reports the new settings/.test(t), 'ignored: ' + t); assert.deepStrictEqual(sets.map((x) => x.level || 0), [0, 1, 2], 'Wi-Fi settings: three sends, fresh sign-in on the 2nd and 3rd');
   // the console asks for a new sign-in after the restart: the wait stops and says so
   wifiDown = 0; wifiReadErr = 'HTTP 401 sign in required'; await wifiTry({ max: '3' }); wifiReadErr = null; wifiDown = 0;
-  assert(/asking for a new sign-in/.test(wt()) && /Restore/.test(wt()), 'auth: ' + wt());
+  assert(/Sign in again, then tap Refresh/.test(wt()) && /Restore/.test(wt()), 'auth: ' + wt());
   // the console never answers again (the page was on Wi-Fi): the message says what to do
   wifiState.max = 7; wifiDown = 0; await click(wb('matchi_net_refresh')); wifiReadErr = 'Failed to fetch'; sets.length = 0;
   { const real = R.setRouter; R.setRouter = async (p, a) => { await real(p, a); wifiDown = 999; }; await wifiTry({ max: '4' }); R.setRouter = real; wifiDown = 0; wifiReadErr = null; }
@@ -688,13 +688,13 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   wb('matchi_wifi_band').value = '5g'; await click(wb('matchi_wifi_band_apply')); assert(/already 5 GHz only\. Nothing was sent/.test(wt()) && sets.length === 0 && confirms.length === 0, wt());
   wb('matchi_wifi_band').value = ''; await click(wb('matchi_wifi_band_apply')); assert(/Choose 2\.4 GHz only, 5 GHz only or Off first/.test(wt()) && sets.length === 0);
   confirmAnswer = false; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply')); assert.strictEqual(sets.length, 0, 'declined: nothing sent'); confirmAnswer = true;
-  assert(/Switch Wi-Fi to 2\.4 GHz only\?/.test(confirms[0].msg) && /Now: 5 GHz only → 2\.4 GHz only/.test(confirms[0].msg) && /Every device on Wi-Fi is disconnected/.test(confirms[0].msg) && /Way back: choose 5 GHz only/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  assert(/Switch Wi-Fi to 2\.4 GHz only\?/.test(confirms[0].msg) && /Now: 5 GHz only → 2\.4 GHz only/.test(confirms[0].msg) && /All devices reconnect if name and password are unchanged/.test(confirms[0].msg) && /Way back: choose 5 GHz only/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
   sets.length = 0; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply'));
   assert.deepStrictEqual(sets[0].params, { goformId: 'switchWiFiChip', ChipEnum: 'chip1', GuestEnable: '0' }); assert.strictEqual(shells.length, 0, 'a band switch needs no backup file');
   t = wt(); assert(/The router reports Wi-Fi: 2\.4 GHz only\./.test(t) && /Chip 0 \(2\.4 GHz\)/.test(t) && wb('matchi_wifi_band').value === '2g', 'band 2g: ' + t);
   // Off: the strongest warning, then the form is replaced by a note
   confirms.length = 0; sets.length = 0; wb('matchi_wifi_band').value = 'off'; await click(wb('matchi_wifi_band_apply'));
-  assert(/Turn Wi-Fi off\?/.test(confirms[0].msg) && /only from a cable \(USB \/ Ethernet\) connection/.test(confirms[0].msg) && /Way back: choose 2\.4 GHz only/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
+  assert(/Turn Wi-Fi off\?/.test(confirms[0].msg) && /Console works over USB\/Ethernet only/.test(confirms[0].msg) && /Way back: choose 2\.4 GHz only/.test(confirms[0].msg) && confirms[0].danger === true, confirms[0].msg);
   assert.deepStrictEqual(sets[0].params, { goformId: 'switchWiFiModule', SwitchOption: '0' });
   t = wt(); assert(/The router reports Wi-Fi: Off\./.test(t) && /Wi-Fi is Off\. Choose a band above/.test(t) && !wb('matchi_wifi_apply'), 'off: ' + t);
   // from Off to 5 GHz: the captured switchWiFiChip call, chip2
@@ -702,11 +702,11 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.deepStrictEqual(sets[0].params, { goformId: 'switchWiFiChip', ChipEnum: 'chip2', GuestEnable: '0' }); assert(/The router reports Wi-Fi: 5 GHz only\./.test(wt()) && wb('matchi_wifi_apply'), wt());
   // the router answers success but stays on the old band: said plainly
   stuckWifi = true; sets.length = 0; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply')); stuckWifi = false;
-  assert(/The router ignored the change: it answered 3 times with an empty reply/.test(wt()) && /Wi-Fi was not changed/.test(wt()) && !/The router reports Wi-Fi: 2\.4/.test(wt()), 'band ignored: ' + wt());
+  assert(/Router ignored the change after 3 tries/.test(wt()) && /Wi-Fi was not changed/.test(wt()) && !/The router reports Wi-Fi: 2\.4/.test(wt()), 'band ignored: ' + wt());
   // refused band write: nothing claimed
   setFail = new Error('Session too old for root commands'); sets.length = 0; wb('matchi_wifi_band').value = '2g'; await click(wb('matchi_wifi_band_apply')); assert(/Not sent: Session too old/.test(wt()) && /Nothing was changed/.test(wt()), wt());
   // forget the backup
-  confirms.length = 0; await click(wb('matchi_wifi_forget')); assert(/Delete the saved copy of the old Wi-Fi settings/.test(confirms[0].msg) && /may hold the old Wi-Fi password/.test(confirms[0].msg) && /saved copy was deleted/.test(wt()) && !fs.existsSync(wifiFile), wt());
+  confirms.length = 0; await click(wb('matchi_wifi_forget')); assert(/Delete the Wi-Fi backup/.test(confirms[0].msg) && /may contain the old Wi-Fi password/.test(confirms[0].msg) && /saved copy was deleted/.test(wt()) && !fs.existsSync(wifiFile), wt());
   await click(wb('matchi_wifi_restore')); assert(/No saved values found/.test(wt()), 'restore without backup: ' + wt());
   assert(!wt().match(/brand-new|TopSecret|second-pass/) && (JSON.stringify(doc.body, (k, v) => (k === 'parentNode' ? undefined : v)).match(/brand-new|TopSecret|second-pass/g) || []).length <= 1, 'the password is only in the masked password box at the end');
   fs.rmSync(wifiTmp, { recursive: true, force: true });

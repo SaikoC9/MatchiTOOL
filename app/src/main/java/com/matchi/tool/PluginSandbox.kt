@@ -119,8 +119,8 @@ internal fun describeSandboxCap(cap: String): String = when {
  */
 internal fun sandboxCallError(grant: List<String>, op: String, args: List<String>): String? = when (op) {
     "at" -> when {
-        SBX_AT !in grant -> "not approved: this plugin did not declare \"at.read\""
-        args.size != 1 || !RootGate.isReadOnlyAt(args[0]) -> "only read-only AT commands are allowed"
+        SBX_AT !in grant -> "Denied: \"at.read\" not declared."
+        args.size != 1 || !RootGate.isReadOnlyAt(args[0]) -> "Read-only AT commands only."
         else -> null
     }
     "router.get" -> {
@@ -134,6 +134,6 @@ internal fun sandboxCallError(grant: List<String>, op: String, args: List<String
     }
     "shell" ->
         if (args.size == 1 && (SBX_SHELL + args[0]) in grant) null
-        else "not approved: only the exact commands this plugin declared with \"shell:\" may run"
+        else "Denied: only declared \"shell:\" commands may run."
     else -> "unknown operation"
 }

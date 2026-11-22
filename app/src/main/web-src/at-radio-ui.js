@@ -121,17 +121,17 @@
     if (!before) throw new Error('The current IMEI could not be read, so nothing was changed (no way to go back)');
     if (before === imei) throw new Error('That is already the current IMEI');
     if (!(await askDialog({ title: 'Change the IMEI?', message: 'SIM slot ' + slot() + '\nfrom ' + before + '\nto ' + imei + '\n\nA wrong IMEI can break the SIM connection.', check: 'I understand', okText: 'Change IMEI', danger: true, maxWidth: '360px' }))) return false;
-    if (!(await backupImei(before))) throw new Error('Could not save a backup of the current IMEI on the router, so nothing was changed');
+    if (!(await backupImei(before))) throw new Error('Backup failed. IMEI unchanged.');
     log('Backup saved: ' + before + ' (' + BACKUP + ')');
     log('> AT+SPIMEI=' + slot() + ',"' + imei + '"');
     const r = await at('AT+SPIMEI=' + slot() + ',"' + imei + '"');
     log(r || '(no output)');
-    if (/ERROR/i.test(r) || !/OK/i.test(r)) throw new Error('Modem did not accept the IMEI change (' + (r.trim() || 'no reply') + '). Nothing was changed.');
+    if (/ERROR/i.test(r) || !/OK/i.test(r)) throw new Error('Modem rejected the change (' + (r.trim() || 'no reply') + '). IMEI unchanged.');
     try { log((await saveTarget(imei)) ? 'Saved for every boot: the IMEI is written again if the firmware restores the old one.' : 'Could not save the IMEI for reboot (the change may be lost at the next boot).'); }
     catch (e) { log('Saving for reboot failed: ' + e.message); }
     let now = ''; try { now = await readImei(); } catch (_) {}
     log('IMEI now reads: ' + (now || 'unknown') + (now === imei ? '' : ' (may only change after a modem restart)'));
-    if (await askConfirm('The IMEI was written. Restart the modem now so it takes effect? (Mobile data drops for about 30 seconds.)', 'Restart modem', false)) {
+    if (await askConfirm('IMEI written. Restart modem to apply? Data drops ~30 s.', 'Restart modem', false)) {
       log('> AT+CFUN=1,1');
       try { log(await at('AT+CFUN=1,1') || '(no output)'); } catch (e) { log('Restart: ' + e.message); }
       createToast('Modem restarting. Reopen this window in about 30 seconds to check the IMEI.', 'green');
@@ -247,7 +247,7 @@
     log('> Radio report (read only)');
     const out = [];
     const tryAt = async (c, sl) => { try { out.push(c + (sl === undefined ? '' : '  [slot ' + sl + ']') + '\n' + (tidy(sl === undefined ? await at(c) : await atSlot(c, sl)) || '(no output)')); } catch (e) { out.push(c + '\nError: ' + e.message); } };
-    out.push('Radio on/off: UNKNOWN\nAT+SFUN? is not supported on the F50 (+CME ERROR: 3) and AT+CFUN? does not follow the AT+SFUN=5 / 4 off-on switch used by the restart, so the radio state cannot be read here. Registration (AT+CEREG? / AT+C5GREG? below) is the real sign that the radio is working.');
+    out.push('Radio on/off: UNKNOWN\nRadio state can\'t be read on the F50. Check registration (AT+CEREG? / AT+C5GREG?) instead.');
     await tryAt('AT+CFUN?', 0); await tryAt('AT+CFUN?', 1);
     for (const c of ['AT+CEREG?', 'AT+C5GREG?', 'AT+COPS?', 'AT+SP5GCMDS="get nr support_band"']) await tryAt(c);
     const keys = 'lte_band_lock,nr_band_lock,net_select,BearerPreference,performance_mode,network_type,nr5g_action_band,nr5g_action_channel,nr5g_pci,wan_active_band,wan_active_channel,lte_pci,locked_cell_info';
@@ -259,7 +259,7 @@
   }
   async function rebootModem() {
     if (radioBusy) return;
-    const ok = await askConfirm('Restart the modem?\n\nSignal will drop for about 30 seconds. SMS and data stop until it is back.', 'Restart modem', true);
+    const ok = await askConfirm('Restart the modem?\n\nSignal drops ~30 s. SMS and data stop.', 'Restart modem', true);
     if (!ok) return;
     setRadioBusy(true);
     try { await radioCycle(); } finally { setRadioBusy(false); }

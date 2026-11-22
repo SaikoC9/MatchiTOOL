@@ -23,13 +23,13 @@ const withSweep = (c, h) => ({ sweep: { rootOk: true, candidates: c, notStopped:
 const sw0 = sweepUi.sweepNorm(mkInfo()), un0 = undoUi.undoNorm(mkInfo()), unF = undoUi.undoNorm(mkInfo({ undo: UNDO }));
 test('dialog: stop mode lists commands, says the file stays and the data stays unless the commands remove it, offers \"Turn off only\"', () => {
   const d = ui.disableDialog('A.js', { commands: ['pkill -f beat'], check: 'pgrep -f beat' }, sw0, un0, 'stop', false);
-  assert.ok(d.message.includes('The plugin file stays. Its saved data stays unless the stop commands listed below remove it.') && !d.message.includes('Its file and its data stay') && d.message.includes('\u2022 pkill -f beat') && d.message.includes('\u2022 pgrep -f beat'));
+  assert.ok(d.message.includes('File stays. Data stays unless the stop commands remove it.') && !d.message.includes('Its file and its data stay') && d.message.includes('\u2022 pkill -f beat') && d.message.includes('\u2022 pgrep -f beat'));
   assert.strictEqual(d.okText, 'Turn off and stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off only', value: 'skip' }]); assert.ok(!/delete/i.test(d.message));
 });
 test('dialog: sweep mode lists processes and the undo items', () => {
   const sw = sweepUi.sweepNorm(mkInfo(withSweep([c1], 'H1')));
   const d = ui.disableDialog('A.js', {}, sw, unF, 'sweep', false);
-  assert.ok(d.message.includes('Its file and its data stay.')); assert.ok(d.message.includes('PID 11 beat.sh') && d.message.includes(CH) && d.message.includes(BT) && d.message.includes('if it is still there') && d.message.includes('declares no stop commands'));
+  assert.ok(d.message.includes('Its file and its data stay.')); assert.ok(d.message.includes('PID 11 beat.sh') && d.message.includes(CH) && d.message.includes(BT) && d.message.includes('if it is still there') && d.message.includes('No stop commands declared.'));
   assert.strictEqual(d.okText, 'Turn off and stop');
 });
 test('dialog: cannot / toomany only offer turning off without stopping, and say the items stay', () => {
@@ -41,7 +41,7 @@ test('dialog: cannot / toomany only offer turning off without stopping, and say 
 });
 test('dialog: shared copy skips the stop by default and offers \"Turn off and stop anyway\"', () => {
   const d = ui.disableDialog('A.js', { commands: ['x'], shared: ['B.js'] }, sw0, un0, 'shared', false);
-  assert.strictEqual(d.okText, 'Turn off, skip the stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off and stop anyway', value: 'stop' }]); assert.ok(d.message.includes('B.js') && d.message.includes('unless the stop commands listed below remove it'));
+  assert.strictEqual(d.okText, 'Turn off, skip the stop'); assert.deepStrictEqual(d.extra, [{ text: 'Turn off and stop anyway', value: 'stop' }]); assert.ok(d.message.includes('B.js') && d.message.includes('unless the stop commands remove it'));
 });
 test('wantsStop: only the stop buttons; the default of shared and every skip does not', () => {
   assert.strictEqual(ui.disableWantsStop('stop', true, null), true); assert.strictEqual(ui.disableWantsStop('sweep', true, null), true);
@@ -52,7 +52,7 @@ test('wantsStop: only the stop buttons; the default of shared and every skip doe
 test('failure dialog: says it is still ON, lists leftovers, Try again, skip button; no restart for a boot script', () => {
   const f = { log: 'The stop did not finish.', leftovers: ['still there: ' + CH], notChecked: ['no check command'] };
   const d = ui.disableFailureDialog('A.js', f, sw0, unF);
-  assert.ok(d.message.includes('was NOT turned off') && d.message.includes('Still there:') && d.message.includes('Not checked:') && d.message.includes('Try again would also remove'));
+  assert.ok(d.message.includes('Not turned off') && d.message.includes('Still there:') && d.message.includes('Not checked:') && d.message.includes('Try again would also remove'));
   assert.strictEqual(d.okText, 'Try again'); assert.deepStrictEqual(d.extra.map((e) => e.value), ['reboot', 'skip']);
   const b = ui.disableFailureDialog('A.js', { leftovers: ['still there: ' + BT] }, sw0, un0);
   assert.deepStrictEqual(b.extra.map((e) => e.value), ['skip']); assert.ok(!b.message.includes('A restart'));
@@ -122,7 +122,7 @@ test('page: a failed stop keeps it ON, opens the retry dialog, Try again sends a
   const fail = { ok: false, kept: true, stop: { success: false, log: 'undo: FAILED', leftovers: ['still there: ' + CH], notChecked: [] } };
   const r = await drive({ datas: [mkInfo({ undo: UNDO }), mkInfo({ undo: UNDO })], dialogs: [true, true], deletes: [fail, { ok: true, disabled: true, stop: { success: true } }] });
   assert.strictEqual(r.result, 'done'); assert.strictEqual(r.dels.length, 2); assert.strictEqual(r.dlgs[1].title, 'Stop did not finish'); assert.strictEqual(r.dlgs[1].okText, 'Try again');
-  assert.ok(r.dlgs[1].message.includes('still there: ' + CH) && r.dlgs[1].message.includes('NOT turned off'));
+  assert.ok(r.dlgs[1].message.includes('still there: ' + CH) && r.dlgs[1].message.includes('Not turned off'));
 });
 test('page: a failed stop, then \"Turn off without stopping\" -> \"plain\" (no second request)', async () => {
   const fail = { ok: false, kept: true, stop: { success: false, log: 'x', leftovers: ['still there: ' + BT], notChecked: [] } };

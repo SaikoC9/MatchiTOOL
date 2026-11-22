@@ -187,7 +187,7 @@ const { parseBands, toList, ratLabel, guessRat, cellOk, bandsCheck, parseNrSuppo
     cl = await R.cellLock('100', '620640', '16'); assert(!cl.hit && cl.reply === 'success' && seen.length === 1);
     // password not saved: the hint says so
     reply = (path) => path === '/api/zte/config' ? { passwordSet: false } : {};
-    assert(/no router admin password/.test(await R.emptyHint()));
+    assert(/No router password saved/.test(await R.emptyHint()));
     // network mode: empty reply + old mode -> repeated; applied on retry 1 -> ok
     let mode = 'WL_AND_5G'; seen = [];
     reply = (path, b) => path !== '/api/zte' ? {} : b.op === 'set' ? (seen.push(b.retry), b.retry >= 1 && (mode = b.params.BearerPreference), { data: '' }) : { data: { net_select: mode } };

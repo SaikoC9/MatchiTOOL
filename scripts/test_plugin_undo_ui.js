@@ -58,8 +58,8 @@ t('text: when the stop does not run (cannot, toomany, plain) the items are liste
   }
 });
 t('text: root missing adds one sentence, only where the stop would run', () => {
-  assert.ok(ui.undoDialogText(full(), 'sweep', true).includes('Root is not available'));
-  assert.ok(!ui.undoDialogText(full(), 'cannot', true).includes('Root is not available'));
+  assert.ok(ui.undoDialogText(full(), 'sweep', true).includes('No root.'));
+  assert.ok(!ui.undoDialogText(full(), 'cannot', true).includes('No root.'));
 });
 t('text: nothing to undo and nothing kept = empty', () => {
   for (const mode of ['plain', 'stop', 'sweep', 'hook', 'shared', 'cannot', 'toomany']) assert.strictEqual(ui.undoDialogText(un({}), mode, false), '');
