@@ -31,7 +31,8 @@ class GuardHostTest {
 
     @Test fun stopMatchesOnlyOurWatchByTheStartOfTheCommandLine() {
         val s = GuardHost.stopScript(dir)!!
-        assertTrue(s.contains("case \"\$a\" in '$dir/matchi-guard watch '*) kill \"\$p\""))
+        assertTrue(s.contains("'$dir/matchi-guard watch '*"))
+        assertTrue(s.contains("'matchi-guard watch '*'--report $dir/guard/report.json'*) kill \"\$p\""))   // ps shows the bare name
         assertFalse(s.contains("pkill")); assertFalse(s.contains("killall")); assertFalse(s.contains("kill -9 -1"))
         assertTrue(GuardHost.startScript(dir)!!.contains(s.substringBefore("\necho stopped")))   // start ends the old one the same way
     }

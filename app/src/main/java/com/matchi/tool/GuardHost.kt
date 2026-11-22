@@ -38,7 +38,7 @@ object GuardHost {
         if (!LiveEngine.pathIsSafe(dir) || !validInterval(interval)) return null
         val g = "$dir/$BINARY"
         return listOf(
-            stopLines(g),
+            stopLines(dir),
             "rm -f '${reportPath(dir)}'",   // an old report would show the old interval until the new run writes its own
             "if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi",
             "\$S nohup '$g' watch --interval $interval --report '${reportPath(dir)}' </dev/null >/dev/null 2>&1 &",
@@ -49,12 +49,19 @@ object GuardHost {
     /** Root script: ends our `watch` and nothing else (same match as [startScript]). Null when [dir] is not a plain absolute path. */
     fun stopScript(dir: String): String? {
         if (!LiveEngine.pathIsSafe(dir)) return null
-        return stopLines("$dir/$BINARY") + "\necho stopped"
+        return stopLines(dir) + "\necho stopped"
     }
 
-    private fun stopLines(g: String): String =
-        "ps -A -o PID,ARGS 2>/dev/null | while read -r p a; do case \"\$p\" in ''|*[!0-9]*) continue ;; esac; " +
-            "case \"\$a\" in '$g watch '*) kill \"\$p\" 2>/dev/null ;; esac; done"
+    /**
+     * `ps` on the phone shows the program as just "matchi-guard watch ..." (no folder), so a match on the full path alone never found the
+     * old copies and every restart left one more running. A copy is ours when its command line starts with the full path, or starts with
+     * "matchi-guard watch " and names our own report file; another program's or another app's copy is never matched.
+     */
+    private fun stopLines(dir: String): String {
+        val g = "$dir/$BINARY"
+        return "ps -A -o PID,ARGS 2>/dev/null | while read -r p a; do case \"\$p\" in ''|*[!0-9]*) continue ;; esac; " +
+            "case \"\$a\" in '$g watch '*|'$BINARY watch '*'--report ${reportPath(dir)}'*) kill \"\$p\" 2>/dev/null ;; esac; done"
+    }
 
     /** True when a report written at [ts] (unix seconds) still shows a running program at [now]. */
     fun fresh(ts: Long, now: Long, intervalS: Int = INTERVAL_S): Boolean =
