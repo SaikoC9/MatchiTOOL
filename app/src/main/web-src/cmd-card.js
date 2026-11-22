@@ -1,4 +1,4 @@
-/* cmd-card.js: the "Device commands" card on the home page. A list of read-only shell commands, in closed groups, each with a Copy button.
+/* cmd-card.js: the "Device commands" button in the Plugin actions folder, which opens a popup. A list of read-only shell commands, in closed groups, each with a Copy button.
    Nothing here runs a command or talks to the host: the person pastes the command into a root shell (the AT console or adb). The card never builds markup from text. */
 (function () {
   'use strict';
@@ -57,50 +57,52 @@
     ta.remove(); return ok;
   }
   const css = document.createElement('style');
-  css.textContent = '#cmdCard{margin-top:10px;background:#0a1626;border:1px solid var(--bd);border-radius:10px;padding:7px 10px;font-size:11px}' +
-    '#cmdCard .cc-title{display:block;width:100%;text-align:left;font-weight:800;font-size:12px;background:none;border:0;padding:2px 0;min-height:0;color:inherit;cursor:pointer}#cmdCard .cc-note{color:var(--mut);font-size:10px;margin:1px 0 4px}' +
-    '#cmdCard details{border-top:1px solid var(--bd)}' +
-    '#cmdCard summary{display:flex;align-items:center;min-height:26px;cursor:pointer;font-weight:700;font-size:12px;list-style:none}#cmdCard summary::-webkit-details-marker{display:none}' +
-    '#cmdCard summary::after{content:"+";color:var(--mut);font-size:14px}#cmdCard details[open]>summary::after{content:"\\2013"}' +
-    '#cmdCard .cc-n{margin-left:auto;margin-right:8px;color:var(--mut);font-weight:500;font-size:10px}' +
-    '#cmdCard .cc-r{display:flex;align-items:center;gap:6px;padding:2px 0 4px}#cmdCard .cc-m{flex:1 1 auto;min-width:0}' +
-    '#cmdCard .cc-l{color:var(--mut);font-size:10px;margin-bottom:1px}' +
-    '#cmdCard .cc-c{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.3;background:var(--bg);border:1px solid var(--bd);border-radius:5px;padding:2px 6px;overflow-wrap:anywhere;user-select:all}' +
-    '#cmdCard button{min-height:22px;padding:1px 8px;font-size:11px;border-radius:6px;flex:none}';
+  css.textContent = '#cmdPop .modal{max-width:520px}#cmdPop .cc-head{display:flex;align-items:center;gap:8px;margin:0 0 6px}#cmdPop .cc-head h3{margin:0;flex:1 1 auto}' +
+    '#cmdPop .cc-note{color:var(--mut);font-size:10px;margin:1px 0 4px}' +
+    '#cmdPop details{border-top:1px solid var(--bd)}' +
+    '#cmdPop summary{display:flex;align-items:center;min-height:30px;cursor:pointer;font-weight:700;font-size:12px;list-style:none}#cmdPop summary::-webkit-details-marker{display:none}' +
+    '#cmdPop summary::after{content:"+";color:var(--mut);font-size:14px}#cmdPop details[open]>summary::after{content:"\\2013"}' +
+    '#cmdPop .cc-n{margin-left:auto;margin-right:8px;color:var(--mut);font-weight:500;font-size:10px}' +
+    '#cmdPop .cc-r{display:grid;grid-template-columns:minmax(0,1fr) 58px;grid-template-rows:auto auto;column-gap:6px;padding:2px 0 6px}' +
+    '#cmdPop .cc-l{grid-column:1/-1;color:var(--mut);font-size:10px;margin-bottom:2px}' +
+    '#cmdPop .cc-c{grid-column:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;line-height:1.3;background:var(--bg);border:1px solid var(--bd);border-radius:5px;padding:3px 6px;overflow-wrap:anywhere;user-select:all}' +
+    '#cmdPop .cc-b{grid-column:2;align-self:stretch;width:58px;min-height:0!important;padding:0!important;display:flex;align-items:center;justify-content:center}';
   document.head.appendChild(css);
 
-  function mount() {
-    const home = document.getElementById('home'); if (!home || document.getElementById('cmdCard')) return;
-    const box = el('div'); box.id = 'cmdCard';
-    const tg = el('button', 'cc-title'); tg.type = 'button';
-    const body = el('div');
-    box.appendChild(tg); box.appendChild(body);
-    // Closed by default, like the Cell lock card. The choice is kept in this browser (storage can be blocked, so it is only a convenience).
-    const KEY = 'matchi_cmdcard_open';
-    const setOpen = (on, save) => {
-      body.hidden = !on; tg.textContent = (on ? '\u25BE ' : '\u25B8 ') + 'Device commands'; tg.setAttribute('aria-expanded', String(on));
-      if (save) { try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (_) { /* not fatal */ } }
-    };
-    tg.onclick = () => setOpen(body.hidden, true);
-    body.appendChild(el('div', 'cc-note', 'Run as root (AT console or adb). They only read, except Kill all copies.'));
+  function build() {
+    const bg = el('div', 'modal-bg'); bg.id = 'cmdPop';
+    const m = el('div', 'modal');
+    const head = el('div', 'cc-head'), x = el('button', '', 'Close'); x.type = 'button';
+    head.appendChild(el('h3', '', 'Device commands')); head.appendChild(x);
+    m.appendChild(head);
+    m.appendChild(el('div', 'cc-note', 'Run as root (AT console or adb). They only read, except Kill all copies.'));
     for (const [name, rows] of GROUPS) {
       const d = el('details'), s = el('summary');
       s.appendChild(el('span', '', name)); s.appendChild(el('span', 'cc-n', String(rows.length))); d.appendChild(s);
       for (const [label, cmd] of rows) {
-        const r = el('div', 'cc-r'), m = el('div', 'cc-m'), b = el('button', '', 'Copy'); b.type = 'button';
-        m.appendChild(el('div', 'cc-l', label)); m.appendChild(el('div', 'cc-c', cmd));
+        const r = el('div', 'cc-r'), b = el('button', 'cc-b', 'Copy'); b.type = 'button';
+        r.appendChild(el('div', 'cc-l', label)); r.appendChild(el('div', 'cc-c', cmd)); r.appendChild(b);
         b.onclick = async () => { const ok = await copy(cmd); try { createToast(ok ? 'Copied' : 'Select the command and copy it by hand', ok ? 'green' : 'red'); } catch (_) { /* not fatal */ } };
-        r.appendChild(m); r.appendChild(b); d.appendChild(r);
+        d.appendChild(r);
       }
-      body.appendChild(d);
+      m.appendChild(d);
     }
-    let was = false; try { was = localStorage.getItem(KEY) === '1'; } catch (_) { /* closed */ }
-    setOpen(was, false);
-    home.appendChild(box);
-    // Fixed place: right after the Plugin guard card, which another script adds at its own time.
-    const place = () => { const g = document.getElementById('guardCard'); if (g && g.parentNode === home && g.nextElementSibling !== box) g.after(box); };
-    place();
-    try { new MutationObserver(place).observe(home, { childList: true }); } catch (e) { setTimeout(place, 1500); setTimeout(place, 5000); }
+    bg.appendChild(m);
+    const close = () => bg.classList.remove('show');
+    x.onclick = close;
+    bg.onclick = (e) => { if (e.target === bg) close(); };
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    document.body.appendChild(bg);
+    return bg;
+  }
+
+  function mount() {
+    const box = document.querySelector('.matchi-menu-box'); if (!box || document.getElementById('cmdBtn')) return;
+    // A button in the "Plugin actions" folder, next to SMS and the others. The list opens in a popup.
+    const btn = el('button', '', 'Device commands'); btn.id = 'cmdBtn'; btn.type = 'button';
+    let pop = null;
+    btn.onclick = () => { if (!pop) pop = build(); pop.classList.add('show'); };
+    box.appendChild(btn);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();
