@@ -53,6 +53,19 @@ type action struct {
 	Why    string `json:"why"`
 }
 
+// otherRow is a busy process that carries no plugin tag. othersMin is the share of one core that makes it worth listing.
+type otherRow struct {
+	PID   int     `json:"pid"`
+	Comm  string  `json:"comm"`
+	CPU   float64 `json:"cpu_pct"`
+	RSSKB int64   `json:"rss_kb"`
+}
+
+const (
+	othersMinPct = 10.0
+	othersMax    = 5
+)
+
 type pluginRow struct {
 	Name    string  `json:"name"`
 	CPU     float64 `json:"cpu_pct"`
@@ -72,6 +85,7 @@ type report struct {
 	Cost     int64       `json:"scan_ms"`
 	Procs    int         `json:"procs_seen"`
 	Plugins  []pluginRow `json:"plugins"`
+	Others   []otherRow  `json:"others"`
 	Actions  []action    `json:"actions"`
 }
 
@@ -83,6 +97,7 @@ type watcher struct {
 	plugins map[string]*plugState
 	actions []action
 	last    time.Time
+	now     time.Time // start of the sweep in progress
 	n       int
 }
 
@@ -112,13 +127,16 @@ type usage struct {
 // starting everything. Remembering that forever left plugins started by boot.sh invisible until the guard was switched off and on
 // (which emptied the memory). So an empty answer is asked again: every sweep while the process is young, every 10th sweep later.
 type tagMemo struct {
-	tag   string
-	round int
+	tag string
+	at  time.Time
 }
 
+// Time based, so the cost does not grow when the sweep is every second: a process younger than youngSecs is asked again after youngRetry
+// (or at the next sweep when sweeps are further apart), an older one without a tag after oldRetrySecs.
 const (
-	youngSecs   = 300 // a process younger than this is asked again at every sweep
-	oldRetryGap = 10  // an older process without a tag is asked again every this many sweeps
+	youngSecs    = 300
+	youngRetry   = 5 * time.Second
+	oldRetrySecs = 300 * time.Second
 )
 
 func (w *watcher) tagFor(k key, p *procInfo, up float64) tagMemo {
@@ -126,12 +144,15 @@ func (w *watcher) tagFor(k key, p *procInfo, up float64) tagMemo {
 		if m.tag != "" {
 			return m
 		}
-		young := up-float64(p.Start)/clkTck < youngSecs
-		if !young && w.n-m.round < oldRetryGap {
+		gap := oldRetrySecs
+		if up-float64(p.Start)/clkTck < youngSecs {
+			gap = youngRetry
+		}
+		if w.now.Sub(m.at) < gap-time.Second/2 {
 			return m
 		}
 	}
-	return tagMemo{tag: readTag(w.c.root, p.PID), round: w.n}
+	return tagMemo{tag: readTag(w.c.root, p.PID), at: w.now}
 }
 
 func (w *watcher) budget(name string) float64 {
@@ -146,6 +167,7 @@ func (w *watcher) round(now time.Time) report {
 	procs := scanProcs(w.c.root)
 	up := readUptime(w.c.root)
 	w.n++
+	w.now = now
 	baseline := w.last.IsZero()
 	secs := now.Sub(w.last).Seconds()
 	me := selfPID()
@@ -186,11 +208,21 @@ func (w *watcher) round(now time.Time) report {
 	}
 	w.tags = tags
 	agg := map[string]*usage{}
+	busy := []otherRow{}
 	for i := range procs {
 		p := &procs[i]
 		k := key{p.PID, p.Start}
 		tag := tags[k]
-		if _, ok := cur[k]; !ok || tag == "" {
+		if _, ok := cur[k]; !ok {
+			continue
+		}
+		if tag == "" {
+			// Not a plugin process (or one the guard cannot attribute): still reported when it is busy, so nothing can hide from the table.
+			if pv, seen := w.prev[k]; seen && !baseline && secs > 0 && p.Ticks >= pv {
+				if pct := float64(p.Ticks-pv) / (secs * clkTck) * 100; pct >= othersMinPct {
+					busy = append(busy, otherRow{p.PID, p.Comm, round1(pct), p.RSSPages * int64(os.Getpagesize()) / 1024})
+				}
+			}
 			continue
 		}
 		u := agg[tag]
@@ -249,9 +281,13 @@ func (w *watcher) round(now time.Time) report {
 		w.judge(name, ps, u, pct)
 		rows = append(rows, pluginRow{name, round1(pct), w.budget(name), u.rss, len(u.procs), ps.state, ps.strikes})
 	}
+	sort.Slice(busy, func(i, j int) bool { return busy[i].CPU > busy[j].CPU })
+	if len(busy) > othersMax {
+		busy = busy[:othersMax]
+	}
 	w.last = now
 	return report{V: 1, TS: now.Unix(), Interval: int(w.c.interval / time.Second), Round: w.n, Cost: time.Since(t0).Milliseconds(),
-		Procs: len(procs), Plugins: rows, Actions: append([]action{}, w.actions...)}
+		Procs: len(procs), Plugins: rows, Others: busy, Actions: append([]action{}, w.actions...)}
 }
 
 func round1(f float64) float64 { return float64(int(f*10+0.5)) / 10 }
@@ -429,7 +465,7 @@ func cmdWatch(args []string) int {
 		return 2
 	}
 	w := newWatcher(cfg{interval: time.Duration(*every) * time.Second, budgets: b, defBudget: *def, helperMax: time.Duration(*hmax) * time.Second,
-		throttleAt: 2, escalateAt: 6, calmAt: 2, action: *act, freezeRounds: 2, cg: defaultCg(), cgOn: !*noCg})
+		throttleAt: roundsFor(20, *every, 2), escalateAt: roundsFor(60, *every, 6), calmAt: roundsFor(20, *every, 2), action: *act, freezeRounds: 2, cg: defaultCg(), cgOn: !*noCg})
 	reniceFn(0, 10) // the guard itself must be cheap
 	for i := 0; *rounds == 0 || i < *rounds; i++ {
 		if i > 0 {
@@ -441,4 +477,14 @@ func cmdWatch(args []string) int {
 		}
 	}
 	return 0
+}
+
+// roundsFor turns a wait in seconds into a number of sweeps (never fewer than min): at a 1 s sweep a 2-second burst must not count as
+// "over budget for 2 rounds", so the limits stay about the same in real time (20 s to slow a plugin, 60 s to escalate, 20 s to release).
+func roundsFor(secs, interval, min int) int {
+	n := (secs + interval - 1) / interval
+	if n < min {
+		return min
+	}
+	return n
 }

@@ -12,9 +12,15 @@ class GuardHostTest {
 
     @Test fun startScriptStartsOnlyWatchByFullPathWithNoInputAndNoOutput() {
         val s = GuardHost.startScript(dir)!!
-        assertTrue(s.contains("nohup '$dir/matchi-guard' watch --interval 30 --report '$dir/guard/report.json' </dev/null >/dev/null 2>&1 &"))
+        assertTrue(s.contains("nohup '$dir/matchi-guard' watch --interval 10 --report '$dir/guard/report.json' </dev/null >/dev/null 2>&1 &"))
         assertFalse(s.contains(" run "))
         assertTrue(s.trimEnd().endsWith("echo started"))
+    }
+
+    @Test fun intervalIsChosenFromOneFiveTenAndNothingElse() {
+        for (n in listOf(1, 5, 10)) assertTrue(GuardHost.startScript(dir, n)!!.contains("watch --interval $n --report"))
+        for (n in listOf(0, 2, 30, -1, 3600)) assertNull(n.toString(), GuardHost.startScript(dir, n))
+        assertEquals(10, GuardHost.INTERVAL_S)
     }
 
     @Test fun stopMatchesOnlyOurWatchByTheStartOfTheCommandLine() {

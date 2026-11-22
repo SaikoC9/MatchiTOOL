@@ -12,8 +12,10 @@ object GuardHost {
     /** Name in assets/bin, in the files folder and in [BinaryHashes]. */
     const val BINARY = "matchi-guard"
 
-    /** Seconds between two sweeps of the program. */
-    const val INTERVAL_S = 30
+    /** Seconds between two sweeps of the program (the default), and the ones the person may choose. 1 s costs about 2.5 % of a core. */
+    const val INTERVAL_S = 10
+    val INTERVALS = listOf(1, 5, 10)
+    fun validInterval(n: Int): Boolean = n in INTERVALS
 
     /** A report older than this many intervals means the program is not running (or the phone slept). */
     const val STALE_INTERVALS = 3
@@ -32,13 +34,13 @@ object GuardHost {
      * Only a process whose command line STARTS with "<dir>/matchi-guard watch " is ended, so a `run` (which supervises a plugin) and
      * the shell that runs this script are never touched. Null when [dir] is not a plain absolute path.
      */
-    fun startScript(dir: String): String? {
-        if (!LiveEngine.pathIsSafe(dir)) return null
+    fun startScript(dir: String, interval: Int = INTERVAL_S): String? {
+        if (!LiveEngine.pathIsSafe(dir) || !validInterval(interval)) return null
         val g = "$dir/$BINARY"
         return listOf(
             stopLines(g),
             "if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi",
-            "\$S nohup '$g' watch --interval $INTERVAL_S --report '${reportPath(dir)}' </dev/null >/dev/null 2>&1 &",
+            "\$S nohup '$g' watch --interval $interval --report '${reportPath(dir)}' </dev/null >/dev/null 2>&1 &",
             "echo started",
         ).joinToString("\n")
     }

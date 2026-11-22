@@ -385,10 +385,40 @@ func TestWatchOldUntaggedRetried(t *testing.T) {
 	w.round(time.Unix(1000, 0))
 	fakeProc(t, root, 500, statLine(500, "x", "S", 1, 500, 1, 0, 100, 1000), "MATCHI_PLUGIN=Late\x00")
 	var r report
-	for i := 1; i <= oldRetryGap+1; i++ {
+	for i := 1; i <= 11; i++ {
 		r = w.round(time.Unix(1000+int64(30*i), 0))
 	}
 	if len(r.Plugins) != 1 || r.Plugins[0].Name != "Late" {
 		t.Fatalf("old process never re-read: %+v", r.Plugins)
+	}
+}
+
+// A busy process with no plugin tag is listed in "others" (top 5, 10 % of a core or more); a tagged one and an idle one are not.
+func TestWatchOthersListsBusyUntagged(t *testing.T) {
+	var c calls
+	defer hook(&c)()
+	root := t.TempDir()
+	os.MkdirAll(root+"/proc", 0o755)
+	os.WriteFile(root+"/proc/uptime", []byte("1000.0 0\n"), 0o644)
+	w := newWatcher(testCfg(root, "throttle"))
+	set := func(ticks uint64) {
+		fakeProc(t, root, 900, statLine(900, "hog", "R", 1, 900, ticks, 0, 100, 1000), "A=b\x00")
+		fakeProc(t, root, 901, statLine(901, "idle", "S", 1, 901, 1, 0, 100, 1000), "A=b\x00")
+		fakeProc(t, root, 902, statLine(902, "plug", "R", 1, 902, ticks, 0, 100, 1000), "MATCHI_PLUGIN=P\x00")
+	}
+	set(0)
+	w.round(time.Unix(1000, 0))
+	set(1500) // 50 % of a core over 30 s
+	r := w.round(time.Unix(1030, 0))
+	if len(r.Others) != 1 || r.Others[0].PID != 900 || r.Others[0].Comm != "hog" || r.Others[0].CPU < 49 || r.Others[0].CPU > 51 {
+		t.Fatalf("others=%+v", r.Others)
+	}
+}
+
+func TestRoundsFor(t *testing.T) {
+	for _, c := range [][4]int{{20, 1, 2, 20}, {20, 5, 2, 4}, {20, 10, 2, 2}, {20, 30, 2, 2}, {60, 1, 6, 60}, {60, 10, 6, 6}, {60, 30, 6, 6}} {
+		if got := roundsFor(c[0], c[1], c[2]); got != c[3] {
+			t.Errorf("roundsFor(%d,%d,%d)=%d want %d", c[0], c[1], c[2], got, c[3])
+		}
 	}
 }

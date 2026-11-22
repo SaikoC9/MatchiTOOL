@@ -35,6 +35,15 @@ t('rows: sorted by CPU, unknown state becomes OK, capped, bad entries and plugin
   const many = Array.from({ length: 30 }, (_, i) => ({ name: 'p' + i, cpu_pct: i, procs: 1 }));
   assert.strictEqual(ui.plugRows(rep({ plugins: many })).length, 12);
 });
+t('others: busy untagged processes, busiest first, at most 5, bad entries dropped', () => {
+  const others = [{ pid: 5, comm: 'a', cpu_pct: 12.4, rss_kb: 10 }, null, { comm: 7 }, ...Array.from({ length: 8 }, (_, i) => ({ pid: i, comm: 'p' + i, cpu_pct: 20 + i, rss_kb: 1 }))];
+  const o = ui.otherRows(rep({ others }));
+  assert.strictEqual(o.length, 5); assert.strictEqual(o[0].comm, 'p7'); assert.deepStrictEqual(ui.norm(ans({ report: rep({}) })).others, []);
+});
+t('interval: only 1, 5 or 10 s, anything else reads as 10', () => {
+  assert.deepStrictEqual(ui.INTERVALS, [1, 5, 10]);
+  for (const [v, want] of [[1, 1], [5, 5], [10, 10], [2, 10], [30, 10], [undefined, 10], ['5', 10]]) assert.strictEqual(ui.norm(ans({ interval: v })).interval, want);
+});
 t('actions: newest first, at most 6, text is plain', () => {
   const actions = Array.from({ length: 9 }, (_, i) => ({ ts: 100 + i, what: i === 8 ? 'kill-helper' : 'throttle', plugin: 'AdGuard', comm: 'tr', pid: 7, why: 'cpu 99% for 20 s' }));
   const a = ui.actionList(rep({ actions }));
@@ -51,7 +60,7 @@ t('the card never writes markup from text', () => {
 t('page and host: module included, routes exist, slow refresh', () => {
   assert.ok(page.includes('/* @include web-src/guard-ui.js */'));
   assert.ok(page.includes("/api/guard/report") && page.includes("/api/guard/state"));
-  assert.strictEqual(ui.REFRESH_MS, 120000);
+  assert.strictEqual(ui.REFRESH_MS, 30000);
   const dev = fs.readFileSync(path.join(__dirname, '../app/src/main/java/com/matchi/tool/WebRoutesDevice.kt'), 'utf8');
   assert.ok(/"\/api\/guard\/report" && s\.method == Method\.GET/.test(dev) && /"\/api\/guard\/state" && s\.method == Method\.POST -> rootGate/.test(dev));
 });

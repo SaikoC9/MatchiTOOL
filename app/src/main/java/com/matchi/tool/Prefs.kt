@@ -83,6 +83,9 @@ object Prefs {
     /** Plugin guard (matchi-guard watch) switched on by the owner. Off by default; started again at every host start when on. */
     fun guardOn(c: Context): Boolean = sp(c).getBoolean("guard_on", false)
     fun setGuardOn(c: Context, v: Boolean) { sp(c).edit().putBoolean("guard_on", v).apply() }
+    /** Seconds between two sweeps of the plugin guard (1, 5 or 10). Anything else reads as the default. */
+    fun guardInterval(c: Context): Int = sp(c).getInt("guard_interval", GuardHost.INTERVAL_S).let { if (GuardHost.validInterval(it)) it else GuardHost.INTERVAL_S }
+    fun setGuardInterval(c: Context, v: Int) { if (GuardHost.validInterval(v)) sp(c).edit().putInt("guard_interval", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
     fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)
