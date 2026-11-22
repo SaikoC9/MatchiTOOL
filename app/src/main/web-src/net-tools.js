@@ -1160,8 +1160,8 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 #matchi_net_modal .net-me{display:inline-block;box-sizing:border-box;width:64px;margin-left:6px;white-space:normal;line-height:1.15;text-align:center;vertical-align:middle;font-size:12px;color:var(--mut)}
 #matchi_net_modal .net-limp{border:1px solid var(--bd);border-radius:10px;padding:8px 12px 10px;margin:12px 0 4px;background:rgba(255,255,255,.015)}
 #matchi_net_modal .net-limhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 4px}
-html body #matchi_net_modal .net-limhead button.mt-tip-btn{height:19px!important;padding:0 9px 0 6px!important;font-size:11px!important;margin:0!important}
-html body #matchi_net_modal button.mt-tip-btn.mt-dock{height:19px!important;padding:0 9px 0 6px!important;font-size:11px!important;margin:0 0 0 auto!important}
+html body #matchi_net_modal .net-limhead button.mt-tip-btn{height:16px!important;padding:0 2px!important;font-size:11px!important;margin:0!important}
+html body #matchi_net_modal button.mt-tip-btn.mt-dock{height:16px!important;padding:0 2px!important;font-size:11px!important;margin:0 0 0 auto!important}
 #matchi_net_modal .mt-head{margin:6px 0 3px}#matchi_net_modal .mt-head>h4{margin:0}
 #matchi_net_modal .net-limhead h4{margin:0;font-size:14px;letter-spacing:0;line-height:1.3}
 #matchi_net_modal .net-limrow{display:grid;grid-template-columns:76px 104px 1fr;gap:6px 10px;align-items:center;margin:6px 0}

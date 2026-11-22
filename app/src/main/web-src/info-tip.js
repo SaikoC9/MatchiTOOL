@@ -39,16 +39,16 @@
     styled = true;
     const s = document.createElement('style');
     s.textContent = `.mt-tip{display:block;margin:2px 0}
-.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;box-sizing:border-box;width:auto;height:17px;min-width:0;min-height:0;padding:0 7px 0 4px;margin:2px 0;border:1px solid var(--tc);border-radius:999px;cursor:pointer;background:var(--tb);color:var(--tc);font:600 10px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.mt-tip-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;box-sizing:border-box;width:auto;height:16px;min-width:0;min-height:0;padding:0 2px;margin:2px 0;border:0;border-radius:4px;cursor:pointer;background:none;color:var(--tc);font:500 11px/1 inherit;white-space:nowrap;-webkit-tap-highlight-color:transparent}
 .mt-tip-btn svg{display:block;flex:none;width:10px!important;height:10px!important}
-button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:17px!important;min-width:0!important;min-height:0!important;padding:0 7px 0 4px!important;margin:2px 0!important;border:1px solid var(--tc)!important;border-radius:999px!important;box-shadow:none!important;font-size:10px!important;font-weight:600!important;gap:3px!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
+button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn,html body .card.pop.open:not(#pluginmgr):not(#_):not(#__):not(#___) button.mt-tip-btn,html body .modal button.mt-tip-btn{display:inline-flex!important;width:auto!important;height:16px!important;min-width:0!important;min-height:0!important;padding:0 2px!important;margin:2px 0!important;border:0!important;background:none!important;border-radius:4px!important;box-shadow:none!important;font-size:11px!important;font-weight:500!important;gap:3px!important;line-height:1!important;flex:none!important;justify-self:start!important;align-self:flex-start!important;float:none!important;position:static!important;transform:none!important}
 .mt-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mt-head>h1,.mt-head>h2,.mt-head>h3,.mt-head>h4,.mt-head>h5,.mt-head>h6{flex:1 1 auto;min-width:0}
-html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 auto!important}
-.mt-caret{font-size:9px;line-height:1;margin-left:1px}
-.mt-tip-btn:hover{background:var(--th)}
+html body button.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-tip-btn.mt-dock{flex:none!important;margin:0 0 0 auto!important;align-self:center!important}
+.dr-h>.mt-dock,.dc-h>.mt-dock{margin-right:2px!important}
+.mt-caret{font-size:8px;line-height:1}
+.mt-tip-btn:hover{text-decoration:underline}
 .mt-tip-btn:focus-visible{outline:2px solid var(--tc);outline-offset:2px}
-.mt-tip-btn[aria-expanded="true"]{background:var(--th)}
 .mt-tip-info{--tc:#5aa9ff;--tb:rgba(90,169,255,.16);--th:rgba(90,169,255,.3)}
 .mt-tip-warning{--tc:#f2b13a;--tb:rgba(242,177,58,.16);--th:rgba(242,177,58,.3)}
 .mt-tip-danger{--tc:#ff6b7d;--tb:rgba(255,107,125,.16);--th:rgba(255,107,125,.3)}
@@ -67,7 +67,6 @@ html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 aut
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mt-tip-btn mt-tip-' + kk;
-    btn.appendChild(icon(k));
     btn.appendChild(document.createTextNode('Info'));   // the only word on it
     const caret = document.createElement('span'); caret.className = 'mt-caret'; caret.setAttribute('aria-hidden', 'true'); caret.textContent = '\u25BE'; btn.appendChild(caret);   // \u25BE closed, \u25B4 open
     btn.setAttribute('aria-label', k.label);
@@ -120,8 +119,8 @@ html body button.mt-tip-btn.mt-dock.mt-dock{flex:none!important;margin:0 0 0 aut
     } else if (HEAD_ROW.test(head.className || '')) row = head;
     if (!row || row.querySelector('.mt-tip-btn')) { if (row && row !== head && row.parentNode) { par.insertBefore(head, row); row.remove(); } return; }
     btn.classList.add('mt-dock');
-    const first = row.querySelector(':scope > button, :scope > .dc-hb');
-    if (first) row.insertBefore(btn, first); else row.appendChild(btn);
+    const last = row.lastElementChild;   // Info goes just before the row's own buttons (Refresh), never before the title
+    if (last && last !== row.firstElementChild && (last.tagName === 'BUTTON' || /(^|\s)dc-hb(\s|$)/.test(last.className || ''))) row.insertBefore(btn, last); else row.appendChild(btn);
     if (row.nextSibling !== wrap) par.insertBefore(wrap, row.nextSibling);
   }
   function dockAll(root) {
