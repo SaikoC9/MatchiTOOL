@@ -82,7 +82,7 @@ Governor. Sensors vary by device, and the temperature bands are advice, not
 proof of throttling. It never disables thermal services or touches GPU and
 charging controls.
 
-**Refresh.** Live (1 s), Balanced (3 s) or Eco. The panel pauses when closed,
+**Refresh.** Live (1 s), Balanced (speed every 1 s, the rest every 15 s) or Eco. The panel pauses when closed,
 when another tool window is open and when the tab is hidden. The router is read
 every 3 s and the root shell every 15 s. When warm (60 C) these slow to 6 s and
 30 s. When hot (70 C) they slow to 15 s and 90 s, and the header shows
