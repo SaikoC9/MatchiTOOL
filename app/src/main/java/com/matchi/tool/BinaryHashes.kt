@@ -7,7 +7,7 @@ object BinaryHashes {
         "curl" to "bb49333d364737bef97b77114790be5684fd3c22d6d4274fbe56c3a83869428a",
         "jq" to "a8dc0221d8a6e7d67feb16882768585e6f339dcf0fce1e828761c2c4f1ca3050",
         "matchi-doctor" to "5badac638d193d5cd96197b7d2f7ae813e2864fc6b1b27b45dd8a836c2030471",
-        "matchi-guard" to "8ed52b93fa7be17aedd5ba89b1de62554a9deb4933400e3f736ace668d7704ce",
+        "matchi-guard" to "d1da6209ec9206d2cb81cc3e8a17c240ff98d5d4c0f967214bc55e2d08f69d06",
         "matchi-sampler" to "82bc92bc78e0afb55fc914a49d4885f2abddd02e9e2ad93b51f3ac40f1594cc6",
         "sendat" to "c7f61e688b269d924f0f5274abc599251c11341606cf99c435c64c4aa0eddbb7",
         "sha256" to "c937b0f3728d3ade2212d2de2e3ec258b396e5efc26821c4816528f484a868eb",
