@@ -5,7 +5,7 @@ package com.matchi.tool
  * It validates input, builds the shell scripts that run as root, and reads the output of `tc` and `ip neigh` back.
  * The model is described in docs/LIMIT_SPEED.md. Tested by hand on one ZTE F50 (kernel 5.4, iproute2 171113).
  *
- * What it owns, and nothing else: filter priorities 1000..1255 and HTB classes 1:101..1:1ff. Priority 1 on the hotspot
+ * What it owns, and nothing else: filter priorities 1000..1255 (IPv4) and 1300..1555 (IPv6, matched by MAC) and HTB classes 1:101..1:1ff. Priority 1 on the hotspot
  * interfaces belongs to the system (a BPF TTL filter); no script here names it.
  */
 object SpeedLimit {
@@ -14,6 +14,7 @@ object SpeedLimit {
     const val MIN_KBPS = 8
     const val MAX_KBPS = 125_000
     private const val PREF_BASE = 1000
+    private const val PREF6_BASE = 1300
     private const val MINOR_BASE = 0x100
     private const val FIRST_OCTET = 2
     private const val LAST_OCTET = 254
@@ -61,6 +62,15 @@ object SpeedLimit {
     fun limitError(down: Int?, up: Int?): String? = kbpsError(down, "Download") ?: kbpsError(up, "Upload")
 
     fun prefOf(octet: Int): Int = PREF_BASE + octet
+    /** Priority of the IPv6 filter of the same device (one tc priority can hold one protocol only, so IPv6 gets its own). */
+    fun pref6Of(octet: Int): Int = PREF6_BASE + octet
+
+    /** "aa:bb:cc:dd:ee:ff" to (0xaabbccdd, 0xeeff) for u32 matches; null when not a valid MAC. */
+    private fun macWords(mac: String?): Pair<String, String>? {
+        val m = normalizeMac(mac) ?: return null
+        val h = m.replace(":", "")
+        return Pair("0x" + h.substring(0, 8), "0x" + h.substring(8, 12))
+    }
     fun minorOf(octet: Int): String = Integer.toHexString(MINOR_BASE + octet)
     /** Police burst in KB: 20 for small rates, about 50 ms of traffic for large ones (a small burst under-delivers fast links). */
     fun burstKb(kbps: Int): Int = maxOf(20, kbps / 20)
@@ -94,35 +104,51 @@ object SpeedLimit {
         val p = prefOf(o)
         val m = minorOf(o)
         val sb = StringBuilder()
+        val p6 = pref6Of(o)
         sb.append("tc filter del dev br0 parent 1: prio $p 2>/dev/null\n")
+        sb.append("tc filter del dev br0 parent 1: prio $p6 2>/dev/null\n")
         sb.append("tc class del dev br0 classid 1:$m 2>/dev/null\n")
-        for (i in UP_IFS) sb.append("tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+        for (i in UP_IFS) {
+            sb.append("tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+            sb.append("tc filter del dev $i parent ffff: prio $p6 2>/dev/null\n")
+        }
         return sb.toString()
     }
 
-    /** Sets (or, for a null direction, clears) one device's limits. Null when the address or a value is not valid. */
-    fun applyScript(ip: String, limit: Limit): String? {
+    /**
+     * Sets (or, for a null direction, clears) one device's limits. Null when the address or a value is not valid.
+     * With a valid [mac] the device's IPv6 traffic is limited too: its addresses rotate, so IPv6 is matched on the Ethernet
+     * MAC (destination on br0 egress, source on the hotspot ingress), both into the same class / the same rate. The IPv6 rules are
+     * best effort (no `step`): if this kernel rejects them, the proven IPv4 limit still stands instead of being rolled back.
+     */
+    fun applyScript(ip: String, limit: Limit, mac: String? = null): String? {
         val o = octetOf(ip) ?: return null
         if (limitError(limit.down, limit.up) != null) return null
         val p = prefOf(o)
+        val p6 = pref6Of(o)
+        val w = macWords(mac)
         val m = minorOf(o)
         val down = limit.down
         val up = limit.up
         val sb = StringBuilder(HEAD)
         if (down != null) sb.append(ENSURE_ROOT)
         sb.append("tc filter del dev br0 parent 1: prio $p 2>/dev/null\n")
+        sb.append("tc filter del dev br0 parent 1: prio $p6 2>/dev/null\n")
         if (down != null) {
             sb.append("step tc class replace dev br0 parent 1: classid 1:$m htb rate ${down}kbps ceil ${down}kbps\n")
             sb.append("step tc filter add dev br0 parent 1: protocol ip prio $p u32 match ip dst $ip/32 flowid 1:$m\n")
+            if (w != null) sb.append("tc filter add dev br0 parent 1: protocol ipv6 prio $p6 u32 match u32 ${w.first} 0xffffffff at -14 match u16 ${w.second} 0xffff at -10 flowid 1:$m 2>/dev/null\n")
         } else {
             sb.append("tc class del dev br0 classid 1:$m 2>/dev/null\n")
         }
         for (i in UP_IFS) {
             sb.append("if [ -d /sys/class/net/$i ]; then\n")
             sb.append(" tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+            sb.append(" tc filter del dev $i parent ffff: prio $p6 2>/dev/null\n")
             if (up != null) {
                 sb.append(" tc qdisc show dev $i 2>/dev/null | grep -qE \"qdisc (ingress|clsact) ffff:\" || step tc qdisc add dev $i handle ffff: ingress\n")
                 sb.append(" step tc filter add dev $i parent ffff: protocol ip prio $p u32 match ip src $ip/32 action police rate ${up}kbps burst ${burstKb(up)}k drop\n")
+                if (w != null) sb.append(" tc filter add dev $i parent ffff: protocol ipv6 prio $p6 u32 match u32 ${w.first} 0xffffffff at -8 match u16 ${w.second} 0xffff at -4 action police rate ${up}kbps burst ${burstKb(up)}k drop 2>/dev/null\n")
             }
             sb.append("fi\n")
         }

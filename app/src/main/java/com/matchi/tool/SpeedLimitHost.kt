@@ -67,7 +67,7 @@ object SpeedLimitHost {
             SpeedLimitLoop.sync(ctx)
             return Outcome(true, "unlimited")
         }
-        val script = SpeedLimit.applyScript(now, limit) ?: return Outcome(false, "address or value not valid")
+        val script = SpeedLimit.applyScript(now, limit, mac) ?: return Outcome(false, "address or value not valid")
         val out = runScript(ctx, script)
         val after = if (out.ok) readLive(ctx) else null
         if (!out.ok || after == null || !SpeedLimit.matches(limit, after, octet)) {
@@ -94,7 +94,7 @@ object SpeedLimitHost {
             notes.add("removed ${plan.remove.size} stale: ${if (out.ok) "ok" else out.message}")
         }
         for (t in plan.apply) {
-            val script = SpeedLimit.applyScript(t.ip, t.limit) ?: continue
+            val script = SpeedLimit.applyScript(t.ip, t.limit, t.mac) ?: continue
             val out = runScript(ctx, script)
             if (out.ok) next = SpeedLimit.upsert(next, SpeedLimit.Entry(t.mac, t.limit, t.ip))
             notes.add("${t.mac} at ${t.ip}: ${if (out.ok) "applied" else out.message}")

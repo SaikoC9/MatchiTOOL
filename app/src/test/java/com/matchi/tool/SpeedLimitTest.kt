@@ -66,6 +66,7 @@ class SpeedLimitTest {
     // ---- scripts ----
     private fun allScripts(): List<String> = listOf(
         SpeedLimit.applyScript("192.168.0.167", Limit(500, 250))!!,
+        SpeedLimit.applyScript("192.168.0.167", Limit(500, 250), "aa:bb:cc:dd:ee:04")!!,
         SpeedLimit.applyScript("192.168.0.4", Limit(null, 90))!!,
         SpeedLimit.applyScript("192.168.0.254", Limit(125_000, null))!!,
         SpeedLimit.applyScript("192.168.0.2", Limit(null, null))!!,
@@ -84,6 +85,15 @@ class SpeedLimitTest {
         assertTrue(s.contains("tc qdisc replace dev br0 root handle 1: htb default 10"))
         assertTrue(s.contains("MATCHI_ROOT_BUSY"))
         assertTrue(s.contains("MATCHI_OK"))
+    }
+
+    @Test fun macGivesIpv6RulesOnTheirOwnPriority() {
+        val s = SpeedLimit.applyScript("192.168.0.167", Limit(500, 250), "AA-BB-CC-DD-EE-02".replace("02", "04"))!!
+        assertTrue(s.contains("protocol ipv6 prio 1467 u32 match u32 0xaabbccdd 0xffffffff at -14 match u16 0xee04 0xffff at -10 flowid 1:1a7"))
+        for (i in listOf("wlan0", "usb0"))
+            assertTrue(s.contains("tc filter add dev $i parent ffff: protocol ipv6 prio 1467 u32 match u32 0xaabbccdd 0xffffffff at -8 match u16 0xee04 0xffff at -4 action police rate 250kbps burst 20k drop"))
+        assertTrue(SpeedLimit.removeScript(listOf(167)).contains("prio 1467"))
+        assertFalse(SpeedLimit.applyScript("192.168.0.167", Limit(500, 250))!!.contains("ipv6"))
     }
 
     @Test fun uploadOnlyLeavesDownloadClearedAndRootAlone() {
@@ -128,7 +138,7 @@ class SpeedLimitTest {
             // every tc filter delete names a priority
             for (l in s.lines()) if (l.contains("tc filter del")) assertTrue(l, Regex("prio 1[0-9]{3}").containsMatchIn(l))
             // every priority used is in the owned range
-            for (m in Regex("prio ([0-9]+)").findAll(s)) assertTrue(m.value, m.groupValues[1].toInt() in 1002..1254)
+            for (m in Regex("prio ([0-9]+)").findAll(s)) assertTrue(m.value, m.groupValues[1].toInt() in 1002..1254 || m.groupValues[1].toInt() in 1302..1554)
         }
     }
 

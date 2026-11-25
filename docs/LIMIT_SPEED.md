@@ -114,8 +114,10 @@ set call reads the result back and removes the rule again if it does not match.
 
 ## What is not covered
 
-- **IPv6.** Clients also use global IPv6 addresses that rotate. A client using
-  IPv6 can bypass the limit. v1 filters IPv4 only.
+- **IPv6.** Clients also use rotating global IPv6 addresses, so IPv6 is matched on the device's MAC instead: filter priority
+  1300 + O (`protocol ipv6`, destination MAC at offset -14 on `br0` egress, source MAC at offset -8 on `wlan0` / `usb0` ingress).
+  It uses the same class (download) and the same rate (upload, its own police bucket). Best effort and not yet tested on a
+  device: if the kernel rejects it, the IPv4 limit still stands. Check with `tc filter show dev br0 parent 1:`.
 - **A device that changes IP.** The limit follows only after the next refresh.
 - **Other firmware.** Another build may have different interfaces or an
   `ifb`-less kernel. Check with the read-only commands in
