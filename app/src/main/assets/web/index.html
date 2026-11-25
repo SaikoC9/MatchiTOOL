@@ -6887,7 +6887,7 @@ function mountNetTools() {
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
     const mk = (label, id, fn) => { const x = h('button', { type: 'button', id }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     // The long explanation is the Info chip in the panel's top right corner; its text opens under the title. Without the tip helper it is a plain note.
-    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device's MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
+    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
     const tip = window.MatchiTip ? window.MatchiTip.make(infoText) : null;
     const chip = tip ? tip.firstChild : null, tipBody = tip ? tip.lastChild : null;
     const title = h('h4', {}, 'Limit speed \u00b7 ' + (f.name || '(no name)') + ' (' + f.ip + ')');
