@@ -422,3 +422,58 @@ func TestRoundsFor(t *testing.T) {
 		}
 	}
 }
+
+// Untagged runaway: a spinner that changes PID (and so "core") every sweep still adds up by name; a protected name is never killed.
+func TestWatchRunawayKillsUntaggedByName(t *testing.T) {
+	var c calls
+	defer hook(&c)()
+	root := t.TempDir()
+	os.MkdirAll(root+"/proc", 0o755)
+	os.WriteFile(root+"/proc/uptime", []byte("1000.0 0\n"), 0o644)
+	cf := testCfg(root, "throttle")
+	cf.runawayPct, cf.runawayAt, cf.protect = 90, 2, map[string]bool{}
+	w := newWatcher(cf)
+	set := func(ticks uint64) {
+		fakeProc(t, root, 900, statLine(900, "spin", "R", 1, 900, ticks, 0, 100, 1000), "A=b\x00")
+		fakeProc(t, root, 901, statLine(901, "system_server", "R", 1, 901, ticks, 0, 100, 1000), "A=b\x00")
+		fakeProc(t, root, 902, statLine(902, "calm", "S", 1, 902, ticks/100, 0, 100, 1000), "A=b\x00")
+	}
+	set(0)
+	w.round(time.Unix(1000, 0))
+	set(3000) // 100 % of a core
+	w.round(time.Unix(1030, 0))
+	if len(c.killed) != 0 {
+		t.Fatalf("killed after one sweep: %v", c.killed)
+	}
+	set(6000)
+	r := w.round(time.Unix(1060, 0))
+	if len(c.killed) != 1 || c.killed[0] != 900 {
+		t.Fatalf("killed=%v actions=%+v", c.killed, r.Actions)
+	}
+}
+
+func TestWatchRunawayOffByDefaultAndBurstsIgnored(t *testing.T) {
+	var c calls
+	defer hook(&c)()
+	root := t.TempDir()
+	os.MkdirAll(root+"/proc", 0o755)
+	os.WriteFile(root+"/proc/uptime", []byte("1000.0 0\n"), 0o644)
+	w := newWatcher(testCfg(root, "kill")) // runaway off
+	for i := 0; i < 6; i++ {
+		fakeProc(t, root, 900, statLine(900, "spin", "R", 1, 900, uint64(i)*3000, 0, 100, 1000), "A=b\x00")
+		w.round(time.Unix(1000+int64(i)*30, 0))
+	}
+	if len(c.killed) != 0 {
+		t.Fatal("runaway kill is off unless asked for")
+	}
+	cf := testCfg(root, "throttle")
+	cf.runawayPct, cf.runawayAt = 90, 3
+	w = newWatcher(cf)
+	for i, tk := range []uint64{0, 3000, 3000, 6000, 6000, 9000} { // busy, idle, busy, idle, busy: never 3 in a row
+		fakeProc(t, root, 900, statLine(900, "burst", "R", 1, 900, tk, 0, 100, 1000), "A=b\x00")
+		w.round(time.Unix(2000+int64(i)*30, 0))
+	}
+	if len(c.killed) != 0 {
+		t.Fatalf("burst killed: %v", c.killed)
+	}
+}

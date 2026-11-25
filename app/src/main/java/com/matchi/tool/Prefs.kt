@@ -86,6 +86,12 @@ object Prefs {
     /** Seconds between two sweeps of the plugin guard (1, 5 or 10). Anything else reads as the default. */
     fun guardInterval(c: Context): Int = sp(c).getInt("guard_interval", GuardHost.INTERVAL_S).let { if (GuardHost.validInterval(it)) it else GuardHost.INTERVAL_S }
     fun setGuardInterval(c: Context, v: Int) { if (GuardHost.validInterval(v)) sp(c).edit().putInt("guard_interval", v).apply() }
+    /** What the guard does to a plugin over its CPU budget: throttle, freeze or kill (default kill). */
+    fun guardAction(c: Context): String = sp(c).getString("guard_action", GuardHost.ACTION_DEFAULT).let { if (it != null && GuardHost.validAction(it)) it else GuardHost.ACTION_DEFAULT }
+    fun setGuardAction(c: Context, v: String) { if (GuardHost.validAction(v)) sp(c).edit().putString("guard_action", v).apply() }
+    /** Kill programs that are not plugins when they spin the CPU (default on). */
+    fun guardRunaway(c: Context): Boolean = sp(c).getBoolean("guard_runaway", true)
+    fun setGuardRunaway(c: Context, v: Boolean) { sp(c).edit().putBoolean("guard_runaway", v).apply() }
     fun seededVersion(c: Context): Int = sp(c).getInt("seeded", 0)
     /** App versionCode for which the Android key store was seen to break the TLS handshake (0 = never). Tried again after an update. */
     fun tlsKeystoreBrokenVersion(c: Context): Int = sp(c).getInt("tls_ks_broken", 0)

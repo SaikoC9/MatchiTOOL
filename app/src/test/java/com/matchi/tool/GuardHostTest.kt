@@ -17,6 +17,15 @@ class GuardHostTest {
         assertTrue(s.trimEnd().endsWith("echo started"))
     }
 
+    @Test fun killAndRunawayFlagsAreFixedWordsAndOffByDefault() {
+        val s = GuardHost.startScript(dir, 5, "kill", true)!!
+        assertTrue(s.contains("--report '$dir/guard/report.json' --action kill --kill-after 30 --runaway 90 --runaway-secs 30 </dev/null"))
+        assertFalse(GuardHost.startScript(dir)!!.contains("--action"))
+        assertFalse(GuardHost.startScript(dir, 5, "freeze")!!.contains("--runaway"))
+        assertNull(GuardHost.startScript(dir, 5, "kill; reboot"))
+        assertNull(GuardHost.startScript(dir, 5, ""))
+    }
+
     @Test fun startRemovesTheOldReportBeforeStartingSoItsIntervalIsNotShown() {
         val s = GuardHost.startScript(dir, 10)!!
         val rm = s.indexOf("rm -f '$dir/guard/report.json'")

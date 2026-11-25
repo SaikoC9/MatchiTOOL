@@ -1,5 +1,6 @@
 # MatchiTOOL 1.4.5
 
+- Added: plugin guard kill mode (default): a plugin over its CPU budget for 30 s is killed, and a program that is not a plugin and keeps 90 % of one core for 30 s is killed (summed per program name, so a spinner that changes core or PID still counts; system, radio and network programs are protected). POST /api/guard/state accepts `action` (throttle|freeze|kill) and `runaway`.
 - Fixed: Mobile data off / on and Rename device did nothing until the router was rebooted. The router can drop the console's sign-in while reads still work, and then ignores every change in silence. The host now checks the sign-in before each change and signs in again when it is gone, and these two actions resend (fresh sign-in, then the older token) when the router shows no change.
 - Added: Limit speed in Network > Devices: per-device Download and Upload caps in KB/s, set on the phone with root (`tc`), put back after a reboot. IPv4 only; not yet verified on a real F50 (see `docs/LIMIT_SPEED.md`).
 - Added: switch in Network > Wi-Fi (off by default) that turns the hotspot Wi-Fi off while USB tethering works.

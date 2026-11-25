@@ -29,6 +29,9 @@ type cfg struct {
 	calmAt       int    // consecutive rounds under budget before release
 	action       string // throttle | freeze | kill  (the strongest action allowed)
 	freezeRounds int
+	runawayPct   float64         // untagged processes: percent of ONE core (summed per program name) that counts as runaway, 0 = off
+	runawayAt    int             // consecutive sweeps at or over runawayPct before the process is killed
+	protect      map[string]bool // exact program names that are never killed as runaway
 	cg           cgHost
 	cgOn         bool
 }
@@ -95,6 +98,7 @@ type watcher struct {
 	tags    map[key]string  // tag of every process seen in the last sweep (own tag, or the one inherited from a tagged ancestor)
 	own     map[key]tagMemo // what reading the environ of a process gave; see tagFor
 	plugins map[string]*plugState
+	runaway map[string]int // consecutive sweeps each untagged program name has been over the runaway limit
 	actions []action
 	last    time.Time
 	now     time.Time // start of the sweep in progress
@@ -102,7 +106,7 @@ type watcher struct {
 }
 
 func newWatcher(c cfg) *watcher {
-	return &watcher{c: c, prev: map[key]uint64{}, tags: map[key]string{}, own: map[key]tagMemo{}, plugins: map[string]*plugState{}}
+	return &watcher{c: c, prev: map[key]uint64{}, tags: map[key]string{}, own: map[key]tagMemo{}, plugins: map[string]*plugState{}, runaway: map[string]int{}}
 }
 
 func (w *watcher) act(what, plugin string, p *procInfo, why string) {
@@ -209,6 +213,7 @@ func (w *watcher) round(now time.Time) report {
 	w.tags = tags
 	agg := map[string]*usage{}
 	busy := []otherRow{}
+	free := []freeProc{}
 	for i := range procs {
 		p := &procs[i]
 		k := key{p.PID, p.Start}
@@ -219,7 +224,9 @@ func (w *watcher) round(now time.Time) report {
 		if tag == "" {
 			// Not a plugin process (or one the guard cannot attribute): still reported when it is busy, so nothing can hide from the table.
 			if pv, seen := w.prev[k]; seen && !baseline && secs > 0 && p.Ticks >= pv {
-				if pct := float64(p.Ticks-pv) / (secs * clkTck) * 100; pct >= othersMinPct {
+				pct := float64(p.Ticks-pv) / (secs * clkTck) * 100
+				free = append(free, freeProc{*p, pct})
+				if pct >= othersMinPct {
 					busy = append(busy, otherRow{p.PID, p.Comm, round1(pct), p.RSSPages * int64(os.Getpagesize()) / 1024})
 				}
 			}
@@ -251,6 +258,9 @@ func (w *watcher) round(now time.Time) report {
 			w.act("kill-helper", name, p, fmt.Sprintf("%s ran %ds at %d%% CPU", p.Comm, int(up-float64(p.Start)/clkTck), int(100*float64(p.Ticks)/clkTck/(up-float64(p.Start)/clkTck))))
 		}
 	}
+
+	// 1b. runaway programs that carry no plugin tag
+	w.judgeRunaway(free)
 
 	// 2. per-plugin budget
 	rows := []pluginRow{}
@@ -288,6 +298,71 @@ func (w *watcher) round(now time.Time) report {
 	w.last = now
 	return report{V: 1, TS: now.Unix(), Interval: int(w.c.interval / time.Second), Round: w.n, Cost: time.Since(t0).Milliseconds(),
 		Procs: len(procs), Plugins: rows, Others: busy, Actions: append([]action{}, w.actions...)}
+}
+
+// freeProc is an untagged process and the share of one core it used since the last sweep.
+type freeProc struct {
+	p   procInfo
+	pct float64
+}
+
+// Programs (and name prefixes) that are never killed as runaway: the system, the radio, the network, root itself and MatchiTOOL.
+var protectedNames = map[string]bool{
+	"init": true, "zygote": true, "zygote64": true, "system_server": true, "surfaceflinger": true, "servicemanager": true,
+	"hwservicemanager": true, "vndservicemanager": true, "vold": true, "netd": true, "adbd": true, "logd": true, "ueventd": true,
+	"lmkd": true, "rild": true, "qmuxd": true, "netmgrd": true, "wpa_supplicant": true, "hostapd": true, "dnsmasq": true,
+	"su": true, "magiskd": true, "magisk": true, "ksud": true, "matchi-guard": true, "com.matchi.tool": true, "installd": true,
+	"keystore": true, "keystore2": true, "healthd": true, "thermal-engine": true, "thermald": true, "tombstoned": true, "statsd": true,
+}
+var protectedPrefixes = []string{"android.", "vendor.", "com.android.", "com.matchi", "qti", "qcom", "mdm", "ims", "kworker", "ksoftirqd"}
+
+func protectedName(c cfg, comm string) bool {
+	if protectedNames[comm] || c.protect[comm] {
+		return true
+	}
+	for _, pre := range protectedPrefixes {
+		if strings.HasPrefix(comm, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+// judgeRunaway kills a program that keeps the CPU busy without belonging to a plugin: the share of ONE core is summed over every
+// process with the same name, so a spinner that moves to another core, forks, or comes back under a new PID still adds up. It must be
+// at or over the limit for runawayAt sweeps in a row. Only the members that use 10 % or more are killed, one by one (PID + start time).
+func (w *watcher) judgeRunaway(free []freeProc) {
+	if w.c.runawayPct <= 0 {
+		return
+	}
+	sum := map[string]float64{}
+	for _, f := range free {
+		sum[f.p.Comm] += f.pct
+	}
+	for comm := range w.runaway {
+		if sum[comm] < w.c.runawayPct {
+			delete(w.runaway, comm)
+		}
+	}
+	for comm, pct := range sum {
+		if pct < w.c.runawayPct || protectedName(w.c, comm) {
+			continue
+		}
+		w.runaway[comm]++
+		if w.runaway[comm] < w.c.runawayAt {
+			continue
+		}
+		for i := range free {
+			f := &free[i]
+			if f.p.Comm != comm || f.pct < othersMinPct {
+				continue
+			}
+			if killFn(w.c.root, f.p.PID, f.p.Start, 9) {
+				w.act("kill-runaway", "", &f.p, fmt.Sprintf("%s used %d%% of a core for %d sweeps", comm, int(pct), w.runaway[comm]))
+			}
+		}
+		delete(w.runaway, comm)
+	}
 }
 
 func round1(f float64) float64 { return float64(int(f*10+0.5)) / 10 }
@@ -445,6 +520,16 @@ func parseBudgets(s string) (map[string]float64, error) {
 	return m, nil
 }
 
+func parseProtect(s string) map[string]bool {
+	m := map[string]bool{}
+	for _, n := range strings.Split(s, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			m[n] = true
+		}
+	}
+	return m
+}
+
 func cmdWatch(args []string) int {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	every := fs.Int("interval", 30, "seconds between rounds")
@@ -455,8 +540,12 @@ func cmdWatch(args []string) int {
 	hmax := fs.Int("helper-max", 20, "seconds before a busy helper (tr du grep cat awk cut find) of a plugin counts as stuck")
 	act := fs.String("action", "throttle", "strongest action: throttle | freeze | kill")
 	noCg := fs.Bool("no-cgroup", false, "use nice only, no cgroups")
-	if fs.Parse(args) != nil || fs.NArg() != 0 || (*act != "throttle" && *act != "freeze" && *act != "kill") || *every < 1 || *def <= 0 {
-		fmt.Fprintln(os.Stderr, "usage: matchi-guard watch [--interval S] [--rounds N] [--report FILE] [--budget NAME=PCT,...] [--default-budget PCT] [--helper-max S] [--action throttle|freeze|kill] [--no-cgroup]")
+	killAfter := fs.Int("kill-after", 60, "seconds a plugin must stay over budget before freeze/kill (with --action freeze|kill)")
+	runPct := fs.Float64("runaway", 0, "kill an untagged program that uses this percent of ONE core (summed per program name) for --runaway-secs, 0 = off")
+	runSecs := fs.Int("runaway-secs", 30, "seconds a program must stay over --runaway before it is killed")
+	protect := fs.String("protect", "", "NAME,... extra program names that --runaway never kills")
+	if fs.Parse(args) != nil || fs.NArg() != 0 || (*act != "throttle" && *act != "freeze" && *act != "kill") || *every < 1 || *def <= 0 || *killAfter < 1 || *runPct < 0 || *runSecs < 1 {
+		fmt.Fprintln(os.Stderr, "usage: matchi-guard watch [--interval S] [--rounds N] [--report FILE] [--budget NAME=PCT,...] [--default-budget PCT] [--helper-max S] [--action throttle|freeze|kill] [--kill-after S] [--runaway PCT] [--runaway-secs S] [--protect NAME,...] [--no-cgroup]")
 		return 2
 	}
 	b, err := parseBudgets(*budgets)
@@ -465,7 +554,7 @@ func cmdWatch(args []string) int {
 		return 2
 	}
 	w := newWatcher(cfg{interval: time.Duration(*every) * time.Second, budgets: b, defBudget: *def, helperMax: time.Duration(*hmax) * time.Second,
-		throttleAt: roundsFor(20, *every, 2), escalateAt: roundsFor(60, *every, 6), calmAt: roundsFor(20, *every, 2), action: *act, freezeRounds: 2, cg: defaultCg(), cgOn: !*noCg})
+		throttleAt: roundsFor(20, *every, 2), escalateAt: roundsFor(*killAfter, *every, 3), calmAt: roundsFor(20, *every, 2), action: *act, freezeRounds: 2, runawayPct: *runPct, runawayAt: roundsFor(*runSecs, *every, 2), protect: parseProtect(*protect), cg: defaultCg(), cgOn: !*noCg})
 	reniceFn(0, 10) // the guard itself must be cheap
 	for i := 0; *rounds == 0 || i < *rounds; i++ {
 		if i > 0 {

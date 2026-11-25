@@ -17,6 +17,17 @@ object GuardHost {
     val INTERVALS = listOf(1, 5, 10)
     fun validInterval(n: Int): Boolean = n in INTERVALS
 
+    /** What the guard does to a plugin that stays over its CPU budget: slow it down, freeze it, or kill it. */
+    val ACTIONS = listOf("throttle", "freeze", "kill")
+    const val ACTION_DEFAULT = "kill"
+    fun validAction(a: String): Boolean = a in ACTIONS
+
+    /** Runaway kill for programs that are not plugins: this share of ONE core, summed per program name, for this many seconds. */
+    const val RUNAWAY_PCT = 90
+    const val RUNAWAY_SECS = 30
+    /** Seconds over budget before a plugin is frozen or killed (the program's own default is 60). */
+    const val KILL_AFTER_S = 30
+
     /** A report older than this many intervals means the program is not running (or the phone slept). */
     const val STALE_INTERVALS = 3
 
@@ -34,14 +45,17 @@ object GuardHost {
      * Only a process whose command line STARTS with "<dir>/matchi-guard watch " is ended, so a `run` (which supervises a plugin) and
      * the shell that runs this script are never touched. Null when [dir] is not a plain absolute path.
      */
-    fun startScript(dir: String, interval: Int = INTERVAL_S): String? {
-        if (!LiveEngine.pathIsSafe(dir) || !validInterval(interval)) return null
+    fun startScript(dir: String, interval: Int = INTERVAL_S, action: String = "throttle", runaway: Boolean = false): String? {
+        if (!LiveEngine.pathIsSafe(dir) || !validInterval(interval) || !validAction(action)) return null
+        // Only fixed words and numbers are added to the command line; nothing here comes from the page as text.
+        val extra = (if (action != "throttle") " --action $action --kill-after $KILL_AFTER_S" else "") +
+            (if (runaway) " --runaway $RUNAWAY_PCT --runaway-secs $RUNAWAY_SECS" else "")
         val g = "$dir/$BINARY"
         return listOf(
             stopLines(dir),
             "rm -f '${reportPath(dir)}'",   // an old report would show the old interval until the new run writes its own
             "if command -v setsid >/dev/null 2>&1; then S=setsid; else S=; fi",
-            "\$S nohup '$g' watch --interval $interval --report '${reportPath(dir)}' </dev/null >/dev/null 2>&1 &",
+            "\$S nohup '$g' watch --interval $interval --report '${reportPath(dir)}'$extra </dev/null >/dev/null 2>&1 &",
             "echo started",
         ).joinToString("\n")
     }
