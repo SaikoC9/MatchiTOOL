@@ -18,7 +18,7 @@ Status
 [x] 3  numbers never wrap (80 % stays on one line), long plugin names wrap
 [x] 4  scripts/validate.sh passes (guard ui test: 8 groups, web-src in sync)
 [x] 5  rendered in headless Chromium with a fake report at 520 px and 360 px wide: matches the mockup
-[ ] 6  look at it on the F50 (open the web page, home, scroll to Plugin guard)
+[x] 6  look at it on the F50 (open the web page, home, scroll to Plugin guard)
 
 Not changed: the data, routes, refresh time (2 minutes), the Turn on / off call.
 statusLine() is still there (its test still passes) but the card now uses statusParts().
