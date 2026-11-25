@@ -2102,7 +2102,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   };
   // Options (saved in this browser). Refresh speed: Fast 0 s / 1 s (the next read starts as soon as the last one ends), Normal 3 s / 15 s (the default), Eco 9 s / 45 s (router / root loop).
   // Fast only applies while the phone is cool; when warm or hot the normal heat table wins, so Fast can never push a hot phone harder. Eco is also kept when warm or hot.
-  const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 3000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
+  const MODES = { fast: { fast: 0, slow: 1000 }, normal: { fast: 1000, slow: 15000 }, eco: { fast: 9000, slow: 45000 } };
   const BATPAUSE = [0, 10, 15, 20, 30];   // "pause when battery below X %" choices, 0 = off
   let mode = 'eco', batPause = 0;
   try { const m = localStorage.getItem('liv_mode'); if (MODES[m]) mode = m; const b = Number(localStorage.getItem('liv_batpause')); if (BATPAUSE.includes(b)) batPause = b; } catch (_) {  }
@@ -2143,7 +2143,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     };
     // Options: refresh speed chips and the battery pause choice
     const chips = inl.querySelector('.liv-chips'), bp = inl.querySelector('.liv-bp');
-    const CHIP_LABEL = { fast: 'Live', normal: 'Balanced', eco: 'Eco' }, CHIP_TIP = { fast: 'Live: 1 s while the phone is cool', normal: 'Balanced: 3 s (the default for people who leave the panel open)', eco: 'Eco: 9 s, no live stream' };
+    const CHIP_LABEL = { fast: 'Live', normal: 'Balanced', eco: 'Eco' }, CHIP_TIP = { fast: 'Live: 1 s while the phone is cool', normal: 'Balanced: speed every 1 s, the rest every 15 s (the default for people who leave the panel open)', eco: 'Eco: 9 s, no live stream' };
     chips.innerHTML = Object.keys(MODES).map((k) => `<button type="button" class="liv-chip" data-mode="${k}" title="${CHIP_TIP[k]}">${CHIP_LABEL[k]}</button>`).join('');
     bp.innerHTML = BATPAUSE.map((v) => `<option value="${v}">${v ? v + ' %' : 'Off'}</option>`).join('');
     const syncOpts = () => { chips.querySelectorAll('.liv-chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode))); bp.value = String(batPause); };
