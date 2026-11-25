@@ -24,7 +24,7 @@ const eq = (got, want, n) => ok(got[0] === want[0] && got[1] === want[1], n + ' 
 const heat = (l) => ({ last: { sysMax: [50, 65, 75, 85][l], thermalLevel: 0 } });
 
 // Modes while the phone is cool: the speeds from the plan
-eq(at({}), [3000, 15000], 'normal, cool');
+eq(at({}), [1000, 15000], 'normal, cool');
 eq(at({ mode: 'fast' }), [0, 1000], 'fast, cool');
 eq(at({ mode: 'eco' }), [9000, 45000], 'eco, cool');
 
@@ -54,39 +54,39 @@ eq(at({ failF: 1, failS: 1, ...heat(2) }), [15000, 90000], 'back-off never faste
 
 // Battery pause: below the level and not charging only; the root loop then checks once a minute, not faster
 const bp = (last, batPause) => at({ batPause, last });
-eq(bp({ bat: 15, charging: false }, 20), [3000, 60000], 'battery 15 % below 20 %: root loop 60 s');
-eq(bp({ bat: 15, charging: true }, 20), [3000, 15000], 'charging: no pause');
-eq(bp({ bat: 25, charging: false }, 20), [3000, 15000], 'battery above level: no pause');
-eq(bp({ bat: 15, charging: false }, 0), [3000, 15000], 'pause Off by default');
-eq(bp({ charging: false }, 20), [3000, 15000], 'battery unknown: no pause');
+eq(bp({ bat: 15, charging: false }, 20), [1000, 60000], 'battery 15 % below 20 %: root loop 60 s');
+eq(bp({ bat: 15, charging: true }, 20), [1000, 15000], 'charging: no pause');
+eq(bp({ bat: 25, charging: false }, 20), [1000, 15000], 'battery above level: no pause');
+eq(bp({ bat: 15, charging: false }, 0), [1000, 15000], 'pause Off by default');
+eq(bp({ charging: false }, 20), [1000, 15000], 'battery unknown: no pause');
 { const e = make({}); e.set({ batPause: 20, last: { bat: 15, charging: false } }); ok(e.batLow() === true, 'batLow true below level');
   e.set({ last: { bat: 15, charging: true } }); ok(e.batLow() === false, 'batLow false while charging'); }
 
 // Saved choices (liv_mode, liv_batpause) are read; junk is ignored; liv_thermal_test forces a level
 eq(atRaw({}), [9000, 45000], 'new install defaults to Eco');
 eq(atRaw({}, { liv_mode: 'eco' }), [9000, 45000], 'saved mode eco');
-eq(atRaw({}, { liv_mode: 'normal' }), [3000, 15000], 'saved mode normal');
+eq(atRaw({}, { liv_mode: 'normal' }), [1000, 15000], 'saved mode normal');
 eq(atRaw({}, { liv_mode: 'turbo' }), [9000, 45000], 'unknown saved mode ignored (falls back to Eco)');
 eq(at({}, { liv_thermal_test: '2' }), [15000, 90000], 'liv_thermal_test=2 forces hot');
-eq(at({}, { liv_thermal_test: '9' }), [3000, 15000], 'liv_thermal_test junk ignored (Normal)');
+eq(at({}, { liv_thermal_test: '9' }), [1000, 15000], 'liv_thermal_test junk ignored (Normal)');
 { const e = make({ liv_batpause: '20' }); e.set({ last: { bat: 5, charging: false } }); ok(e.batLow(), 'saved battery pause 20 read'); }
 { const e = make({ liv_batpause: '17' }); e.set({ last: { bat: 5, charging: false } }); ok(!e.batLow(), 'saved battery pause 17 (not a choice) ignored'); }
 
 // Heat guard: levels from the zones, hysteresis, modem offset, battery ignored, last level kept without readings
 {
-  const lv = (e) => e.fastDelay();   // Normal: 3000 cool, 6000 warm, 15000 hot
-  const e = make({}); e.set({ mode: 'normal', last: { sysMax: 59.9 } }); ok(lv(e) === 3000, 'below 60 C: cool');
+  const lv = (e) => e.fastDelay();   // Normal: 1000 cool, 6000 warm, 15000 hot
+  const e = make({}); e.set({ mode: 'normal', last: { sysMax: 59.9 } }); ok(lv(e) === 1000, 'below 60 C: cool');
   e.set({ last: { sysMax: 60 } }); ok(lv(e) === 6000, '60 C: warm');
   e.set({ last: { sysMax: 58 } }); ok(lv(e) === 6000, '58 C: still warm (hysteresis, back down under 57)');
-  e.set({ last: { sysMax: 56.9 } }); ok(lv(e) === 3000, 'under 57 C: cool again');
+  e.set({ last: { sysMax: 56.9 } }); ok(lv(e) === 1000, 'under 57 C: cool again');
   e.set({ last: { sysMax: 70 } }); ok(lv(e) === 15000, '70 C: hot');
   e.set({ last: { sysMax: 68 } }); ok(lv(e) === 15000, '68 C: still hot');
   e.set({ last: { sysMax: 66.9 } }); ok(lv(e) === 6000, 'under 67 C: warm, not cool');
   e.set({ last: { sysMax: 90 } }); ok(lv(e) === 15000, '90 C: hot (the table stops at 2)');
-  e.set({ last: { sysMax: 50 } }); ok(lv(e) === 3000, 'cool in one step when far below');
+  e.set({ last: { sysMax: 50 } }); ok(lv(e) === 1000, 'cool in one step when far below');
   e.set({ last: { modemTemp: 70 } }); ok(lv(e) === 6000, 'modem zone 70 C counts as 60 C');
   e.set({ last: { modemTemp: 80 } }); ok(lv(e) === 15000, 'modem zone 80 C counts as 70 C');
-  e.set({ last: { sysMax: 40, batTemp: 60, thermalLevel: 3 } }); ok(lv(e) === 3000, 'battery temperature and thermalLevel are not the guard');
+  e.set({ last: { sysMax: 40, batTemp: 60, thermalLevel: 3 } }); ok(lv(e) === 1000, 'battery temperature and thermalLevel are not the guard');
   e.set({ last: { sysMax: 75 } }); ok(lv(e) === 15000, 'hot again');
   e.set({ last: { bat: 50 } }); ok(lv(e) === 15000, 'no zone reading: the last level is kept');
   e.set({ last: null }); ok(lv(e) === 15000, 'no reading at all: the last level is kept');
