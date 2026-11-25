@@ -89,9 +89,10 @@ class SpeedLimitTest {
 
     @Test fun macGivesIpv6RulesOnTheirOwnPriority() {
         val s = SpeedLimit.applyScript("192.168.0.167", Limit(500, 250), "AA-BB-CC-DD-EE-02".replace("02", "04"))!!
-        assertTrue(s.contains("protocol ipv6 prio 1467 u32 match u32 0xaabbccdd 0xffffffff at -14 match u16 0xee04 0xffff at -10 flowid 1:1a7"))
+        assertTrue(s.contains("step6 tc filter add dev br0 parent 1: protocol ipv6 prio 1467 u32 match u16 0xaabb 0xffff at -14 match u16 0xccdd 0xffff at -12 match u16 0xee04 0xffff at -10 flowid 1:1a7"))
+        assertFalse(s.contains("match u32 0xaabbccdd 0xffffffff at -14"))   // tc 171113: "Illegal match" for a u32 at an offset that is not a multiple of 4
         for (i in listOf("wlan0", "usb0"))
-            assertTrue(s.contains("tc filter add dev $i parent ffff: protocol ipv6 prio 1467 u32 match u32 0xaabbccdd 0xffffffff at -8 match u16 0xee04 0xffff at -4 action police rate 250kbps burst 20k drop"))
+            assertTrue(s.contains("step6 tc filter add dev $i parent ffff: protocol ipv6 prio 1467 u32 match u32 0xaabbccdd 0xffffffff at -8 match u16 0xee04 0xffff at -4 action police rate 250kbps burst 20k drop"))
         assertTrue(SpeedLimit.removeScript(listOf(167)).contains("prio 1467"))
         assertFalse(SpeedLimit.applyScript("192.168.0.167", Limit(500, 250))!!.contains("ipv6"))
     }
@@ -244,6 +245,58 @@ class SpeedLimitTest {
         assertFalse(SpeedLimit.matches(Limit(null, 125), live(down = mapOf(167 to 500), up = mapOf(167 to 125)), 167))   // an unwanted rule is left over
         val onlyWlan = Live(mapOf(167 to 500), mapOf("wlan0" to mapOf(167 to 125), "usb0" to emptyMap()), emptyMap(), true, false)
         assertFalse(SpeedLimit.matches(want, onlyWlan, 167))                                                 // usb0 lacks it
+    }
+
+    // ---- IPv6 rules are read back and required ----
+    private val v6Filters = listOf(
+        "filter protocol ip pref 1167 u32 chain 0 ",
+        "filter protocol ip pref 1167 u32 chain 0 fh 800::800 order 2048 key ht 800 bkt 0 flowid 1:1a7 not_in_hw ",
+        "  match c0a800a7/ffffffff at 16",
+        "filter protocol ipv6 pref 1467 u32 chain 0 ",
+        "filter protocol ipv6 pref 1467 u32 chain 0 fh 801: ht divisor 1 ",
+        "filter protocol ipv6 pref 1467 u32 chain 0 fh 801::800 order 2048 key ht 801 bkt 0 flowid 1:1a7 not_in_hw ",
+        "  match 96d1339a/ffffffff at -14"
+    )
+    private val upWlan6 = upWlan + listOf(
+        "filter protocol ipv6 pref 1467 u32 chain 0 fh 801::800 order 2048 key ht 801 bkt 0 terminal flowid ??? not_in_hw ",
+        "\taction order 1:  police 0x2 rate 1Mbit burst 20Kb mtu 2Kb action drop overhead 0b "
+    )
+    private fun output6(filters: List<String>, wlan: List<String>) =
+        (listOf("--- classes") + classes + "--- filters" + filters + "--- up wlan0" + wlan + "--- up usb0" + wlan +
+            "--- neigh" + neighText + "--- root" + "qdisc htb 1: dev br0 root refcnt 2 r2q 10 default 10").joinToString("\n")
+
+    @Test fun parseLiveReadsTheIpv6Rules() {
+        val l = SpeedLimit.parseLive(output6(v6Filters, upWlan6))
+        assertEquals(setOf(167), l.down6)
+        assertEquals(mapOf(167 to 125), l.up6!!["wlan0"])
+        assertEquals(mapOf(167 to 125), l.up6!!["usb0"])
+        assertEquals(mapOf(167 to 500), l.down)                       // the IPv6 priority is not mistaken for IPv4
+        assertNull(SpeedLimit.parseLive(output()).down6)              // output without the section: unknown, not "missing"
+    }
+
+    @Test fun anIpv6RuleThatIsMissingMakesTheLimitNotMatch() {
+        val want = Limit(500, 125)
+        val full = SpeedLimit.parseLive(output6(v6Filters, upWlan6))
+        assertTrue(SpeedLimit.matches(want, full, 167, v6 = true))
+        val noDown6 = SpeedLimit.parseLive(output6(v6Filters.take(3), upWlan6))   // exactly what the broken build left on the phone
+        assertTrue(SpeedLimit.matches(want, noDown6, 167))                          // IPv4 alone looks fine ...
+        assertFalse(SpeedLimit.matches(want, noDown6, 167, v6 = true))              // ... but IPv6 would bypass it
+        val noUp6 = SpeedLimit.parseLive(output6(v6Filters, upWlan))
+        assertFalse(SpeedLimit.matches(want, noUp6, 167, v6 = true))
+    }
+
+    @Test fun planPutsBackAMissingIpv6RuleAndLeavesAFullSetAlone() {
+        val gone = SpeedLimit.parseLive(output6(v6Filters.take(3), upWlan6)).copy(neigh = here)
+        assertEquals(listOf(SpeedLimit.Todo(macA, "192.168.0.167", limitA)), SpeedLimit.plan(stored(), gone).apply)
+        val full = SpeedLimit.parseLive(output6(v6Filters, upWlan6)).copy(neigh = here)
+        assertTrue(SpeedLimit.plan(stored(), full).apply.isEmpty())
+    }
+
+    @Test fun everyMatchOffsetIsOneThatTcAccepts() {
+        // u32 needs an offset divisible by 4; u16 is shifted by tc itself. Check every "match u32 ... at N" the script writes.
+        val s = SpeedLimit.applyScript("192.168.0.167", Limit(500, 250), macA)!!
+        val bad = Regex("match u32 0x[0-9a-f]+ 0x[0-9a-f]+ at (-?[0-9]+)").findAll(s).map { it.groupValues[1].toInt() }.filter { it % 4 != 0 }.toList()
+        assertTrue("u32 at $bad", bad.isEmpty())
     }
 
     // ---- plan ----

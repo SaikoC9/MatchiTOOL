@@ -114,10 +114,14 @@ set call reads the result back and removes the rule again if it does not match.
 
 ## What is not covered
 
-- **IPv6.** Clients also use rotating global IPv6 addresses, so IPv6 is matched on the device's MAC instead: filter priority
-  1300 + O (`protocol ipv6`, destination MAC at offset -14 on `br0` egress, source MAC at offset -8 on `wlan0` / `usb0` ingress).
-  It uses the same class (download) and the same rate (upload, its own police bucket). Best effort and not yet tested on a
-  device: if the kernel rejects it, the IPv4 limit still stands. Check with `tc filter show dev br0 parent 1:`.
+- **IPv6** is limited too, matched on the device's MAC because its global addresses rotate: filter priority 1300 + O
+  (`protocol ipv6`). Download: destination MAC at offset -14 on `br0` egress, written as three `match u16` (at -14, -12, -10).
+  Upload: source MAC at -8 / -4 on `wlan0` / `usb0` ingress. Same class (download) and same rate (upload, its own police bucket).
+  **Why three u16:** this `tc` (iproute2 171113) refuses `match u32` at an offset that is not a multiple of 4 (`Illegal "match"`).
+  The first version used `match u32 ... at -14`, which was silently refused, so IPv6 traffic was never limited and speed tests that
+  use IPv6 ran several Mbit/s over the cap. The IPv6 rules are no longer silent: a refusal is reported (MATCHI_V6 and tc's message),
+  they are read back (`tc filter show dev br0 parent 1:` and the ingress filters), and a limit counts as active only when they are
+  present. If the kernel still refuses them, the set call removes the limit again and says why, instead of leaving a leaky one.
 - **A device that changes IP.** The limit follows only after the next refresh.
 - **Other firmware.** Another build may have different interfaces or an
   `ifb`-less kernel. Check with the read-only commands in
