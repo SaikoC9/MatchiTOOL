@@ -1,6 +1,6 @@
 # Stopping what a plugin started (GUIDE)
 
-Current for MatchiTOOL 1.4.5.
+Current for MatchiTOOL 1.4.6.
 
 What has been checked. "CI" is the GitHub Actions run (Validate, Unit tests, Build debug and release).
 

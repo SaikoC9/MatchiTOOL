@@ -1,3 +1,9 @@
+# MatchiTOOL 1.4.6
+
+- Added: uninstall wipe. A root watcher removes MatchiTOOL's root-side files, firewall rules, speed limits and programs after you uninstall the app. Plugins are cleaned from a saved list. Not tested on the F50 yet.
+- Added: home row button **Wipe on uninstall**: switch (ON by default), status, list of what is removed.
+- Not touched on uninstall: Wi-Fi, LAN IP, IMEI, router settings, USB mode, adb.
+
 # MatchiTOOL 1.4.5
 
 - Added: plugin guard kill mode (default): a plugin over its CPU budget for 30 s is killed, and a program that is not a plugin and keeps 90 % of one core for 30 s is killed (summed per program name, so a spinner that changes core or PID still counts; system, radio and network programs are protected). POST /api/guard/state accepts `action` (throttle|freeze|kill) and `runaway`.

@@ -4,7 +4,7 @@ Android app that runs a web console for the ZTE F50 hotspot. It gives you AT
 commands, SMS, live signal and device status, a root terminal and plugins,
 all from a browser.
 
-Current source version: **1.4.5** (versionCode **405**).
+Current source version: **1.4.6** (versionCode **406**).
 
 MatchiTOOL does not root the device. Install Magisk, KernelSU or APatch
 first, then grant MatchiTOOL root. To root the stock F50 itself, see
@@ -20,6 +20,7 @@ first, then grant MatchiTOOL root. To root the stock F50 itself, see
 - USB controls, and optional Wi-Fi off while USB tethering
 - Screen view and control from a second phone
 - APK update from the console, with signature and SHA-256 check
+- Wipe on uninstall: removes root-side files, rules and programs
 
 The seven built-in tools (AT Radio, Network Diagnostics, Live Status, Memory
 Cleaner, Change IP, SMS, and Screen Control) load by themselves.
@@ -52,6 +53,7 @@ More in [`docs/BUILD.md`](docs/BUILD.md).
 
 - [Features](docs/FEATURES.md)
 - [Plugins](docs/PLUGINS.md)
+- [Uninstall wipe](docs/UNINSTALL_WIPE.md)
 - [Security](SECURITY.md)
 - [Testing](docs/TESTING.md)
 - [Changelog](CHANGELOG.md)

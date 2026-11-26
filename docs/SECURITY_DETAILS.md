@@ -2,7 +2,7 @@
 
 The full security notes. The short version is [`SECURITY.md`](../SECURITY.md).
 
-Current for MatchiTOOL 1.4.5. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](../CHANGELOG.md).
+Current for MatchiTOOL 1.4.6. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](../CHANGELOG.md).
 
 **What has been run on a device.** The plugin stop (header lines and the process sweep) was run on the F50. So were the firewall and boot-script undo and "Turn off and stop", which are also compiled and unit-tested in CI. Those F50 runs covered Bypass without headers, a reboot, two copies sharing one chain, boot files of other plugins and system chains. The per-test results were not written down. The no-root and timeout path was not run on the device.
 
@@ -96,6 +96,14 @@ The updater (upload or an https link, max 120 MB, redirects stay on https) accep
 ## Bundled binaries
 
 `sendat`, `curl`, `jq`, `zreq` (arm64) run as root; `sha256` is a script around the system `sha256sum`. Their hashes are pinned in `NOTICE.md` and checked by `scripts/check_repo.py`. At run time the app compares its copy of each file with the hash the build was made with (`BinaryHashes.kt`) and does not run, and deletes, a file that differs; the copy is made again from the APK at the next start. This catches a file that was damaged or replaced by another user or app. It does not protect against someone who already has root, who could also change the app. `docs/BINARIES.md` lists where each came from and what is unknown (`sendat` and `curl` have no recorded build recipe).
+
+## Uninstall wipe
+
+- A root watcher and a boot script run outside the app while the switch is ON. OFF removes both.
+- It deletes only fixed paths, our chains and our tc setup. Plugin paths come from a root-owned snapshot (mode 600) and pass a strict path check. Not root-owned, group/other writable or a symlink: the snapshot is skipped.
+- Plugin stop commands run only if their sha256 is in the root-owned manifest, written when the app approved them.
+- It uses no network and never talks to the router.
+- Details: [`UNINSTALL_WIPE.md`](UNINSTALL_WIPE.md).
 
 ## Other notes
 

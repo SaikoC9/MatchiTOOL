@@ -1,6 +1,6 @@
 # Features
 
-What MatchiTOOL does, in more detail than the README. Current for 1.4.5.
+What MatchiTOOL does, in more detail than the README. Current for 1.4.6.
 
 ## Root model
 
@@ -164,3 +164,7 @@ or paste your own link once; the browser remembers it.
 
 To keep the source private, publish only the signed APK to a separate public
 repo. See [`OTA_RELEASES.md`](OTA_RELEASES.md).
+
+## Wipe on uninstall
+
+A root watcher removes MatchiTOOL's root-side files, firewall rules, speed limits and programs after you uninstall the app. Switch: home row **Wipe on uninstall**, ON by default. Wi-Fi, LAN IP, IMEI, router settings, USB mode and adb are not touched. See [`UNINSTALL_WIPE.md`](UNINSTALL_WIPE.md).

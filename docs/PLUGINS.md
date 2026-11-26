@@ -1,6 +1,6 @@
 # Plugins
 
-How to write, install and remove MatchiTOOL plugins. Current for 1.4.5.
+How to write, install and remove MatchiTOOL plugins. Current for 1.4.6.
 
 A plugin is one `.js` file. By default it runs inside the console page with
 your signed-in session and can do anything the page can, including root
@@ -75,6 +75,16 @@ erased and asks first.
 
 A plugin that needs these cleaned up should declare `@matchi-uninstall`
 commands. A reboot clears most of them.
+
+## When MatchiTOOL is uninstalled
+
+The wipe cleans only what it can find. Declare what your plugin makes:
+
+- `// @matchi-data /path`: folders to delete.
+- `// @matchi-uninstall COMMAND`: stop commands. Checked when saved, run only if unchanged.
+- `// @matchi-boot /path`: boot files outside `boot.d`.
+
+Firewall chains and rules in built-in chains are found by the ledger. Anything else stays. Only installed plugins are cleaned. See [`UNINSTALL_WIPE.md`](UNINSTALL_WIPE.md).
 
 ## Stop what a plugin started
 

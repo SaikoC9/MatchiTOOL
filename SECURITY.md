@@ -1,6 +1,6 @@
 # Security
 
-Current for 1.4.5. Full notes: [`docs/SECURITY_DETAILS.md`](docs/SECURITY_DETAILS.md).
+Current for 1.4.6. Full notes: [`docs/SECURITY_DETAILS.md`](docs/SECURITY_DETAILS.md).
 
 MatchiTOOL is a root client, not a rooting tool. It calls the device's `su` and
 needs Magisk, KernelSU or APatch to grant it root. UID 0 is the real check.

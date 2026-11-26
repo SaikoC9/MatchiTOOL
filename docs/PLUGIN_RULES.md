@@ -1,6 +1,6 @@
 # Plugin rules
 
-Current for 1.4.5. Rules for plugin code that runs as root on the MU300 (8 cores, 1.5 GB RAM). Each rule comes from a measured fault. `scripts/lint_resource_rules.py` checks rules 1, 2, 4, 5 and 6, and warns on rule 3.
+Current for 1.4.6. Rules for plugin code that runs as root on the MU300 (8 cores, 1.5 GB RAM). Each rule comes from a measured fault. `scripts/lint_resource_rules.py` checks rules 1, 2, 4, 5 and 6, and warns on rule 3.
 
 Check your own plugins before you install them:
 
