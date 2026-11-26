@@ -39,6 +39,8 @@
     '#reaperpop .rp-p{color:var(--mut);font-size:12px;line-height:1.4;margin:6px 0}' +
     '#reaperpop .rp-sw{display:flex;align-items:center;gap:10px;margin:10px 0 4px;font-size:13px;font-weight:700}' +
     '#reaperpop .rp-tog{position:relative;flex:0 0 auto;width:38px;min-width:38px;height:22px;min-height:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;transition:background-color .2s}' +
+    /* The page's popup-button rule (html body .card.pop.open:not(#pluginmgr)... button) forces width:auto / height:26px / padding on every popup button and squashed the switch; this one outranks it. */
+    'html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-tog{box-sizing:border-box!important;width:38px!important;min-width:38px!important;max-width:38px!important;height:22px!important;min-height:22px!important;padding:0!important;border-radius:999px!important}' +
     '#reaperpop .rp-tog::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:transform .2s}' +
     '#reaperpop .rp-tog[aria-checked=true]{background:rgba(100,230,164,.75)!important}#reaperpop .rp-tog[aria-checked=true]::after{transform:translateX(16px)}' +
     '#reaperpop .rp-tog:disabled{opacity:.5}' +
