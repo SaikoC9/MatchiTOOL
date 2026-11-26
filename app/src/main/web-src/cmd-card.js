@@ -58,7 +58,8 @@
   }
   const css = document.createElement('style');
   // The stock look of the old home card (closed groups with + / -, small labels, mono command box, Copy on the right), now inside a popup.
-  css.textContent = '#cmdpop .cc-title{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}#cmdpop .cc-note{color:var(--mut);font-size:11px;line-height:1.35;margin:0 0 9px}' +
+  css.textContent = 'header .hd-tool{height:22px;min-height:0!important;padding:0 9px!important;font-size:10.5px!important;line-height:1!important;font-weight:600!important;border-radius:999px!important;color:var(--fg)!important;background:transparent!important;border:1px solid rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;flex:none;margin:0!important;width:auto!important;white-space:nowrap}@media(min-width:641px){header .hd-tool{height:26px!important;font-size:11px!important;display:inline-flex;align-items:center}}header #hdTools{display:flex;flex:none;gap:6px;align-items:center;margin-right:6px}header .hd-tool:hover{background:rgba(255,255,255,.08)!important}' +
+    '#cmdpop .cc-title{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}#cmdpop .cc-note{color:var(--mut);font-size:11px;line-height:1.35;margin:0 0 9px}' +
     '#cmdpop .cc-grp{border-top:1px solid var(--bd)}' +
     '#cmdpop .cc-sum{display:flex;align-items:center;min-height:26px;font-weight:700;font-size:12px;cursor:pointer;user-select:none}'+
     '#cmdpop .cc-sum::after{content:"+";color:var(--mut);font-size:14px}#cmdpop .cc-grp.open>.cc-sum::after{content:"\\2013"}' +
@@ -94,10 +95,12 @@
   }
 
   function mount() {
-    const row = document.querySelector('#home .actions-buttons'); if (!row || document.getElementById('cmdBtn')) return;
-    const btn = el('button', '', 'Commands'); btn.id = 'cmdBtn'; btn.type = 'button';
+    const hd = document.querySelector('header'); if (!hd || document.getElementById('cmdBtn')) return;
+    const btn = el('button', 'hd-tool', 'Commands'); btn.id = 'cmdBtn'; btn.type = 'button';
     btn.onclick = () => { if (!document.getElementById('cmdpop')) build(); openPop('cmdpop'); };
-    row.appendChild(btn);
+    let w = document.getElementById('hdTools');
+    if (!w) { w = el('span'); w.id = 'hdTools'; hd.insertBefore(w, hd.querySelector('#langsel') || hd.querySelector('#logoutbtn')); }
+    w.insertBefore(btn, w.firstChild);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();

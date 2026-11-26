@@ -432,9 +432,12 @@ header{display:grid!important;grid-template-columns:minmax(0,1fr) auto auto;alig
 header .brand{grid-column:1;grid-row:1;min-width:0}
 header .host{grid-column:2 / 4;grid-row:1;justify-self:end;max-width:100%;overflow:visible!important}
 header #hostlabel{overflow:visible!important;text-overflow:clip!important}
-header #langsel{grid-column:1;grid-row:2;width:100%;min-width:0;margin:0!important}
+header #langsel,header .mt-pick.hd-reboot{grid-column:1 / 4;grid-row:3;justify-self:start;width:auto!important;min-width:0!important;margin:0!important;height:26px!important;padding:0 10px!important;gap:8px}
 header #logoutbtn{grid-column:2;grid-row:2;margin:0!important}
 header #rebootbtn{grid-column:3;grid-row:2}
+/* Commands / Wipe on uninstall: same row as Sign out / Reboot, tools on the left, those two on the right; below 350px the tools take their own row */
+header #hdTools{grid-column:1;grid-row:2;justify-self:start;margin:0!important}
+@media(max-width:350px){header #hdTools{grid-column:1 / 4;grid-row:3}header #langsel,header .mt-pick.hd-reboot{grid-row:4}}
 }
 /* Phone view: plugin rows. Name + switch on the first line, the action buttons on their own line below, so the plugin name is no longer squeezed. */
 @media(max-width:640px){
@@ -10311,7 +10314,8 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
   }
   const css = document.createElement('style');
   // The stock look of the old home card (closed groups with + / -, small labels, mono command box, Copy on the right), now inside a popup.
-  css.textContent = '#cmdpop .cc-title{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}#cmdpop .cc-note{color:var(--mut);font-size:11px;line-height:1.35;margin:0 0 9px}' +
+  css.textContent = 'header .hd-tool{height:22px;min-height:0!important;padding:0 9px!important;font-size:10.5px!important;line-height:1!important;font-weight:600!important;border-radius:999px!important;color:var(--fg)!important;background:transparent!important;border:1px solid rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;flex:none;margin:0!important;width:auto!important;white-space:nowrap}@media(min-width:641px){header .hd-tool{height:26px!important;font-size:11px!important;display:inline-flex;align-items:center}}header #hdTools{display:flex;flex:none;gap:6px;align-items:center;margin-right:6px}header .hd-tool:hover{background:rgba(255,255,255,.08)!important}' +
+    '#cmdpop .cc-title{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}#cmdpop .cc-note{color:var(--mut);font-size:11px;line-height:1.35;margin:0 0 9px}' +
     '#cmdpop .cc-grp{border-top:1px solid var(--bd)}' +
     '#cmdpop .cc-sum{display:flex;align-items:center;min-height:26px;font-weight:700;font-size:12px;cursor:pointer;user-select:none}'+
     '#cmdpop .cc-sum::after{content:"+";color:var(--mut);font-size:14px}#cmdpop .cc-grp.open>.cc-sum::after{content:"\\2013"}' +
@@ -10347,10 +10351,12 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
   }
 
   function mount() {
-    const row = document.querySelector('#home .actions-buttons'); if (!row || document.getElementById('cmdBtn')) return;
-    const btn = el('button', '', 'Commands'); btn.id = 'cmdBtn'; btn.type = 'button';
+    const hd = document.querySelector('header'); if (!hd || document.getElementById('cmdBtn')) return;
+    const btn = el('button', 'hd-tool', 'Commands'); btn.id = 'cmdBtn'; btn.type = 'button';
     btn.onclick = () => { if (!document.getElementById('cmdpop')) build(); openPop('cmdpop'); };
-    row.appendChild(btn);
+    let w = document.getElementById('hdTools');
+    if (!w) { w = el('span'); w.id = 'hdTools'; hd.insertBefore(w, hd.querySelector('#langsel') || hd.querySelector('#logoutbtn')); }
+    w.insertBefore(btn, w.firstChild);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();
@@ -10394,7 +10400,8 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const css = document.createElement('style');
-  css.textContent = '#reaperpop .rp-t{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}' +
+  css.textContent = 'header .hd-tool{height:22px;min-height:0!important;padding:0 9px!important;font-size:10.5px!important;line-height:1!important;font-weight:600!important;border-radius:999px!important;color:var(--fg)!important;background:transparent!important;border:1px solid rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;flex:none;margin:0!important;width:auto!important;white-space:nowrap}header #hdTools{display:flex;flex:none;gap:6px;align-items:center;margin-right:6px}header .hd-tool:hover{background:rgba(255,255,255,.08)!important}' +
+    '#reaperpop .rp-t{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}' +
     '#reaperpop .rp-p{color:var(--mut);font-size:12px;line-height:1.4;margin:6px 0}' +
     '#reaperpop .rp-sw{display:flex;align-items:center;gap:10px;margin:10px 0 4px;font-size:13px;font-weight:700}' +
     '#reaperpop .rp-tog{position:relative;flex:0 0 auto;width:38px;min-width:38px;height:22px;min-height:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;transition:background-color .2s}' +
@@ -10479,10 +10486,12 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
   }
 
   function mount() {
-    const row = document.querySelector('#home .actions-buttons'); if (!row || document.getElementById('reaperBtn')) return;
-    const btn = el('button', '', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button';
+    const hd = document.querySelector('header'); if (!hd || document.getElementById('reaperBtn')) return;
+    const btn = el('button', 'hd-tool', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button'; btn.title = 'Wipe everything when MatchiTOOL is uninstalled';
     btn.onclick = () => { if (!document.getElementById('reaperpop')) build(); openPop('reaperpop'); paint(); loadInfo().then(check); };
-    row.appendChild(btn);
+    let w = document.getElementById('hdTools');
+    if (!w) { w = el('span'); w.id = 'hdTools'; hd.insertBefore(w, hd.querySelector('#langsel') || hd.querySelector('#logoutbtn')); }
+    w.appendChild(btn);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();

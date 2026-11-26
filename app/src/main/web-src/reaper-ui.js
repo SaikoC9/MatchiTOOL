@@ -35,7 +35,8 @@
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const css = document.createElement('style');
-  css.textContent = '#reaperpop .rp-t{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}' +
+  css.textContent = 'header .hd-tool{height:22px;min-height:0!important;padding:0 9px!important;font-size:10.5px!important;line-height:1!important;font-weight:600!important;border-radius:999px!important;color:var(--fg)!important;background:transparent!important;border:1px solid rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;flex:none;margin:0!important;width:auto!important;white-space:nowrap}header #hdTools{display:flex;flex:none;gap:6px;align-items:center;margin-right:6px}header .hd-tool:hover{background:rgba(255,255,255,.08)!important}' +
+    '#reaperpop .rp-t{margin:0 0 2px;font-size:11.5px;font-weight:700;color:var(--fg)}' +
     '#reaperpop .rp-p{color:var(--mut);font-size:12px;line-height:1.4;margin:6px 0}' +
     '#reaperpop .rp-sw{display:flex;align-items:center;gap:10px;margin:10px 0 4px;font-size:13px;font-weight:700}' +
     '#reaperpop .rp-tog{position:relative;flex:0 0 auto;width:38px;min-width:38px;height:22px;min-height:0!important;padding:0!important;border:0!important;border-radius:999px!important;background:rgba(255,255,255,.22)!important;box-shadow:none!important;transform:none!important;transition:background-color .2s}' +
@@ -120,10 +121,12 @@
   }
 
   function mount() {
-    const row = document.querySelector('#home .actions-buttons'); if (!row || document.getElementById('reaperBtn')) return;
-    const btn = el('button', '', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button';
+    const hd = document.querySelector('header'); if (!hd || document.getElementById('reaperBtn')) return;
+    const btn = el('button', 'hd-tool', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button'; btn.title = 'Wipe everything when MatchiTOOL is uninstalled';
     btn.onclick = () => { if (!document.getElementById('reaperpop')) build(); openPop('reaperpop'); paint(); loadInfo().then(check); };
-    row.appendChild(btn);
+    let w = document.getElementById('hdTools');
+    if (!w) { w = el('span'); w.id = 'hdTools'; hd.insertBefore(w, hd.querySelector('#langsel') || hd.querySelector('#logoutbtn')); }
+    w.appendChild(btn);
   }
   window.addEventListener('load', () => setTimeout(mount, 1000));
 })();
