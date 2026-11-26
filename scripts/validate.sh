@@ -64,6 +64,7 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_plugin_sweep_ui.js" || exit 1
   node "$(dirname "$0")/test_guard_ui.js" || exit 1
   node "$(dirname "$0")/test_cmd_card.js" || exit 1
+  node "$(dirname "$0")/test_reaper_ui.js" || exit 1      # Wipe-on-uninstall card: status wording, OFF confirmation
   node "$(dirname "$0")/test_plugin_undo_ui.js" || exit 1
   node "$(dirname "$0")/test_plugin_disable_ui.js" || exit 1
   node "$(dirname "$0")/test_plugin_hook.js" || exit 1
