@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_REAPER_VERSION=6
+# MATCHI_REAPER_VERSION=7
 # MatchiTOOL uninstall reaper. Runs as root, OUTSIDE the app sandbox (installed by the app to /data/local/matchitool/reaper/).
 # Android runs no code of an app when it is uninstalled, so this script watches for the app to be gone and then removes what the
 # app left on the device (docs/UNINSTALL_WIPE.md). It needs no app file, no jq, no curl and never talks to the router (D6).
@@ -303,6 +303,14 @@ psl() {   # the process list: "PID ARGS" per line, one ps call, with a time limi
 args_of() {   # the command line of one pid ("" when it is not running)
   psl | while read -r q a; do [ "$q" = "$1" ] && { echo "$a"; break; }; done
 }
+# A script that lives in one of the Bypass folders ("sh /data/local/matchi_ttl/ttl.sh watch"): the program or its first argument is a path below them.
+# These loops are not tagged and not in PROCS; left running they put the lock folder and the rules back after the wipe.
+bypass_proc() {
+  for x in "$1" "$2"; do
+    for d in $BYPASS; do case $x in "$R$d"/*) return 0;; esac; done
+  done
+  return 1
+}
 # Prints the pids of our processes: exact program names, the boot log capture loop, and processes carrying a wanted MATCHI_PLUGIN tag.
 find_ours() {
   C=$(psl)
@@ -315,6 +323,7 @@ find_ours() {
     [ -n "$a0" ] || continue
     b0=${a0##*/}
     for n in $PROCS; do [ "$b0" = "$n" ] && { echo "$pid"; continue 2; }; done
+    bypass_proc "$a0" "$a1" && { echo "$pid"; continue; }       # Bypass script loop (ttl.sh watch and the like)
     [ "$a1" = "$R$LOGD" ] && { echo "$pid"; continue; }         # boot log capture loop (and its forks)
     case $E in
       *"$PROC/$pid/environ:"*)
@@ -336,6 +345,18 @@ kill_pidfile() {
   b=${1##*/}
   case $b in logcat|dmesg|cat) kill "$p" 2>/dev/null; return 0;; esac
   [ "${2:-}" = "$R$LOGD" ] && kill "$p" 2>/dev/null
+  return 0
+}
+kill_bypass() {   # only the Bypass script loops, first, so they cannot put rules or the lock folder back
+  C=$(psl)
+  printf '%s\n' "$C" | while read -r pid a0 a1 rest; do
+    case $pid in ''|*[!0-9]*) continue;; esac
+    [ "$pid" = "$$" ] && continue
+    [ "$pid" = "${PPID:-0}" ] && continue
+    case " $a0 $a1 $rest " in *"$SELF"*) continue;; esac
+    bypass_proc "$a0" "$a1" && kill "$pid" 2>/dev/null
+  done
+  nap 1
   return 0
 }
 kill_all() {
@@ -462,6 +483,7 @@ run_wipe() {
   TAGS=$(tags_wanted)
   step_boot_entries
   gone_once || return 2
+  kill_bypass
   step_rules
   gone_once || return 2
   tc_clean

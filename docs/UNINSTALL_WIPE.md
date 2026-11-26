@@ -70,6 +70,7 @@ The reaper skips the whole snapshot if it is not root-owned, is group/other writ
 2. Switch OFF: nothing watches.
 3. Wipe starts about 1 minute after uninstall, later if the phone was off.
 4. Leftovers outside declared plugin paths stay, except the fixed AdGuard Home folder above. "Clear data" empties the app's plugin records, so the next snapshot is empty; that is why the AdGuard Home folder and process are fixed names in the reaper (version 6).
+5. Scripts that run from a Bypass folder (`sh /data/local/matchi_ttl/ttl.sh watch`) are ended first, before the rules and the folders go (version 7). Left running, the loop recreated `/data/local/matchi_lock` and put its rules back after the wipe finished.
 
 ## Tests
 
