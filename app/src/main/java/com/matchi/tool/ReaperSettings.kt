@@ -21,7 +21,7 @@ object ReaperSettings {
             "Plugin firewall rules, DNS redirects included"
         )),
         Group("Speed limits", listOf(
-            "Our speed limits on ${Footprint.TC_DEVICE}, ${Footprint.TC_INGRESS_DEVICES.joinToString(" and ")} (limits that are not ours stay)"
+            "Speed limits set by MatchiTOOL on ${Footprint.TC_DEVICE}, ${Footprint.TC_INGRESS_DEVICES.joinToString(" and ")} (other limits are left alone)"
         )),
         Group("Running programs", listOf(
             Footprint.PROCESS_NAMES.joinToString(", "),
