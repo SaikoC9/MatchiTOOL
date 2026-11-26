@@ -131,6 +131,7 @@ world() {   # a fresh fake phone: the app is gone, everything root-side is still
   echo x > "$D/matchi_reaper.sh"; echo x > "$STUB"; echo x > "$LOGD"; echo x > "$work/data/adb/service.d/other.sh"
   echo x > "$work/data/local/tmp/mt_isms.sh"; echo x > "$work/data/local/tmp/curl"; echo x > "$work/data/local/keep.txt"
   for bd in matchi_ttl matchi_dpi matchi_lock matchi_boot; do mkdir -p "$work/data/local/$bd"; echo x > "$work/data/local/$bd/f"; done
+  mkdir -p "$work/data/local/adguardhome/data" "$work/data/local/adguardhome2"; echo x > "$work/data/local/adguardhome/data/f"; echo x > "$work/data/local/adguardhome2/f"
   echo x > "$work/elsewhere/x"
   cat > "$work/fw.iptables" <<FW
 filter|-A INPUT -i br0 -p tcp -m tcp --dport 2334 -j ACCEPT
@@ -171,7 +172,8 @@ world; echo 0 > "$work/ctl/pm_rc";                 wipe; rc=$?
 
 # ======================================================================== B. a clean wipe, and a second run
 world
-start() { MATCHI_PLUGIN=Other.js sleep 300 & d3=$!; sleep 300 & d4=$!; ln -sf /bin/sleep "$work/decoy/matchi-guard"; "$work/decoy/matchi-guard" 300 & d1=$!; sleep 1; }
+start() { MATCHI_PLUGIN=Other.js sleep 300 & d3=$!; sleep 300 & d4=$!; ln -sf /bin/sleep "$work/decoy/matchi-guard"; "$work/decoy/matchi-guard" 300 & d1=$!
+  ln -sf /bin/sleep "$work/decoy/AdGuardHome"; "$work/decoy/AdGuardHome" 300 & d5=$!; sleep 1; }
 start
 wipe; rc=$?
 [ "$rc" = 0 ] && ok "wipe finished clean (exit 0)" || bad "wipe exit $rc"
@@ -183,6 +185,9 @@ tcs | grep -q 'qdisc|br0' && bad "our htb root qdisc still there" || ok "our htb
 tcs | grep -q 'filter|wlan0|1005' || tcs | grep -q 'filter|usb0|1255' && bad "our ingress filter still there" || ok "our ingress filters (1005, 1300, 1255) removed"
 tcs | grep -q 'filter|wlan0|5$' && tcs | grep -q 'filter|usb0|2000' && ok "foreign ingress filters (prio 5, 2000) kept" || bad "foreign ingress filter removed"
 ! alive $d1 && ok "program named matchi-guard stopped" || bad "matchi-guard decoy still running"
+! alive $d5 && ok "program named AdGuardHome stopped" || bad "AdGuardHome decoy still running"
+[ ! -e "$work/data/local/adguardhome" ] && ok "AdGuard Home data folder removed (even with an empty plugin snapshot)" || bad "adguardhome folder left"
+[ -f "$work/data/local/adguardhome2/f" ] && ok "look-alike folder adguardhome2 kept" || bad "adguardhome2 removed"
 alive $d3 && alive $d4 && ok "other tag and plain process left alone" || bad "unrelated process killed"
 [ ! -e "$work/data/local/matchi_ttl" ] && [ ! -e "$work/data/local/matchi_dpi" ] && [ ! -e "$work/data/local/matchi_lock" ] && [ ! -e "$work/data/local/matchi_boot" ] && ok "Bypass folders (matchi_ttl, matchi_dpi, matchi_lock, matchi_boot) removed" || bad "Bypass folders left: $(ls "$work/data/local" | tr '\n' ' ')"
 [ -f "$work/data/local/keep.txt" ] && [ -f "$work/data/local/tmp/curl" ] && [ -f "$work/data/adb/service.d/other.sh" ] && ok "unrelated files kept" || bad "unrelated file removed"
@@ -190,7 +195,7 @@ cp "$work/fw.iptables" "$work/fw.before"; tcs > "$work/tc.before"; find "$work/d
 wipe; rc=$?
 find "$work/data" | sort > "$work/tree.after"
 [ "$rc" = 0 ] && cmp -s "$work/fw.before" "$work/fw.iptables" && [ "$(tcs)" = "$(cat "$work/tc.before")" ] && cmp -s "$work/tree.before" "$work/tree.after" && ok "second run changes nothing (exit 0)" || bad "second run: exit $rc or something changed"
-kill $d3 $d4 2>/dev/null; wait $d3 $d4 2>/dev/null
+kill $d3 $d4 $d5 2>/dev/null; wait $d3 $d4 $d5 2>/dev/null
 
 # ======================================================================== C. reinstall during the wipe
 world; echo "$work/data/data/$PKG" > "$work/ctl/reinstall_on_iptables"

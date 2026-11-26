@@ -27,6 +27,13 @@ object Footprint {
         "/data/local/matchi_ttl", "/data/local/matchi_dpi", "/data/local/matchi_lock", "/data/local/matchi_boot"
     )
 
+    /**
+     * Data folder of the AdGuard Home plugin. Removed on uninstall even when the plugin snapshot does not list it: "Clear data" (or deleting the
+     * plugin) empties the app's plugin records, and the snapshot is rebuilt from them, so the folder would otherwise be forgotten (F50 test, Part 7).
+     * Same list as matchi_reaper.sh PLUGDIRS.
+     */
+    val PLUGIN_KNOWN_DIRS = listOf("/data/local/adguardhome")
+
     /** One-line retry log of the reaper (D4). Outside the folder, so it needs its own entry. Removed when the wipe is clean. */
     const val REAPER_LOG = "/data/local/matchitool-uninstall.log"
 
@@ -52,7 +59,7 @@ object Footprint {
     // The empty "ffff:" ingress qdisc on TC_INGRESS_DEVICES is left in place on purpose (docs/UNINSTALL_WIPE.md, D8).
 
     // ---- processes (exact name, never a pattern like "matchi") ----
-    val PROCESS_NAMES = listOf("matchi-guard", "matchi-sampler", "matchi-doctor", "sendat", "zreq")
+    val PROCESS_NAMES = listOf("matchi-guard", "matchi-sampler", "matchi-doctor", "sendat", "zreq", "AdGuardHome")
 
     /** Files inside BASE_DIR the reaper reads or kills by. */
     const val LOGD_PID = "$BASE_DIR/bootlogs/logd.pid"
@@ -66,7 +73,7 @@ object Footprint {
         path.contains("..") || path.contains("//") || !path.startsWith("/") -> Class.UNKNOWN
         path in NOT_OURS -> Class.LEAVE
         path == BASE_DIR || path.startsWith("$BASE_DIR/") -> Class.REMOVE
-        path in BOOT_STUBS || path in LEGACY_TMP || path == REAPER_LOG || BYPASS_DIRS.any { path == it || path.startsWith("$it/") } -> Class.REMOVE
+        path in BOOT_STUBS || path in LEGACY_TMP || path == REAPER_LOG || (BYPASS_DIRS + PLUGIN_KNOWN_DIRS).any { path == it || path.startsWith("$it/") } -> Class.REMOVE
         else -> Class.UNKNOWN
     }
 

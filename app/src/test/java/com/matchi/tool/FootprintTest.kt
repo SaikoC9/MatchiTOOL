@@ -29,6 +29,13 @@ class FootprintTest {
         assertEquals(Footprint.Class.UNKNOWN, Footprint.classify("/data/local/matchitool-uninstall.log2"))
     }
 
+    @Test fun adGuardHomeFolderIsRemovedButItsLookAlikeIsNot() {
+        for (p in Footprint.PLUGIN_KNOWN_DIRS) assertEquals(p, Footprint.Class.REMOVE, Footprint.classify(p))
+        assertEquals(Footprint.Class.REMOVE, Footprint.classify("/data/local/adguardhome/data/AdGuardHome.yaml"))
+        assertEquals(Footprint.Class.UNKNOWN, Footprint.classify("/data/local/adguardhome2"))
+        assertTrue(Footprint.PROCESS_NAMES.contains("AdGuardHome"))
+    }
+
     @Test fun foreignBinariesAreLeft() {
         for (p in Footprint.NOT_OURS) assertEquals(p, Footprint.Class.LEAVE, Footprint.classify(p))
     }
@@ -51,6 +58,6 @@ class FootprintTest {
     }
 
     @Test fun processNamesAreExactAndNeverBroad() {
-        for (n in Footprint.PROCESS_NAMES) { assertTrue(n, n.length >= 4 && Regex("[a-z-]+").matches(n)); assertFalse(n, n == "matchi") }
+        for (n in Footprint.PROCESS_NAMES) { assertTrue(n, n.length >= 4 && Regex("[A-Za-z-]+").matches(n)); assertFalse(n, n == "matchi") }
     }
 }

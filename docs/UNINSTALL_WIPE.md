@@ -31,10 +31,11 @@ Home row button **Wipe on uninstall**. ON by default.
 | Chain `AGH_UI` and its jump | removed |
 | Plugin chains and plugin rules in built-in chains (ledger `C`, `R`) | removed |
 | Speed limits: `br0` root qdisc only if it reads `htb 1:`, ingress filters on `wlan0`, `usb0` (prio 1000-1255, 1300-1555) | removed |
-| `matchi-guard`, `matchi-sampler`, `matchi-doctor`, `sendat`, `zreq` | stopped |
+| `matchi-guard`, `matchi-sampler`, `matchi-doctor`, `sendat`, `zreq`, `AdGuardHome` | stopped |
 | Boot log capture loop and its children | stopped |
 | Plugin processes (`MATCHI_PLUGIN` tag) | stopped |
 | Plugin paths recorded in the ledger under `/data/local` | removed |
+| `/data/local/adguardhome/` (AdGuard Home plugin data), always, even if the snapshot is empty | removed |
 
 ## Stays
 
@@ -43,7 +44,7 @@ Home row button **Wipe on uninstall**. ON by default.
 - IMEI, router settings, USB mode, adb
 - `/sdcard`
 - `/data/local/tmp/curl`, `/data/local/tmp/sqlite3` (not ours)
-- The empty `ffff:` ingress qdisc on `wlan0`, `usb0`
+- The empty `ffff:` ingress qdisc on `wlan0`, `usb0` (it exists only after a speed limit was used since the last reboot; the reaper never deletes it)
 - Data of a plugin deleted without erase
 
 Why: the router password is gone with the app, so nothing can be restored. Turn Wi-Fi on in the router's web page.
@@ -68,7 +69,7 @@ The reaper skips the whole snapshot if it is not root-owned, is group/other writ
 1. Root removed before the app: nothing runs.
 2. Switch OFF: nothing watches.
 3. Wipe starts about 1 minute after uninstall, later if the phone was off.
-4. Leftovers outside declared plugin paths stay.
+4. Leftovers outside declared plugin paths stay, except the fixed AdGuard Home folder above. "Clear data" empties the app's plugin records, so the next snapshot is empty; that is why the AdGuard Home folder and process are fixed names in the reaper (version 6).
 
 ## Tests
 
