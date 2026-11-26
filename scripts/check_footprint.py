@@ -9,6 +9,8 @@ Checks, over app/src/main (Kotlin, assets/bin/*.sh, web-src/*.js):
   5. Footprint constants agree with Prefs.PORT and HostService.OLD_TMP_CLEANUP
   6. assets/bin/matchi_reaper.sh constants agree with Footprint.kt
   7. ReaperModel.kt (install of the reaper, Phase 4) agrees with the reaper script and Footprint.kt, and ApkUpdater writes the "updating" marker
+  8. Plugin snapshot (Phase 5): the files the app writes (ReaperModel.SNAP_PATH / MANIFEST_PATH) are the ones the reaper reads, the tag limit agrees,
+     and the web server binds the snapshot source
 
 Known blind spot (plan S9): templated paths (/data/local/$base, /data/local/tmp/$base in PluginPaths) are not literals. The plugin files
 below are exempt; plugin leftovers are covered by the plugin ledger, not by this registry.
@@ -21,7 +23,7 @@ main = root / 'app/src/main'
 kt = main / 'java/com/matchi/tool'
 
 PLUGIN_EXEMPT = {'PluginPaths.kt', 'PluginSweep.kt', 'PluginUninstall.kt', 'PluginTrace.kt', 'PluginGuard.kt', 'PluginUndo.kt',
-                 'PluginProbe.kt', 'WebRoutesPlugins.kt'}
+                 'PluginProbe.kt', 'WebRoutesPlugins.kt', 'PluginSnapshot.kt'}
 ADB_READ_ONLY = {'/data/adb', '/data/adb/magisk', '/data/adb/ksu', '/data/adb/ap', '/data/adb/modules', '/data/adb/magisk.log',
                  '/data/adb/service.d', '/data/adb/post-fs-data.d'}
 LOCAL_BARE = {'/data/local', '/data/local/tmp'}
@@ -99,6 +101,21 @@ if 'ReaperModel.updatingMarkerCommand()' not in (kt / 'ApkUpdater.kt').read_text
     problems.append('ApkUpdater.kt must write ReaperModel.updatingMarkerCommand() before the install and remove ReaperModel.UPDATING_MARKER after it succeeds')
 if 'Reaper.ensureCurrent' not in (kt / 'HostService.kt').read_text():
     problems.append('HostService.kt must call Reaper.ensureCurrent (install and refresh of the reaper)')
+
+# 8. plugin snapshot: the app writes the files the reaper reads; limits agree
+same('ReaperModel.SNAP_PATH', (rm_const('SNAP_PATH') or '').replace('$DIR', (rm_const('DIR') or '').replace('$BASE_DIR', base or '')), f"{rd}/plugins.snap" if 'plugins.snap' in reaper else None)
+same('ReaperModel.MANIFEST_PATH', (rm_const('MANIFEST_PATH') or '').replace('$DIR', (rm_const('DIR') or '').replace('$BASE_DIR', base or '')), f"{rd}/plugins.manifest" if 'plugins.manifest' in reaper else None)
+snap_kt = (kt / 'PluginSnapshot.kt').read_text()
+tm = re.search(r'const val SNAP_TAG_MAX\s*=\s*(\d+)', snap_kt); rt = re.search(r'valid_tag\(\) \{.*?\[ \$\{#1\} -le (\d+) \]', reaper)
+same('plugin tag limit (PluginSnapshot.SNAP_TAG_MAX)', rt.group(1) if rt else None, tm.group(1) if tm else None)
+cm = re.search(r'const val SNAP_COMMAND_MAX\s*=\s*(\d+)', snap_kt); rc = re.search(r'\[ \$\{#cmd\} -le (\d+) \]', reaper)
+same('stop command limit (PluginSnapshot.SNAP_COMMAND_MAX)', rc.group(1) if rc else None, cm.group(1) if cm else None)
+ws = (kt / 'WebServer.kt').read_text()
+if 'Reaper.bindSnapshotSource' not in ws or 'traceStore.onChange' not in ws:
+    problems.append('WebServer.kt must bind Reaper.bindSnapshotSource and traceStore.onChange (plugin snapshot, Phase 5)')
+wp = (kt / 'WebRoutesPlugins.kt').read_text()
+if wp.count('Reaper.scheduleSnapshot') < 4:
+    problems.append('WebRoutesPlugins.kt must schedule the plugin snapshot after install, approve, mode change and delete')
 
 if problems:
     print('\n'.join(problems)); sys.exit(1)

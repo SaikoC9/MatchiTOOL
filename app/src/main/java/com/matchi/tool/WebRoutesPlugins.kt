@@ -73,6 +73,33 @@ internal fun SweepView.toJson(): JSONObject {
         .put("complete", result.complete).put("sweepHash", hash)
 }
 
+/**
+ * What the uninstall reaper needs to know about the installed plugins (Phase 5; text built by buildPluginSnapshot, written by Reaper). Read from the
+ * plugin files, the ledger and the saved records as they are NOW; installed plugins only, so a deleted plugin drops out. Stop commands come from the
+ * same stopPlan the Delete dialog uses (integrity, sandbox grant and the command filter), WITHOUT the same-folder guard: the app is gone when the
+ * reaper runs, so nothing is "shared" any more, and the guard would read every plugin file once per plugin. Runs nothing, needs no root.
+ */
+internal fun WebServer.pluginSnapshotBuild(): SnapBuild {
+    val records = Prefs.pluginRecords(ctx)
+    val modes = Prefs.pluginModes(ctx)
+    val files = pluginDir.listFiles { x -> x.isFile && (x.name.endsWith(".js") || x.name.endsWith(".html")) }?.sortedBy { it.name }.orEmpty()
+    val plugins = ArrayList<SnapPlugin>()
+    for (f in files) {
+        val name = f.name
+        val bytes = try { f.readBytes() } catch (_: Exception) { continue }
+        val code = String(bytes, Charsets.UTF_8)
+        val led = traceStore.read(name)
+        val decl = pluginUninstallDeclarations(code)
+        val integrity = integrityState(records[name]?.sha, sha256Hex(bytes))
+        val sandboxed = pluginKind(name) == "js" && modes[name] == "sandbox"
+        val grant = sandboxGrant(records[name]?.caps, integrity)
+        val plan = stopPlan(name, code, integrity, sandboxed, grant, emptyList(), { shellDanger(it, true) }, { it })
+        plugins.add(SnapPlugin(name, led.paths, pluginDataDeclarations(code), led.chains, led.bootFiles + decl.bootFiles, led.rules,
+            if (plan.blocked == null) plan.commands else emptyList()))
+    }
+    return buildPluginSnapshot(plugins)
+}
+
 /** Paths to erase for a plugin: (allowed, rejected with reason). The plugin's own data folder is always included. */
 internal fun WebServer.pluginDataPlan(name: String): Pair<List<String>, List<Pair<String, String>>> {
     val f = File(pluginDir, name)
@@ -256,6 +283,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         auditShell(s.remoteIpAddress ?: "?", name + "\n" + code, "plugin-upload")
         target.writeText(code)
         Prefs.setPluginRecord(ctx, name, PluginRecord(newSha, caps))
+        Reaper.scheduleSnapshot(ctx)   // the new file may declare other stop commands, boot files or data folders
         // A plugin may carry a display title: its original name (it may hold spaces or non-Latin letters) next to the safe file name.
         if (req.has("title")) Prefs.setPluginTitle(ctx, name, cleanPluginTitle(req.optString("title")).ifBlank { null })
         json(Response.Status.OK, JSONObject().put("ok", true))
@@ -393,7 +421,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val deleted = File(pluginDir, name).delete()
         if (deleted) gateNames.forEach { WebGate.stop(ctx, it) }   // log out of its web page, close the gate port, forget the port number
         Prefs.setEnabled(ctx, name, true)
-        if (deleted) Prefs.forgetPlugin(ctx, name)
+        if (deleted) { Prefs.forgetPlugin(ctx, name); Reaper.scheduleSnapshot(ctx) }   // a deleted plugin drops out of the snapshot, so the reaper does not repeat its job
         val out = JSONObject().put("ok", deleted)
         if (stopOut != null) out.put("stop", stopOut)
         if (deleted && ledger != null) {
@@ -434,6 +462,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         val sandboxed = Prefs.pluginModes(ctx)[name] == "sandbox" && pluginKind(name) == "js"
         Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), effectiveCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts, sandboxed) { shellDanger(it, true) }))
         auditShell(s.remoteIpAddress ?: "?", "approve " + name, "plugin-approve")
+        Reaper.scheduleSnapshot(ctx)   // an approved file may now run its stop commands
         json(Response.Status.OK, JSONObject().put("ok", true))
     }
     // Switch a plugin between "sandbox" and "trusted": {"name":"My_Plugin.js","mode":"sandbox","password":"..."}. Both directions need the gate and the
@@ -455,6 +484,7 @@ internal fun WebServer.routePlugins(s: IHTTPSession, uri: String): Response? = w
         Prefs.setPluginSandboxed(ctx, name, sandboxed)
         Prefs.setPluginRecord(ctx, name, PluginRecord(sha256Hex(bytes), effectiveCaps(src, scanPlugin(src, Prefs.netHosts(ctx)).hosts, sandboxed) { shellDanger(it, true) }))
         auditShell(s.remoteIpAddress ?: "?", "mode " + name + " " + mode, "plugin-mode")
+        Reaper.scheduleSnapshot(ctx)   // the sandbox grant decides which stop commands may run
         json(Response.Status.OK, JSONObject().put("ok", true).put("mode", mode))
     }
     // A call a SANDBOXED plugin made through the page's bridge: {"name":"X.js","op":"at"|"router.get"|"shell","args":["..."]}. The host decides, on every

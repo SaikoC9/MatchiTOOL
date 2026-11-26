@@ -20,6 +20,10 @@ object ReaperModel {
     /** Boot stub in Magisk/KernelSU service.d. Also listed in [Footprint.BOOT_STUBS]. */
     const val STUB_PATH = "/data/adb/service.d/matchi_reaper.sh"
 
+    /** Plugin snapshot (Phase 5): what the reaper reads at wipe time. Written by [snapshotCommand], read by matchi_reaper.sh. Inside [DIR], so they go with it. */
+    const val SNAP_PATH = "$DIR/plugins.snap"
+    const val MANIFEST_PATH = "$DIR/plugins.manifest"
+
     /** Written by ApkUpdater (unix seconds) before an update or downgrade; the reaper does nothing while it is younger than 10 minutes. */
     const val UPDATING_MARKER = "$BASE_DIR/updating"
 
@@ -27,6 +31,12 @@ object ReaperModel {
     const val SCRIPT_MARK = "@@REAPER_SCRIPT@@"
     const val SIZE_MARK = "@@SIZE@@"
     const val EOF_MARK = "MATCHI_REAPER_EOF"
+    const val SNAP_EOF_MARK = "MATCHI_SNAP_EOF"
+    const val MANIFEST_EOF_MARK = "MATCHI_MANIFEST_EOF"
+    const val SNAP_TEXT_MARK = "@@SNAP_TEXT@@"
+    const val MANIFEST_TEXT_MARK = "@@MANIFEST_TEXT@@"
+    const val SNAP_SIZE_MARK = "@@SNAP_SIZE@@"
+    const val MANIFEST_SIZE_MARK = "@@MANIFEST_SIZE@@"
 
     private val versionRx = Regex("^# MATCHI_REAPER_VERSION=(\\d+)\\s*$", RegexOption.MULTILINE)
 
@@ -49,6 +59,24 @@ object ReaperModel {
         if (scriptVersion(body) == null || body.contains(EOF_MARK) || body.contains("MATCHI_STUB_EOF")) return null
         val size = body.toByteArray(Charsets.UTF_8).size + 1   // the here-document adds the final newline
         return INSTALL_TEMPLATE.replace('\u00a7', '$').replace(SIZE_MARK, size.toString()).replace(SCRIPT_MARK, body)
+    }
+
+    /**
+     * The one root call that writes the plugin snapshot (plugins.snap and plugins.manifest, root-owned, mode 600) next to the installed reaper, or null
+     * when a text cannot be carried safely (empty, a here-document end line or a replacement mark inside it, a character that is not plain ASCII).
+     * Both files are written to a temp name, their sizes are checked, and only then do they replace the old ones with mv. It refuses when the reaper
+     * folder is missing (the reaper is not installed: the caller tries again after the install), is a symlink, or is not owned by root.
+     * Prints SNAPSHOT=1 on success, otherwise ERROR=reason. Nothing from a plugin is ever run or evaluated here: the texts only go through a quoted here-document.
+     */
+    fun snapshotCommand(snap: String, manifest: String): String? {
+        val s = snap.trimEnd('\n'); val m = manifest.trimEnd('\n')
+        for (t in listOf(s, m)) {
+            if (t.isEmpty() || t.contains("@@") || t.contains('\u00a7') || t.contains(SNAP_EOF_MARK) || t.contains(MANIFEST_EOF_MARK)) return null
+            if (t.any { it != '\n' && it.code !in 32..126 }) return null
+        }
+        return SNAPSHOT_TEMPLATE.replace('\u00a7', '$')
+            .replace(SNAP_SIZE_MARK, (s.length + 1).toString()).replace(MANIFEST_SIZE_MARK, (m.length + 1).toString())   // ASCII only: characters = bytes; the here-document adds the final newline
+            .replace(SNAP_TEXT_MARK, s).replace(MANIFEST_TEXT_MARK, m)
     }
 
     /** Stops the daemon and removes the boot stub and the reaper folder (switch OFF). Nothing outside the reaper's own two places is touched. */
@@ -147,6 +175,31 @@ i=0; RUN=0
 while [ §i -lt 6 ]; do sleep 1; isrun; [ "§RUN" = 1 ] && break; i=§((i + 1)); done
 echo INSTALLED=1
 echo RUNNING=§RUN
+"""
+
+    private const val SNAPSHOT_TEMPLATE = """
+B=/data/local/matchitool
+D=§B/reaper
+fail() { echo "ERROR=§1"; exit 0; }
+[ -L §B ] && fail 'matchitool folder is a symlink'
+[ -d §D ] || fail 'reaper folder is missing'
+[ -L §D ] && fail 'reaper folder is a symlink'
+[ "§(stat -c %u §B 2>/dev/null)" = 0 ] || fail 'matchitool folder is not owned by root'
+[ "§(stat -c %u §D 2>/dev/null)" = 0 ] || fail 'reaper folder is not owned by root'
+rm -f §D/plugins.snap.new §D/plugins.manifest.new
+cat > "§D/plugins.snap.new" <<'MATCHI_SNAP_EOF'
+@@SNAP_TEXT@@
+MATCHI_SNAP_EOF
+cat > "§D/plugins.manifest.new" <<'MATCHI_MANIFEST_EOF'
+@@MANIFEST_TEXT@@
+MATCHI_MANIFEST_EOF
+chmod 600 "§D/plugins.snap.new" "§D/plugins.manifest.new" 2>/dev/null
+chown 0:0 "§D/plugins.snap.new" "§D/plugins.manifest.new" 2>/dev/null
+[ "§(wc -c < "§D/plugins.snap.new" 2>/dev/null)" = @@SNAP_SIZE@@ ] || { rm -f §D/plugins.snap.new §D/plugins.manifest.new; fail 'plugins.snap was not written completely'; }
+[ "§(wc -c < "§D/plugins.manifest.new" 2>/dev/null)" = @@MANIFEST_SIZE@@ ] || { rm -f §D/plugins.snap.new §D/plugins.manifest.new; fail 'plugins.manifest was not written completely'; }
+mv "§D/plugins.manifest.new" "§D/plugins.manifest" || { rm -f §D/plugins.snap.new §D/plugins.manifest.new; fail 'cannot write plugins.manifest'; }
+mv "§D/plugins.snap.new" "§D/plugins.snap" || { rm -f §D/plugins.snap.new; fail 'cannot write plugins.snap'; }
+echo SNAPSHOT=1
 """
 
     private const val REMOVE_SCRIPT = """

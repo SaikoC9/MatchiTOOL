@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_REAPER_VERSION=2
+# MATCHI_REAPER_VERSION=3
 # MatchiTOOL uninstall reaper. Runs as root, OUTSIDE the app sandbox (installed by the app to /data/local/matchitool/reaper/).
 # Android runs no code of an app when it is uninstalled, so this script watches for the app to be gone and then removes what the
 # app left on the device (docs/UNINSTALL_WIPE.md). It needs no app file, no jq, no curl and never talks to the router (D6).
@@ -123,7 +123,7 @@ plugin_path_ok() {
   name=${rest%%/*}
   if [ "$tmp" = 1 ]; then
     low=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
-    case $low in matchi*|.matchi*|mt_*|.mt_*|sqlite*|.sqlite*) return 1;; esac
+    case $low in matchi*|.matchi*|mt_*|.mt_*|sqlite*|.sqlite*|curl) return 1;; esac
   else
     case $name in tmp|matchitool|matchi_ttl|matchi_dpi|matchi_boot|matchi_lock) return 1;; esac
   fi
@@ -195,8 +195,8 @@ valid_chain() {
 valid_rule_chain() { case $1 in INPUT|OUTPUT|FORWARD|PREROUTING|POSTROUTING) return 0;; esac; valid_chain "$1"; }
 valid_table() { case $1 in filter|nat|mangle|raw) return 0;; esac; return 1; }
 valid_tool() { case $1 in iptables|ip6tables) return 0;; esac; return 1; }
-valid_tag() { case $1 in ''|*[!A-Za-z0-9._-]*) return 1;; esac; [ ${#1} -le 40 ]; }
-valid_spec() { case $1 in ''|*[!A-Za-z0-9_./:,=!\ -]*) return 1;; esac; [ ${#1} -le 200 ]; }
+valid_tag() { case $1 in ''|*[!A-Za-z0-9._-]*) return 1;; esac; [ ${#1} -le 90 ]; }   # plugin file names are up to 80 characters
+valid_spec() { case $1 in ''|*[!A-Za-z0-9_./:,=!+\ -]*) return 1;; esac; [ ${#1} -le 200 ]; }   # same characters as PluginTrace.kt RULE_SPEC
 
 # ---------------------------------------------------------------- firewall
 ipt() {
