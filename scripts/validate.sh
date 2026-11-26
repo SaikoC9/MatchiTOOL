@@ -24,6 +24,8 @@ PY
 
 python3 "$ROOT/scripts/check_repo.py" "$ROOT"      # version in one place, README counts, bundled binary hashes
 python3 "$ROOT/scripts/check_sources.py" "$ROOT"    # legacy source-text tripwires (see its header)
+python3 "$ROOT/scripts/check_footprint.py" "$ROOT"    # root-side footprint registry (docs/UNINSTALL_WIPE.md)
+sh -n "$ROOT/app/src/main/assets/bin/matchi_reaper.sh" || exit 1   # reaper must parse
 python3 "$ROOT/scripts/lint_resource_rules.py" "$ROOT"  # du/find without -x, /proc/*/cmdline reads, busy loops, timers on expensive routes (docs/PLUGIN_RULES.md)
 python3 "$ROOT/scripts/test_lint_resource_rules.py"   # the lint itself
 python3 "$ROOT/scripts/test_route_gates.py"          # who may call which route
@@ -46,6 +48,7 @@ fi
 if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
   bash "$(dirname "$0")/test_boot_tasks.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_logd.sh" </dev/null || exit 1
+  bash "$(dirname "$0")/test_reaper_install.sh" </dev/null || exit 1   # uninstall reaper: install, update, stub, switch OFF, end-to-end wipe in a fake root folder
 else
   echo "skipped: boot / log shell tests (setsid, pgrep or node missing)"
 fi
