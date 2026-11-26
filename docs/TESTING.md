@@ -2,7 +2,7 @@
 
 Current for MatchiTOOL 1.4.6.
 
-Use scrcpy. Result of each goes in `plan-uninstall-wipe.txt`.
+Use scrcpy. Write the result of each below.
 
 | # | Do | Expect |
 | --- | --- | --- |
