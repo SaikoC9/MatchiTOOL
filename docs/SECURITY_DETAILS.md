@@ -4,10 +4,6 @@ The full security notes. The short version is [`SECURITY.md`](../SECURITY.md).
 
 Current for MatchiTOOL 1.4.6. This file replaces the older per-version security notes that were in the README and in `docs/ROOT_INTEGRATION_1.1.52.md`. History of changes: [`CHANGELOG.md`](../CHANGELOG.md).
 
-**What has been run on a device.** The plugin stop (header lines and the process sweep) was run on the F50. So were the firewall and boot-script undo and "Turn off and stop", which are also compiled and unit-tested in CI. Those F50 runs covered Bypass without headers, a reboot, two copies sharing one chain, boot files of other plugins and system chains. The per-test results were not written down. The no-root and timeout path was not run on the device.
-
-In 1.4.2 these were also run on the F50: the Turn off dialog wording, the store install dialog with stop commands, a reboot after the Bypass cleanup was removed, Delete and stop of a plugin with header lines, and the sandbox stop hook (a working hook, and a hook that never finishes, which keeps the plugin). Not run on a device: `/api/plugins/data` with a sign-in older than 4 h, which has unit tests and the route table only. Details: [`docs/PLUGIN_STOP.md`](PLUGIN_STOP.md).
-
 ## What MatchiTOOL is, and is not
 
 MatchiTOOL is a root **client**, not a rooting exploit. It calls the device's installed `su` (`su -c sh`) and needs a root manager (Magisk, KernelSU, APatch or another) to grant it access. It does not unlock the bootloader, patch boot images, flash partitions, or install a root manager. It never tries to get around a denied root request. Root status shows the effective UID, the resolved `su` path and a best-effort manager hint; UID 0 is the real check.

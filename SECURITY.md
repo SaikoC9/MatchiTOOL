@@ -80,14 +80,6 @@ trusted VPN or tunnel.
 - `sendat`, `curl`, `jq`, `zreq`, `matchi-sampler` and `matchi-doctor` run as
   root. Their hashes are pinned in `NOTICE.md`. Sources: `docs/BINARIES.md`.
 
-## Tested
-
-- Run on the F50: plugin header stop, process sweep, firewall and boot-script
-  undo, Turn off and stop, the sandbox stop hook.
-- Not run on a device: the no-root and timeout path of the undo, and
-  `/api/plugins/data` with a sign-in older than 4 h (unit tests only).
-- The AdGuard Home door and the Android side of the web gate had no device run
-  recorded in these notes.
 
 ## Other notes
 

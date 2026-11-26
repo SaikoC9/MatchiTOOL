@@ -1,8 +1,6 @@
 # Limit speed
 
-Status: host side written (Step 3), not compiled or run on a device yet. The web
-page is not built. The model below was tested by hand on one ZTE F50 (kernel
-5.4.254, `tc` iproute2-ss171113).
+Status: host side written (Step 3). The web page is not built.
 
 Limit speed caps the download and upload rate of one device on the hotspot or
 USB tether. It runs on the phone with root, using `tc`. The F50 stock firmware
@@ -88,19 +86,6 @@ does not run and asks for no root.
 - **Opening the Devices tab:** it reads the same state and shows whether each
   limit is really on the phone.
 
-## What was tested
-
-On one F50, client 192.168.0.167 on Wi-Fi, 1 Mbit cap:
-
-- Download: HTB on `br0` held the client near 0.8 Mbit/s. The class counters
-  showed overlimits.
-- Upload: police on `wlan0` ingress held the client near 0.86 Mbit/s and
-  dropped 277 packets. `usb0` counted 0 bytes because the client was on Wi-Fi.
-- Modem offload did not bypass `tc` for forwarded hotspot traffic.
-- A filter at priority 1000 stayed on `wlan0` after a hotspot toggle. It is not
-  proven that the toggle recreated the qdisc, so the app does not rely on it.
-
-Not tested yet: a USB tether client, a reboot, two limited devices at once.
 
 ## Routes
 
@@ -124,7 +109,6 @@ set call reads the result back and removes the rule again if it does not match.
   present. If the kernel still refuses them, the set call removes the limit again and says why, instead of leaving a leaky one.
 - **A device that changes IP.** The limit follows only after the next refresh.
 - **Other firmware.** Another build may have different interfaces or an
-  `ifb`-less kernel. Check with the read-only commands in
-  [`F50_CHECKLIST_NETWORK.md`](F50_CHECKLIST_NETWORK.md) once the entry exists.
+  `ifb`-less kernel. Check `tc` and the interfaces first.
 - **The console device.** Limiting the device that runs the console slows the
   console too. The dialog warns about it.

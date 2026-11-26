@@ -19,7 +19,6 @@
 - Added: optional "Fast sampler" for the Live panel (off by default). The shell loop stays as the fallback.
 - Changed: rebuilt `curl` 8.23.0, OpenSSL 3.5.9, `jq` 1.8.2 and `sendat` / `zreq` on Go 1.26.10, with one release pipeline (`release-tools.yml`).
 - Fixed: a false "folder can be written by other users" warning at every start.
--Tested on the F50 (MU300, root, 19-20 Nov 2026) except a tether of 30 minutes or more (T11 in `docs/TESTING.md`). Still to do: run `scripts/pin-actions.sh` Fixed .
 
 # MatchiTOOL 1.4.4
 
@@ -28,7 +27,6 @@
 - Changed: UFI-TOOLS code removed. Plugins now use the `matchi.*` API.
 - Changed: Change IP and Memory Cleaner rewritten. `zreq` and `curl` are MatchiTOOL's own builds.
 - Fixed: Network and radio changes that the router ignored are now detected and retried.
-- Tested on the F50: radio restart, `sendat`, `zreq`. Not run on the device: the gate, Change IP, Memory Cleaner, the new `curl` and the Live stream.
 
 # MatchiTOOL 1.4.2
 
@@ -37,7 +35,6 @@
 - Changed: more routes need a fresh sign-in (plugin toggle, update, screen frame, router set calls).
 - Fixed: SMS delete, long texts and multiple numbers. Full diagnose reads the `sendat` header correctly.
 - Removed: the one-time Bypass cleanup of `boot.sh`. Delete any Bypass lines there by hand.
-- Tested on the F50 (14-15 Nov 2026): stop dialogs, Delete and stop, sandbox stop hook.
 
 # MatchiTOOL 1.4.1
 
@@ -46,7 +43,6 @@
 - Added: sandboxed plugins, plugin integrity checks, HttpOnly session cookie.
 - Changed: root over plain HTTP is off by default. Console password uses 310,000 PBKDF2 iterations.
 - Changed: `WebServer.kt` split into `WebRoutes*.kt`. One version source, `version.properties`.
-- Tested on the F50 (11-15 Nov 2026). Checklist: `docs/F50_CHECKLIST.md`.
 
 # MatchiTOOL 1.4.0
 

@@ -1,6 +1,6 @@
 # Sandboxed plugins
 
-Current for MatchiTOOL 1.4.6 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate). The Kotlin is compiled and unit-tested in CI (the GitHub Actions run); the browser behaviour was tested in Chromium against a mock host (see below); the stop hook was run on the F50 (14 Nov 2026), and the rest of the sandbox is not recorded as run on the F50.
+Current for MatchiTOOL 1.4.6 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate).
 
 A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; legacy `.html` blocks are not loaded.
 
@@ -47,10 +47,4 @@ The page checks first, so a bad call gets a quick, clear error. Anything that ge
 - A root command you approved runs as root. An approved `net:` host is a place data can go.
 - A plugin that uses the page helpers (`createModal`, `runShellWithRoot`, `document`...) will not work sandboxed. This is for plugins written for the bridge.
 - **Import / restore** installs plugins as trusted; switch them again.
-- Seen in Chromium only. Firefox and Safari may treat the policies differently, and nothing was run on the F50's browser.
-
-## Tests
-
-- `node scripts/test_plugin_sandbox.js` (in `validate.sh`): grants, policy, document escaping, per-call checks, storage limits, agreement with `PluginSandbox.kt`.
-- `PluginSandboxTest.kt` (includes the host's `sandboxCallError` rules), `PluginModesTest.kt` (gradle; run by the Unit tests job in CI).
-- `NODE_PATH=... node scripts/phase0/test_plugin_sandbox_browser.js app/src/main/assets/web/index.html` (Chromium + Playwright, not in `validate.sh`): a probe plugin inside the sandbox tries to read the page and session, fetch, XHR, beacon, load images, submit forms, open windows and frames, navigate the console, use `eval` and workers, and to call the bridge for things it was not given. The host log shows none of those attempts arrived. A second plugin is "edited" after the page loads and its next call is refused by the host (the mock host there applies a port of `sandboxCallError`; the Kotlin itself is only covered by the unit tests).
+- Seen in Chromium only. Firefox and Safari may treat the policies differently.

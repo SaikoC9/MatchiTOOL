@@ -2,17 +2,6 @@
 
 Current for MatchiTOOL 1.4.6.
 
-What has been checked. "CI" is the GitHub Actions run (Validate, Unit tests, Build debug and release).
-
-- **Header lines** (`@matchi-uninstall`, `@matchi-check`, `@matchi-boot`, the plan, the shared-folder guard and "a failed stop keeps the plugin") were run on the F50, including a real delete of Bypass v65_17.
-- **The process sweep** (see "Plugins without headers: the process sweep") is compiled and unit-tested in CI. On 13 Nov 2026 it was also run on the F50 with test plugins:
-  - a process found by its tag, and one that ignores SIGTERM;
-  - a watchdog that respawns, and the sweep not killing itself or the root session;
-  - root off (plugin kept) and the 60 second limit (plugin kept);
-  - a sandboxed plugin's tagged command, and a Bypass copy with and without headers.
-- **The sandbox stop hook** was first run on the F50 on 14 Nov 2026 (1.4.2 build). A working hook ended its job and the plugin was deleted. A hook that never finished kept the plugin after 15 s.
-- **Undoing firewall chains and boot scripts, and "Turn off and stop"** (the two sections below about undoing and Turn off and stop) are compiled and unit-tested in CI. The pure logic and the generated shell scripts were also tested on a PC, and the page by node tests. They were run on the F50 too: Bypass without headers, a reboot, two copies sharing one chain, boot files of other plugins and system chains. The per-test results were not written down. The no-root and timeout path was **not run** on the device, so how the undo behaves without root or when time runs out is covered by unit tests only.
-
 Deleting a plugin removes its file and its data. On its own it does **not** stop a background process, remove a firewall rule or take out a boot-script line the plugin created, because MatchiTOOL cannot know about them. A plugin can say how to stop them with header lines. For a plugin that says nothing, MatchiTOOL looks for processes (the sweep, below) and undoes the firewall chains and boot scripts it saw the plugin create (see "Undoing what a plugin left in the system"). When the person deletes the plugin, the Delete dialog lists these commands word for word and, after the root gate and the sign-in password, runs them as root. Deleting a plugin or switching it off also closes its web gate, if it declared one (see `docs/PLUGIN_GATE.md`).
 
 ## The header lines
@@ -112,7 +101,7 @@ Say these plainly to anyone who asks whether deleting a plugin "always" stops it
 
 ### Example: a plugin with no headers
 
-`docs/examples/No_Headers_Example.js` starts a small background job and declares nothing. On Delete the dialog should list the job "found by tag" and offer **Delete and stop**. (The sweep itself was run on the F50 with other test plugins, see the status list at the top; this example file is not recorded as run.)
+`docs/examples/No_Headers_Example.js` starts a small background job and declares nothing. On Delete the dialog should list the job "found by tag" and offer **Delete and stop**.
 
 ## The stop hook (sandboxed plugins only)
 
@@ -133,7 +122,7 @@ matchi.onUninstall(async () => {
 - The host writes the hook's outcome to `shell_audit.log` (`plugin-hook`) for the record. It is never used to decide success.
 - A hook that hangs keeps running in its frame until the page is reloaded; the plugin is kept.
 
-Example: `docs/examples/Sandbox_Hook_Example.js`. (The hook itself was run on the F50 with a test plugin, see the status list at the top; this example file is not recorded as run.)
+Example: `docs/examples/Sandbox_Hook_Example.js`.
 
 ## Undoing what a plugin left in the system
 

@@ -73,4 +73,4 @@ The reaper skips the whole snapshot if it is not root-owned, is group/other writ
 ## Tests
 
 - PC: `scripts/test_reaper.sh`, `test_reaper_install.sh`, `test_reaper_snapshot.sh`, `ReaperScriptTest`, `ReaperModelTest`, `ReaperSettingsTest`, `PluginSnapshotTest`. All run in `scripts/validate.sh`.
-- F50: list in [`TESTING.md`](TESTING.md) section 8.
+- F50: list in [`TESTING.md`](TESTING.md).

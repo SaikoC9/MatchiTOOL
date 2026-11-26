@@ -137,14 +137,6 @@ never reaches the browser. Details: [`PLUGIN_GATE.md`](PLUGIN_GATE.md).
 - Plugins can use root. Do not run two plugins that manage the same modem or
   firewall rules at the same time.
 
-## What was tested
-
-- Header stop and process sweep: run on the F50.
-- Firewall and boot-script undo, and Turn off and stop: unit-tested in CI and
-  run on the F50. The per-test results were not written down.
-- No-root and timeout paths: unit tests only, not run on the device.
-- Sandbox stop hook: run on the F50 on 14 Nov 2026. The rest of the sandbox is
-  not recorded as run on the F50.
 
 ## Reference
 

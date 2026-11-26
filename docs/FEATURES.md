@@ -72,8 +72,7 @@ All read-only.
   configuration. What works depends on the ROM and kernel.
 - **Wi-Fi off while USB tethering** (Network > Wi-Fi, off by default): the
   router's Wi-Fi goes off while tethering works and returns when it stops.
-  It needs the router password saved in the app. Test steps are in
-  [`TESTING.md`](TESTING.md).
+  It needs the router password saved in the app.
 
 ## Live device status
 
@@ -139,7 +138,6 @@ Log Catcher > **Boot capture** installs `matchi_logd.sh` into
   below the configured free space.
 - Remove it from the same panel, with an option to delete the files.
 - Needs root and Magisk, KernelSU or APatch.
-- Not yet verified on a real F50. See [`TESTING.md`](TESTING.md).
 
 ## Updates
 
