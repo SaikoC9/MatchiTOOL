@@ -15,7 +15,7 @@ object SpeedLimitHost {
     private const val READ_MS = 15_000L
     private const val WRITE_MS = 30_000L
 
-    class Outcome(val ok: Boolean, val message: String)
+    class Outcome(val ok: Boolean, val message: String, val v6Note: String = "")
     /** One saved limit as the page shows it. [active] is null when the phone state could not be read or the device has no address yet. */
     class Row(val mac: String, val down: Int?, val up: Int?, val ip: String?, val online: Boolean, val active: Boolean?)
     class View(val rows: List<Row>, val lanUp: Boolean, val rootBusy: Boolean, val note: String)
@@ -33,7 +33,7 @@ object SpeedLimitHost {
         val c = r.content
         return when {
             c.contains("MATCHI_ROOT_BUSY") -> Outcome(false, "br0 already has another traffic setup; nothing was changed")
-            c.contains("MATCHI_OK") -> Outcome(true, "ok")
+            c.contains("MATCHI_OK") -> Outcome(true, "ok", if (c.contains("MATCHI_V6")) c.lines().filter { it.isNotBlank() && it != "MATCHI_OK" }.take(4).joinToString("; ") else "")
             else -> {
                 val errs = c.lines().filter { it.startsWith("MATCHI_ERR") }.take(3).joinToString("; ")
                 Outcome(false, errs.ifBlank { c.trim().take(200).ifBlank { "root call failed" } })
@@ -67,12 +67,17 @@ object SpeedLimitHost {
             SpeedLimitLoop.sync(ctx)
             return Outcome(true, "unlimited")
         }
-        val script = SpeedLimit.applyScript(now, limit) ?: return Outcome(false, "address or value not valid")
+        val script = SpeedLimit.applyScript(now, limit, mac) ?: return Outcome(false, "address or value not valid")
         val out = runScript(ctx, script)
         val after = if (out.ok) readLive(ctx) else null
-        if (!out.ok || after == null || !SpeedLimit.matches(limit, after, octet)) {
+        if (!out.ok || after == null || !SpeedLimit.matches(limit, after, octet, v6 = true)) {
             runScript(ctx, SpeedLimit.removeScript(listOf(octet)))   // do not leave half a limit behind
-            return Outcome(false, if (!out.ok) out.message else "the limit was set but reading it back did not match; it was removed again")
+            val why = when {
+                !out.ok -> out.message
+                out.v6Note.isNotEmpty() -> "the IPv6 rule was refused (${out.v6Note.take(160)}); the limit was removed again so IPv6 does not bypass it"
+                else -> "the limit was set but reading it back did not match; it was removed again"
+            }
+            return Outcome(false, why)
         }
         save(ctx, SpeedLimit.upsert(list, SpeedLimit.Entry(mac, limit, now)))
         LogCatcher.log("INFO", "SpeedLimit", "Limit set for $mac ($now): down=${limit.down ?: "-"} up=${limit.up ?: "-"} KB/s")
@@ -94,7 +99,7 @@ object SpeedLimitHost {
             notes.add("removed ${plan.remove.size} stale: ${if (out.ok) "ok" else out.message}")
         }
         for (t in plan.apply) {
-            val script = SpeedLimit.applyScript(t.ip, t.limit) ?: continue
+            val script = SpeedLimit.applyScript(t.ip, t.limit, t.mac) ?: continue
             val out = runScript(ctx, script)
             if (out.ok) next = SpeedLimit.upsert(next, SpeedLimit.Entry(t.mac, t.limit, t.ip))
             notes.add("${t.mac} at ${t.ip}: ${if (out.ok) "applied" else out.message}")
@@ -114,7 +119,7 @@ object SpeedLimitHost {
             val now = live?.neigh?.get(e.mac)
             val ip = now ?: e.ip
             val octet = SpeedLimit.octetOf(ip)
-            val active = if (live == null || octet == null) null else SpeedLimit.matches(e.limit, live, octet)
+            val active = if (live == null || octet == null) null else SpeedLimit.matches(e.limit, live, octet, v6 = true)
             Row(e.mac, e.limit.down, e.limit.up, ip, now != null, active)
         }
         val note = when {

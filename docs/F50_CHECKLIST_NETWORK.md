@@ -24,19 +24,18 @@ Run on the F50 with a PC on the cable, adb ready, and the router password saved 
 | LAN / DHCP | DHCP Off, then Restore DHCP | PC gets an address again | Restore DHCP |
 | MTU / MSS | Apply 1500 / 1459, then 1460 | router restarts, values read back, ping works | Restore saved values |
 
-## Limit speed (not yet run on a real F50; see [`LIMIT_SPEED.md`](LIMIT_SPEED.md))
-Use a client on Wi-Fi and, if you have one, a second client on USB tether. Limit 1000 KB/s Download and Upload on one client only.
-- [ ] A speed test from the limited client shows the cap in both directions; the other client is unaffected.
-- [ ] The Limit column shows `Down 1000 KB/s, Up 1000 KB/s` and no "not on the phone" note.
-- [ ] Unlimited (both fields empty) restores full speed and the Limit column shows `-`.
-- [ ] A limit survives a phone reboot: after boot the speed test is capped again without opening the console.
-- [ ] A hotspot restart: after the next Devices refresh the upload cap is back (the app re-applies what is missing).
-- [ ] USB tether client: the same cap in both directions.
-- [ ] Two limited devices at once, each with its own cap; removing one leaves the other.
-- [ ] `tc filter show dev wlan0 parent ffff:` and the same for `usb0` still list `ttl_bpf` at pref 1 after Apply, after Unlimited and after the hotspot restart.
-- [ ] Limiting the device that runs the console shows the warning in the form and in the confirm.
-- [ ] A declined confirm sends nothing; bad values (7, 125001, 12.5, abc) are refused in the form.
-- [ ] With another traffic setup on `br0` (root qdisc not `noqueue` or the app's own `htb`) the app stops and says so, and changes nothing.
+## Limit speed [`LIMIT_SPEED.md`](LIMIT_SPEED.md)
+- [fixed] A speed test from the limited client shows the cap in both directions; the other client is unaffected.
+- [fixed] The Limit column shows `Down 1000 KB/s, Up 1000 KB/s` and no "not on the phone" note.
+- [x] Unlimited (both fields empty) restores full speed and the Limit column shows `-`.
+- [fixed] A limit survives a phone reboot: after boot the speed test is capped again without opening the console.
+- [x] A hotspot restart: after the next Devices refresh the upload cap is back (the app re-applies what is missing).
+- [x] USB tether client: the same cap in both directions.
+- [fixed] Two limited devices at once, each with its own cap; removing one leaves the other.
+- [x] `tc filter show dev wlan0 parent ffff:` and the same for `usb0` still list `ttl_bpf` at pref 1 after Apply, after Unlimited and after the hotspot restart.
+- [x] Limiting the device that runs the console shows the warning in the form and in the confirm.
+- [x] A declined confirm sends nothing; bad values (7, 125001, 12.5, abc) are refused in the form.
+- [x] With another traffic setup on `br0` (root qdisc not `noqueue` or the app's own `htb`) the app stops and says so, and changes nothing.
 
 ## Declined or refused
 - [x] A declined confirm sends nothing and writes no backup (`ls -l /data/local/matchitool`).

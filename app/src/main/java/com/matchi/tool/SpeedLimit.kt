@@ -5,7 +5,7 @@ package com.matchi.tool
  * It validates input, builds the shell scripts that run as root, and reads the output of `tc` and `ip neigh` back.
  * The model is described in docs/LIMIT_SPEED.md. Tested by hand on one ZTE F50 (kernel 5.4, iproute2 171113).
  *
- * What it owns, and nothing else: filter priorities 1000..1255 and HTB classes 1:101..1:1ff. Priority 1 on the hotspot
+ * What it owns, and nothing else: filter priorities 1000..1255 (IPv4) and 1300..1555 (IPv6, matched by MAC) and HTB classes 1:101..1:1ff. Priority 1 on the hotspot
  * interfaces belongs to the system (a BPF TTL filter); no script here names it.
  */
 object SpeedLimit {
@@ -14,6 +14,7 @@ object SpeedLimit {
     const val MIN_KBPS = 8
     const val MAX_KBPS = 125_000
     private const val PREF_BASE = 1000
+    private const val PREF6_BASE = 1300
     private const val MINOR_BASE = 0x100
     private const val FIRST_OCTET = 2
     private const val LAST_OCTET = 254
@@ -28,7 +29,11 @@ object SpeedLimit {
         val up: Map<String, Map<Int, Int>>,
         val neigh: Map<String, String>,
         val lanUp: Boolean,
-        val rootBusy: Boolean
+        val rootBusy: Boolean,
+        /** Octets that have an IPv6 (MAC) rule on br0 egress. Null when the read did not include it (older output). */
+        val down6: Set<Int>? = null,
+        /** Interface to (octet to KB/s) of the IPv6 police rules on the hotspot interfaces. Null like [down6]. */
+        val up6: Map<String, Map<Int, Int>>? = null
     )
     data class Todo(val mac: String, val ip: String, val limit: Limit)
     data class Plan(val apply: List<Todo>, val remove: List<Int>)
@@ -61,13 +66,34 @@ object SpeedLimit {
     fun limitError(down: Int?, up: Int?): String? = kbpsError(down, "Download") ?: kbpsError(up, "Upload")
 
     fun prefOf(octet: Int): Int = PREF_BASE + octet
+    /** Priority of the IPv6 filter of the same device (one tc priority can hold one protocol only, so IPv6 gets its own). */
+    fun pref6Of(octet: Int): Int = PREF6_BASE + octet
+
+    /** "aa:bb:cc:dd:ee:ff" to (0xaabbccdd, 0xeeff) for u32 matches; null when not a valid MAC. */
+    private fun macWords(mac: String?): Pair<String, String>? {
+        val m = normalizeMac(mac) ?: return null
+        val h = m.replace(":", "")
+        return Pair("0x" + h.substring(0, 8), "0x" + h.substring(8, 12))
+    }
+    /**
+     * The MAC as three 16-bit words ("0xaabb", "0xccdd", "0xeeff"). The `tc` of this firmware (iproute2 171113) refuses `match u32` at an
+     * offset that is not a multiple of 4 ("Illegal match"), and the destination MAC starts at -14. `match u16` is shifted into place by
+     * tc itself, so the destination MAC is matched as three u16.
+     */
+    private fun mac16(mac: String?): List<String>? {
+        val m = normalizeMac(mac) ?: return null
+        val h = m.replace(":", "")
+        return listOf("0x" + h.substring(0, 4), "0x" + h.substring(4, 8), "0x" + h.substring(8, 12))
+    }
     fun minorOf(octet: Int): String = Integer.toHexString(MINOR_BASE + octet)
     /** Police burst in KB: 20 for small rates, about 50 ms of traffic for large ones (a small burst under-delivers fast links). */
     fun burstKb(kbps: Int): Int = maxOf(20, kbps / 20)
 
     // ---- scripts (run as root, one call each) -----------------------------------------------------------------------
 
-    private const val HEAD = "ERR=0\nstep() { \"\$@\" 2>&1 || { echo \"MATCHI_ERR \$*\"; ERR=1; }; }\n"
+    /** step6 is for the IPv6 rules: a failure is reported (tc's own message, then MATCHI_V6) but does not fail the IPv4 limit. */
+    private const val HEAD = "ERR=0\nstep() { \"\$@\" 2>&1 || { echo \"MATCHI_ERR \$*\"; ERR=1; }; }\n" +
+        "step6() { \"\$@\" 2>&1 || echo \"MATCHI_V6 \$*\"; }\n"
     private const val FOOT = "if [ \"\$ERR\" = 0 ]; then echo MATCHI_OK; fi\n"
     /** Take the root qdisc away again when the last class of ours is gone, but only when it is ours (handle 1:). */
     private const val CLEANUP =
@@ -86,6 +112,7 @@ object SpeedLimit {
     /** Read-only: our classes, the upload filters of each hotspot interface that exists, the neighbours on br0, and br0's root qdisc. */
     const val READ_SCRIPT =
         "echo '--- classes'; tc class show dev br0 2>/dev/null\n" +
+        "echo '--- filters'; tc filter show dev br0 parent 1: 2>/dev/null\n" +
         "for D in wlan0 usb0; do [ -d /sys/class/net/\$D ] && { echo \"--- up \$D\"; tc filter show dev \$D parent ffff: 2>/dev/null; }; done\n" +
         "echo '--- neigh'; ip neigh show dev br0 2>/dev/null\n" +
         "echo '--- root'; tc qdisc show dev br0 2>/dev/null\n"
@@ -94,35 +121,52 @@ object SpeedLimit {
         val p = prefOf(o)
         val m = minorOf(o)
         val sb = StringBuilder()
+        val p6 = pref6Of(o)
         sb.append("tc filter del dev br0 parent 1: prio $p 2>/dev/null\n")
+        sb.append("tc filter del dev br0 parent 1: prio $p6 2>/dev/null\n")
         sb.append("tc class del dev br0 classid 1:$m 2>/dev/null\n")
-        for (i in UP_IFS) sb.append("tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+        for (i in UP_IFS) {
+            sb.append("tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+            sb.append("tc filter del dev $i parent ffff: prio $p6 2>/dev/null\n")
+        }
         return sb.toString()
     }
 
-    /** Sets (or, for a null direction, clears) one device's limits. Null when the address or a value is not valid. */
-    fun applyScript(ip: String, limit: Limit): String? {
+    /**
+     * Sets (or, for a null direction, clears) one device's limits. Null when the address or a value is not valid.
+     * With a valid [mac] the device's IPv6 traffic is limited too: its addresses rotate, so IPv6 is matched on the Ethernet
+     * MAC (destination on br0 egress, source on the hotspot ingress), both into the same class / the same rate. The IPv6 rules are
+     * reported through `step6` (MATCHI_V6 plus tc's message): the caller reads the result back and does not call the limit active without them.
+     */
+    fun applyScript(ip: String, limit: Limit, mac: String? = null): String? {
         val o = octetOf(ip) ?: return null
         if (limitError(limit.down, limit.up) != null) return null
         val p = prefOf(o)
+        val p6 = pref6Of(o)
+        val w = macWords(mac)
+        val w16 = mac16(mac)
         val m = minorOf(o)
         val down = limit.down
         val up = limit.up
         val sb = StringBuilder(HEAD)
         if (down != null) sb.append(ENSURE_ROOT)
         sb.append("tc filter del dev br0 parent 1: prio $p 2>/dev/null\n")
+        sb.append("tc filter del dev br0 parent 1: prio $p6 2>/dev/null\n")
         if (down != null) {
             sb.append("step tc class replace dev br0 parent 1: classid 1:$m htb rate ${down}kbps ceil ${down}kbps\n")
             sb.append("step tc filter add dev br0 parent 1: protocol ip prio $p u32 match ip dst $ip/32 flowid 1:$m\n")
+            if (w16 != null) sb.append("step6 tc filter add dev br0 parent 1: protocol ipv6 prio $p6 u32 match u16 ${w16[0]} 0xffff at -14 match u16 ${w16[1]} 0xffff at -12 match u16 ${w16[2]} 0xffff at -10 flowid 1:$m\n")
         } else {
             sb.append("tc class del dev br0 classid 1:$m 2>/dev/null\n")
         }
         for (i in UP_IFS) {
             sb.append("if [ -d /sys/class/net/$i ]; then\n")
             sb.append(" tc filter del dev $i parent ffff: prio $p 2>/dev/null\n")
+            sb.append(" tc filter del dev $i parent ffff: prio $p6 2>/dev/null\n")
             if (up != null) {
                 sb.append(" tc qdisc show dev $i 2>/dev/null | grep -qE \"qdisc (ingress|clsact) ffff:\" || step tc qdisc add dev $i handle ffff: ingress\n")
                 sb.append(" step tc filter add dev $i parent ffff: protocol ip prio $p u32 match ip src $ip/32 action police rate ${up}kbps burst ${burstKb(up)}k drop\n")
+                if (w != null) sb.append(" step6 tc filter add dev $i parent ffff: protocol ipv6 prio $p6 u32 match u32 ${w.first} 0xffffffff at -8 match u16 ${w.second} 0xffff at -4 action police rate ${up}kbps burst ${burstKb(up)}k drop\n")
             }
             sb.append("fi\n")
         }
@@ -198,6 +242,35 @@ object SpeedLimit {
         return out
     }
 
+    private val PREF6_LINE = Regex("protocol ipv6 pref ([0-9]+) u32\\b.*\\bflowid 1:([0-9a-f]+)")
+
+    /** Octets with an IPv6 rule on br0 egress: a real rule line (it has the flowid), priority 1300 + octet. */
+    private fun parseDown6(lines: List<String>): Set<Int> {
+        val out = HashSet<Int>()
+        for (line in lines) {
+            val m = PREF6_LINE.find(line) ?: continue
+            val o = (m.groupValues[1].toIntOrNull() ?: continue) - PREF6_BASE
+            if (o in FIRST_OCTET..LAST_OCTET) out.add(o)
+        }
+        return out
+    }
+
+    /** Like [parseUp] for the IPv6 police rules (priority 1300 + octet). */
+    private fun parseUp6(lines: List<String>): Map<Int, Int> {
+        val out = HashMap<Int, Int>()
+        var curPref: Int? = null
+        for (line in lines) {
+            val pm = PREF.find(line)
+            if (pm != null) curPref = if (pm.groupValues[2] == "u32") pm.groupValues[1].toIntOrNull() else null
+            if (!line.contains("police")) continue
+            val rm = RATE.find(line) ?: continue
+            val o = (curPref ?: continue) - PREF6_BASE
+            if (o !in FIRST_OCTET..LAST_OCTET) continue
+            toKbps(rm.groupValues[1], rm.groupValues[2])?.let { out[o] = it }
+        }
+        return out
+    }
+
     /** Parses the output of [READ_SCRIPT]. */
     fun parseLive(out: String): Live {
         val sections = LinkedHashMap<String, MutableList<String>>()
@@ -226,13 +299,16 @@ object SpeedLimit {
         val root = sections["root"].orEmpty().joinToString("\n")
         val lanUp = root.isNotBlank()
         val busy = lanUp && !(root.contains("qdisc htb 1:") || root.contains("qdisc noqueue"))
-        return Live(down, up, parseNeigh(sections["neigh"].orEmpty()), lanUp, busy)
+        val withV6 = sections.containsKey("filters")
+        val down6 = if (withV6) parseDown6(sections["filters"].orEmpty()) else null
+        val up6 = if (withV6) up.keys.associateWith { parseUp6(sections["up $it"].orEmpty()) } else null
+        return Live(down, up, parseNeigh(sections["neigh"].orEmpty()), lanUp, busy, down6, up6)
     }
 
     private fun close(want: Int, have: Int): Boolean = Math.abs(want - have) <= maxOf(2, want / 20)
 
-    /** True when the phone shows exactly this device's limit: each wanted direction present with about the right rate, each unwanted one absent. */
-    fun matches(limit: Limit, live: Live, octet: Int): Boolean {
+    /** True when the phone shows exactly this device's limit: each wanted direction present with about the right rate, each unwanted one absent. With [v6] the IPv6 rules count too. */
+    fun matches(limit: Limit, live: Live, octet: Int, v6: Boolean = false): Boolean {
         val d = limit.down
         val u = limit.up
         val have = live.down[octet]
@@ -240,6 +316,18 @@ object SpeedLimit {
         val upOk = live.up.values.all { m ->
             val v = m[octet]
             if (u == null) v == null else (v != null && close(u, v))
+        }
+        return downOk && upOk && (!v6 || matches6(limit, live, octet))
+    }
+
+    /** The IPv6 (MAC) rules: present where the limit is wanted, absent where it is not. Not judged when the read had no IPv6 information. */
+    private fun matches6(limit: Limit, live: Live, octet: Int): Boolean {
+        val d6 = live.down6
+        val u6 = live.up6
+        val downOk = d6 == null || ((octet in d6) == (limit.down != null))
+        val upOk = u6 == null || u6.values.all { m ->
+            val v = m[octet]
+            if (limit.up == null) v == null else (v != null && close(limit.up, v))
         }
         return downOk && upOk
     }
@@ -265,7 +353,7 @@ object SpeedLimit {
             val o = octetOf(target) ?: continue
             if (now == null && owner[target] != null) { stale.add(o); continue }
             wanted.add(o)
-            if (target != last || !matches(e.limit, live, o)) todo.add(Todo(e.mac, target, e.limit))
+            if (target != last || !matches(e.limit, live, o, v6 = true)) todo.add(Todo(e.mac, target, e.limit))
         }
         return Plan(todo, stale.filter { it !in wanted })
     }
