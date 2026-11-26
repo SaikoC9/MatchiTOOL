@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_REAPER_VERSION=4
+# MATCHI_REAPER_VERSION=5
 # MatchiTOOL uninstall reaper. Runs as root, OUTSIDE the app sandbox (installed by the app to /data/local/matchitool/reaper/).
 # Android runs no code of an app when it is uninstalled, so this script watches for the app to be gone and then removes what the
 # app left on the device (docs/UNINSTALL_WIPE.md). It needs no app file, no jq, no curl and never talks to the router (D6).
@@ -24,6 +24,7 @@ LOGF=/data/local/matchitool-uninstall.log
 LOGD=/data/adb/service.d/matchi_logd.sh
 STUB=/data/adb/service.d/matchi_reaper.sh
 LEGACY="/data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean /data/local/tmp/mt_isms.sh /data/local/tmp/matchi_update.log /data/local/tmp/.matchi_out_prev.apk"
+BYPASS="/data/local/matchi_ttl /data/local/matchi_dpi /data/local/matchi_lock /data/local/matchi_boot"
 PORT=2334
 IFP="br ap swlan usb rndis ecm"
 AGH=AGH_UI
@@ -103,7 +104,7 @@ ok_remove() {
     "$B"|"$B"/*) return 0;;
     "$LOGD"|"$STUB") return 0;;
   esac
-  for p in $LEGACY; do [ "$1" = "$p" ] && return 0; done
+  for p in $LEGACY $BYPASS; do [ "$1" = "$p" ] && return 0; done
   return 1
 }
 
@@ -408,7 +409,7 @@ step_files() {
     [ "${e##*/}" = reaper ] && continue
     rm -rf "$e" 2>/dev/null
   done
-  for p in $LEGACY; do safe_rm "$p"; done
+  for p in $LEGACY $BYPASS; do safe_rm "$p"; done
   snap_each P | while read -r p; do
     case $p in "$B"|"$B"/*) continue;; esac
     if plugin_path_ok "$p" && ! mount_inside "$p"; then rm -rf "$R$p" 2>/dev/null; fi
@@ -432,7 +433,7 @@ leftover() {
   done
   tc_left
   [ -e "$R$LOGD" ] && echo "logd-stub"
-  for p in $LEGACY; do [ -e "$R$p" ] || [ -L "$R$p" ] && echo "tmp-file"; done
+  for p in $LEGACY $BYPASS; do [ -e "$R$p" ] || [ -L "$R$p" ] && echo "tmp-file"; done
   for e in "$R$B"/* "$R$B"/.[!.]* "$R$B"/..?*; do
     { [ -e "$e" ] || [ -L "$e" ]; } || continue
     [ "${e##*/}" = reaper ] && continue

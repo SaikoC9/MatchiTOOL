@@ -22,6 +22,11 @@ object Footprint {
         "/data/local/tmp/matchi_update.log", "/data/local/tmp/.matchi_out_prev.apk"
     )
 
+    /** Folders of the Bypass plugin (TTL, DPI, lock, boot entry). Not plugin-deletable (PluginPaths protects them), so the reaper removes them on uninstall. Same list as matchi_reaper.sh BYPASS. */
+    val BYPASS_DIRS = listOf(
+        "/data/local/matchi_ttl", "/data/local/matchi_dpi", "/data/local/matchi_lock", "/data/local/matchi_boot"
+    )
+
     /** One-line retry log of the reaper (D4). Outside the folder, so it needs its own entry. Removed when the wipe is clean. */
     const val REAPER_LOG = "/data/local/matchitool-uninstall.log"
 
@@ -61,7 +66,7 @@ object Footprint {
         path.contains("..") || path.contains("//") || !path.startsWith("/") -> Class.UNKNOWN
         path in NOT_OURS -> Class.LEAVE
         path == BASE_DIR || path.startsWith("$BASE_DIR/") -> Class.REMOVE
-        path in BOOT_STUBS || path in LEGACY_TMP || path == REAPER_LOG -> Class.REMOVE
+        path in BOOT_STUBS || path in LEGACY_TMP || path == REAPER_LOG || BYPASS_DIRS.any { path == it || path.startsWith("$it/") } -> Class.REMOVE
         else -> Class.UNKNOWN
     }
 
