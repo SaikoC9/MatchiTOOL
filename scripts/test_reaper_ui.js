@@ -30,7 +30,7 @@ t('outdated watcher is still watching', () => {
 });
 t('switch OFF: says nothing watches; a leftover watcher is flagged', () => {
   const off = ui.statusView({ ok: true, installed: false, running: false, stub: false }, false, '');
-  assert.strictEqual(off.level, 'warn'); assert.ok(/Nothing is watching/.test(off.text)); assert.ok(/leaves the items below/.test(off.text));
+  assert.strictEqual(off.level, 'warn'); assert.ok(/Nothing is watching/.test(off.text)); assert.ok(/items below stay/.test(off.text));
   assert.ok(/still there/.test(ui.statusView(ok, false, '').text));
 });
 t('OFF asks with the host text and a closing question', () => {

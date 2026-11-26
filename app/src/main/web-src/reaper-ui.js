@@ -9,18 +9,18 @@
   /* What the status line says. [st] = answer of GET /api/reaper/status, [enabled] = the saved switch, [err] = a message when the state could not be read.
      Returns {text, level}: level is good (all in order), warn (needs attention), bad (cannot work) or mut (neutral). Nothing is claimed that the host did not report. */
   function statusView(st, enabled, err) {
-    if (err) return { text: 'State not read: ' + String(err), level: 'warn' };
+    if (err) return { text: 'Can\'t read state: ' + String(err), level: 'warn' };
     if (!st) return { text: 'Checking…', level: 'mut' };
-    if (st.ok === false) return { text: 'State not read: ' + String(st.error || 'root did not answer'), level: 'warn' };
+    if (st.ok === false) return { text: 'Can\'t read state: ' + String(st.error || 'root did not answer'), level: 'warn' };
     const ver = st.installedVersion != null ? ' (version ' + st.installedVersion + ')' : '';
     if (!enabled) {
-      if (st.installed || st.running || st.stub) return { text: 'Switched off, but a watcher or its boot script is still there. Turn the switch on and off again to remove it.', level: 'warn' };
-      return { text: 'Off. Nothing is watching. Uninstalling now leaves the items below on the phone.', level: 'warn' };
+      if (st.installed || st.running || st.stub) return { text: 'Off, but the watcher is still there. Turn on, then off, to remove it.', level: 'warn' };
+      return { text: 'Off. Nothing is watching. The items below stay after uninstall.', level: 'warn' };
     }
-    if (!st.installed) return { text: 'Not installed yet. The host installs it a short time after it starts. Press Check again.', level: 'warn' };
-    if (!st.running) return { text: 'Installed' + ver + ', but the watcher is not running. The host starts it again soon; press Check again.', level: 'bad' };
-    if (!st.stub || st.stubCurrent === false) return { text: 'Watching' + ver + ', but the boot script is missing or old: after a reboot nothing watches until the host starts again (no Magisk or KernelSU boot folder?).', level: 'warn' };
-    if (st.outdated) return { text: 'Watching' + ver + '. A newer watcher (version ' + st.bundledVersion + ') is installed at the next host start.', level: 'good' };
+    if (!st.installed) return { text: 'Not installed yet. It installs soon after the host starts. Press Check again.', level: 'warn' };
+    if (!st.running) return { text: 'Installed' + ver + ', but not running. It restarts soon. Press Check again.', level: 'bad' };
+    if (!st.stub || st.stubCurrent === false) return { text: 'Watching' + ver + ', but the boot script is missing or old. After a reboot nothing watches until the host starts.', level: 'warn' };
+    if (st.outdated) return { text: 'Watching' + ver + '. Updates to version ' + st.bundledVersion + ' at the next host start.', level: 'good' };
     return { text: 'Watching' + ver + '. Boot script in place.', level: 'good' };
   }
 
@@ -103,13 +103,13 @@
 
   function build() {
     const c = el('div', 'card pop'); c.id = 'reaperpop';
-    c.appendChild(el('div', 'rp-t', 'Wipe everything when MatchiTOOL is uninstalled'));
-    const sw = el('div', 'rp-sw'), tog = el('button', 'rp-tog'); tog.type = 'button'; tog.setAttribute('role', 'switch'); tog.setAttribute('aria-label', 'Wipe everything when MatchiTOOL is uninstalled');
+    c.appendChild(el('div', 'rp-t', 'Wipe everything on uninstall'));
+    const sw = el('div', 'rp-sw'), tog = el('button', 'rp-tog'); tog.type = 'button'; tog.setAttribute('role', 'switch'); tog.setAttribute('aria-label', 'Wipe everything on uninstall');
     const state = el('span', '', '…'); sw.appendChild(tog); sw.appendChild(state); c.appendChild(sw);
     const warn = el('p', 'rp-p'); c.appendChild(warn);
     const stBox = el('div', 'rp-st mut'), dot = el('span', 'rp-dot'), stText = el('span', '', 'Checking…'); stBox.appendChild(dot); stBox.appendChild(stText); c.appendChild(stBox);
     const check_ = el('button', '', 'Check again'); check_.type = 'button'; c.appendChild(check_);
-    c.appendChild(el('div', 'rp-t', 'What the wipe removes')); c.lastChild.style.marginTop = '12px';
+    c.appendChild(el('div', 'rp-t', 'What gets removed')); c.lastChild.style.marginTop = '12px';
     const list = el('div'); c.appendChild(list);
     const plugin = el('p', 'rp-p'); c.appendChild(plugin);
     const note = el('div', 'rp-note'); c.appendChild(note);
@@ -122,7 +122,7 @@
 
   function mount() {
     const hd = document.querySelector('header'); if (!hd || document.getElementById('reaperBtn')) return;
-    const btn = el('button', 'hd-tool', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button'; btn.title = 'Wipe everything when MatchiTOOL is uninstalled';
+    const btn = el('button', 'hd-tool', 'Wipe on uninstall'); btn.id = 'reaperBtn'; btn.type = 'button'; btn.title = 'Wipe everything on uninstall';
     btn.onclick = () => { if (!document.getElementById('reaperpop')) build(); openPop('reaperpop'); paint(); loadInfo().then(check); };
     let w = document.getElementById('hdTools');
     if (!w) { w = el('span'); w.id = 'hdTools'; hd.insertBefore(w, hd.querySelector('#langsel') || hd.querySelector('#logoutbtn')); }
