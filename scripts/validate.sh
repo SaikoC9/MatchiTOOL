@@ -49,6 +49,7 @@ if command -v setsid >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 && comm
   bash "$(dirname "$0")/test_boot_tasks.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_logd.sh" </dev/null || exit 1
   bash "$(dirname "$0")/test_reaper_install.sh" </dev/null || exit 1   # uninstall reaper: install, update, stub, switch OFF, end-to-end wipe in a fake root folder
+  bash "$(dirname "$0")/test_reaper.sh" </dev/null || exit 1   # uninstall reaper: when it may wipe (early boot, pm errors, reinstall mid-wipe), tc, symlink trap, retry, no self-kill
   bash "$(dirname "$0")/test_reaper_snapshot.sh" </dev/null || exit 1   # uninstall reaper: plugin snapshot writer, wipe from the snapshot, path-rule parity with Kotlin
 else
   echo "skipped: boot / log shell tests (setsid, pgrep or node missing)"

@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_REAPER_VERSION=3
+# MATCHI_REAPER_VERSION=4
 # MatchiTOOL uninstall reaper. Runs as root, OUTSIDE the app sandbox (installed by the app to /data/local/matchitool/reaper/).
 # Android runs no code of an app when it is uninstalled, so this script watches for the app to be gone and then removes what the
 # app left on the device (docs/UNINSTALL_WIPE.md). It needs no app file, no jq, no curl and never talks to the router (D6).
@@ -453,8 +453,8 @@ tries_done() {
 
 # Returns 0 = finished (clean, or gave up), 1 = incomplete, try again later, 2 = the app is back, nothing more to do.
 run_wipe() {
-  n=$(tries_done)
-  [ "$n" -ge "$MAX_TRIES" ] && { say "gave up after $n tries"; return 0; }
+  tries=$(tries_done)   # not "n": the helpers below use n as their own loop counter (all variables are global in sh), which reset the count and the limit never came
+  [ "$tries" -ge "$MAX_TRIES" ] && { say "gave up after $tries tries"; return 0; }
   confirmed_gone || return 2
   SNAP=$(snap_text)
   TAGS=$(tags_wanted)
@@ -471,7 +471,7 @@ run_wipe() {
   kill_all                                       # anything a stop command or a late plugin start left
   left=$(leftover | sort -u | tr '\n' ' ')
   if [ -n "$left" ]; then
-    echo "$(date '+%F %T') retry=$((n + 1)) left=$left" > "$R$LOGF" 2>/dev/null
+    echo "$(date '+%F %T') retry=$((tries + 1)) left=$left" > "$R$LOGF" 2>/dev/null
     say "left: $left"
     return 1
   fi
