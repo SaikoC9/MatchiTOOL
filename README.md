@@ -18,7 +18,7 @@ MatchiTOOL does not root the device. Install Magisk, KernelSU or APatch first, t
 - In-console APK update with signature and SHA-256 check
 - Wipe on uninstall
 
-Seven built-in tools load by themselves: AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Screen Control. See [`docs/FEATURES.md`](docs/FEATURES.md).
+The seven built-in tools (AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, and Screen Control) load by themselves. See [`docs/FEATURES.md`](docs/FEATURES.md).
 
 ## Install
 
