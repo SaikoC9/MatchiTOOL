@@ -155,35 +155,37 @@ object Tls {
     private val commonIps = listOf("192.168.0.1", "192.168.1.1", "192.168.42.1", "192.168.42.129", "192.168.43.1", "192.168.49.1", "10.0.0.1")
 
     /** Private IPv4 addresses this device has right now (hotspot, USB, Wi-Fi). */
-    fun currentIps(): Set<String> = try {
+    fun currentIps(): Set<String> = Quiet.orElse("Tls.currentIps", emptySet<String>()) {
         val out = LinkedHashSet<String>()
-        for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return emptySet())) {
+        for (nif in java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces() ?: return@orElse emptySet<String>())) {
             if (!nif.isUp || nif.isLoopback) continue
             for (a in java.util.Collections.list(nif.inetAddresses)) {
                 if (a is java.net.Inet4Address && a.isSiteLocalAddress) a.hostAddress?.let { out.add(it) }
             }
         }
         out
-    } catch (_: Exception) { emptySet() }
+    }
 
     /** Addresses written into a new certificate: the ones it had, the common gateways, the router host and what the device has now. */
     private fun wantedIps(ctx: Context, previous: Set<String>): List<String> {
         val all = LinkedHashSet<String>()
         all.addAll(previous); all.addAll(commonIps); all.addAll(currentIps())
-        try { all.add(Prefs.zteHost(ctx)) } catch (_: Exception) {}
+        Quiet.orElse("Tls.zteHost", false) { all.add(Prefs.zteHost(ctx)) }
         return all.filter { ipv4.matches(it) }
     }
 
     /** IP addresses named in a certificate's Subject Alternative Names. */
-    private fun sanIps(c: X509Certificate): Set<String> = try {
+    private fun sanIps(c: X509Certificate): Set<String> = Quiet.orElse("Tls.sanIps", emptySet<String>()) {
         (c.subjectAlternativeNames ?: emptyList()).filter { (it[0] as? Int) == 7 }.mapNotNull { it[1] as? String }.toSet()
-    } catch (_: Exception) { emptySet() }
+    }
 
     /** The key pair for an RSA private key that carries its CRT parameters (it does when made by KeyPairGenerator), else null. */
-    private fun rebuildKeyPair(k: java.security.PrivateKey?): KeyPair? = try {
+    private fun rebuildKeyPair(k: java.security.PrivateKey?): KeyPair? {
         val crt = k as? RSAPrivateCrtKey ?: return null
-        KeyPair(KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(crt.modulus, crt.publicExponent)), k)
-    } catch (_: Exception) { null }
+        return Quiet.orElse<KeyPair?>("Tls.rebuildKeyPair", null) {
+            KeyPair(KeyFactory.getInstance("RSA").generatePublic(RSAPublicKeySpec(crt.modulus, crt.publicExponent)), k)
+        }
+    }
 
     private fun ext(oid: ByteArray, critical: Boolean, value: ByteArray): ByteArray =
         der(0x30, cat(der(0x06, oid), if (critical) der(0x01, byteArrayOf(0xff.toByte())) else ByteArray(0), der(0x04, value)))
