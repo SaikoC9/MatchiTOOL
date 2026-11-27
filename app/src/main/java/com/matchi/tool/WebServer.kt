@@ -345,14 +345,6 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         if (uri == "/" || uri == "/index.html") {
             return servePage(s)
         }
-        // The console's own public certificate, so it can be trusted once on the PC (the browser's "not private" warning then stops).
-        // Same hotspot-only network check as every other path; it is a public certificate, no secret.
-        if (uri == "/cert.pem" && s.method == Method.GET) {
-            val pem = Tls.certPem() ?: return harden(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404"))
-            return harden(newFixedLengthResponse(Response.Status.OK, "application/x-pem-file", pem)).also {
-                it.addHeader("Content-Disposition", "attachment; filename=\"matchitool.pem\"")
-            }
-        }
         if (!uri.startsWith("/api/")) return harden(newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "404"))
 
         // Reject cross-origin browser requests. Same-origin page/plugin requests continue to work.
