@@ -3,6 +3,7 @@
 - Added: uninstall wipe. A root watcher removes MatchiTOOL's root-side files, firewall rules, speed limits and programs after you uninstall. Plugins are cleaned from a saved list.
 - Added: home button **Wipe on uninstall** (ON by default) with status and list.
 - Not touched on uninstall: Wi-Fi, LAN IP, IMEI, router settings, USB mode, adb.
+- Fixed: boot log capture could silently not start after a reboot or power cut when the old `logd.pid` named another running process. The script and the app now check the process name before trusting or killing a pid. Boot script version 7.
 
 # MatchiTOOL 1.4.5
 

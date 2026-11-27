@@ -82,4 +82,14 @@ class BootLogdModelTest {
         assertEquals(0, BootLogdModel.Config(retainDays = -5).clamped().retainDays)
         assertTrue(BootLogdModel.Config(retainDays = 7).render().contains("RETAIN_DAYS=7"))
     }
+
+    @Test fun pidHelperNeedsTheProcessNameBeforeAnyKill() {
+        val fn = BootLogdModel.PID_FN
+        // A pid file can outlive a reboot and name a process that has nothing to do with the capture script.
+        assertTrue(fn.contains("ps -A -o PID,ARGS"))
+        assertTrue(fn.contains("matchi_logd.sh"))
+        assertTrue(fn.contains("kill -0"))
+        assertFalse(fn.contains("/proc/"))   // command lines come from ps (docs/PLUGIN_RULES.md)
+        assertTrue(fn.endsWith("\n"))        // callers append their own command on the next line
+    }
 }

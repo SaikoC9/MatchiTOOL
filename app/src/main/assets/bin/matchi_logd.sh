@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_LOGD_VERSION=6
+# MATCHI_LOGD_VERSION=7
 # MatchiTOOL boot log capture. Installed by the app to /data/adb/service.d/ (Magisk runs it as root at boot).
 # Runs Android's own logcat (all buffers) and dmesg -w straight into size-capped rotating files, independent of the
 # app: if the app is killed, updated or crashes, capture goes on. Never filters or drops lines at capture time.
@@ -32,8 +32,23 @@ fi
 mkdir -p "$L" 2>/dev/null || exit 1
 chmod 700 "$D" "$L" 2>/dev/null
 
+# True when PID $1 is a running copy of this script. A pid file that survived a reboot or a hard kill can hold a number that
+# now belongs to some other process (or to this very shell), so "kill -0" alone is not proof. The command line comes from
+# ps, never from /proc/PID/cmdline (docs/PLUGIN_RULES.md). Without any ps output we fall back to the plain kill -0 answer.
+is_logd() {
+  case $1 in ''|*[!0-9]*) return 1;; esac
+  [ "$1" = "$$" ] && return 1
+  kill -0 "$1" 2>/dev/null || return 1
+  ps_all=$(ps -A -o PID,ARGS 2>/dev/null)
+  [ -n "$ps_all" ] || return 0
+  printf '%s\n' "$ps_all" | { while read -r q a; do
+    if [ "$q" = "$1" ]; then case $a in *matchi_logd.sh*) exit 0;; esac; exit 1; fi
+  done; exit 1; }
+}
+
 # One instance only.
-if [ -f "$L/logd.pid" ] && kill -0 "$(cat "$L/logd.pid" 2>/dev/null)" 2>/dev/null; then exit 0; fi
+OLDPID=$(cat "$L/logd.pid" 2>/dev/null)
+if [ -n "$OLDPID" ] && is_logd "$OLDPID"; then exit 0; fi
 echo $$ > "$L/logd.pid"
 
 note() { echo "$(date '+%F %T') $*" >> "$L/events.log" 2>/dev/null; }
@@ -55,6 +70,7 @@ thermal_zones() {
   echo
 }
 note "capture started (script v${VER:-?}, pid $$, ${FILES} x ${FILE_KB} KB per source)"
+[ -n "$OLDPID" ] && note "logd.pid held $OLDPID, which is not a running copy of this script: ignored"
 
 # Context header: what the device looked like when capture began.
 {
