@@ -1,50 +1,48 @@
 # Sandboxed plugins
 
-Current for MatchiTOOL 1.4.6 (the sandbox is unchanged since 1.4.1, except that sandboxed plugins can't use the web gate).
+For 1.4.6 (sandbox unchanged since 1.4.1, except sandboxed plugins cannot use the web gate).
 
-A plugin normally runs **in the console page**, with the signed-in session, and can do anything the page can. A plugin you switch to **Sandbox** (Plugins, the shield button on its row) runs in an isolated frame instead. **Trusted stays the default**; nothing changes for a plugin you do not switch. Only `.js` plugins can be sandboxed; legacy `.html` blocks are not loaded.
+A plugin normally runs in the console page with your session. A plugin switched to **Sandbox** (Plugins, shield button) runs in an isolated frame. **Trusted stays the default.** Only `.js` plugins can be sandboxed.
 
 ## What the sandbox is
 
-- An `<iframe sandbox="allow-scripts">` without `allow-same-origin`: the plugin has an opaque origin. It cannot read the page, its variables or DOM, has no cookie, no `localStorage` and no `/api` access (its requests are refused by the frame's own policy, and the host refuses `Origin: null` anyway).
-- The frame has its own Content-Security-Policy on top of the page's: no `eval`, no frames, no forms, no workers, and connections only to the `net:` hosts you approved over https.
-- Its only way out is a message bridge, `window.matchi`. The page checks every call against what you approved, then relays device calls to the host (`POST /api/plugins/call`), which checks the stored approval **again on every call**.
-- It runs in the background from page load; its window opens from the **Plugin actions** menu and **Close** only hides it.
+- `<iframe sandbox="allow-scripts">` without `allow-same-origin`: opaque origin. No page, variables, DOM, cookie, `localStorage` or `/api` access (the host also refuses `Origin: null`).
+- Own Content-Security-Policy on top of the page's: no `eval`, frames, forms or workers; connections only to approved `net:` hosts over https.
+- Only exit: the message bridge `window.matchi`. The page checks each call against what you approved, then relays device calls to `POST /api/plugins/call`, where the host checks the stored approval **again on every call**.
+- Runs in the background from page load. Its window opens from the **Plugin actions** menu; **Close** only hides it.
 
 ## What a plugin can call
 
-Always: `matchi.toast(text, color?)` (shown as `[Plugin name] text`), `matchi.info()`, `matchi.close()`, `matchi.storage.get/set/remove/keys` (its own private area, 256 KB, 100 keys).
+Always: `matchi.toast(text, color?)` (shown as `[Plugin name] text`), `matchi.info()`, `matchi.close()`, `matchi.storage.get/set/remove/keys` (private, 256 KB, 100 keys).
 
-`matchi.onUninstall(fn)` registers the plugin's own **stop code**. It needs no header and no approval of its own (it gives no new power: every call `fn` makes is checked like any other call and can use only what was approved). When the person chooses "Delete and stop", the page runs `fn` in the frame for at most 15 seconds, then MatchiTOOL scans again and only a clean scan lets the delete go through; a hook that throws or does not finish keeps the plugin. Details and limits: `docs/PLUGIN_STOP.md` ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`. Unit-tested, and run on the F50 on 14 Nov 2026: a working hook ended its job and the plugin was deleted; a hook that never finished kept the plugin after 15 s.
+`matchi.onUninstall(fn)` registers the plugin's own stop code. No header or extra approval: every call `fn` makes is checked like any other. On "Delete and stop" the page runs `fn` in the frame for at most 15 s, then MatchiTOOL scans again; only a clean scan lets the delete go through. A hook that throws or does not finish keeps the plugin. Details: [`PLUGIN_STOP.md`](PLUGIN_STOP.md) ("The stop hook"). Example: `docs/examples/Sandbox_Hook_Example.js`.
 
-**Turn off and stop does not run the hook.** The hook belongs to uninstalling, so it runs only for "Delete and stop". Switching a sandboxed plugin off with "Turn off and stop" runs its declared `@matchi-uninstall` commands (each also granted with `@matchi-needs shell:`), the process sweep and the undo of firewall chains and boot scripts, but not `fn`. A plugin with a hook still gets the sweep and the undo on "Delete and stop", and the hook's own result is never believed: the scan afterwards decides.
+**Turn off and stop does not run the hook.** It runs the declared `@matchi-uninstall` commands (each also granted via `@matchi-needs shell:`), the process sweep and the undo, but not `fn`. On "Delete and stop" the sweep and undo still apply, and the hook's own result is never believed: the scan decides.
 
 Only when declared in the first 80 lines **and** approved:
 
-| header line | gives |
+| Header | Gives |
 | --- | --- |
-| `// @matchi-needs at.read` | `matchi.at('AT+CSQ')`: pure AT reads only (the same rule as the host's own) |
-| `// @matchi-needs router: signalbar,lan_ipaddr` | `matchi.router.get(['signalbar'])`: those router fields, read-only (at most 20) |
-| `// @matchi-needs shell: cat /proc/uptime` | `matchi.shell('cat /proc/uptime')`: **that exact text**, nothing added (at most 10, 300 characters, must pass `shellDanger`) |
-| `// @matchi-needs net: api.example.com` | the frame may contact `https://api.example.com`; the host must also be on **Plugins > Network rules** |
+| `// @matchi-needs at.read` | `matchi.at('AT+CSQ')`: pure AT reads only |
+| `// @matchi-needs router: signalbar,lan_ipaddr` | `matchi.router.get([...])`: those fields, read-only (max 20) |
+| `// @matchi-needs shell: cat /proc/uptime` | `matchi.shell('cat /proc/uptime')`: **that exact text** (max 10, 300 chars, must pass `shellDanger`) |
+| `// @matchi-needs net: api.example.com` | frame may contact `https://api.example.com`; host must also be in **Plugins > Network rules** |
 
-A line that is wrong or refused grants nothing and is listed in the confirm dialog. Example: `docs/examples/Sandbox_Uptime.js`.
+A wrong or refused line grants nothing and is listed in the confirm dialog. Example: `docs/examples/Sandbox_Uptime.js`.
 
-## How approval works
+## Approval
 
-Switching the mode (either direction) needs a fresh sign-in and the **password again**, and approves the file as it is now: its SHA-256 and the permission list are stored on the host (`PluginSandbox.kt`, `plugin_records`). If the file later differs (edited outside the console), the plugin still runs but with **no** permissions until you press **Approve**. Replacing a sandboxed plugin keeps its mode, and an update that asks for another permission shows the usual "adds new abilities" confirm.
-
-Switching to Trusted gives the plugin the whole page again, like any ordinary plugin.
+Switching mode (either way) needs a fresh sign-in and the **password again**, and approves the file as it is: SHA-256 and permission list are stored on the host (`PluginSandbox.kt`, `plugin_records`). If the file later differs, the plugin still runs but with **no** permissions until you press **Approve**. Replacing a sandboxed plugin keeps its mode; an update asking for more permissions shows the "adds new abilities" confirm. Switching to Trusted gives the whole page again.
 
 ## Who decides
 
-The page checks first, so a bad call gets a quick, clear error. Anything that gets past it goes to `POST /api/plugins/call` with the plugin's name, the operation and its arguments. The host then requires that the plugin runs sandboxed, that its file is **still** the approved one, and that the call is inside the approved list (`sandboxCallError`, `PluginSandbox.kt`); it runs the AT read, router read or exact shell command itself. A file edited on the device after the page loaded is therefore refused on its next call, even though the page still holds the old list. `shell` also needs the usual root gate (sign-in younger than 4 h, HTTP rules). Refusals are written to the app log.
+The page checks first for quick errors. Calls that pass go to `POST /api/plugins/call`. The host requires the plugin runs sandboxed, its file is **still** the approved one, and the call is inside the approved list (`sandboxCallError`), then runs the AT read, router read or exact shell command itself. A file edited on the device after page load is refused on its next call. `shell` also needs the root gate. Refusals go to the app log.
 
 ## What it does not do
 
-- **The host cannot tell which page code relays a call.** A trusted plugin (which already has root through the page) could send `/api/plugins/call` with a sandboxed plugin's name and use that plugin's narrow approved list. So this protects against a bug or bypass in the page's check and against a changed file; it does not make a trusted plugin weaker or stronger.
-- Permissions for **trusted** plugins are not enforced (declare / approve per ability): that would break most existing plugins. Not done.
-- A root command you approved runs as root. An approved `net:` host is a place data can go.
-- A plugin that uses the page helpers (`createModal`, `runShellWithRoot`, `document`...) will not work sandboxed. This is for plugins written for the bridge.
+- **The host cannot tell which page code relays a call.** A trusted plugin (already root) could send `/api/plugins/call` with a sandboxed plugin's name and use its narrow list. The sandbox guards against page-check bugs and changed files; it does not change what a trusted plugin can do.
+- Permissions for **trusted** plugins are not enforced (it would break most plugins).
+- An approved root command runs as root. An approved `net:` host is a place data can go.
+- Plugins using page helpers (`createModal`, `runShellWithRoot`, `document`...) do not work sandboxed.
 - **Import / restore** installs plugins as trusted; switch them again.
-- Seen in Chromium only. Firefox and Safari may treat the policies differently.
+- Seen in Chromium only.

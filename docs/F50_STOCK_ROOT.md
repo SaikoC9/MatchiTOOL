@@ -1,31 +1,27 @@
-# Stock ZTE F50 root integration (MatchiTOOL)
+# Rooting the stock ZTE F50
 
-## What the fork does and does not do
+MatchiTOOL uses an existing `su`. It does not root the F50. No universal method is claimed.
 
-MatchiTOOL's `RootShell` is a **consumer** of an existing `su` service. It is not the mechanism that initially roots the stock F50. On stock firmware, a rooting workflow must first establish privileged access by a separate, device-specific process; only then can MatchiTOOL's root backend run commands.
+## Known public route
 
-## Publicly documented route found during audit
+[`dikeckaan/zte-f50-toolkit`](https://github.com/dikeckaan/zte-f50-toolkit) documents a root workflow for exactly `F50_FLYMODEM_ZYV1.0.0B09`. It writes a patched TrustOS image and a Magisk-patched boot image with a host-side Unisoc/SPD tool.
 
-The public [`dikeckaan/zte-f50-toolkit`](https://github.com/dikeckaan/zte-f50-toolkit) documents a root workflow for the exact stock build `F50_FLYMODEM_ZYV1.0.0B09`. Its description says the root step writes a patched TrustOS image and a Magisk-patched boot image using a host-side Unisoc/SPD tool. This is a firmware-specific procedure, not a general exploit that works on every F50.
+- Firmware-specific. Not for other builds.
+- Flashing is destructive. A TrustOS/boot/vbmeta mismatch can cause a boot loop that needs BROM/SPD recovery.
+- Its images and flasher are not bundled here. Rights stay with their owners.
 
-The upstream repository also warns that flashing is destructive and recommends a full partition backup first. A separate TrustOS/boot/vbmeta chain mismatch can cause a boot loop or a device that requires BROM/SPD recovery. The toolkit's TrustOS images, firmware partitions, and flashing binary are not bundled in MatchiTOOL; rights to stock firmware and boot-chain images remain with their respective owners.
+## Preflight
 
-## Required preflight before any external flashing workflow
+1. Read the exact firmware build from the device.
+2. Continue only if it is `F50_FLYMODEM_ZYV1.0.0B09`. Otherwise stop and find a method verified for your build.
+3. Make and verify a full partition backup, including calibration/NV partitions. Keep a second copy off the PC.
+4. Have the right Unisoc/SPD tool and drivers, stable power and a recovery route.
+5. Read the toolkit's current README and license.
+6. Do not mix TrustOS images or chain root and bootloader unlock without knowing what each writes.
+7. Do not flash a patched modem or change the IMEI.
+8. After rooting, check `su -c id -u` returns `0`. Then launch MatchiTOOL and grant root.
 
-1. Read the exact firmware build from the device; do not infer it from the model name alone.
-2. Confirm whether it is exactly `F50_FLYMODEM_ZYV1.0.0B09`. If not, stop and obtain a method verified for that build.
-3. Save and verify a full partition backup, including device-specific calibration/NV partitions. Store a second copy off the host computer.
-4. Confirm the correct Unisoc/SPD flashing tool and drivers for the host OS, stable power, and a known recovery route.
-5. Read the upstream toolkit's current README and licensing terms before using it.
-6. Do not mix different TrustOS images or run root and bootloader-unlock procedures back-to-back without understanding which TrustOS image each writes.
-7. Do not flash a patched modem or change IMEI as part of a root-only task.
-8. After a successful root install, verify `su -c id -u` returns `0`, then install/launch MatchiTOOL and explicitly grant its root request.
+## MatchiTOOL status
 
-## MatchiTOOL integration plan
-
-- Phase A: detect model/build and show a read-only preflight summary.
-- Phase B: allow the user to import a locally created backup manifest and verify file hashes.
-- Phase C: after an externally completed, supported root install, request `su` authorization and run read-only checks.
-- Phase D: enable modem/network features individually, with rollback instructions.
-
-MatchiTOOL currently implements the root client and management UI, not the flashing/preflight phases. This is intentional until the stock build, recovery process, and redistribution rights of every required binary/image are established. No universal stock-F50 root method is claimed.
+Implemented: root client and management UI.
+Planned, not built: A) read-only preflight, B) backup-manifest hash check, C) post-root read-only checks, D) per-feature enabling with rollback notes.

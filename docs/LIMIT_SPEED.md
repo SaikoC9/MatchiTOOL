@@ -1,39 +1,33 @@
 # Limit speed
 
-Status: host side written (Step 3). The web page is not built.
+Status: host side written. The web page is not built. Not verified on a real F50.
 
-Limit speed caps the download and upload rate of one device on the hotspot or
-USB tether. It runs on the phone with root, using `tc`. The F50 stock firmware
-has no per-device limit, so there is no router call to use.
+Caps download and upload for one device on the hotspot or USB tether, on the phone with root, using `tc`. The F50 firmware has no per-device limit, so no router call exists.
 
-## How to use
+## Use
 
-1. Open Network > Devices.
+1. Network > Devices.
 2. Tap **Limit speed** on a device row.
-3. Enter Download and Upload in KB/s. Leave a field empty for Unlimited.
-4. Tap **Apply** and confirm. Applying needs a fresh root sign-in.
+3. Enter Download and Upload in KB/s. Empty = Unlimited.
+4. Tap **Apply** and confirm (needs a fresh root sign-in).
 
-The row then shows the active limit. Set both fields empty to remove it.
+The row shows the active limit. Clear both fields to remove it.
 
 ## Interfaces
 
 | Interface | Role | Used for |
 |---|---|---|
-| `br0` | LAN bridge, 192.168.0.1/24 | Download (egress) |
+| `br0` | LAN bridge 192.168.0.1/24 | Download (egress) |
 | `wlan0` | Wi-Fi hotspot, bridge member | Upload (ingress) |
 | `usb0` | USB tether, bridge member | Upload (ingress) |
 
-The `br0` ingress uses `clsact` and rejects the upload filter on this kernel.
-That is why upload is limited on `wlan0` and `usb0` instead. No `ifb` device is
-used. The `ifb` module is not loaded on the F50.
+`br0` ingress uses `clsact` and rejects the upload filter on this kernel, so upload is limited on `wlan0` and `usb0`. No `ifb`: the module is not loaded on the F50.
 
 ## Model
 
-Each device is keyed by its IPv4 address. `tc` cannot match a MAC address well,
-so the app maps MAC to the current IP from the device list. `N` is the limit in
-KB/s and `O` is the last byte of the IP.
+Devices are keyed by IPv4. The app maps MAC to the current IP from the device list. `N` = limit KB/s, `O` = last byte of the IP.
 
-Download, on `br0` egress:
+Download (`br0` egress):
 
 ```
 tc qdisc replace dev br0 root handle 1: htb default 10
@@ -42,73 +36,48 @@ tc class add dev br0 parent 1: classid 1:<0x100+O hex> htb rate <N>kbps ceil <N>
 tc filter add dev br0 parent 1: protocol ip prio <1000+O> u32 match ip dst <ip>/32 flowid 1:<same minor>
 ```
 
-Upload, on each of `wlan0` and `usb0`:
+Upload (each of `wlan0`, `usb0`):
 
 ```
 tc filter add dev <if> parent ffff: protocol ip prio <1000+O> u32 match ip src <ip>/32 action police rate <N>kbps burst 20k drop
 ```
 
-Class `1:10` is the unlimited default class. It is created once.
+Class `1:10` is the unlimited default, created once.
 
 ## Names and removal
 
-The app owns only these values:
+The app owns only filter priorities 1000-1255 and classes `1:101`-`1:1ff`.
 
-- Filter priorities 1000 to 1255.
-- Classes `1:101` to `1:1ff`.
+**Never use priority 1.** On `wlan0` and `usb0` ingress the system has a BPF filter (`ttl_bpf`, pref 1) for hotspot TTL. Do not delete it, do not flush the ingress qdisc, do not run `tc filter del` without a priority.
 
-**Never use priority 1.** On `wlan0` and `usb0` ingress the system installs a
-BPF filter (`ttl_bpf`, pref 1) for hotspot TTL handling. Do not delete it, do
-not flush the ingress qdisc, and do not run `tc filter del` without a priority.
+To remove a limit, delete that device's priority on `br0`, `wlan0`, `usb0`, then its class. Unlimited does exactly this.
 
-To remove a limit, delete that device's own priority on `br0`, `wlan0` and
-`usb0`, then delete its class. Unlimited does exactly this.
-
-Before the first `tc qdisc replace` on `br0`, the app reads the current root
-qdisc. If it is not `noqueue` and not the app's own `htb`, the app stops and
-reports it. It does not overwrite another tool's setup.
+Before the first `tc qdisc replace` on `br0`, the app reads the root qdisc. If it is not `noqueue` and not the app's own `htb`, it stops and reports. It never overwrites another tool's setup.
 
 ## Persistence
 
-Rules are lost on a reboot and when the hotspot or USB tether restarts. Limits
-are stored per MAC in the app settings, with the address each was last applied
-to.
+Rules are lost on reboot and when the hotspot or tether restarts. Limits are saved per MAC with the last-used address.
 
-While at least one limit is saved, a loop in the host looks every 30 seconds
-with one short root read and puts back what is missing. With no saved limit it
-does not run and asks for no root.
+While a limit is saved, a loop checks every 30 s with one short root read and restores what is missing. With no saved limit it does not run.
 
-- **Reboot:** the loop starts with the host. It waits until `br0` is up.
-- **Device not listed yet:** the limit is applied at its last address. If
-  another device already has that address, nothing is applied there.
-- **Device moved to a new address:** the new address gets the limit and the
-  old one is cleared.
-- **Opening the Devices tab:** it reads the same state and shows whether each
-  limit is really on the phone.
-
+- Reboot: the loop starts with the host and waits for `br0`.
+- Device not listed yet: applied at its last address, unless another device has it.
+- Device moved to a new address: new address gets the limit, old one is cleared.
+- Opening Devices: reads state and shows whether each limit is really active.
 
 ## Routes
 
 | Route | Gate | Does |
 |---|---|---|
-| `GET /api/net/limits` | fresh sign-in | Puts back missing rules, returns the saved limits and whether each is active |
+| `GET /api/net/limits` | fresh sign-in | Restores missing rules; returns saved limits and whether each is active |
 | `POST /api/net/limit` | fresh sign-in | Body `mac`, `down`, `up` (KB/s, empty = Unlimited). Sets or clears one device |
 
-The address is taken from the phone's neighbour table, not from the request. A
-set call reads the result back and removes the rule again if it does not match.
+The address comes from the phone's neighbour table, not the request. A set call reads the result back and removes the rule if it does not match.
 
-## What is not covered
+## Not covered
 
-- **IPv6** is limited too, matched on the device's MAC because its global addresses rotate: filter priority 1300 + O
-  (`protocol ipv6`). Download: destination MAC at offset -14 on `br0` egress, written as three `match u16` (at -14, -12, -10).
-  Upload: source MAC at -8 / -4 on `wlan0` / `usb0` ingress. Same class (download) and same rate (upload, its own police bucket).
-  **Why three u16:** this `tc` (iproute2 171113) refuses `match u32` at an offset that is not a multiple of 4 (`Illegal "match"`).
-  The first version used `match u32 ... at -14`, which was silently refused, so IPv6 traffic was never limited and speed tests that
-  use IPv6 ran several Mbit/s over the cap. The IPv6 rules are no longer silent: a refusal is reported (MATCHI_V6 and tc's message),
-  they are read back (`tc filter show dev br0 parent 1:` and the ingress filters), and a limit counts as active only when they are
-  present. If the kernel still refuses them, the set call removes the limit again and says why, instead of leaving a leaky one.
-- **A device that changes IP.** The limit follows only after the next refresh.
-- **Other firmware.** Another build may have different interfaces or an
-  `ifb`-less kernel. Check `tc` and the interfaces first.
-- **The console device.** Limiting the device that runs the console slows the
-  console too. The dialog warns about it.
+- **IPv6** is limited too, matched on MAC (global addresses rotate): priority 1300+O, `protocol ipv6`. Download: destination MAC at offset -14 on `br0` egress as three `match u16` (-14, -12, -10). Upload: source MAC at -8 / -4 on `wlan0` / `usb0` ingress.
+  Why three `u16`: this `tc` (iproute2 171113) refuses `match u32` at a non-multiple-of-4 offset. The first version used `u32 ... at -14`, silently refused, so IPv6 traffic was unlimited and IPv6 speed tests ran several Mbit/s over the cap. Now a refusal is reported (MATCHI_V6 plus tc's message), rules are read back, and a limit counts as active only when they are present. If the kernel still refuses, the set call removes the limit and says why.
+- **Device that changes IP:** the limit follows after the next refresh.
+- **Other firmware:** interfaces or kernel (`ifb`) may differ. Check `tc` and interfaces first.
+- **The console device:** limiting it slows the console. The dialog warns.
