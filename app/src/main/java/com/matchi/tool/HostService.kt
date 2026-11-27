@@ -130,14 +130,18 @@ class HostService : Service() {
         if (destroyed || server != null) return
         Tls.ready = false
         // HTTPS first (self-signed). Order of attempts, each checked by a real loopback handshake:
-        //   1. Android key store key, TLS 1.3 + 1.2   2. key store, TLS 1.2 only
-        //   3. software key (file in the app's private folder), TLS 1.3 + 1.2   4. software key, TLS 1.2 only
+        //   1. software key (file in the app's private folder), TLS 1.3 + 1.2   2. software key, TLS 1.2 only
+        //   3. Android key store key, TLS 1.3 + 1.2   4. key store, TLS 1.2 only
         //   5. plain HTTP (last resort).
-        // Attempt 3 exists because the ZTE F50's key store breaks the handshake ("connection closed") for every protocol version.
+        // The software key comes first because only its certificate can carry the Subject Alternative Names (localhost and the
+        // hotspot / USB IPs) a browser needs once you trust the certificate by hand, and it is kept between starts. The key store
+        // certificate cannot have them, and the ZTE F50's key store breaks the handshake ("connection closed") anyway.
         // Never TLS 1.0/1.1; TLS 1.3 only where this device supports it (Android 10+).
         var factory: javax.net.ssl.SSLServerSocketFactory? = null
         var protocolSets: List<Array<String>> = emptyList()
-        var source = 0   // 0 = key store, 1 = software key, 2 = none (plain HTTP)
+        val order = intArrayOf(1, 0)   // which key to try, in order: 1 = software key, 0 = key store
+        var orderIdx = 0
+        var source = order[0]   // 0 = key store, 1 = software key, 2 = none (plain HTTP)
         var protoIdx = 0
         fun prepare(src: Int): Boolean {
             factory = when (src) { 0 -> Tls.serverFactory(); 1 -> Tls.softwareFactory(applicationContext); else -> null }
@@ -153,21 +157,14 @@ class HostService : Service() {
             protoIdx++
             while (true) {
                 if (factory != null && protoIdx < protocolSets.size) return true
-                source++
-                if (source > 1) { factory = null; protocolSets = emptyList(); return false }
-                LogCatcher.log("WARNING", "HostService", "HTTPS failed with the ${if (source == 1) "Android key store" else "previous"} key; trying the ${if (source == 1) "software key" else "next option"}")
+                orderIdx++
+                if (orderIdx >= order.size) { source = 2; factory = null; protocolSets = emptyList(); return false }
+                source = order[orderIdx]
+                LogCatcher.log("WARNING", "HostService", "HTTPS failed with the previous key; trying the ${if (source == 1) "software key" else "Android key store"}")
                 if (prepare(source)) return true
             }
         }
-        // The key store was already seen to break the handshake on this device (and app version): go straight to the software
-        // key instead of repeating two failed handshakes, their warnings and about a second of delay at every start.
-        @Suppress("DEPRECATION")
-        val appVer = try { packageManager.getPackageInfo(packageName, 0).versionCode } catch (_: Exception) { 0 }
-        val skipKeyStore = appVer != 0 && Prefs.tlsKeystoreBrokenVersion(applicationContext) == appVer
-        if (skipKeyStore) {
-            source = 1
-            if (!prepare(1)) advance()
-        } else if (!prepare(0)) { source = 0; advance() }
+        if (!prepare(source)) advance()
         var secure = factory != null
         // Building the server must not be able to end this task silently: an exception here used to leave the console down for good.
         var srv = try { newServer(factory, protocolSets.getOrNull(protoIdx)) } catch (e: Exception) {
@@ -204,7 +201,6 @@ class HostService : Service() {
             if (server === srv) server = null
             return
         }
-        if (ok && secure && source == 1 && !skipKeyStore && appVer != 0) Prefs.setTlsKeystoreBrokenVersion(applicationContext, appVer)
         if (ok) {
             Tls.ready = true   // the scheme is final now: the home screen may show the address and open the console
             LogCatcher.log("INFO", "HostService", "Web host listening on port ${Prefs.PORT} (${if (secure) "https, ${Tls.keySource} key" else "http"})")
