@@ -32,9 +32,25 @@ object Footprint {
      * plugin) empties the app's plugin records, and the snapshot is rebuilt from them, so the folder would otherwise be forgotten (F50 test, Part 7).
      * Same list as matchi_reaper.sh PLUGDIRS.
      */
-    val PLUGIN_KNOWN_DIRS = listOf("/data/local/adguardhome")
+    val PLUGIN_KNOWN_DIRS = listOf("/data/local/adguardhome", "/data/local/matchi_owrt")
 
-    /** One-line retry log of the reaper (D4). Outside the folder, so it needs its own entry. Removed when the wipe is clean. */
+    // ---- OpenWrt VM plugin (separate project: owrt-vm.sh, cloud-hypervisor + KVM) ----
+    // Made inside owrt-vm.sh, so the plugin ledger cannot see it. The reaper knows it by name. Same values as matchi_reaper.sh OWRT, OW_*.
+    /** Plugin folder. Processes that run from it are ended first. */
+    const val OWRT_DIR = "/data/local/matchi_owrt"
+    /** Filter chains. OWRT_IN drops Android's DHCP on br0. */
+    val OWRT_FILTER_CHAINS = listOf("OWRT_FWD", "OWRT_IN")
+    /** Nat chains. */
+    val OWRT_NAT_CHAINS = listOf("OWRT_NAT", "OWRT_PRE")
+    /** Taps. The LAN tap is a port of br0. */
+    val OWRT_LINKS = listOf("owrt-lan", "owrt-wan")
+    /** Address added to br0. */
+    const val OWRT_BRIDGE_ADDR = "192.168.88.2/24"
+    /** Guest subnet. Rules match this net AND the pref. */
+    const val OWRT_GUEST_NET = "192.168.66.0/24"
+    val OWRT_RULE_PREFS = 5000..5002
+
+    /** One-line retry log of the reaper (D4). Outside the folder, so it needs its own entry. Removed when the wipe is clean. After the last try it stays as "gave-up left=...". */
     const val REAPER_LOG = "/data/local/matchitool-uninstall.log"
 
     /** Paths the code only READS or runs that are not ours; they must never be removed. */
@@ -59,6 +75,7 @@ object Footprint {
     // The empty "ffff:" ingress qdisc on TC_INGRESS_DEVICES is left in place on purpose (docs/UNINSTALL_WIPE.md, D8).
 
     // ---- processes (exact name, never a pattern like "matchi") ----
+    // It also ends any process that runs from a Bypass folder or [PLUGIN_KNOWN_DIRS] (OpenWrt VM).
     val PROCESS_NAMES = listOf("matchi-guard", "matchi-sampler", "matchi-doctor", "sendat", "zreq", "AdGuardHome")
 
     /** Files inside BASE_DIR the reaper reads or kills by. */

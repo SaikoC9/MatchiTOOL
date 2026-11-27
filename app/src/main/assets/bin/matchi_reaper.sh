@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# MATCHI_REAPER_VERSION=7
+# MATCHI_REAPER_VERSION=8
 # MatchiTOOL uninstall reaper. Runs as root, OUTSIDE the app sandbox (installed by the app to /data/local/matchitool/reaper/).
 # Android runs no code of an app when it is uninstalled, so this script watches for the app to be gone and then removes what the
 # app left on the device (docs/UNINSTALL_WIPE.md). It needs no app file, no jq, no curl and never talks to the router (D6).
@@ -25,7 +25,15 @@ LOGD=/data/adb/service.d/matchi_logd.sh
 STUB=/data/adb/service.d/matchi_reaper.sh
 LEGACY="/data/local/tmp/matchi_jobs /data/local/tmp/matchi_memory_clean /data/local/tmp/mt_isms.sh /data/local/tmp/matchi_update.log /data/local/tmp/.matchi_out_prev.apk"
 BYPASS="/data/local/matchi_ttl /data/local/matchi_dpi /data/local/matchi_lock /data/local/matchi_boot"
-PLUGDIRS="/data/local/adguardhome"
+PLUGDIRS="/data/local/adguardhome /data/local/matchi_owrt"
+# OpenWrt VM plugin. Its script makes this network inside itself, so the snapshot has no lines for it: the reaper knows it by name (Footprint.kt OWRT_*).
+OWRT=/data/local/matchi_owrt
+OW_FCH="OWRT_FWD OWRT_IN"
+OW_NCH="OWRT_NAT OWRT_PRE"
+OW_LINKS="owrt-lan owrt-wan"
+OW_ADDR=192.168.88.2/24
+OW_NET=192.168.66.0/24
+OW_PLO=5000; OW_PHI=5002
 PORT=2334
 IFP="br ap swlan usb rndis ecm"
 AGH=AGH_UI
@@ -303,11 +311,11 @@ psl() {   # the process list: "PID ARGS" per line, one ps call, with a time limi
 args_of() {   # the command line of one pid ("" when it is not running)
   psl | while read -r q a; do [ "$q" = "$1" ] && { echo "$a"; break; }; done
 }
-# A script that lives in one of the Bypass folders ("sh /data/local/matchi_ttl/ttl.sh watch"): the program or its first argument is a path below them.
-# These loops are not tagged and not in PROCS; left running they put the lock folder and the rules back after the wipe.
+# A process that runs from a Bypass folder or a fixed plugin folder (OpenWrt VM): its program or first argument is a path below it.
+# Not tagged, not in PROCS. Left running, it puts the lock folder, rules or the VM back after the wipe.
 bypass_proc() {
   for x in "$1" "$2"; do
-    for d in $BYPASS; do case $x in "$R$d"/*) return 0;; esac; done
+    for d in $BYPASS $PLUGDIRS; do case $x in "$R$d"/*) return 0;; esac; done
   done
   return 1
 }
@@ -347,7 +355,7 @@ kill_pidfile() {
   [ "${2:-}" = "$R$LOGD" ] && kill "$p" 2>/dev/null
   return 0
 }
-kill_bypass() {   # only the Bypass script loops, first, so they cannot put rules or the lock folder back
+kill_bypass() {   # Bypass loops and processes from a plugin folder (OpenWrt VM), first
   C=$(psl)
   printf '%s\n' "$C" | while read -r pid a0 a1 rest; do
     case $pid in ''|*[!0-9]*) continue;; esac
@@ -412,6 +420,51 @@ step_boot_entries() {
     plugin_path_ok "$p" && [ ! -d "$R$p" ] && rm -f "$R$p" 2>/dev/null
   done
 }
+# ---------------------------------------------------------------- OpenWrt VM network (plugin owrt-vm.sh): undo by name, never by pattern
+owrt_prefs() {   # one line per policy rule of ours: "PREF from|to"  (pref 5000-5002 AND the VM's guest net in the rule text)
+  have ip || return 0
+  ip rule show 2>/dev/null | while read -r pr rest; do
+    case $pr in [0-9]*:) pn=${pr%:};; *) continue;; esac
+    case $pn in ''|*[!0-9]*) continue;; esac
+    [ "$pn" -ge "$OW_PLO" ] && [ "$pn" -le "$OW_PHI" ] || continue
+    case $rest in *"from $OW_NET"*) echo "$pn from";; *"to $OW_NET"*) echo "$pn to";; esac
+  done
+}
+owrt_link_exists() { have ip && ip link show dev "$1" >/dev/null 2>&1; }
+step_owrt() {
+  k=0
+  while [ "$k" -lt 12 ]; do
+    set -- $(owrt_prefs | head -n 1)
+    [ -n "${1:-}" ] || break
+    ip rule del pref "$1" "$2" "$OW_NET" 2>/dev/null || break
+    k=$((k + 1))
+  done
+  if have ip; then
+    case $(ip -4 addr show dev "$TCDEV" 2>/dev/null) in *"inet $OW_ADDR"*) ip addr del "$OW_ADDR" dev "$TCDEV" 2>/dev/null;; esac
+    for l in $OW_LINKS; do
+      owrt_link_exists "$l" || continue
+      ip link set dev "$l" nomaster 2>/dev/null
+      ip link del dev "$l" 2>/dev/null
+    done
+  fi
+  for tool in iptables ip6tables; do
+    for c in $OW_FCH; do rm_chain "$tool" filter "$c"; done
+    for c in $OW_NCH; do rm_chain "$tool" nat "$c"; done
+  done
+  # Put back what the VM manager saved in run/ (digits only, trusted folder).
+  rd=$R$OWRT/run
+  if [ ! -L "$R$OWRT" ] && [ -d "$rd" ] && ! [ -L "$rd" ] && trusted "$rd"; then
+    for what in ip_forward:/proc/sys/net/ipv4/ip_forward halt_poll_ns:/sys/module/kvm/parameters/halt_poll_ns; do
+      f=$rd/${what%%:*}; t=$R${what#*:}
+      [ -f "$f" ] && ! [ -L "$f" ] || continue
+      v=$(head -n 1 "$f" 2>/dev/null)
+      case $v in ''|*[!0-9]*) continue;; esac
+      [ ${#v} -le 12 ] && [ -w "$t" ] && echo "$v" > "$t" 2>/dev/null
+    done
+    [ -e "$rd/tun_link" ] && [ -L "$R/dev/net/tun" ] && rm -f "$R/dev/net/tun" 2>/dev/null
+  fi
+  return 0
+}
 step_rules() {
   rm_console
   for tool in iptables ip6tables; do rm_chain "$tool" filter "$AGH"; done
@@ -454,6 +507,13 @@ leftover() {
     valid_tool "$tool" && valid_table "$tbl" && valid_rule_chain "$ch" && valid_spec "$spec" && rule_exists "$tool" "$tbl" "$ch" "$spec" && echo "rule-$ch"
   done
   tc_left
+  for tool in iptables ip6tables; do
+    have "$tool" || continue
+    for c in $OW_FCH; do [ -n "$(chain_exists "$tool" filter "$c")" ] && echo "owrt-chain"; done
+    for c in $OW_NCH; do [ -n "$(chain_exists "$tool" nat "$c")" ] && echo "owrt-chain"; done
+  done
+  [ -n "$(owrt_prefs | head -n 1)" ] && echo "owrt-rule"
+  for l in $OW_LINKS; do owrt_link_exists "$l" && echo "owrt-link"; done
   [ -e "$R$LOGD" ] && echo "logd-stub"
   for p in $LEGACY $BYPASS $PLUGDIRS; do [ -e "$R$p" ] || [ -L "$R$p" ] && echo "tmp-file"; done
   for e in "$R$B"/* "$R$B"/.[!.]* "$R$B"/..?*; do
@@ -477,13 +537,14 @@ tries_done() {
 # Returns 0 = finished (clean, or gave up), 1 = incomplete, try again later, 2 = the app is back, nothing more to do.
 run_wipe() {
   tries=$(tries_done)   # not "n": the helpers below use n as their own loop counter (all variables are global in sh), which reset the count and the limit never came
-  [ "$tries" -ge "$MAX_TRIES" ] && { say "gave up after $tries tries"; return 0; }
+  last=; [ "$tries" -ge "$MAX_TRIES" ] && last=1   # last pass: run every step once more, then stop for good
   confirmed_gone || return 2
   SNAP=$(snap_text)
   TAGS=$(tags_wanted)
   step_boot_entries
   gone_once || return 2
   kill_bypass
+  step_owrt
   step_rules
   gone_once || return 2
   tc_clean
@@ -494,10 +555,18 @@ run_wipe() {
   step_files
   kill_all                                       # anything a stop command or a late plugin start left
   left=$(leftover | sort -u | tr '\n' ' ')
-  if [ -n "$left" ]; then
+  if [ -n "$left" ] && [ -z "$last" ]; then
     echo "$(date '+%F %T') retry=$((tries + 1)) left=$left" > "$R$LOGF" 2>/dev/null
     say "left: $left"
     return 1
+  fi
+  if [ -n "$left" ]; then
+    # Last try: remove the files anyway. Only the one-line log stays (no "retry=", so it is not counted).
+    echo "$(date '+%F %T') gave-up left=$left" > "$R$LOGF" 2>/dev/null
+    say "gave up, left: $left"
+    if [ ! -L "$R$B" ] && ! mount_inside "$B"; then rm -rf "$R$RD" 2>/dev/null; rmdir "$R$B" 2>/dev/null; fi
+    safe_rm "$STUB"
+    return 0
   fi
   # clean: delete the reaper itself, the stub (last), and the log
   rm -rf "$R$RD" 2>/dev/null

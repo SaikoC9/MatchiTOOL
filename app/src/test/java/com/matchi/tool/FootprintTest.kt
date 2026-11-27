@@ -36,6 +36,23 @@ class FootprintTest {
         assertTrue(Footprint.PROCESS_NAMES.contains("AdGuardHome"))
     }
 
+    @Test fun openWrtVmFolderIsRemovedButItsLookAlikeIsNot() {
+        assertTrue(Footprint.PLUGIN_KNOWN_DIRS.contains(Footprint.OWRT_DIR))
+        assertEquals(Footprint.Class.REMOVE, Footprint.classify("/data/local/matchi_owrt"))
+        assertEquals(Footprint.Class.REMOVE, Footprint.classify("/data/local/matchi_owrt/rootfs.img"))
+        assertEquals(Footprint.Class.REMOVE, Footprint.classify("/data/local/matchi_owrt/run/ip_forward"))
+        assertEquals(Footprint.Class.UNKNOWN, Footprint.classify("/data/local/matchi_owrt2"))
+        assertEquals(Footprint.Class.UNKNOWN, Footprint.classify("/data/local/matchi_owrt/../x"))
+    }
+
+    @Test fun openWrtNetworkNamesAreExactAndNeverBuiltIn() {
+        val chains = Footprint.OWRT_FILTER_CHAINS + Footprint.OWRT_NAT_CHAINS
+        for (c in chains) { assertTrue(c, c.startsWith("OWRT_")); assertFalse(c, c in listOf("INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING")) }
+        assertEquals(setOf("owrt-lan", "owrt-wan"), Footprint.OWRT_LINKS.toSet())
+        assertEquals("192.168.88.2/24", Footprint.OWRT_BRIDGE_ADDR)
+        assertTrue(5000 in Footprint.OWRT_RULE_PREFS && 5002 in Footprint.OWRT_RULE_PREFS && 4999 !in Footprint.OWRT_RULE_PREFS && 5003 !in Footprint.OWRT_RULE_PREFS)
+    }
+
     @Test fun foreignBinariesAreLeft() {
         for (p in Footprint.NOT_OURS) assertEquals(p, Footprint.Class.LEAVE, Footprint.classify(p))
     }

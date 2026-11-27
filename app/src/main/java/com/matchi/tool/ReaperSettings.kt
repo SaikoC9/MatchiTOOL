@@ -18,7 +18,9 @@ object ReaperSettings {
         Group("Firewall", listOf(
             "Console port ${Footprint.CONSOLE_PORT} rule (hotspot and USB, IPv4 and IPv6)",
             "AdGuard chain ${Footprint.AGH_CHAIN} and its jump",
-            "Plugin firewall rules, DNS redirects included"
+            "Plugin firewall rules, DNS redirects included",
+            "OpenWrt VM network: chains ${(Footprint.OWRT_FILTER_CHAINS + Footprint.OWRT_NAT_CHAINS).joinToString(", ")} (the DHCP block on ${Footprint.TC_DEVICE} included), " +
+                "policy rules ${Footprint.OWRT_RULE_PREFS.first}-${Footprint.OWRT_RULE_PREFS.last}, ${Footprint.OWRT_LINKS.joinToString(" and ")}, ${Footprint.OWRT_BRIDGE_ADDR.substringBefore('/')} on ${Footprint.TC_DEVICE}"
         )),
         Group("Speed limits", listOf(
             "Speed limits set by MatchiTOOL on ${Footprint.TC_DEVICE}, ${Footprint.TC_INGRESS_DEVICES.joinToString(" and ")} (other limits are left alone)"
@@ -26,13 +28,14 @@ object ReaperSettings {
         Group("Running programs", listOf(
             Footprint.PROCESS_NAMES.joinToString(", "),
             "Boot log capture and its helpers",
+            "OpenWrt VM (cloud-hypervisor) and other programs run from a plugin folder",
             "Plugin programs (run their own stop commands)"
         )),
         Group("Files", listOf(
             "Folder ${Footprint.BASE_DIR} and everything in it",
             "Old temp files: " + Footprint.LEGACY_TMP.joinToString(", ") { it.substringAfterLast('/') } + " (in /data/local/tmp)",
-            "Plugin files under /data/local",
-            "Retry log " + Footprint.REAPER_LOG.substringAfterLast('/') + ", after the wipe"
+            "Plugin files under /data/local, the OpenWrt VM folder ${Footprint.OWRT_DIR.substringAfterLast('/')} included",
+            "Retry log " + Footprint.REAPER_LOG.substringAfterLast('/') + ", after a clean wipe (kept after 5 failed tries)"
         ))
     )
 
