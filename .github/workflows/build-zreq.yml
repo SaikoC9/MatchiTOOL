@@ -1,8 +1,5 @@
 name: Build zreq (arm64 Android)
 
-# Builds tools/zreq (stdlib-only Go) into a static arm64 executable. Run it by hand, or let release-tools.yml call it.
-# By hand: download the artifact, test on the device (tools/zreq/README.md), copy it to app/src/main/assets/bin/zreq, then
-# write the printed SHA-256 into NOTICE.md and docs/BINARIES.md (scripts/validate.sh checks it).
 on:
   workflow_dispatch:
   workflow_call:

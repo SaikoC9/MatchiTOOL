@@ -1,8 +1,5 @@
 name: Build matchi-guard (arm64 Android)
 
-# Builds tools/guard (stdlib-only Go) into a static arm64 executable. Run it by hand (release-tools.yml does not call it yet).
-# By hand: download the artifact, test on the device (tools/guard/README.md), copy it to app/src/main/assets/bin/matchi-guard, then
-# write the printed SHA-256 into NOTICE.md and docs/BINARIES.md (scripts/validate.sh checks it).
 on:
   workflow_dispatch:
   workflow_call:
