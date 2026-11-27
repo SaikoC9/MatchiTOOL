@@ -1,6 +1,6 @@
 # Limit speed
 
-Status: host side written. The web page is not built. Not verified on a real F50.
+Status: host side written. The web page is not built. Verified on a F50.
 
 Caps download and upload for one device on the hotspot or USB tether, on the phone with root, using `tc`. The F50 firmware has no per-device limit, so no router call exists.
 
