@@ -3552,7 +3552,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 § .sx-to input:focus{border-bottom-color:var(--acc)!important}
 § .sx-cbox{display:flex;gap:8px;align-items:flex-end;background:var(--bg);border:1px solid var(--bd);border-radius:20px;padding:5px 5px 5px 14px}
 § .sx-cbox:focus-within{border-color:var(--acc)}
-§ .sx-cbox textarea{flex:1;min-width:0;width:auto;background:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;color:var(--fg);font:inherit;resize:none;outline:0;padding:6px 0!important;max-height:96px;min-height:22px!important;height:22px;overflow-y:hidden;line-height:22px}
+§ .sx-cbox textarea{flex:1;min-width:0;width:auto;background:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;color:var(--fg);font:inherit;resize:none;outline:0;padding:6px 0!important;max-height:110px;min-height:34px!important;height:34px;overflow-y:hidden;line-height:22px}
 § .sx-send{width:34px;height:34px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--acc);color:#06121f;display:grid;place-items:center;flex:none;box-shadow:none}
 § .sx-send:disabled{background:var(--panel2);color:var(--mut);cursor:default;opacity:1}
 § .sx-send svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
@@ -3571,12 +3571,12 @@ rm -f $P.g $P.4 $P.6 $P.d
     document.head.appendChild(s);
   }
   const IC = {
-    refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
-    more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
-    back: '<svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
-    plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
-    send: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
-    search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    refresh: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+    more: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+    back: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    send: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    search: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
   };
   const cl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
   const svgEl = (k) => document.importNode(new DOMParser().parseFromString(IC[k], 'image/svg+xml').documentElement, true);   // fixed icon strings, no page data
@@ -3661,7 +3661,7 @@ rm -f $P.g $P.4 $P.6 $P.d
     const t = el('matchi_sms_text'), s = el('matchi_sms_send'); if (!t || !s) return;
     const v = t.value;
     s.disabled = sending || !v.trim();
-    t.style.height = '22px'; t.style.height = Math.min(t.scrollHeight, 96) + 'px'; t.style.overflowY = t.scrollHeight > 96 ? 'auto' : 'hidden';
+    t.style.height = '34px'; const hh = Math.max(34, Math.min(t.scrollHeight, 110)); t.style.height = hh + 'px'; t.style.overflowY = t.scrollHeight > 110 ? 'auto' : 'hidden';
     const parts = v ? smsParts(v).length : 0;
     el('matchi_sms_cc').textContent = v.length + ' / ' + (isGsm7(v) ? 160 : 70);
     el('matchi_sms_parts').textContent = parts > 1 ? parts + ' messages' : '';
@@ -3675,7 +3675,7 @@ rm -f $P.g $P.4 $P.6 $P.d
 
   function busy(on, text) {
     busyOn = on;
-    for (const id of ['matchi_sms_more', 'matchi_sms_v_conv', 'matchi_sms_v_list', 'matchi_sms_refresh']) { const b = el(id); if (b) b.disabled = on; }
+    for (const id of ['matchi_sms_more', 'matchi_sms_refresh']) { const b = el(id); if (b) b.disabled = on; }
     if (text !== undefined) setMode(text);
   }
   // Deletes the given messages one after the other (each through the same m.del() as the single Delete: router, Android store, modem).
@@ -3779,9 +3779,6 @@ rm -f $P.g $P.4 $P.6 $P.d
     showEl('matchi_sms_to', mode === 'new', 'flex');
     const foot = el(MODAL).querySelector('.mfoot');
     if (foot) { if (mode === 'inbox') foot.style.removeProperty('display'); else foot.style.setProperty('display', 'none', 'important'); }
-    const vc = el('matchi_sms_v_conv'), vl = el('matchi_sms_v_list');
-    if (vc) vc.classList.toggle('on', view === 'conv');
-    if (vl) vl.classList.toggle('on', view !== 'conv');
     const t = el('matchi_sms_text'); if (t) t.placeholder = open ? 'Message ' + open.number : 'Message';
     if (mode === 'thread') { const n = el('matchi_sms_num'); if (n) n.value = open.number; return renderThread(box, open); }
     if (mode === 'new') { box.appendChild(mutDiv('Enter a number, then write your message.', 'padding:18px;text-align:center')); return; }
@@ -3877,7 +3874,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       name: MODAL, title: 'Messages', maxWidth: '560px', showConfirm: false, onClose: () => { fresh = new Map(); closeMenu(); return true; },
       content:
         '<div id="matchi_sms_tools" class="sx-tools"><label class="sx-search">' + IC.search + '<input id="matchi_sms_q" placeholder="Search messages" autocomplete="off"></label>' +
-        '<div class="sx-seg"><button type="button" id="matchi_sms_v_conv" class="sx-segb">Chats</button><button type="button" id="matchi_sms_v_list" class="sx-segb">All</button></div></div>' +
+        '</div>' +
         '<div id="matchi_sms_mode" class="mut sx-mode" style="display:none"></div>' +
         '<div id="matchi_sms_list" class="sx-list inbox"></div>' +
         '<div id="matchi_sms_comp" class="sx-comp" style="display:none">' +
@@ -3887,8 +3884,6 @@ rm -f $P.g $P.4 $P.6 $P.d
     });
     showModal(MODAL);
     el('matchi_sms_send').onclick = send;
-    el('matchi_sms_v_conv').onclick = () => { view = 'conv'; openKey = null; paint(); };
-    el('matchi_sms_v_list').onclick = () => { view = 'list'; openKey = null; paint(); };
     el('matchi_sms_q').oninput = (e) => { search = e.target.value; paint(); };
     const t = el('matchi_sms_text');
     t.oninput = updateComposer;
