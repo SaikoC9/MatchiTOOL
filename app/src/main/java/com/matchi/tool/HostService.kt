@@ -93,13 +93,25 @@ class HostService : Service() {
             try { WifiAutoLoop.sync(applicationContext) } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Wi-Fi auto switch start failed: ${e.message}") }
             // Saved per-device speed limits: the loop applies them once the hotspot is up and again after a hotspot restart. See SpeedLimitLoop.
             try { SpeedLimitLoop.sync(applicationContext) } catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Speed limit loop start failed: ${e.message}") }
+            // Uninstall reaper: a small root watcher outside the app sandbox that wipes the root-side leftovers after Android removed the app
+            // (see Reaper, docs/UNINSTALL_WIPE.md). Installed and started when the switch is ON (default); asks for no root when it is OFF.
+            // Root is often not ready right after boot, so it is tried again later and stops after the first success.
+            val reaperReady = AtomicBoolean(false)
+            for (delay in longArrayOf(20, 150)) {
+                workers.schedule(Runnable {
+                    try { if (!reaperReady.get() && Reaper.ensureCurrent(applicationContext)) reaperReady.set(true) }
+                    catch (e: Exception) { LogCatcher.log("WARNING", "HostService", "Reaper check failed: ${e.message}") }
+                }, delay, TimeUnit.SECONDS)
+            }
             // One-time: delete the root temp files older versions left in /data/local/tmp (they are no longer used).
             if (!Prefs.oldTmpCleaned(applicationContext)) workers.schedule({ cleanOldTmpFiles() }, 200, TimeUnit.SECONDS)   // after the boot tasks, when root slots are free
         }
         if (i?.action == ACTION_RUN_BOOT_TASKS) runBootTasks()
-        // After an app update only the boot-capture script is refreshed (it asks for no root when capture is off).
+        // After an app update only the boot-capture script and the uninstall reaper are refreshed (both ask for no root when switched off).
+        // The reaper kept watching during the update (it skips while the "updating" marker is fresh); a newer shipped version replaces it here.
         if (i?.action == ACTION_AFTER_UPDATE) workers.execute {
             try { BootLogd.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Boot capture check failed: ${e.message}") }
+            try { Reaper.ensureCurrent(this) } catch (e: Exception) { LogCatcher.log("ERROR", "HostService", "Reaper check failed: ${e.message}") }
         }
         return START_STICKY
     }

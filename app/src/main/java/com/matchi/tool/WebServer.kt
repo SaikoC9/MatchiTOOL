@@ -62,6 +62,14 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
 
     private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)
 
+    // Uninstall reaper (Phase 5): the plugin snapshot it reads at wipe time is rebuilt whenever a plugin ledger changes (and when a plugin is installed,
+    // approved, switched or deleted: see WebRoutesPlugins). Nothing runs until the first change; the first write is 30 s after start, when root is ready.
+    init {
+        traceStore.onChange = { Reaper.scheduleSnapshot(ctx) }
+        Reaper.bindSnapshotSource { pluginSnapshotBuild() }
+        Reaper.scheduleSnapshot(ctx, force = true, delaySec = 30)
+    }
+
     init { LiveEngineSetting.bind(ctx); seedPlugins(); ApkUpdater.cleanStale(ctx); if (Prefs.guardOn(ctx)) Thread({ guardAutostart() }, "guard-autostart").apply { isDaemon = true }.start() }
 
     /**
@@ -471,7 +479,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
 
     private fun route(s: IHTTPSession, uri: String): Response =
         routeDevice(s, uri) ?: routeAuth(s, uri) ?: routeLogs(s, uri) ?: routeRoot(s, uri) ?: routeUpdate(s, uri)
-            ?: routeRouter(s, uri) ?: routeWifiAuto(s, uri) ?: routeLimit(s, uri) ?: routePlugins(s, uri) ?: routeAgh(s, uri) ?: routeGate(s, uri)
+            ?: routeRouter(s, uri) ?: routeWifiAuto(s, uri) ?: routeLimit(s, uri) ?: routePlugins(s, uri) ?: routeAgh(s, uri) ?: routeGate(s, uri) ?: routeReaper(s, uri)
             ?: json(Response.Status.NOT_FOUND, JSONObject().put("error", "not found"))
 }
 

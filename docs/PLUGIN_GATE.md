@@ -1,16 +1,16 @@
-# How to protect a plugin web page (author guide, one page)
+# Protect a plugin web page
 
-Current for MatchiTOOL 1.4.5. For a plugin that starts its own local web page (AdGuard Home, a router-style panel). MatchiTOOL puts a **gate** in front of the page, so the page's own login cookie (often 30 days) never reaches the browser.
+For 1.4.6. For plugins that start their own local web page (AdGuard Home, router-style panels). MatchiTOOL puts a **gate** in front so the page's own login cookie (often 30 days) never reaches the browser.
 
-## What the person gets
+## Result for the user
 
-- The browser holds one **session-only** cookie that works only while the MatchiTOOL console session lives.
-- The page asks for **its own login again** after: MatchiTOOL sign-out, session expiry, password change, host restart, idle timeout, and (only if you turn it on) when the last page of the tab closes.
+- The browser holds one session-only cookie, valid only while the MatchiTOOL session lives.
+- The page asks for its own login again after: MatchiTOOL sign-out, session expiry, password change, host restart, idle timeout, and (if enabled) closing the last page of the tab.
 - Nothing listens on a gate port until the first Open.
 
-## Two things you write
+## What you write
 
-**1. A header line** (first 400 lines, must start with `//`, one line per plugin):
+**1. A header line** (first 400 lines, starts with `//`, one per plugin):
 
 ```js
 // @matchi-gate name=adguard port=3000 logout=/control/logout idle=3600 tabclose=off
@@ -18,37 +18,35 @@ Current for MatchiTOOL 1.4.5. For a plugin that starts its own local web page (A
 
 | field | required | meaning | limits |
 | --- | --- | --- | --- |
-| `name` | yes | id of the gate | `a-z`, `0-9`, `-`, 1 to 32 characters; must be unique among enabled plugins |
-| `port` | yes | where your page listens on `127.0.0.1` | 1024 to 65535; not the console port (2334); not 3100 to 3199 (those belong to the gates) |
-| `logout` | no | path MatchiTOOL calls (GET, with the page's cookies) to end the page's login | starts with `/`, at most 200 characters, no spaces. Left out: no call, the cookies are still dropped |
-| `idle` | no | seconds without a request before the login ends | 300 to 43200, default 3600 |
-| `tabclose` | no | `on`: also log out when the last page of the tab closes | `on` or `off`, default `off` |
+| `name` | yes | gate id | `a-z`, `0-9`, `-`, 1-32 chars; unique among enabled plugins |
+| `port` | yes | where your page listens on `127.0.0.1` | 1024-65535; not 2334; not 3100-3199 |
+| `logout` | no | path called (GET, with the page's cookies) to end the page's login | starts with `/`, max 200 chars, no spaces. Omitted: no call, cookies still dropped |
+| `idle` | no | seconds without a request before login ends | 300-43200, default 3600 |
+| `tabclose` | no | `on`: also log out when the last page of the tab closes | `on`/`off`, default `off` |
 
-Anything else (an unknown field, a bad value, a second line) makes the declaration invalid, and the plugin is **refused at upload** with the reason. There is no option to skip the login: a plugin declares, MatchiTOOL enforces. The gate port (3100 to 3199) is chosen by MatchiTOOL and never written in the plugin.
+Any unknown field, bad value or second line makes the declaration invalid and the plugin is **refused at upload** with the reason. There is no skip-login option. The gate port (3100-3199) is chosen by MatchiTOOL.
 
 **2. One call in your Open button:**
 
 ```js
-button.onclick = async () => {          // call it straight from the click, before any await
+button.onclick = async () => {          // call straight from the click, before any await
   const err = await matchi.gate.open('adguard');
-  if (err) matchi.toast(err, 'red');    // '' means the tab was opened
+  if (err) matchi.toast(err, 'red');    // '' means the tab opened
 };
 ```
 
-`matchi.gate.open(name)` opens a new tab first (so the browser allows it), asks the host for a one-time ticket, and points the tab at the gate. It never throws: it resolves to `''` on success and to a short error text otherwise (blocked pop-up, session too old, plugin not declared, too many gates open). The ticket works once, for 60 seconds, for the address of the device that pressed Open.
+`matchi.gate.open(name)` opens a tab first (so the browser allows it), gets a one-time ticket (valid once, 60 s, for the pressing device's address) and points the tab at the gate. It never throws; it returns `''` on success or a short error (blocked pop-up, session too old, plugin not declared, too many gates).
 
-## What the host checks on Open
+## Host checks on Open
 
-The host reads the header from the **installed, enabled** plugin file (never from the request). It refuses when the file differs from the approved one ("changed": approve it again), when two enabled plugins declare the same name, and when the sign-in is older than 4 hours. At most 4 gates are open at once. Deleting or switching off the plugin closes its gate.
+The host reads the header from the installed, enabled plugin file, never from the request. It refuses when the file differs from the approved one (approve again), when two enabled plugins use the same name, and when the sign-in is over 4 h old. Max 4 gates at once. Deleting or switching off the plugin closes its gate.
 
-## What does not work behind the gate
+## What does not work
 
-- **Plain HTTP only.** The gate speaks HTTP even when the console runs over HTTPS; the password still travels unencrypted on the hotspot, as before.
-- **WebSockets and other `Upgrade` requests** get a clear `501`. Server-sent events and long streams are not supported either.
-- **Absolute links to the original port** break. Only redirects (`Location`) are rewritten. Use relative links.
-- **Chunked request bodies** get `411`; requests over 2 MB get `413`; responses are buffered and capped at 24 MB (fine for admin pages, not for downloads).
-- **The page's own brute-force limit becomes global**, because every request reaches it from `127.0.0.1`: one burst of wrong passwords locks everyone out of the page.
-- **Sandboxed plugins** (see `PLUGIN_SANDBOX.md`) cannot call `matchi.gate.open`; the gate is for trusted-mode plugins.
-- The gate cookie is named `matchi_gate_PORT`. Do not use that name in your page.
-
-Test list for a new gate: Open shows the page's login; reload keeps the login; sign out of MatchiTOOL in another tab and reload (403 or the login again); reopen the old link without Open (403).
+- **Plain HTTP only**, even if the console uses HTTPS. The password travels unencrypted on the hotspot.
+- **WebSockets and `Upgrade` requests:** `501`. SSE and long streams: unsupported.
+- **Absolute links to the original port** break. Only `Location` redirects are rewritten. Use relative links.
+- **Chunked request bodies:** `411`. Bodies over 2 MB: `413`. Responses buffered, capped at 24 MB.
+- **The page's own brute-force limit becomes global** (all requests come from `127.0.0.1`). One burst of wrong passwords locks everyone out.
+- **Sandboxed plugins** cannot call `matchi.gate.open`.
+- The gate cookie is named `matchi_gate_PORT`. Do not use that name.

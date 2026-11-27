@@ -246,8 +246,100 @@ internal fun pluginChains(command: String): List<String> {
 internal fun pluginBootFiles(command: String): List<String> =
     pluginWriteTargets(command).filter { BOOT_D_FILE.matches(it) }.distinct()
 
+private val RULE_BUILTIN = setOf("INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING")
+private val RULE_TABLES = setOf("filter", "nat", "mangle", "raw")
+private val RULE_ADD = setOf("-A", "--append", "-I", "--insert")
+private val RULE_INSERT = setOf("-I", "--insert")
+private val RULE_MATCH_FLAGS = setOf("-p", "--protocol", "-s", "--source", "-d", "--destination", "-i", "--in-interface", "-o", "--out-interface",
+    "-m", "--match", "--dport", "--sport", "--dports", "--sports")
+/** The characters the uninstall reaper accepts in a rule spec (matchi_reaper.sh valid_spec). Keep both lists the same. */
+private val RULE_SPEC = Regex("^[A-Za-z0-9_./:,=!+ -]{1,200}$")
+
 /**
- * Keeps at most [max] ledger lines. The oldest "P" / "E" lines (and any unknown kind) go first; "C" (chains), "B" (boot scripts) and "U" (uploads) lines are
+ * One ledger "R" entry: "TOOL TABLE CHAIN SPEC", a rule a plugin put into a BUILT-IN chain (for example a DNS redirect in nat PREROUTING),
+ * or null when it is not safe to take away again by exact text. Only the four tables and the five built-in chains; a rule in a chain the
+ * plugin made goes with the chain ("C"). The spec must hold a match (-p, -i, -m, --dport ...), so a bare "-j ACCEPT" can never take a
+ * system rule with it, and may use only the characters the reaper accepts.
+ */
+internal fun ruleEntry(tool: String, table: String, chain: String, spec: String): String? {
+    if (tool !in FW_TOOLS || table !in RULE_TABLES || chain !in RULE_BUILTIN) return null
+    if (!RULE_SPEC.matches(spec) || spec.contains("  ")) return null
+    if (spec.split(' ').none { it in RULE_MATCH_FLAGS }) return null
+    return "$tool $table $chain $spec"
+}
+
+/** Splits a ledger "R" entry back into (tool, table, chain, spec); null when it does not pass [ruleEntry] again (a hand-edited ledger cannot smuggle text in). */
+internal fun parseRuleEntry(entry: String): List<String>? {
+    val p = entry.split(' ', limit = 4)
+    if (p.size != 4 || ruleEntry(p[0], p[1], p[2], p[3]) != entry) return null
+    return p
+}
+
+private fun scanRules(cmd: String, depth: Int, out: MutableSet<String>) {
+    if (depth > 3) return
+    var group = ArrayList<String>()
+    for (t in shellTokens(cmd) + SEP) {
+        if (t != SEP) { group.add(t); continue }
+        if (group.isNotEmpty()) scanRuleGroup(group, depth, out)
+        group = ArrayList()
+    }
+}
+
+private fun scanRuleGroup(words: List<String>, depth: Int, out: MutableSet<String>) {
+    val args = ArrayList(words.filter { REDIR.find(it) == null })
+    while (args.isNotEmpty() && ASSIGN.containsMatchIn(args[0])) args.removeAt(0)
+    while (args.isNotEmpty() && args[0].substringAfterLast('/') in SKIP_VERBS) args.removeAt(0)
+    if (args.isEmpty()) return
+    val verb = args[0].substringAfterLast('/')
+    val rest = args.drop(1)
+    if (verb == "sh" || verb == "bash" || verb == "ash" || verb == "su") {
+        val c = rest.indexOf("-c")
+        if (c >= 0 && c + 1 < rest.size) scanRules(rest[c + 1], depth + 1, out)
+        return
+    }
+    if (verb == "timeout") {
+        val r = rest.dropWhile { it.startsWith("-") }.drop(1)
+        if (r.isNotEmpty()) scanRuleGroup(r, depth, out)
+        return
+    }
+    if (verb !in FW_TOOLS) return
+    // First pass: the table (the last -t wins, like iptables) and the words that are not part of the rule ("-t TABLE", "-w [SECONDS]").
+    var table = "filter"
+    val body = ArrayList<String>()
+    var j = 0
+    while (j < rest.size) {
+        val a = rest[j]
+        when {
+            (a == "-t" || a == "--table") && j + 1 < rest.size -> { table = rest[j + 1]; j += 2 }
+            a.startsWith("--table=") -> { table = a.removePrefix("--table="); j++ }
+            a == "-w" || a == "--wait" -> { j++; if (j < rest.size && rest[j].isNotEmpty() && rest[j].all { it.isDigit() }) j++ }
+            else -> { body.add(a); j++ }
+        }
+    }
+    // Second pass: the first -A / -I. Everything after the chain (and the position of an -I) is the rule.
+    val at = body.indexOfFirst { it in RULE_ADD }
+    if (at < 0 || at + 1 >= body.size) return
+    var k = at + 2
+    if (body[at] in RULE_INSERT && k < body.size && body[k].isNotEmpty() && body[k].all { it.isDigit() }) k++
+    val specWords = body.subList(k, body.size)
+    // A word with a space in it was quoted (--comment "a b"); splitting it again for "-D" would not name the same rule, so such a rule is not recorded.
+    if (specWords.isEmpty() || specWords.any { w -> w.isEmpty() || w.any { it.isWhitespace() } }) return
+    ruleEntry(verb, table, body[at + 1], specWords.joinToString(" "))?.let { out.add(it) }
+}
+
+/**
+ * Rules a command ADDS to a built-in chain (iptables / ip6tables [-t TABLE] -A|-I CHAIN [POSITION] RULE...), as ledger "R" entries. The rule is kept without
+ * its position, because the reaper removes it by exact text (-D CHAIN RULE). Only a plain command is read, like [pluginChains]: a rule built through a
+ * shell variable, or inside a script file the plugin wrote, is not seen. Anything that does not pass [ruleEntry] is dropped.
+ */
+internal fun pluginRules(command: String): List<String> {
+    val out = LinkedHashSet<String>()
+    scanRules(command, 0, out)
+    return out.toList()
+}
+
+/**
+ * Keeps at most [max] ledger lines. The oldest "P" / "E" lines (and any unknown kind) go first; "C" (chains), "R" (rules in built-in chains), "B" (boot scripts) and "U" (uploads) lines are
  * dropped only when nothing else is left, because the undo and the erase need them and they are usually the OLDEST lines (written the first time a plugin runs).
  * Order is kept.
  */
@@ -256,20 +348,25 @@ internal fun capLedger(lines: List<String>, max: Int): List<String> {
     if (drop <= 0) return lines
     val out = ArrayList<String>(lines.size)
     for (l in lines) {
-        val keep = l.startsWith("C ") || l.startsWith("B ") || l.startsWith("U ")
+        val keep = l.startsWith("C ") || l.startsWith("B ") || l.startsWith("U ") || l.startsWith("R ")
         if (drop > 0 && !keep) { drop--; continue }
         out.add(l)
     }
     return if (drop > 0) out.takeLast(max) else out
 }
 
-/** One small text ledger per plugin: lines "P /path", "E side effect", "U uploaded-file-name", "C table chain tool" (a firewall chain it created), "B /boot.d/file" (a boot script it wrote). */
+/** One small text ledger per plugin: lines "P /path", "E side effect", "U uploaded-file-name", "C table chain tool" (a firewall chain it created), "R tool table chain rule" (a rule it put into a built-in chain), "B /boot.d/file" (a boot script it wrote). */
 internal class PluginTraceStore(private val dir: File) {
     private val lock = Any()
     private val nameRx = Regex("^[A-Za-z0-9._-]{1,80}\\.(js|html)$")
 
     class Ledger(val paths: List<String>, val effects: List<String>, val uploads: List<String>,
-                 val chains: List<String> = emptyList(), val bootFiles: List<String> = emptyList())
+                 val chains: List<String> = emptyList(), val bootFiles: List<String> = emptyList(), val rules: List<String> = emptyList())
+
+    /** Called (outside the lock) after a ledger file was changed or removed. The host uses it to refresh the uninstall snapshot (Reaper). Must not throw. */
+    @Volatile var onChange: (() -> Unit)? = null
+
+    private fun changed() { try { onChange?.invoke() } catch (e: Exception) { Quiet.note("PluginTraceStore.onChange", e) } }
 
     private fun fileFor(plugin: String): File? =
         if (nameRx.matches(plugin) && !plugin.contains("..")) File(dir, "$plugin.trace") else null
@@ -277,14 +374,14 @@ internal class PluginTraceStore(private val dir: File) {
     /** Everything the ledger learns from one command text (write targets, side effects, chains, boot scripts). */
     fun recordCommand(plugin: String, command: String) {
         record(plugin, pluginWriteTargets(command).filter { checkPluginDataPath(it, plugin) == null }, pluginSideEffects(command),
-            emptyList(), pluginChains(command), pluginBootFiles(command))
+            emptyList(), pluginChains(command), pluginBootFiles(command), pluginRules(command))
     }
 
     fun record(plugin: String, paths: Collection<String>, effects: Collection<String>, uploads: Collection<String> = emptyList(),
-               chains: Collection<String> = emptyList(), bootFiles: Collection<String> = emptyList()) {
+               chains: Collection<String> = emptyList(), bootFiles: Collection<String> = emptyList(), rules: Collection<String> = emptyList()) {
         val f = fileFor(plugin) ?: return
-        if (paths.isEmpty() && effects.isEmpty() && uploads.isEmpty() && chains.isEmpty() && bootFiles.isEmpty()) return
-        synchronized(lock) {
+        if (paths.isEmpty() && effects.isEmpty() && uploads.isEmpty() && chains.isEmpty() && bootFiles.isEmpty() && rules.isEmpty()) return
+        val wrote = synchronized(lock) {
             dir.mkdirs()
             val lines = LinkedHashSet<String>()
             if (f.isFile) for (l in f.readLines(Charsets.UTF_8)) if (l.length in 3..260) lines.add(l)
@@ -294,22 +391,25 @@ internal class PluginTraceStore(private val dir: File) {
             for (u in uploads) lines.add("U $u")
             for (c in chains) lines.add("C $c")
             for (b in bootFiles) lines.add("B $b")
-            if (lines.size == before) return
-            f.writeText(capLedger(lines.toList(), MAX_LINES).joinToString("\n") + "\n", Charsets.UTF_8)
+            for (r in rules) lines.add("R $r")
+            if (lines.size == before) false
+            else { f.writeText(capLedger(lines.toList(), MAX_LINES).joinToString("\n") + "\n", Charsets.UTF_8); true }
         }
+        if (wrote) changed()
     }
 
     fun read(plugin: String): Ledger {
         val f = fileFor(plugin)
-        if (f == null || !f.isFile) return Ledger(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        if (f == null || !f.isFile) return Ledger(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
         val lines = synchronized(lock) { f.readLines(Charsets.UTF_8) }
         fun pick(tag: String) = lines.filter { it.startsWith("$tag ") }.map { it.substring(2) }.distinct()
-        return Ledger(pick("P"), pick("E"), pick("U"), pick("C"), pick("B"))
+        return Ledger(pick("P"), pick("E"), pick("U"), pick("C"), pick("B"), pick("R"))
     }
 
     fun clear(plugin: String) {
         val f = fileFor(plugin) ?: return
-        synchronized(lock) { if (f.exists()) f.delete() }
+        val had = synchronized(lock) { if (f.exists()) { f.delete(); true } else false }
+        if (had) changed()
     }
 
     companion object { const val MAX_LINES = 500 }

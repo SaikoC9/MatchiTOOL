@@ -3,73 +3,50 @@
 ## Requirements
 
 - Android 8.0+ device (minSdk 26)
-- JDK 17 and Android SDK 34, with Android Studio or Gradle 8.7 and Android
-  Gradle Plugin 8.5.2
+- JDK 17, Android SDK 34, Gradle 8.7, Android Gradle Plugin 8.5.2
 
-The repo has no Gradle wrapper yet. On a new machine run
-`bash scripts/bootstrap-build.sh` once. It creates the wrapper and does the
-first full build.
+No Gradle wrapper in the repo yet. On a new machine run `bash scripts/bootstrap-build.sh` once.
 
 ## Commands
 
 ```sh
 ./scripts/validate.sh
-gradle :app:testDebugUnitTest
 gradle :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
 gradle :app:assembleRelease   # app/build/outputs/apk/release/app-release.apk
 ```
 
-The release APK is the one that gets published. Release builds shrink code and
-resources with R8 but do not rename or optimise (`app/proguard-rules.pro`). If a
-release build misbehaves, set `isMinifyEnabled` and `isShrinkResources` to
-false in `app/build.gradle.kts`.
+Publish the release APK. It is shrunk with R8, not renamed or optimised (`app/proguard-rules.pro`). If it misbehaves, set `isMinifyEnabled` and `isShrinkResources` to false in `app/build.gradle.kts`.
 
 ## Version
 
-The version lives only in `version.properties`. Gradle reads it, and
-`node scripts/build-web.js` writes it into the page (`PAGE_VERSION`).
-`validate.sh` fails if the README or the top CHANGELOG entry names another
-version.
-
-To bump it:
+Set it only in `version.properties`. To bump:
 
 1. Edit `version.properties`.
-2. Run `node scripts/build-web.js`.
+2. Run `node scripts/build-web.js` (writes `PAGE_VERSION`).
 3. Update the version line in `README.md`.
 4. Add a `CHANGELOG.md` entry.
 
-## Checks
+`validate.sh` fails if README or the top CHANGELOG entry names another version.
 
-`scripts/validate.sh` runs:
+## Checks (`scripts/validate.sh`)
 
-- the page build check
-- `check_repo.py`: version, README tool count, bundled binary hashes
-- `test_route_gates.py`: which routes need the root gate, read from the code
-- the Node and shell tests
-- `check_sources.py`: older grep-style tripwires. Do not add to it. When you
-  touch that area, replace a guard with a real test.
-
-Kotlin logic is tested in `app/src/test`. The order of the root gate checks is
-tested in `RootGateTest`.
+- page build check
+- `check_repo.py`: version, README tool count, binary hashes
+- `test_route_gates.py`: which routes need the root gate
+- `check_sources.py`: old grep tripwires. Do not add to it
 
 ## Code layout
 
-- `WebServer.kt`: request checks, login, sessions, headers, the page and the
-  route dispatcher.
-- `WebRoutes*.kt` (Auth, Device, Logs, Plugins, Root, Router, Update): one
-  extension function per group, returning null for a path that is not its own.
-- `PluginPaths.kt`: plugin data-path rules.
+- `WebServer.kt`: request checks, login, sessions, headers, page, route dispatch
+- `WebRoutes*.kt` (Auth, Device, Logs, Plugins, Root, Router, Update): one function per group, returns null for foreign paths
+- `PluginPaths.kt`: plugin data-path rules
 
-A new route goes into the matching `WebRoutes*.kt` and into the table in
-`scripts/test_route_gates.py`.
+A new route goes into the matching `WebRoutes*.kt` and into the table in `scripts/test_route_gates.py`.
 
 ## CI
 
-GitHub Actions validates the JavaScript and XML and builds the debug APK on
-every push, pull request or manual run. It pins Gradle 8.7 and Android Gradle
-Plugin 8.5.2.
+GitHub Actions validates JS and XML and builds the debug APK on every push, pull request or manual run.
 
 ## Bundled binaries
 
-How `jq`, `curl`, `sendat` and `zreq` are built and checked:
-[`BUILD_BINARIES.md`](BUILD_BINARIES.md) and [`BINARIES.md`](BINARIES.md).
+See [`BUILD_BINARIES.md`](BUILD_BINARIES.md) and [`BINARIES.md`](BINARIES.md).

@@ -1,26 +1,34 @@
 # Where the plugin code lives (web-src)
 
-The console is one self-contained page, `app/src/main/assets/web/index.html` (the APK and every test read that file). The plugin code inside it is edited as separate files in `app/src/main/web-src/`:
+The console is one self-contained page: `app/src/main/assets/web/index.html` (the APK reads it). Its plugin code is edited as separate files in `app/src/main/web-src/`:
 
-| file | what it holds |
+| File | Holds |
 | --- | --- |
-| `plugin-host-api.js` | `window.matchi`, the plugin API (`toast`, `modal`, `root`, `user`, `router`, `sh`, ...), and the page helpers it wraps (`createModal`, `runShellWithRoot`, `createToast`, ...) |
-| `plugin-trace.js` | tags shell commands with the plugin that sent them (header `x-matchi-plugin`), so Delete can erase what that plugin wrote (tested by `scripts/test_plugin_trace.js`) |
-| `radio-core.js` | `window.MatchiRadio`: AT and router calls, band lock, cell lock, radio restart, parsing. No DOM (tested by `scripts/test_at_radio.js`) |
-| `at-radio-ui.js` | the AT & Radio window (a built-in tool block in `index.html`): AT terminal, VoLTE / VoNR, quick buttons, modem restart; calls `MatchiRadio`. No network mode, band lock or cell lock (they are on the dashboard) |
-| `perf-mode.js` | `mountPerfMode()`: the "Performance mode" button in the top button row (next to Change IP) and its small window |
-| `net-core.js` | `window.MatchiNetCore`: the pure part of the Network window: which router keys each tab reads, parsers for Data / Wi-Fi / Devices / APN / LAN-DHCP / MTU-MSS, the read-only root command and its parser, and the password masking. No DOM, no router call (tested by `scripts/test_net_tools.js`) |
-| `net-tools.js` | `mountNetTools()`: the "Network" button in the top button row and its window with six tabs (Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS). Every tab reads; the tabs that write ask first and read the router again afterwards. The window is run against a fake DOM by `scripts/test_net_tools_ui.js` |
-| `info-tip.js` | `window.MatchiTip`: shows a long explanation as a small icon button (blue "?" info, amber warning, red "!" high risk, purple restart arrow); a click opens or closes the text. Used by the Network window notes and the Radio settings / Cell lock cards |
-| `dash-radio.js` | `mountDashRadio()`: the Radio settings card under Live device status (network mode, band chips, Lock / Unlock all) |
-| `pick-ui.js` | popup pickers: replaces the phone's full-screen dropdown list and date/time wheel with a popup in the page's style for selects and date fields in dialogs and the header (the real controls stay, hidden, so handlers keep working) |
+| `plugin-host-api.js` | `window.matchi` plugin API and the page helpers it wraps (`createModal`, `runShellWithRoot`, `createToast`...) |
+| `plugin-trace.js` | tags shell commands with the plugin name (`x-matchi-plugin`) so Delete can erase what it wrote |
+| `radio-core.js` | `window.MatchiRadio`: AT and router calls, band lock, cell lock, radio restart, parsing. No DOM |
+| `at-radio-ui.js` | AT & Radio window: AT terminal, VoLTE / VoNR, quick buttons, modem restart. No network mode, band lock or cell lock (those are on the dashboard) |
+| `perf-mode.js` | `mountPerfMode()`: "Performance mode" button (next to Change IP) and its window |
+| `net-core.js` | `window.MatchiNetCore`: router keys per tab, parsers (Data / Wi-Fi / Devices / APN / LAN-DHCP / MTU-MSS), read-only root command and parser, password masking. No DOM, no router call |
+| `net-tools.js` | `mountNetTools()`: "Network" button and window with six tabs. Every tab reads; writing tabs ask first and read again after |
+| `info-tip.js` | `window.MatchiTip`: long text as a small icon button (blue "?" info, amber warning, red "!" high risk, purple restart arrow) |
+| `dash-radio.js` | `mountDashRadio()`: Radio settings card under Live device status (network mode, band chips, Lock / Unlock all) |
+| `pick-ui.js` | popup pickers replacing the phone's full-screen dropdown and date/time wheel; real controls stay hidden so handlers work |
 
 In `index.html` each file sits between `/* @include web-src/NAME.js */` and `/* @end-include web-src/NAME.js */`.
 
-**Workflow:** edit the file in `web-src/`, then run `node scripts/build-web.js` to write it into `index.html`, and commit both. `scripts/validate.sh` (and so CI) runs `node scripts/build-web.js --check` and fails when the two differ, so an edit made directly inside an included block is caught instead of being overwritten later. Text outside the markers is still edited in `index.html` as before.
+## Workflow
 
-**Adding a file:** create `web-src/NAME.js`, put a marker pair where it belongs in `index.html`, run the build. A file that no marker includes also fails the check. The files must not contain `</script`.
+1. Edit the file in `web-src/`.
+2. Run `node scripts/build-web.js` (writes it into `index.html`).
+3. Commit both.
 
-`build-web.js` also writes the app version (from `version.properties`) into `const PAGE_VERSION=...` in `index.html`; `--check` fails when it differs.
+`scripts/validate.sh` (and CI) runs `node scripts/build-web.js --check` and fails if they differ, so a direct edit inside an included block is caught. Text outside the markers is still edited in `index.html`.
 
-The split changes only where you edit: with the marker lines removed, the page is byte-identical to the one before the split.
+## Add a file
+
+Create `web-src/NAME.js`, add a marker pair in `index.html`, run the build. A file no marker includes fails the check. Files must not contain `</script`.
+
+`build-web.js` also writes the app version (from `version.properties`) into `const PAGE_VERSION=...`; `--check` fails if it differs.
+
+The split changes only where you edit: without the markers the page is byte-identical to the one before the split.
