@@ -13,7 +13,7 @@ Steps: tools/doctor/ + tests; call it from the Full diagnose route. Done when: r
 Same two steps as Phase 4:  STEP 1 = the program, its tests and its build workflow (this zip);  STEP 2 = the binary in the APK and the
 call from the Full diagnose route (after STEP 1 passes on the F50, because the app needs the real file and its SHA-256).
 
-WHAT IS DONE IN STEP 1 (in the repo; nothing here was compiled or run: there is no Go toolchain where this was written)
+WHAT IS DONE IN STEP 1
 [DONE] 1. tools/doctor/{go.mod, main.go, checks.go, main_test.go, README.md}. Stdlib only. Nine checks: root, selinux, memory, storage,
           ca, tls (only with -tls), router, at, binaries. JSON on one line (-pretty indents). Exit 0 = report written, 2 = usage, 1 = reader gone.
 [DONE] 2. Thresholds copied from the checks in the page: memory fail < 5 % / warn < 10 % free, /data warn from 95 % used (space or inodes),

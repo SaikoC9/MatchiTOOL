@@ -45,7 +45,7 @@ The console (port **2334**) is for a trusted ZTE hotspot / USB-tether network an
 
 AdGuard Home (port 3000) has its own login and a long-lived cookie that a console sign-out cannot end. While "Web UI on LAN" is on, port 3000 is dropped for every non-loopback client by chain `AGH_UI` (jumped from INPUT, IPv4 and IPv6). `POST /api/agh/door` (root gate) adds an ACCEPT for the caller's address; `AghDoor.kt` closes it on session end (sign-out, idle, 12 h, password change), after 30 min, and at host start. The plugin's watchdog and boot script restore the chain after a netd restart or reboot.
 
-Limits: per IP address, so a device that spoofs it gets in until the door closes; the AdGuard login is still required. Not run on a device yet.
+Limits: per IP address, so a device that spoofs it gets in until the door closes; the AdGuard login is still required.
 
 ## Plugin web pages (web gate)
 
@@ -55,7 +55,7 @@ A plugin with its own local page declares it with `// @matchi-gate`; MatchiTOOL 
 - **Ports:** nothing listens until first Open. Gate ports come from 3100-3199. The plugin port must be 1024-65535, not 2334 or a gate port. Max 4 gates; a gate nobody is logged in to is stopped to make room.
 - **Cookies:** only a session-only `matchi_gate_PORT` cookie (one name per gate; browsers share cookies across ports). The page's own cookie stays on the device.
 - **Page login ends:** console sign-out, session expiry, password change, host start, idle time (`idle`, default 1 h), and, if `tabclose` is on, closing the tab's last page. Deleting or switching off the plugin stops its gate.
-- **Limits:** plain HTTP even if the console is HTTPS. The page's brute-force limit becomes global (all requests from `127.0.0.1`). WebSockets and `Upgrade`: `501`. Bodies over 2 MB: `413`. Responses capped at 24 MB. Sandboxed plugins cannot use it. `/api/agh/gate` stays one more release with the built-in AdGuard declaration. Android side not run on a device yet.
+- **Limits:** plain HTTP even if the console is HTTPS. The page's brute-force limit becomes global (all requests from `127.0.0.1`). WebSockets and `Upgrade`: `501`. Bodies over 2 MB: `413`. Responses capped at 24 MB. Sandboxed plugins cannot use it. `/api/agh/gate` stays one more release with the built-in AdGuard declaration. Android side
 
 ## Root shell
 

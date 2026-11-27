@@ -11,7 +11,7 @@
 
 - Added: plugin guard kill mode (default). A plugin over its CPU budget for 30 s is killed. A non-plugin program holding 90 % of one core for 30 s is killed (summed per program name; system, radio and network programs protected). `POST /api/guard/state` takes `action` (throttle|freeze|kill) and `runaway`.
 - Fixed: Mobile data off / on and Rename device did nothing until a router reboot. The router could drop the console's sign-in while reads still worked. The host now checks the sign-in before each change, signs in again, and resends when no change shows.
-- Added: Limit speed in Network > Devices. Per-device Download and Upload caps in KB/s via `tc`, restored after reboot. IPv4 only. Not verified on a real F50 (see `docs/LIMIT_SPEED.md`).
+- Added: Limit speed in Network > Devices. Per-device Download and Upload caps in KB/s via `tc`, restored after reboot. IPv4 only. See `docs/LIMIT_SPEED.md`.
 - Added: Network > Wi-Fi switch (off by default) to turn hotspot Wi-Fi off while USB tethering works.
 - Added: bundled programs are hash-checked before they run as root. Full diagnose lists each file.
 - Added: `matchi-doctor`, a read-only checker run by Full diagnose.
@@ -28,7 +28,7 @@
 - Added: protected web pages for plugins (`// @matchi-gate`, `matchi.gate.open`). AdGuard Home uses it.
 - Added: live push stream, about one reading per second, only while a tab watches.
 - Changed: UFI-TOOLS code removed. Plugins use the `matchi.*` API.
-- Changed: Change IP and Memory Cleaner rewritten. `zreq` and `curl` are MatchiTOOL's own builds.
+- Changed: Change IP and Memory Cleaner rewritten. `zreq` and `curl` were rebuilt.
 - Fixed: network and radio changes the router ignored are now detected and retried.
 
 # MatchiTOOL 1.4.2

@@ -1,4 +1,4 @@
-Goal:   Phase 3 of the new binaries plan, runtime hash check in the app.
+Goal: Phase 3 of the new binaries plan, runtime hash check in the app.
 Status: code done and in CI. Open: device tests P3-1 to P3-6, one CI re-run.
 Date:   2026-11-19
 
@@ -12,7 +12,7 @@ PHASE 2 RESULT (workflow "Release tools", run 44434964609, 2026-11-19, from main
 [PASS] Build provenance attestation created (Rekor log 3982939884), so the repo is public and this step works.
 [PASS] update_binary_hashes.py: curl 4c063298 -> bb49333d, jq 738ee056 -> a8dc0221, sendat 1ec33c20 -> c7f61e68, zreq 8dc2144a -> 96d4ba28.
 [PASS] check_repo.py passed. Pull request #2 (branch tools-update-1, 6 files: 4 binaries, NOTICE.md, docs/BINARIES.md) opened.
-[OPEN] PR #2 not tested on the F50 yet, version words in NOTICE.md / BINARIES.md not updated yet (Go 1.26.10, curl 8.23.0, OpenSSL 3.5.9, jq 1.8.2).
+[OPEN] PR #2, version words in NOTICE.md / BINARIES.md not updated yet (Go 1.26.10, curl 8.23.0, OpenSSL 3.5.9, jq 1.8.2).
 [NOTE] That run used the Phase 2 workflow, whose "git add" does not include BinaryHashes.kt. The Phase 3 zip fixes that for later runs.
 
 ORDER FOR PHASE 2 + 3 (so BinaryHashes.kt is never stale)
@@ -42,7 +42,7 @@ WHAT IS DONE (in the repo; compiled by GitHub Actions; device tests run on the F
 [DONE] 4. Unit tests: BinaryGuardTest.kt (verdicts, changed file, stamp, refusals, permissions, report lines) and
           BinaryHashesFileTest.kt (list matches assets/bin).
 [DONE] 5. Full diagnose has a "bundled binaries" section. update_binary_hashes.py rewrites BinaryHashes.kt; release-tools.yml PR
-          carries it. validate.sh passes here (the Kotlin is not compiled by it).
+          carries it. validate.sh passes here.
 [DONE] 6. GitHub Actions: Unit tests + build green; the APK was installed on the F50.
 [OPEN] 7. Device tests P3-1 to P3-6 below.
 

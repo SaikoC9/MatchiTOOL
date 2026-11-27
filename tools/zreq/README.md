@@ -1,4 +1,4 @@
-# zreq (own build)
+# zreq
 
 Small HTTP client for the router's `goform` API. Written from scratch for MatchiTOOL, **not** the UFI-TOOLS binary; output may differ. Flag names are kept, so most plugin calls work unchanged.
 

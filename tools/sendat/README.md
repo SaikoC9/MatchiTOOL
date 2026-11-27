@@ -1,4 +1,4 @@
-# sendat (own build)
+# sendat
 
 Replaces the UFI-TOOLS `sendat` (UPX-packed Go, no recorded source). Same call:
 

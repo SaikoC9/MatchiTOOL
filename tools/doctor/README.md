@@ -1,4 +1,4 @@
-# matchi-doctor (own build)
+# matchi-doctor
 
 One read-only command that collects what "Full diagnose" needs and prints JSON. It starts no shell and changes nothing: no file written, no setting touched. The only thing sent to the modem is a plain `AT` via `sendat`.
 
