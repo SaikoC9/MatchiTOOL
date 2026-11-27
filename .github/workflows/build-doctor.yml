@@ -1,6 +1,6 @@
 name: Build matchi-doctor (arm64 Android)
 
-# Builds tools/doctor (stdlib-only Go, our own source) into a static arm64 executable. Run it by hand (release-tools.yml does not call it yet).
+# Builds tools/doctor (stdlib-only Go) into a static arm64 executable. Run it by hand (release-tools.yml does not call it yet).
 # By hand: download the artifact, test on the device (tools/doctor/README.md), copy it to app/src/main/assets/bin/matchi-doctor, then
 # write the printed SHA-256 into NOTICE.md and docs/BINARIES.md (scripts/validate.sh checks it).
 on:
