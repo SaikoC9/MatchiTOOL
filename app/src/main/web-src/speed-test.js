@@ -87,7 +87,7 @@
     const ok = (i) => Number.isFinite(i) && i >= 1 && i <= 126;
     return { lteRsrp: f.length >= 6 && f[5] >= 1 && f[5] <= 96 ? f[5] - 140 : null, nrRsrp: f.length >= 9 && ok(f[7]) ? f[7] - 156 : null, nrSinr: f.length >= 9 && ok(f[8]) ? -23 + (f[8] - 1) / 2 : null };
   };
-  const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || !!a.mixed - !!b.mixed || (b.mbps || 0) - (a.mbps || 0));
+  const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
   // Trace: every step of a band test with the raw answer, so a failure shows WHERE it stopped and WHAT came back (no guessing).
   // t = makeTrace(onChange); t('step', data) adds a line; t.err('step', e) adds an error with its stack; t.text() is the report body.
@@ -113,7 +113,8 @@
     // The mode is saved here, re-sent after each restart, and the link is checked before every speed test.
     let origNet = null; if (R.readRadio) { try { const rd = await R.readRadio(); origNet = rd && rd.net ? rd.net : null; } catch (_) { /* mode not readable */ } }
     let pure4g = lte && (origNet === 'Only_LTE' || !!o.force4g);   // pure 4G: the mode is held at 4G only for the test, so 5G cannot add speed to an LTE band
-    const testNet = 'Only_LTE';
+    // 5G NR test: 5G must be on, so a 4G-only mode is lifted to Auto for the test; any other mode is left alone.
+    const testNet = lte ? 'Only_LTE' : (origNet === 'Only_LTE' ? 'WL_AND_5G' : null); let modeSet = false;
     tr('network mode', { origNet, pure4g, force4g: !!o.force4g });
     const is5g = (t) => /5G|NR|ENDC|NSA|^SA$/i.test(String(t || '').trim());
     let orig = (lte ? before.lte : before.nr) || [];
@@ -132,14 +133,19 @@
       tr('waitRegistered', (reg ? 'registered' : 'NOT registered') + ' after ' + Math.round((Date.now() - w0) / 1000) + ' s');
       return reg;
     };
+    // The network must be what the test says (LTE = 4G only, 5G NR = 5G on). If it cannot be set the test stops here: no band is locked, nothing is restarted.
+    if (testNet && (pure4g || !lte) && origNet !== testNet) {
+      let r4 = null; try { r4 = R.setNetMode ? await R.setNetMode(testNet) : null; } catch (e) { trErr('set network mode ' + testNet, e); }
+      tr('set network mode ' + testNet, r4 && { ok: r4.ok, reply: r4.reply, read: r4.read });
+      if (!r4 || !r4.ok) {
+        if (r4 && r4.read && r4.read.net !== origNet && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* shown in Radio settings */ } }
+        throw new Error((lte ? 'Could not set 4G only' : 'Could not lift 4G only (5G needed)') + '. Test stopped, nothing was changed.');
+      }
+      modeSet = true;
+    }
     const results = []; let aborted = '', restored = false;
     const done = R.beginBusy('Band test running');
     try {
-      if (pure4g && origNet !== testNet) {
-        let r4 = null; try { r4 = R.setNetMode ? await R.setNetMode(testNet) : null; } catch (e) { trErr('set 4G only', e); }
-        tr('set 4G only', r4 && { ok: r4.ok, reply: r4.reply, read: r4.read });
-        if (!r4 || !r4.ok) { pure4g = false; log('Could not set 4G only: LTE rows with 5G active are marked mixed.'); }
-      }
       for (let i = 0; i < o.bands.length; i++) {
         if (o.stop && o.stop()) { aborted = 'stopped'; break; }
         const b = o.bands[i], row = { band: b, label: name(b), mbps: null, rsrp: null, sinr: null, active: '', error: '' };
@@ -148,6 +154,12 @@
           log('Locking ' + name(b) + '…'); tr('--- band ' + name(b) + ' (' + (i + 1) + '/' + o.bands.length + ')');
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
+          if (!lte && o.link) {   // 5G NR band: the link must really be 5G, else the speed is not an NR speed
+            let lk = '';
+            for (let k = 0; k < 5; k++) { try { lk = String((await o.link()) || ''); } catch (_) { lk = ''; } if (is5g(lk)) break; if (k < 4) await R.sleep(3000); }
+            row.g5 = is5g(lk); tr('link after lock', { network_type: lk, g5: row.g5 });
+            if (!row.g5) { row.error = '5G not active (link: ' + (lk || 'unknown') + ')'; log(name(b) + ': ' + row.error + ', next band'); continue; }
+          }
           if (lte && o.link) {
             if (pure4g && R.setNetMode) { try { await R.setNetMode(testNet); } catch (_) { /* checked through the link below */ } }
             let lk = '';
@@ -158,7 +170,7 @@
               if (k < 4) await R.sleep(3000);
             }
             row.g5 = is5g(lk); row.mixed = row.g5 && !pure4g; tr('link after lock', { network_type: lk, g5: row.g5 });
-            if (row.g5 && pure4g) { row.error = '5G still on after the restart, skipped (not a pure 4G test)'; log(name(b) + ': 5G still on (' + lk + '), speed not tested'); continue; }
+            if (row.g5 && pure4g) { row.error = '5G still on after the restart (link: ' + lk + ')'; log(name(b) + ': ' + row.error + ', next band'); continue; }
           }
           // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
           // Ask up to `tries` times, 3 s apart, until BOTH RSRP and SINR are there; keep the best answer. A reading that names another band
@@ -197,7 +209,7 @@
       }
     } finally {
       try { log('Restoring lock: ' + orig.map(name).join(' ')); tr('--- restore'); const reg = await apply(orig); restored = true; tr('restored', { registered: reg }); log(reg ? 'Old lock restored.' : 'Old lock restored, not registered.'); } catch (e) { trErr('restore', e); log('Restore FAILED: ' + e.message + '. Use Unlock all in Radio settings.'); }
-      if (pure4g && R.setNetMode) { try { const rd = await R.readRadio(); if (!rd || rd.net !== origNet) await R.setNetMode(origNet); } catch (_) { /* the mode is shown in Radio settings */ } }
+      if ((pure4g || modeSet) && R.setNetMode) { try { const rd = await R.readRadio(); if (!rd || rd.net !== origNet) await R.setNetMode(origNet); } catch (_) { /* the mode is shown in Radio settings */ } }
       done(); tr('end', { restored, aborted });
     }
     return { results, ranked: rank(results), restored, aborted, orig };
@@ -249,9 +261,8 @@
         '<div class="sp-res">' + TILE('dl', 'Download', 'Mbps') + TILE('ul', 'Upload', 'Mbps') + TILE('ping', 'Ping', 'ms') + '</div>' +
         '<div class="sp-bar" aria-hidden="true"><i id="sp_bar"></i></div><div id="sp_out" class="sp-msg" role="status"></div>' +
         '<div class="sp-band" id="sp_band"><div class="t">Band test</div>' +
-        '<div class="mut" style="font-size:11.5px;margin:0 0 4.5px">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
+        '<div class="mut" style="font-size:11.5px;margin:0 0 4.5px">Locks each ticked band, tests download, reads signal, then restores your old lock and network mode. LTE bands test on 4G only, 5G NR bands need 5G. Internet is off during radio restarts.</div>' +
         '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4.5px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:11.5px"></span></div>' +
-        '<label class="mut" style="display:flex;gap:6px;align-items:center;font-size:11.5px;margin:0 0 4.5px"><input type="checkbox" id="sp_4g"> LTE test: hold 4G only during the test (your mode is put back after)</label>' +
         '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4.5px;margin-bottom:7px"></div>' +
         '<div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button><button type="button" id="sp_diag" title="Read-only checks. No band change, no radio restart.">Diagnose</button><button type="button" id="sp_copy" title="Copy the step-by-step report of the last Diagnose or band test">Copy report</button></div>' +
         '<div class="mut" id="sp_last" style="font-size:11.5px;margin-top:4.5px"></div>' +
@@ -262,7 +273,6 @@
     const st = { trace: null, stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
     $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5'); $('sp_par').value = store.get('par', '4');
     if ($('sp_par').value === '') $('sp_par').value = '4';
-    $('sp_4g').checked = store.get('force4g', '1') === '1'; $('sp_4g').onchange = () => store.set('force4g', $('sp_4g').checked ? '1' : '0');
     // server suggestions: buttons in the page's own style (a native list only shows entries that match the text, so the host could not be changed without clearing it)
     const SERVERS = [['Biznet', 'iperf.biznetnetworks.com'], ['Online.net', 'ping.online.net'], ['Leaseweb SG', 'speedtest.sin1.sg.leaseweb.net']];
     const markSrv = () => { for (const b of $('sp_sg').children) { const on = b.dataset.host === $('sp_host').value.trim(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
@@ -423,13 +433,13 @@
     };
     function drawTable(res) {
       const box = $('sp_table'); box.textContent = '';
-      const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null && !r.mixed);
+      const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null);
       const cols = ['cb', 'cm', 'cr', 'cs', 'cn']; ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h, k) => t.append(el('col', { className: cols[k] })));
       const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => head.append(el('th', { textContent: h }))); t.append(head);
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
         const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
-        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.mixed ? 'mixed with 5G, not ranked' : '', r.sig5 ? 'signal is 5G ' + r.sig5 : ''].filter(Boolean).join(' \u00B7 ');
+        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.mixed ? 'with 5G (Auto)' : '', r.sig5 ? 'signal is 5G ' + r.sig5 : ''].filter(Boolean).join(' \u00B7 ');
         const long = note.length > 12;   // a long note (an error) gets its own line under the row, so the number columns keep their width
         [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm' , r.sinr == null ? '-' : r.sinr + ' dB', long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
         if (long) { const nt = el('tr', { className: 'sp-nt' }), td = el('td', { textContent: note }); td.colSpan = 5; nt.append(td); t.append(nt); }
@@ -446,20 +456,19 @@
       const tr = newTrace('Band test ' + (st.type === 'nr' ? 'n' : 'B') + bands.join(' '));
       try {
         const out = await bandTest({
-          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr, force4g: st.type === 'lte' && $('sp_4g').checked,
+          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr, force4g: st.type === 'lte',
           speed: () => measure(run, i, true, { onRaw }), stop: () => st.stop,
           link: async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type' }); return d && d.network_type; },
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: signalNow,
         });
         drawTable(out.ranked);
-        const top = out.ranked.find((r) => r.mbps != null && !r.mixed);
+        const top = out.ranked.find((r) => r.mbps != null);
         st.best = top ? top.band : null;
         const bestTxt = top ? top.label + ' \u00B7 ' + top.mbps + ' Mbps' : '';
         if (!out.restored) showResult('bad', 'Lock not restored. Use Unlock all in Radio settings.', '');
         else if (out.aborted) showResult('warn', 'Stopped' + (out.aborted !== 'stopped' ? ': ' + out.aborted : '') + (top ? ' \u00B7 best ' + bestTxt : ''), 'Lock restored');
         else if (top) showResult('ok', 'Fastest: ' + bestTxt, 'Lock restored');
-        else if (out.ranked.some((r) => r.mixed && r.mbps != null)) showResult('warn', 'Every speed was mixed with 5G, none ranked', 'Lock restored');
         else showResult('warn', 'No band gave a result', 'Lock restored');
       } catch (e) { tr.err('band test', e); setOut('Band test failed: ' + e.message + '. Copy report shows the step.', ERR); } finally { endTrace(); $('sp_last').textContent = 'Report ready: Copy report.'; busy(false); }
     };

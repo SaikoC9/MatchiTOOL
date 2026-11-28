@@ -148,7 +148,7 @@ async function rest() {
   assert(R.sent >= 1 && out.results[0].mbps === 9 && !out.results[0].g5 && !out.results[0].error, 'recovered link: ' + JSON.stringify(out.results[0]));
   R = withMode('Only_LTE'); let sp = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'ENDC', signal: async () => ({}), speed: async () => { sp++; return { ok: true, mbps: 9 }; } });
-  assert(sp === 0 && out.results[0].mbps === null && /5G still on/.test(out.results[0].error) && out.restored, 'stuck on 5G: ' + JSON.stringify(out.results[0]));
+  assert(sp === 0 && out.results[0].mbps === null && /5G still on/.test(out.results[0].error) && !out.aborted && out.restored, 'stuck on 5G: ' + JSON.stringify(out.results[0]));
   R = withMode('WL_AND_5G');
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'ENDC', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
   assert(R.sent === 0 && out.results[0].mbps === 9 && out.results[0].g5 === true && !out.results[0].error, 'auto mode: ' + JSON.stringify(out.results[0]));
@@ -190,15 +190,29 @@ async function rest() {
   R = fakeRadio({});
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'LTE', signal: async () => ({ rsrp: '', sinr: '', nr: { rsrp: -102, sinr: 7 } }), speed: async () => ({ ok: true, mbps: 9 }) });
   assert(out.results[0].rsrp === null && !out.results[0].sig5, 'plain LTE must not borrow 5G values');
-  // force4g: the mode is set to 4G only for the test and put back; if it cannot be set, 5G rows are mixed and never ranked best
+  // Auto mode is never changed unless the mode is already 4G only; a row with 5G attached is labelled and still ranked
   {
     const mk = () => { const r = fakeRadio({}); r.net = 'WL_AND_5G'; r.nets = []; r.readRadio = async () => ({ net: r.net }); r.setNetMode = async (m) => { r.net = m; r.nets.push(m); return { ok: true }; }; return r; };
     R = mk(); out = await S.bandTest({ R, type: 'lte', bands: [1], force4g: true, full: [], log() {}, stop: () => false, link: async () => 'LTE', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
     assert(R.nets[0] === 'Only_LTE' && R.net === 'WL_AND_5G' && out.results[0].mbps === 9 && !out.results[0].mixed, 'forced 4G, mode put back: ' + R.nets);
-    R = mk(); R.setNetMode = async () => ({ ok: false }); out = await S.bandTest({ R, type: 'lte', bands: [1], force4g: true, full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 99 }) });
-    assert(out.results[0].mixed === true && out.results[0].mbps === 99, 'cannot hold 4G: mixed');
+    R = mk(); R.setNetMode = async () => ({ ok: false }); await assert.rejects(() => S.bandTest({ R, type: 'lte', bands: [1], force4g: true, full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 99 }) }), /Could not set 4G only/); assert(R.calls.length === 0, 'nothing locked or restarted when 4G only cannot be set: ' + R.calls);
     R = mk(); out = await S.bandTest({ R, type: 'lte', bands: [1, 3], full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 50 }) });
-    assert(out.results.every((x) => x.mixed) && S.rank([{ band: 1, mbps: 200, mixed: true }, { band: 3, mbps: 40 }])[0].band === 3, 'mixed never ranks above a clean row');
+    assert(R.nets.length === 0 && out.results.every((x) => x.mixed && x.mbps === 50), 'Auto mode is left alone; 5G rows are labelled, still ranked');
   }
+  // 5G NR test: a row whose link is not 5G is skipped with the reason; a 4G-only mode is lifted to Auto for the test and put back
+  {
+    const mk = (net) => { const r = fakeRadio({}); r.net = net; r.nets = []; r.readRadio = async () => ({ net: r.net }); r.setNetMode = async (m) => { r.net = m; r.nets.push(m); return { ok: true }; }; return r; };
+    R = mk('Only_LTE'); out = await S.bandTest({ R, type: 'nr', bands: [78], full: [], log() {}, stop: () => false, link: async () => 'ENDC', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 300 }) });
+    assert(R.nets[0] === 'WL_AND_5G' && R.net === 'Only_LTE' && out.results[0].mbps === 300, 'NR: 4G only lifted, then put back: ' + R.nets);
+    R = mk('WL_AND_5G'); let sp5 = 0; out = await S.bandTest({ R, type: 'nr', bands: [78], full: [], log() {}, stop: () => false, link: async () => 'LTE', signal: async () => ({}), speed: async () => { sp5++; return { ok: true, mbps: 1 }; } });
+    assert(R.nets.length === 0 && sp5 === 0 && /5G not active/.test(out.results[0].error) && !out.aborted && out.restored, 'NR on a 4G link is skipped: ' + JSON.stringify(out.results[0]));
+  }
+  // a band that fails the network check (or is not supported) is skipped with its reason and the next band is tried, in 4G and 5G tests
+  { const r = fakeRadio({}); r.readRadio = async () => ({ net: 'WL_AND_5G' }); r.setNetMode = async () => ({ ok: true }); let sp6 = 0;
+    out = await S.bandTest({ R: r, type: 'nr', bands: [41, 78, 28], full: [], log() {}, stop: () => false, link: async () => (r.state.nr[0] === 78 ? 'ENDC' : 'LTE'), signal: async () => ({}), speed: async () => { sp6++; return { ok: true, mbps: 200 }; } });
+    assert(out.results.length === 3 && sp6 === 1 && /5G not active/.test(out.results[0].error) && out.results[1].mbps === 200 && /5G not active/.test(out.results[2].error) && !out.aborted && out.restored, 'NR: skip and go on: ' + JSON.stringify(out.results));
+    const r2 = fakeRadio({ noReg: 3 }); r2.readRadio = async () => ({ net: 'Only_LTE' }); r2.setNetMode = async () => ({ ok: true });
+    out = await S.bandTest({ R: r2, type: 'lte', bands: [3, 1, 7], full: [], log() {}, stop: () => false, link: async () => (r2.state.lte[0] === 7 ? 'ENDC' : 'LTE'), signal: async () => ({}), speed: async () => ({ ok: true, mbps: 80 }) });
+    assert(out.results.length === 3 && /registration/.test(out.results[0].error) && out.results[1].mbps === 80 && /5G still on/.test(out.results[2].error) && !out.aborted && out.restored, '4G: skip and go on: ' + JSON.stringify(out.results)); }
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }
