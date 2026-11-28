@@ -4011,41 +4011,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   }
 
   const label = () => (unread > 99 ? '99+' : String(unread));
-  const FAV = document.querySelector('link[rel~="icon"]');
-  const favBase = FAV ? FAV.href : '';
-  const favImg = new Image();
-  let favReady = false;
-  favImg.onload = () => { favReady = true; drawFav(); };
-  if (favBase) favImg.src = favBase;
-  function drawFav() {
-    if (!FAV || !favReady) return;
-    try {
-      const c = document.createElement('canvas'); c.width = c.height = 64;
-      const g = c.getContext('2d'); g.drawImage(favImg, 0, 0, 64, 64);
-      if (unread > 0) {
-        const t = label(), r = t.length > 2 ? 22 : t.length > 1 ? 20 : 17, cx = 64 - r - 1, cy = r + 1;
-        g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = '#1e90ff'; g.fill();
-        g.lineWidth = 4; g.strokeStyle = '#ffffff'; g.stroke();
-        g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.font = '800 ' + (t.length > 2 ? 17 : t.length > 1 ? 21 : 26) + 'px Arial,Helvetica,sans-serif';
-        g.fillText(t, cx, cy + 1);
-      }
-      FAV.type = 'image/png'; FAV.href = c.toDataURL('image/png');
-    } catch (_) {}
-  }
-  // The log alerts also write the title ("(2) MatchiTOOL"). The SMS count is a separate "✉ 3 · " prefix that is put back if the title is rewritten.
-  const PFX = /^✉ (?:\d+\+?|99\+) · /;
-  let titleBusy = false;
-  function applyTitle() {
-    if (titleBusy) return; titleBusy = true;
-    const base = document.title.replace(PFX, '');
-    const want = unread > 0 ? '✉ ' + label() + ' · ' + base : base;
-    if (document.title !== want) document.title = want;
-    titleBusy = false;
-  }
-  const titleEl = document.querySelector('title');
-  if (titleEl) new MutationObserver(applyTitle).observe(titleEl, { childList: true, characterData: true, subtree: true });
-
+  // The unread count is shown on the SMS button only, not on the browser tab (icon or title).
   let btnEl = null, badgeEl = null, paused = false;
   function showBadge() {
     if (btnEl) {
@@ -4059,7 +4025,6 @@ rm -f $P.g $P.4 $P.6 $P.d
       btnEl.title = paused ? 'New-message check paused: sign in again to resume' : '';
       btnEl.setAttribute('aria-label', unread > 0 ? 'SMS, ' + unread + ' new message' + (unread === 1 ? '' : 's') : 'SMS');
     }
-    drawFav(); applyTitle();
   }
 
   // Checks the inbox about once a minute while the SMS window is closed (when it is open, its own refresh does the counting).
