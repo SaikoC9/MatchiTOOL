@@ -116,8 +116,8 @@
   const toast = (t, c) => { try { createToast(t, c); } catch (_) { /* not fatal */ } };
   const num = (m) => (m >= 1000 ? (m / 1000).toFixed(2) : m >= 100 ? String(Math.round(m)) : m.toFixed(1));
   const unitOf = (m) => (m >= 1000 ? 'Gbps' : 'Mbps');
-  const CSS = '.sp-root{padding:4px}.sp-in{display:grid;grid-template-columns:62px 72px 108px auto auto;justify-content:start;gap:4.5px;align-items:center}.sp-in .h{grid-column:1/-1}' +
-    '.sp-in input,.sp-in select,.sp-in button{min-height:30px;padding:2px 8px;font-size:13px}' +
+  const CSS = '.sp-root{padding:4px}.sp-in{display:grid;grid-template-columns:64px 84px 120px auto auto;justify-content:start;gap:4.5px;align-items:center}.sp-in .h{grid-column:1/-1}' +
+    '.sp-in input,.sp-in select{min-width:0;width:100%;box-sizing:border-box}.sp-in input,.sp-in select,.sp-in button{min-height:30px;padding:2px 8px;font-size:13px}' +
     '.sp-sg{display:flex;flex-wrap:wrap;gap:4.5px;margin-top:4.5px}.sp-sg button{min-height:25.5px;padding:1px 9px;font-size:12.5px;opacity:.7}.sp-sg button.on{opacity:1;background:rgba(100,230,164,.35)}' +
     '.sp-res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:9px 0 7px}' +
     '.sp-t{background:var(--panel2);border:1px solid var(--bd);border-radius:9px;padding:4.5px 9px;min-width:0;transition:border-color .2s}' +
@@ -197,14 +197,14 @@
       st.stop = false; busy(true); setOut('');
       tile('dl', { state: 'run', v: '...', u: 'Mbps' }); tile('ul', { u: 'Mbps' }); tile('ping', { u: 'ms' });
       try {
-        setOut('Download…'); bar(i.secs + 8);
+        bar(i.secs + 8);
         const d = await measure(run, i, true, { ping: true }); barDone();
         const p = d.ping;
         tile('ping', p && p.ms != null ? { state: 'ok', v: p.ms < 10 ? p.ms.toFixed(1) : String(Math.round(p.ms)), u: 'ms', s: [p.jitter != null ? 'jitter ' + p.jitter.toFixed(1) + ' ms' : '', p.loss ? p.loss + '% lost' : ''].filter(Boolean).join(' · ') } : { u: 'ms', s: p ? 'no reply' : '' });
         speedTile('dl', d, i);
         if (!d.ok) { setOut('Download: ' + d.error, ERR); return; }
         if (st.stop) { setOut('Stopped.'); return; }
-        tile('ul', { state: 'run', v: '...', u: 'Mbps' }); setOut('Upload…'); bar(i.secs + 6);
+        tile('ul', { state: 'run', v: '...', u: 'Mbps' }); bar(i.secs + 6);
         const u = await measure(run, i, false); barDone();
         speedTile('ul', u, i);
         setOut(u.ok ? 'Done at ' + new Date().toLocaleTimeString() : 'Upload: ' + u.error, u.ok ? '' : ERR);
