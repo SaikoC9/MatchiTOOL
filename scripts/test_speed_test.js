@@ -29,6 +29,36 @@ assert(/-c h\.example -p 5201 -t 5 -J/.test(sc) && /-R/.test(sc) && !/-R/.test(S
 const r = cp.spawnSync('sh', ['-c', sc], { encoding: 'utf8' });
 assert(/NOIPERF3/.test(r.stdout), 'without the binary the script must say NOIPERF3: ' + r.stdout + r.stderr);
 
+// 4 streams and 1 s of slow start left out by default; both can be changed; bad values are refused
+assert(/-J -O 1 -P 4 --connect-timeout/.test(sc), sc);
+assert(/-P 1 /.test(S.script('h.example', 5201, 5, true, { streams: 1, omit: 0 })) && !/ -O /.test(S.script('h.example', 5201, 5, true, { streams: 1, omit: 0 })));
+assert.throws(() => S.script('h.example', 5201, 5, true, { streams: 99 }));
+assert.throws(() => S.script('h.example', 5201, 5, true, { streams: '4;ls' }));
+assert(S.validStreams(1) && S.validStreams('8') && !S.validStreams(0) && !S.validStreams(9) && !S.validStreams('1;x'));
+// ping: only when asked, only for a name or IPv4 address, and its lines never reach the JSON parser
+assert(!/PING:/.test(sc) && /PING:/.test(S.script('h.example', 5201, 5, true, { ping: true })) && !/PING:/.test(S.script('2001:db8::1', 5201, 5, true, { ping: true })));
+assert.deepStrictEqual(S.parsePing('PING:3 packets transmitted, 3 received, 0% packet loss, time 2003ms\nPING:rtt min/avg/max/mdev = 20.1/25.4/31.0/4.2 ms'), { ms: 25.4, jitter: 4.2, loss: 0 });
+assert.deepStrictEqual(S.parsePing('PING:round-trip min/avg/max = 1.0/2.5/4.0 ms'), { ms: 2.5, jitter: null, loss: null });
+assert.deepStrictEqual(S.parsePing('PING:3 packets transmitted, 0 received, 100% packet loss, time 2050ms'), { ms: null, jitter: null, loss: 100 });
+assert.strictEqual(S.parsePing('{"end":{}}'), null);
+assert.strictEqual(S.parse('PING:x = 1/2/3 ms\n' + good).mbps, 18.5);
+// measure: a busy server is retried on the next port (two retries at most); other errors are not retried
+(async () => {
+  const mk = (answers) => { const calls = []; return { calls, run: async (sc) => { calls.push(sc); return answers[Math.min(calls.length - 1, answers.length - 1)]; } }; };
+  const busyAns = '{"error":"the server is busy running a test. try again later"}';
+  let m = mk([busyAns, good]), r = await S.measure(m.run, { host: 'h.example', port: 5201, secs: 5, streams: 4 }, true);
+  assert(r.ok && r.port === 5202 && m.calls.length === 2 && / -p 5202 /.test(m.calls[1]), JSON.stringify(r));
+  m = mk([busyAns]); r = await S.measure(m.run, { host: 'h.example', port: 5201, secs: 5, streams: 4 }, true);
+  assert(!r.ok && m.calls.length === 3 && r.port === 5203);
+  m = mk(['{"error":"unable to connect to server: Connection refused"}']); r = await S.measure(m.run, { host: 'h.example', port: 5201, secs: 5, streams: 1 }, false);
+  assert(!r.ok && m.calls.length === 1 && / -P 1 /.test(m.calls[0]) && !/ -R/.test(m.calls[0]));
+  m = mk(['PING:rtt min/avg/max/mdev = 9/10/11/1 ms\n' + good]); r = await S.measure(m.run, { host: 'h.example', port: 5201, secs: 5, streams: 4 }, true, { ping: true });
+  assert(r.ok && r.ping && r.ping.ms === 10 && /ping -c 3/.test(m.calls[0]));
+  m = mk([good]); r = await S.measure(m.run, { host: 'h.example', port: 5201, secs: 5, streams: 4 }, true);
+  assert(r.ping === null && !/PING:/.test(m.calls[0]));
+  await rest();
+})().catch((e) => { console.error(e); process.exit(1); });
+
 // band test with a fake radio
 function fakeRadio(opt) {
   const o = opt || {}, calls = [], state = { lte: [1, 3, 7, 28], nr: [78] }, busy = [];
@@ -47,7 +77,7 @@ function fakeRadio(opt) {
     beginBusy: (why) => { busy.push('on'); return () => busy.push('off'); },
   };
 }
-(async () => {
+async function rest() {
   // 1. normal run: three bands, ranked, old lock back, busy released
   let R = fakeRadio(), speeds = { 1: 30, 3: 80, 7: 55 };
   let out = await S.bandTest({ R, type: 'lte', bands: [1, 3, 7], full: [1, 3, 7, 28], log() {}, stop: () => false, signal: async () => ({ rsrp: -90, sinr: 10, band: 'B' }), speed: async () => ({ ok: true, mbps: speeds[R.state.lte[0]] }) });
@@ -85,5 +115,5 @@ function fakeRadio(opt) {
   R = fakeRadio();
   await S.bandTest({ R, type: 'nr', bands: [78], full: [], log() {}, stop: () => false, signal: async () => ({}), speed: async () => ({ ok: true, mbps: 1 }) });
   assert(R.calls.filter((c) => c !== 'cycle').every((c) => c.startsWith('NR_BAND_LOCK')) && R.state.nr.join() === '78' && R.state.lte.join() === '1,3,7,28');
-  console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case');
-})().catch((e) => { console.error(e); process.exit(1); });
+  console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
+}

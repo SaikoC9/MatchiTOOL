@@ -4,11 +4,11 @@ For 1.4.6.
 
 ## Root model
 
-MatchiTOOL is a root client. It does not root the device, install a boot image, or need `socat` or another app. It runs the device's existing `su` (`su -c sh`). A root manager (Magisk, KernelSU, APatch) must grant root and can revoke it at any time.
+MatchiTOOL is a root client. It does not root the device. It runs the existing `su` (`su -c sh`). Your root manager (Magisk, KernelSU, APatch) grants root and can revoke it.
 
 - Commands go to the shell over stdin, never into a `su -c` string.
 - Output is bounded; every command has a timeout.
-- Root status shows UID, `su` path and a manager guess. UID 0 is the real check.
+- Root status shows UID, `su` path and manager. UID 0 is what counts.
 
 Rooting the stock F50: [`F50_STOCK_ROOT.md`](F50_STOCK_ROOT.md). Security: [`SECURITY.md`](../SECURITY.md).
 
@@ -17,12 +17,12 @@ Rooting the stock F50: [`F50_STOCK_ROOT.md`](F50_STOCK_ROOT.md). Security: [`SEC
 - Port **2334**. Self-signed HTTPS first. Plain HTTP only if TLS fails (the app shows "(NOT encrypted)").
 - Sign in with the router admin password, or set a console password (10+ characters) with **Password**.
 - Sessions end after 2 h idle or 12 h. Root commands need a sign-in under 4 h. **Sign out** ends yours. Changing the admin password ends all.
-- Other devices on the hotspot or USB tether can connect. The API rejects other sources.
+- Only devices on the hotspot or USB tether can connect.
 - **Never forward port 2334 to the internet.**
 
 ## Built-in tools
 
-AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Screen Control. They live in `web/index.html`. Do not run tools that manage the same modem or firewall rules at once. Own plugins: [`PLUGINS.md`](PLUGINS.md).
+AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Screen Control. They live in `web/index.html`. Don't run tools that control the same modem or firewall rules at once. Own plugins: [`PLUGINS.md`](PLUGINS.md).
 
 - **Root terminal** and the `runShellWithRoot` plugin bridge.
 - **AT commands** via bundled `sendat` (must match the CPU architecture).
@@ -34,9 +34,9 @@ AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Scre
 
 - **Full diagnose:** copy or download.
 - **Device diagnostics:** Android build, root identity, kernel, interfaces, routes, storage, optional tools.
-- **Advanced Network Diagnostics:** IPv4/IPv6 addresses and routes, gateway and public-IP ping, DNS lookup. Filtered ICMP is a limit, not an outage.
-- **Speed test** (Network Diagnostics): download and upload in Mbps with `iperf3`. You enter the server.
-- **Band test** (same window): tests each ticked band (LTE or 5G NR, up to 6), ranks them by speed and signal, then restores your old lock. **Lock best** is optional.
+- **Advanced Network Diagnostics:** Online / Limited / Offline banner, gateway, IPv4, IPv6 and DNS tiles, addresses, routes, DNS servers. Blocked ping is not an outage.
+- **Speed test** (Network Diagnostics): download, upload, ping with `iperf3`. You enter the server. 4 streams, first second skipped, busy server retried on the next port.
+- **Band test** (same window): tests up to 6 ticked bands (LTE or 5G NR), ranks by speed and signal, restores your old lock. **Lock best** is optional.
 - **Firmware manifest preflight:** reads XML or scatter files, lists partitions, warns on critical ones, shows SHA-256. Never flashes.
 
 ## USB and Wi-Fi
@@ -47,7 +47,7 @@ AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Scre
 
 ## Live device status
 
-Shows CPU, memory, load, uptime, temperatures. Read-only except the CPU Governor. It never disables thermal services or touches GPU or charging controls. Temperature bands are advice, not proof of throttling.
+Shows CPU, memory, load, uptime, temperatures. Read-only except the CPU Governor. It never disables thermal services or touches GPU or charging. Temperature bands are advice, not proof of throttling.
 
 **Refresh:** Live (1 s), Balanced (speed 1 s, rest 15 s) or Eco. The panel pauses when closed, when another tool window is open, and when the tab is hidden. Router read every 3 s, root shell every 15 s. At 60 C: 6 s and 30 s. At 70 C: 15 s and 90 s, header shows `cooling`. Temperatures come from kernel thermal zones, not the battery sensor.
 
@@ -64,7 +64,7 @@ Web console only.
 1. Open Log Catcher, press **Start logging**.
 2. Press **Stop logging** to close the session.
 
-A session runs without restarting the host and survives closing the popup. It records MatchiTOOL events and, where Android allows, tails the app process with `logcat --pid`.
+A session survives closing the popup. It records MatchiTOOL events and, where Android allows, the app's `logcat --pid`.
 
 - Each session: paired `.log` and `.txt` with timestamps, levels and start/stop markers.
 - Files: `files/logs/sessions/`; snapshots: `files/logs/exports/`.
@@ -87,7 +87,7 @@ Log Catcher > **Boot capture** installs `matchi_logd.sh` in `/data/adb/service.d
 **Update app** takes an APK file or an https link (checked, then downloaded).
 
 - Must be this app, same signing key.
-- Newer version: updates. Same version, different SHA-256: updates. Identical file: reinstalls. Older version: rolls back, data kept.
+- Newer version or different SHA-256: updates. Identical file: reinstalls. Older version: rolls back, data kept.
 - You confirm the SHA-256 before install. Install runs via root (`pm install -r`, plus `-d` for rollback).
 
 **Update link:** default `https://github.com/SaikoC9/MatchiTOOL-releases/releases/latest/download/MatchiTOOL.apk`. If you fork, change `D` in the page script near `matchi_ota_url`, or paste your link once (the browser remembers it).

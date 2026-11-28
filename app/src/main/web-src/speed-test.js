@@ -1,8 +1,11 @@
 /* speed-test.js: Speed test and Band test (opened from Network Diagnostics > Speed test). window.MatchiSpeed.
  * Core (no DOM, scripts/test_speed_test.js runs it as it is):
  *   validHost / validPort / validSecs   input checks (the values go into a shell line, so only plain characters pass)
- *   script(host, port, secs, download)  root script: runs the bundled iperf3 as a client, JSON output; prints NOIPERF3 when it is not installed
+ *   script(host, port, secs, download, opt)  root script: runs the bundled iperf3 as a client, JSON output; prints NOIPERF3 when it is not installed.
+ *                                       opt.streams (default 4: one stream under-reports a fast mobile link), opt.omit (default 1 s: TCP slow start is not counted), opt.ping (3 pings first, "PING:" lines)
  *   parse(text)                         { ok, mbps, retrans } or { ok:false, error }
+ *   parsePing(text)                     { ms, jitter, loss } from the "PING:" lines, or null
+ *   measure(run, i, download, opt)      one leg; when the server says it is busy, the next port is tried (twice at most); result also holds port and ping
  *   rank(results)                       fastest first; results with an error go last
  *   bandTest(o)                         lock each band in turn, wait for registration, read the signal, run the speed test, then ALWAYS put the old lock back
  * UI: MatchiSpeed.open(). iperf3 runs only as a client (the carrier address cannot be reached from outside). */
@@ -13,6 +16,8 @@
   const validHost = (h) => typeof h === 'string' && h.length <= 253 && (/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(h) || /^[0-9A-Fa-f:]{2,45}$/.test(h) && h.includes(':'));
   const validPort = (p) => /^\d{1,5}$/.test(String(p)) && +p >= 1 && +p <= 65535;
   const validSecs = (s) => /^\d{1,2}$/.test(String(s)) && +s >= 3 && +s <= 30;
+  const validStreams = (n) => /^\d$/.test(String(n)) && +n >= 1 && +n <= 8;
+  const OMIT = 1, STREAMS = 4;
 
   const FIND = [
     'B=""',
@@ -20,23 +25,45 @@
     '[ -n "$B" ] || { echo NOIPERF3; exit 0; }',
   ];
   // download = true: the server sends (-R), the number is what the F50 receives. false: the F50 sends.
-  function script(host, port, secs, download) {
-    if (!validHost(host) || !validPort(port) || !validSecs(secs)) throw new Error('Invalid server, port or time');
-    return FIND.concat([
-      'T=""; command -v timeout >/dev/null 2>&1 && T="timeout ' + (+secs + 20) + '"',
-      '$T "$B" -c ' + host + ' -p ' + +port + ' -t ' + +secs + ' -J --connect-timeout 6000' + (download ? ' -R' : '') + ' 2>&1',
+  function script(host, port, secs, download, opt) {
+    const o = opt || {}, streams = o.streams == null ? STREAMS : o.streams, omit = o.omit == null ? OMIT : +o.omit;
+    if (!validHost(host) || !validPort(port) || !validSecs(secs) || !validStreams(streams) || !(omit >= 0 && omit <= 5)) throw new Error('Invalid server, port, time or streams');
+    // ping first (about 2 s, only for a name or IPv4 address: Android ping has no IPv6 mode here); its lines start with PING: so parse() does not see them
+    const ping = o.ping && !host.includes(':') ? ['command -v ping >/dev/null 2>&1 && ping -c 3 -W 2 ' + host + ' 2>&1 | tail -n 2 | sed "s/^/PING:/"'] : [];
+    return FIND.concat(ping, [
+      'T=""; command -v timeout >/dev/null 2>&1 && T="timeout ' + (+secs + omit + 20) + '"',
+      '$T "$B" -c ' + host + ' -p ' + +port + ' -t ' + +secs + ' -J' + (omit ? ' -O ' + omit : '') + ' -P ' + +streams + ' --connect-timeout 6000' + (download ? ' -R' : '') + ' 2>&1',
     ]).join('\n');
+  }
+  function parsePing(text) {
+    const l = String(text == null ? '' : text).split('\n').filter((x) => x.startsWith('PING:')).join(' ');
+    if (!l) return null;
+    const loss = /(\d+(?:\.\d+)?)% packet loss/.exec(l), rtt = /=\s*([\d.]+)\/([\d.]+)\/([\d.]+)(?:\/([\d.]+))?/.exec(l);
+    if (!rtt && !loss) return null;
+    return { ms: rtt ? +rtt[2] : null, jitter: rtt && rtt[4] != null ? +rtt[4] : null, loss: loss ? +loss[1] : null };
   }
   function parse(text) {
     const s = String(text == null ? '' : text);
-    if (/NOIPERF3/.test(s)) return { ok: false, error: 'iperf3 is not installed in this app version yet' };
+    if (/NOIPERF3/.test(s)) return { ok: false, error: 'iperf3 not installed' };
     const i = s.indexOf('{'), j = s.lastIndexOf('}');
     if (i < 0 || j <= i) return { ok: false, error: (s.trim().split('\n').pop() || 'No answer').slice(0, 160) };
-    let d; try { d = JSON.parse(s.slice(i, j + 1)); } catch (_) { return { ok: false, error: 'Unreadable iperf3 answer' }; }
+    let d; try { d = JSON.parse(s.slice(i, j + 1)); } catch (_) { return { ok: false, error: 'Bad iperf3 reply' }; }
     if (d.error) return { ok: false, error: String(d.error).slice(0, 160) };
     const e = d.end || {}, r = e.sum_received || e.sum_sent;
-    if (!r || !(r.bits_per_second >= 0)) return { ok: false, error: 'No result in the iperf3 answer' };
+    if (!r || !(r.bits_per_second >= 0)) return { ok: false, error: 'No result' };
     return { ok: true, mbps: Math.round(r.bits_per_second / 1e4) / 100, retrans: e.sum_sent && Number.isFinite(e.sum_sent.retransmits) ? e.sum_sent.retransmits : null };
+  }
+  // run(scriptText, timeoutMs) -> output text. i: { host, port, secs, streams }. A busy public server is the usual failure, so the next port is tried.
+  async function measure(run, i, download, opt) {
+    const o = opt || {}; let port = +i.port, r, ping = null;
+    for (let k = 0; k < 3; k++) {
+      const text = await run(script(i.host, port, i.secs, download, { streams: i.streams, ping: !!o.ping && k === 0 }), (i.secs + OMIT + 30) * 1000);
+      if (k === 0) ping = parsePing(text);
+      r = parse(text); r.port = port;
+      if (r.ok || !/busy/i.test(r.error || '') || port >= 65535) break;
+      port += 1;
+    }
+    r.ping = ping; return r;
   }
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
@@ -73,70 +100,111 @@
         } catch (e) { row.error = e.message; log(name(b) + ': ' + e.message); if (/radio restart/.test(e.message)) { aborted = e.message; break; } }
       }
     } finally {
-      try { log('Putting the old lock back: ' + orig.map(name).join(' ')); const reg = await apply(orig); restored = true; log(reg ? 'Old lock restored.' : 'Old lock restored, not registered yet.'); } catch (e) { log('COULD NOT RESTORE the old lock: ' + e.message + '. Use Unlock all in Radio settings.'); }
+      try { log('Restoring lock: ' + orig.map(name).join(' ')); const reg = await apply(orig); restored = true; log(reg ? 'Old lock restored.' : 'Old lock restored, not registered.'); } catch (e) { log('Restore FAILED: ' + e.message + '. Use Unlock all in Radio settings.'); }
       done();
     }
     return { results, ranked: rank(results), restored, aborted, orig };
   }
 
   // ---- UI (only runs when the person opens it) ------------------------------------------------------------------
-  const MODAL = 'matchi_speed_modal';
+  const MODAL = 'matchi_speed_modal', ERR = '#ff9a9a';
   const store = {
     get(k, d) { try { const v = localStorage.getItem('matchi_speed_' + k); return v == null ? d : v; } catch (_) { return d; } },
     set(k, v) { try { localStorage.setItem('matchi_speed_' + k, v); } catch (_) { /* not fatal */ } },
   };
   const el = (tag, props, kids) => { const n = document.createElement(tag); Object.assign(n, props || {}); (kids || []).forEach((k) => n.append(k)); return n; };
   const toast = (t, c) => { try { createToast(t, c); } catch (_) { /* not fatal */ } };
+  const num = (m) => (m >= 1000 ? (m / 1000).toFixed(2) : m >= 100 ? String(Math.round(m)) : m.toFixed(1));
+  const unitOf = (m) => (m >= 1000 ? 'Gbps' : 'Mbps');
+  const CSS = '.sp-in{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.sp-in .h{grid-column:1/-1}' +
+    '.sp-res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}' +
+    '.sp-t{background:var(--panel2);border:1px solid var(--bd);border-radius:12px;padding:10px 10px 8px;min-width:0;transition:border-color .2s}' +
+    '.sp-t .l{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--acc2)}' +
+    '.sp-t .v{display:block;font-size:26px;font-weight:800;line-height:1.15;margin-top:2px;font-variant-numeric:tabular-nums}' +
+    '.sp-t .u{font-size:11px;color:var(--mut)}.sp-t .s{display:block;font-size:10.5px;color:var(--mut);min-height:14px;overflow-wrap:anywhere}' +
+    '.sp-t.run{border-color:var(--acc)}.sp-t.run .v{animation:sp-p 1.1s ease-in-out infinite}.sp-t.err .v{color:var(--danger)}.sp-t.ok .v{color:var(--fg)}' +
+    '@keyframes sp-p{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.sp-t.run .v{animation:none}}' +
+    '.sp-bar{height:4px;border-radius:4px;background:var(--bd);overflow:hidden}.sp-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width 1s linear}' +
+    '.sp-msg{margin:8px 0;min-height:18px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}' +
+    '.sp-band{margin-top:12px;border-top:1px solid var(--bd);padding-top:6px}.sp-band>summary{cursor:pointer;font-weight:750;padding:6px 0;list-style:none}' +
+    '.sp-band>summary::before{content:"\\25B8  ";color:var(--acc2)}.sp-band[open]>summary::before{content:"\\25BE  "}' +
+    '.sp-tb{width:100%;border-collapse:collapse;font-size:12px}.sp-tb th{text-align:left;padding:3px 6px 3px 0;opacity:.7}.sp-tb td{padding:4px 6px 4px 0;border-top:1px solid var(--bd)}.sp-tb tr.best td{color:var(--good);font-weight:700}';
+  const TILE = (k, label, u) => '<div class="sp-t" id="sp_t_' + k + '"><span class="l">' + label + '</span><b class="v">-</b><span class="u">' + u + '</span><span class="s"></span></div>';
 
   function open() {
     const R = window.MatchiRadio;
+    let tick = null;
+    const stopBar = () => { if (tick) { clearInterval(tick); tick = null; } };
     createModal({
-      name: MODAL, title: 'Speed test', maxWidth: '560px', showConfirm: false, onClose: () => { st.stop = true; return true; },
-      content: '<div style="display:grid;grid-template-columns:1fr 90px 80px;gap:6px"><input id="sp_host" list="sp_hosts" placeholder="iperf3 server (host)" autocomplete="off" spellcheck="false"><input id="sp_port" inputmode="numeric" placeholder="port"><select id="sp_secs"><option value="5">5 s</option><option value="10">10 s</option></select></div>' +
+      name: MODAL, title: 'Speed test', maxWidth: '560px', showConfirm: false, onClose: () => { st.stop = true; stopBar(); return true; },
+      content: '<style>' + CSS + '</style>' +
+        '<div class="sp-in"><div class="h"><input id="sp_host" list="sp_hosts" placeholder="iperf3 server (host)" autocomplete="off" spellcheck="false" aria-label="iperf3 server"></div>' +
+        '<input id="sp_port" inputmode="numeric" placeholder="port" aria-label="Port"><select id="sp_secs" aria-label="Test time"><option value="5">5 s</option><option value="10">10 s</option></select>' +
+        '<select id="sp_par" aria-label="Streams"><option value="4">4 streams</option><option value="1">1 stream</option></select></div>' +
         '<datalist id="sp_hosts"><option value="iperf.biznetnetworks.com"><option value="ping.online.net"><option value="speedtest.sin1.sg.leaseweb.net"></datalist>' +
-        '<div class="mut" style="font-size:11px;margin:4px 0 8px">Public iperf3 servers are often busy: try another port or server. The test uses mobile data (about 5 s of full speed each way). Suggested hosts are not checked.</div>' +
+        '<div class="mut" style="font-size:11px;margin:6px 0 8px">4 streams suit fast links. A busy server is retried on the next port. Uses mobile data (~6 s each way).</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="sp_run">Run speed test</button><button type="button" id="sp_stop" disabled>Stop</button></div>' +
-        '<div id="sp_out" style="margin:8px 0;min-height:18px;white-space:pre-wrap;overflow-wrap:anywhere"></div>' +
-        '<hr style="border:0;border-top:1px solid var(--bd);margin:10px 0"><b>Band test</b>' +
-        '<div class="mut" style="font-size:11px;margin:4px 0">Locks each ticked band in turn (radio restart about 30 s each), runs a download test and reads the signal, then puts your old lock back. Internet is off during the test. Needs the server above.</div>' +
+        '<div class="sp-res">' + TILE('dl', 'Download', 'Mbps') + TILE('ul', 'Upload', 'Mbps') + TILE('ping', 'Ping', 'ms') + '</div>' +
+        '<div class="sp-bar" aria-hidden="true"><i id="sp_bar"></i></div><div id="sp_out" class="sp-msg" role="status"></div>' +
+        '<details class="sp-band" id="sp_band"><summary>Band test</summary>' +
+        '<div class="mut" style="font-size:11px;margin:4px 0">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
         '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:11px"></span></div>' +
         '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button></div>' +
-        '<div id="sp_table" style="margin-top:8px"></div><pre id="sp_log" style="display:none;margin:8px 0 0;padding:6px 8px;max-height:110px;overflow:auto;white-space:pre-wrap;font-size:10.5px;background:var(--bg);border:1px solid var(--bd);border-radius:8px"></pre>',
+        '<div id="sp_table" style="margin-top:8px"></div><pre id="sp_log" style="display:none;margin:8px 0 0;padding:6px 8px;max-height:110px;overflow:auto;white-space:pre-wrap;font-size:10.5px;background:var(--bg);border:1px solid var(--bd);border-radius:8px"></pre></details>',
     });
     showModal(MODAL);
     const $ = (id) => document.getElementById(id);
-    const st = { stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte' };
-    $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5');
-    const setOut = (t, c) => { const o = $('sp_out'); o.textContent = t; o.style.color = c || ''; };
-    const log = (l) => { const p = $('sp_log'); p.style.display = 'block'; p.textContent += l + '\n'; p.scrollTop = p.scrollHeight; };
+    const st = { stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
+    $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5'); $('sp_par').value = store.get('par', '4');
+    if ($('sp_par').value === '') $('sp_par').value = '4';
+    const setOut = (t, c) => { const o = $('sp_out'); if (!o) return; o.textContent = t; o.style.color = c || ''; };
+    const log = (l) => { const p = $('sp_log'); if (!p) return; p.style.display = 'block'; p.textContent += l + '\n'; p.scrollTop = p.scrollHeight; };
+    const tile = (k, o) => {
+      const t = $('sp_t_' + k); if (!t) return; const v = o || {};
+      t.className = 'sp-t' + (v.state ? ' ' + v.state : '');
+      t.querySelector('.v').textContent = v.v == null ? '-' : v.v; t.querySelector('.u').textContent = v.u || ''; t.querySelector('.s').textContent = v.s || '';
+    };
+    // the bar only shows that time is passing (the shell call returns when the test ends)
+    const bar = (secs) => {
+      stopBar(); const f = $('sp_bar'); if (!f) return; f.style.width = '0'; const t0 = Date.now();
+      tick = setInterval(() => { const b = $('sp_bar'); if (!b) { stopBar(); return; } b.style.width = Math.min(96, (Date.now() - t0 + 1000) / (secs * 10)) + '%'; }, 1000);
+    };
+    const barDone = () => { stopBar(); const b = $('sp_bar'); if (b) b.style.width = '100%'; };
     const inputs = () => {
-      const host = $('sp_host').value.trim(), port = $('sp_port').value.trim(), secs = $('sp_secs').value;
-      if (!validHost(host)) throw new Error('Enter a valid server name or address');
-      if (!validPort(port)) throw new Error('Enter a port from 1 to 65535');
-      store.set('host', host); store.set('port', port); store.set('secs', secs);
-      return { host, port: +port, secs: +secs };
+      const host = $('sp_host').value.trim(), port = $('sp_port').value.trim(), secs = $('sp_secs').value, streams = $('sp_par').value;
+      if (!validHost(host)) throw new Error('Invalid server');
+      if (!validPort(port)) throw new Error('Port must be 1-65535');
+      store.set('host', host); store.set('port', port); store.set('secs', secs); store.set('par', streams);
+      return { host, port: +port, secs: +secs, streams: +streams };
     };
     const busy = (on) => { st.busy = on; $('sp_run').disabled = on; $('sp_stop').disabled = !on; $('sp_btest').disabled = on || !st.tick.size; $('sp_lockbest').disabled = on || !st.best; $('sp_type').disabled = on; };
-    const one = async (i, download) => {
-      const r = parse((await runShellWithRoot(script(i.host, i.port, i.secs, download), (i.secs + 30) * 1000)).content);
-      return r;
+    const run = async (sc, ms) => ((await runShellWithRoot(sc, ms)) || {}).content;
+    const speedTile = (k, r, i) => {
+      if (!r.ok) { tile(k, { state: 'err', v: '-', u: 'Mbps', s: 'failed' }); return; }
+      tile(k, { state: 'ok', v: num(r.mbps), u: unitOf(r.mbps), s: [i.streams + (i.streams > 1 ? ' streams' : ' stream'), 'port ' + r.port, r.retrans > 0 ? r.retrans + ' retransmits' : ''].filter(Boolean).join(' · ') });
     };
-    const fmt = (r) => (r.ok ? r.mbps + ' Mbps' + (r.retrans != null && r.retrans > 0 ? ' (' + r.retrans + ' retransmits)' : '') : r.error);
 
     $('sp_run').onclick = async () => {
       if (st.busy) return;
-      let i; try { i = inputs(); } catch (e) { setOut(e.message, '#ff9a9a'); return; }
-      st.stop = false; busy(true);
+      let i; try { i = inputs(); } catch (e) { setOut(e.message, ERR); return; }
+      st.stop = false; busy(true); setOut('');
+      tile('dl', { state: 'run', v: '...', u: 'Mbps' }); tile('ul', { u: 'Mbps' }); tile('ping', { u: 'ms' });
       try {
-        setOut('Download test… ' + i.secs + ' s');
-        const d = await one(i, true); if (!d.ok) { setOut('Download: ' + fmt(d), '#ff9a9a'); return; }
-        setOut('Download: ' + fmt(d) + '\nUpload test… ' + i.secs + ' s');
-        const u = await one(i, false);
-        setOut('Download: ' + fmt(d) + '\nUpload: ' + fmt(u) + '\n' + new Date().toLocaleTimeString(), u.ok ? '' : '#ff9a9a');
-      } catch (e) { setOut('Speed test failed: ' + e.message, '#ff9a9a'); } finally { busy(false); }
+        setOut('Download…'); bar(i.secs + 8);
+        const d = await measure(run, i, true, { ping: true }); barDone();
+        const p = d.ping;
+        tile('ping', p && p.ms != null ? { state: 'ok', v: p.ms < 10 ? p.ms.toFixed(1) : String(Math.round(p.ms)), u: 'ms', s: [p.jitter != null ? 'jitter ' + p.jitter.toFixed(1) + ' ms' : '', p.loss ? p.loss + '% lost' : ''].filter(Boolean).join(' · ') } : { u: 'ms', s: p ? 'no reply' : '' });
+        speedTile('dl', d, i);
+        if (!d.ok) { setOut('Download: ' + d.error, ERR); return; }
+        if (st.stop) { setOut('Stopped.'); return; }
+        tile('ul', { state: 'run', v: '...', u: 'Mbps' }); setOut('Upload…'); bar(i.secs + 6);
+        const u = await measure(run, i, false); barDone();
+        speedTile('ul', u, i);
+        setOut(u.ok ? 'Done at ' + new Date().toLocaleTimeString() : 'Upload: ' + u.error, u.ok ? '' : ERR);
+      } catch (e) { stopBar(); tile('dl', { state: 'err', u: 'Mbps' }); setOut('Speed test failed: ' + e.message, ERR); } finally { busy(false); }
     };
-    $('sp_stop').onclick = () => { st.stop = true; $('sp_stop').disabled = true; setOut('Stopping after this step…'); };
+    $('sp_stop').onclick = () => { st.stop = true; $('sp_stop').disabled = true; setOut('Stopping…'); };
 
     function drawChips() {
       const box = $('sp_chips'); box.textContent = '';
@@ -144,41 +212,45 @@
         const on = st.tick.has(b), n = (st.type === 'nr' ? 'n' : 'B') + b;
         const btn = el('button', { type: 'button', textContent: n, className: 'dr-b' }); btn.style.cssText = 'min-height:24px;padding:2px 8px;font-size:11.5px;opacity:' + (on ? 1 : .55) + (on ? ';background:rgba(100,230,164,.35)' : '');
         btn.setAttribute('aria-pressed', String(on));
-        btn.onclick = () => { if (st.busy) return; if (st.tick.has(b)) st.tick.delete(b); else if (st.tick.size < 6) st.tick.add(b); else toast('Test at most 6 bands at a time', 'red'); drawChips(); $('sp_btest').disabled = st.busy || !st.tick.size; };
+        btn.onclick = () => { if (st.busy) return; if (st.tick.has(b)) st.tick.delete(b); else if (st.tick.size < 6) st.tick.add(b); else toast('Max 6 bands', 'red'); drawChips(); $('sp_btest').disabled = st.busy || !st.tick.size; };
         box.append(btn);
       }
     }
     async function loadBands() {
       if (!R) { $('sp_bmsg').textContent = 'Radio tools not available'; return; }
+      $('sp_bmsg').textContent = 'Reading bands…';
       try {
         const b = await R.readBands();
         st.sup.lte = b.lte !== null ? [...new Set([...R.LTE_BANDS, ...(b.lte || [])])].sort((x, y) => x - y) : [];
         let nr = []; if (b.nr !== null) { try { nr = await R.readNrSupported(0); } catch (_) { nr = []; } st.sup.nr = [...new Set([...(nr || []), ...(b.nr || [])])].sort((x, y) => x - y); } else st.sup.nr = [];
         $('sp_bmsg').textContent = ''; drawChips();
-      } catch (e) { $('sp_bmsg').textContent = 'Could not read bands: ' + e.message; }
+      } catch (e) { st.loaded = false; $('sp_bmsg').textContent = 'Band read failed: ' + e.message; }
     }
+    // the band list is read from the router only when the Band test section is opened (a plain speed test needs no radio read)
+    $('sp_band').addEventListener('toggle', () => { if ($('sp_band').open && !st.loaded) { st.loaded = true; loadBands(); } });
     $('sp_type').onchange = () => { st.type = $('sp_type').value; st.tick.clear(); st.best = null; drawChips(); busy(false); };
 
     function drawTable(res) {
       const box = $('sp_table'); box.textContent = '';
-      const t = el('table'); t.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
-      const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => { const c = el('th', { textContent: h }); c.style.cssText = 'text-align:left;padding:3px 6px 3px 0;opacity:.7'; head.append(c); }); t.append(head);
+      const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null);
+      const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => head.append(el('th', { textContent: h }))); t.append(head);
       for (const r of res) {
-        const tr = el('tr'); [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null || r.rsrp === '' ? '-' : r.rsrp, r.sinr == null || r.sinr === '' ? '-' : r.sinr, r.error || (r.active ? 'in use: ' + r.active : '')].forEach((v) => { const c = el('td', { textContent: String(v) }); c.style.cssText = 'padding:3px 6px 3px 0;border-top:1px solid var(--bd)'; tr.append(c); }); t.append(tr);
+        const tr = el('tr', { className: r === top ? 'best' : '' });
+        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null || r.rsrp === '' ? '-' : r.rsrp, r.sinr == null || r.sinr === '' ? '-' : r.sinr, r.error || (r.active ? 'in use: ' + r.active : '')].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
       }
       box.append(t);
     }
     $('sp_btest').onclick = async () => {
       if (st.busy || !st.tick.size) return;
-      let i; try { i = inputs(); } catch (e) { setOut(e.message, '#ff9a9a'); return; }
+      let i; try { i = inputs(); } catch (e) { setOut(e.message, ERR); return; }
       const bands = [...st.tick].sort((a, b) => a - b), n = bands.length;
-      if (!(await askConfirm('Test ' + bands.map((b) => (st.type === 'nr' ? 'n' : 'B') + b).join(' ') + '?\n\nAbout ' + Math.ceil(n * 1.7) + ' minutes. The internet is off during each radio restart. Your old band lock is put back at the end. If anything fails, use Unlock all in Radio settings.', 'Start test', true))) return;
-      st.stop = false; st.best = null; $('sp_log').textContent = ''; $('sp_table').textContent = ''; busy(true); setOut('Band test running… do not close this window');
+      if (!(await askConfirm('Test ' + bands.map((b) => (st.type === 'nr' ? 'n' : 'B') + b).join(' ') + '?\n\n~' + Math.ceil(n * 1.7) + ' min. Internet is off during radio restarts. Old lock is restored at the end. If it fails: Unlock all in Radio settings.', 'Start test', true))) return;
+      st.stop = false; st.best = null; $('sp_log').textContent = ''; $('sp_table').textContent = ''; busy(true); setOut('Band test running. Keep this open.');
       try {
         const out = await bandTest({
           R, type: st.type, bands, full: st.sup[st.type], log,
-          speed: () => one(i, true), stop: () => st.stop,
-          progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… do not close this window'),
+          speed: () => measure(run, i, true), stop: () => st.stop,
+          progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: async () => {
             const d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {};
             return st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
@@ -187,13 +259,13 @@
         drawTable(out.ranked);
         const top = out.ranked.find((r) => r.mbps != null);
         st.best = top ? top.band : null;
-        setOut((out.aborted ? 'Test ' + out.aborted + '. ' : 'Done. ') + (top ? 'Fastest: ' + top.label + ' at ' + top.mbps + ' Mbps. ' : 'No band gave a result. ') + (out.restored ? 'Old lock restored.' : 'OLD LOCK NOT RESTORED: use Unlock all in Radio settings.'), out.restored ? '' : '#ff9a9a');
-      } catch (e) { setOut('Band test failed: ' + e.message, '#ff9a9a'); } finally { busy(false); }
+        setOut((out.aborted ? 'Stopped: ' + out.aborted + '. ' : 'Done. ') + (top ? 'Fastest: ' + top.label + ' at ' + top.mbps + ' Mbps. ' : 'No band gave a result. ') + (out.restored ? 'Old lock restored.' : 'OLD LOCK NOT RESTORED. Use Unlock all in Radio settings.'), out.restored ? '' : ERR);
+      } catch (e) { setOut('Band test failed: ' + e.message, ERR); } finally { busy(false); }
     };
     $('sp_lockbest').onclick = async () => {
       if (st.busy || st.best == null) return;
       const b = st.best, lte = st.type === 'lte', n = (lte ? 'B' : 'n') + b;
-      if (!(await askConfirm('Lock ' + n + ' only?\n\nRadio restarts (~30 s). Undo with Unlock all in Radio settings.', 'Lock', true))) return;
+      if (!(await askConfirm('Lock ' + n + ' only?\n\nRadio restarts (~30 s). Undo: Unlock all in Radio settings.', 'Lock', true))) return;
       busy(true); const done = R.beginBusy('Locking best band');
       try {
         setOut('Locking ' + n + '…');
@@ -201,11 +273,11 @@
         if (!r.ok) throw new Error('the router did not report the new lock');
         if (!(await R.radioCycle({ log: () => {}, toast: () => {} }))) throw new Error('radio restart not confirmed');
         const reg = await R.waitRegistered(0, { everyMs: 3000, timeoutMs: 90000 });
-        setOut(reg ? n + ' locked.' : n + ' locked, not registered yet. Check Live Status or Unlock all.', reg ? '' : '#ff9a9a');
-      } catch (e) { setOut('Lock failed: ' + e.message, '#ff9a9a'); } finally { done(); busy(false); }
+        setOut(reg ? n + ' locked.' : n + ' locked, not registered yet.', reg ? '' : ERR);
+      } catch (e) { setOut('Lock failed: ' + e.message, ERR); } finally { done(); busy(false); }
     };
-    busy(false); loadBands();
+    busy(false);
   }
 
-  window.MatchiSpeed = { validHost, validPort, validSecs, script, parse, rank, bandTest, open };
+  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, open };
 })();

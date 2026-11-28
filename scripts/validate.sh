@@ -83,6 +83,7 @@ if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/test_net_tools.js" || exit 1      # Network window: parsers, password never copied, what the window may write
   node "$(dirname "$0")/test_net_tools_ui.js" || exit 1   # the window itself against a fake DOM
   node "$(dirname "$0")/test_speed_test.js" || exit 1       # Speed test and band test: input checks, iperf3 script, parser, old lock always restored
+  node "$(dirname "$0")/test_network_diag.js" || exit 1      # Network Diagnostics window: verdict, tiles and lists from the script output
   node "$(dirname "$0")/test_sms_seen.js" || exit 1      # SMS new-message count: first message, repeated text after a delete
   node "$(dirname "$0")/test_sms_findin.js" || exit 1    # SMS Delete picks the exact text, not the newest one with the same start
   node "$(dirname "$0")/check_innerhtml.js" || exit 1   # every innerHTML site is static, escaped or reviewed
