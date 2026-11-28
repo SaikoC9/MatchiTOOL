@@ -116,21 +116,21 @@
   const toast = (t, c) => { try { createToast(t, c); } catch (_) { /* not fatal */ } };
   const num = (m) => (m >= 1000 ? (m / 1000).toFixed(2) : m >= 100 ? String(Math.round(m)) : m.toFixed(1));
   const unitOf = (m) => (m >= 1000 ? 'Gbps' : 'Mbps');
-  const CSS = '.sp-in{display:grid;grid-template-columns:54px 60px 88px auto auto;justify-content:start;gap:4px;align-items:center}.sp-in .h{grid-column:1/-1}' +
-    '.sp-in input,.sp-in select,.sp-in button{min-height:26px;padding:2px 7px;font-size:11.5px}' +
-    '.sp-sg{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.sp-sg button{min-height:22px;padding:1px 8px;font-size:11px;opacity:.7}.sp-sg button.on{opacity:1;background:rgba(100,230,164,.35)}' +
-    '.sp-res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 0 6px}' +
-    '.sp-t{background:var(--panel2);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;min-width:0;transition:border-color .2s}' +
-    '.sp-t .l{display:block;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc2)}' +
-    '.sp-t .v{display:inline;font-size:18px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}' +
-    '.sp-t .u{font-size:10.5px;color:var(--mut);margin-left:3px}.sp-t .s{display:block;font-size:9.5px;color:var(--mut);overflow-wrap:anywhere}' +
+  const CSS = '.sp-root{padding:4px}.sp-in{display:grid;grid-template-columns:62px 72px 108px auto auto;justify-content:start;gap:4.5px;align-items:center}.sp-in .h{grid-column:1/-1}' +
+    '.sp-in input,.sp-in select,.sp-in button{min-height:30px;padding:2px 8px;font-size:13px}' +
+    '.sp-sg{display:flex;flex-wrap:wrap;gap:4.5px;margin-top:4.5px}.sp-sg button{min-height:25.5px;padding:1px 9px;font-size:12.5px;opacity:.7}.sp-sg button.on{opacity:1;background:rgba(100,230,164,.35)}' +
+    '.sp-res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:9px 0 7px}' +
+    '.sp-t{background:var(--panel2);border:1px solid var(--bd);border-radius:9px;padding:4.5px 9px;min-width:0;transition:border-color .2s}' +
+    '.sp-t .l{display:block;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--acc2)}' +
+    '.sp-t .v{display:inline;font-size:20.5px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}' +
+    '.sp-t .u{font-size:12px;color:var(--mut);margin-left:3px}.sp-t .s{display:block;font-size:11px;color:var(--mut);overflow-wrap:anywhere}' +
     '.sp-t.run{border-color:var(--acc)}.sp-t.run .v{animation:sp-p 1.1s ease-in-out infinite}.sp-t.err .v{color:var(--danger)}.sp-t.ok .v{color:var(--fg)}' +
     '@keyframes sp-p{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.sp-t.run .v{animation:none}}' +
     '.sp-bar{height:3px;border-radius:3px;background:var(--bd);overflow:hidden}.sp-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width 1s linear}' +
-    '.sp-msg{margin:4px 0;min-height:14px;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere}' +
-    '.sp-band{margin-top:6px;border-top:1px solid var(--bd);padding-top:5px}.sp-band>.t{font-size:12px;font-weight:750;margin-bottom:2px}' +
-    '.sp-band select,.sp-band button{min-height:24px;padding:2px 8px;font-size:11.5px}' +
-    '.sp-tb{width:100%;border-collapse:collapse;font-size:11px}.sp-tb th{text-align:left;padding:2px 6px 2px 0;font-size:10px;opacity:.7}.sp-tb td{padding:2px 6px 2px 0;border-top:1px solid var(--bd)}.sp-tb tr.best td{color:var(--good);font-weight:700}';
+    '.sp-msg{margin:4.5px 0;min-height:16px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}' +
+    '.sp-band{margin-top:7px;border-top:1px solid var(--bd);padding-top:6px}.sp-band>.t{font-size:14px;font-weight:750;margin-bottom:2px}' +
+    '.sp-band select,.sp-band button{min-height:27.5px;padding:2px 9px;font-size:13px}' +
+    '.sp-tb{width:100%;border-collapse:collapse;font-size:12.5px}.sp-tb th{text-align:left;padding:2px 7px 2px 0;font-size:11.5px;opacity:.7}.sp-tb td{padding:2px 7px 2px 0;border-top:1px solid var(--bd)}.sp-tb tr.best td{color:var(--good);font-weight:700}';
   const TILE = (k, label, u) => '<div class="sp-t" id="sp_t_' + k + '"><span class="l">' + label + '</span><b class="v">-</b><span class="u">' + u + '</span><span class="s"></span></div>';
 
   function open() {
@@ -138,21 +138,21 @@
     let tick = null;
     const stopBar = () => { if (tick) { clearInterval(tick); tick = null; } };
     createModal({
-      name: MODAL, title: 'Speed test', maxWidth: '480px', showConfirm: false, onClose: () => { st.stop = true; stopBar(); return true; },
-      content: '<style>' + CSS + '</style>' +
+      name: MODAL, title: 'Speed test', maxWidth: '552px', showConfirm: false, onClose: () => { st.stop = true; stopBar(); return true; },
+      content: '<style>' + CSS + '</style><div class="sp-root">' +
         '<div class="sp-in"><div class="h"><input id="sp_host" placeholder="iperf3 server (host)" autocomplete="off" spellcheck="false" aria-label="iperf3 server" style="width:100%"><div class="sp-sg" id="sp_sg"></div></div>' +
         '<input id="sp_port" inputmode="numeric" placeholder="port" aria-label="Port"><select id="sp_secs" aria-label="Test time"><option value="5">5 s</option><option value="10">10 s</option></select>' +
         '<select id="sp_par" aria-label="Streams"><option value="4">4 streams</option><option value="1">1 stream</option></select>' +
         '<button type="button" id="sp_run">Run</button><button type="button" id="sp_stop" disabled>Stop</button></div>' +
-        '<div class="mut" style="font-size:10px;margin:4px 0 0">Uses mobile data (~6 s each way). A busy server is retried on the next port.</div>' +
+        '<div class="mut" style="font-size:11.5px;margin:4.5px 0 0">Uses mobile data (~6 s each way). A busy server is retried on the next port.</div>' +
         '<div class="sp-res">' + TILE('dl', 'Download', 'Mbps') + TILE('ul', 'Upload', 'Mbps') + TILE('ping', 'Ping', 'ms') + '</div>' +
         '<div class="sp-bar" aria-hidden="true"><i id="sp_bar"></i></div><div id="sp_out" class="sp-msg" role="status"></div>' +
         '<div class="sp-band" id="sp_band"><div class="t">Band test</div>' +
-        '<div class="mut" style="font-size:10px;margin:0 0 4px">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
-        '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:10px"></span></div>' +
-        '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button></div>' +
-        '<div id="sp_table" style="margin-top:6px"></div><pre id="sp_log" style="display:none;margin:6px 0 0;padding:5px 7px;max-height:80px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:9px;line-height:1.35;background:var(--bg);border:1px solid var(--bd);border-radius:8px"></pre></div>',
+        '<div class="mut" style="font-size:11.5px;margin:0 0 4.5px">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
+        '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4.5px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:11.5px"></span></div>' +
+        '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4.5px;margin-bottom:7px"></div>' +
+        '<div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button></div>' +
+        '<div id="sp_table" style="margin-top:7px"></div><pre id="sp_log" style="display:none;margin:7px 0 0;padding:6px 8px;max-height:92px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:10.5px;line-height:1.35;background:var(--bg);border:1px solid var(--bd);border-radius:9px"></pre></div></div>',
     });
     showModal(MODAL);
     const $ = (id) => document.getElementById(id);
@@ -216,7 +216,7 @@
       const box = $('sp_chips'); box.textContent = '';
       for (const b of st.sup[st.type]) {
         const on = st.tick.has(b), n = (st.type === 'nr' ? 'n' : 'B') + b;
-        const btn = el('button', { type: 'button', textContent: n, className: 'dr-b' }); btn.style.cssText = 'min-height:22px;padding:1px 8px;font-size:11px;opacity:' + (on ? 1 : .55) + (on ? ';background:rgba(100,230,164,.35)' : '');
+        const btn = el('button', { type: 'button', textContent: n, className: 'dr-b' }); btn.style.cssText = 'min-height:25.5px;padding:1px 9px;font-size:12.5px;opacity:' + (on ? 1 : .55) + (on ? ';background:rgba(100,230,164,.35)' : '');
         btn.setAttribute('aria-pressed', String(on));
         btn.onclick = () => { if (st.busy) return; if (st.tick.has(b)) st.tick.delete(b); else if (st.tick.size < 6) st.tick.add(b); else toast('Max 6 bands', 'red'); drawChips(); $('sp_btest').disabled = st.busy || !st.tick.size; };
         box.append(btn);
