@@ -8203,6 +8203,14 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
   const cleanSinr = (v) => numIn(v, -30, 50);
   // AT+CESQ (LTE): last field is the RSRP index, dBm = index - 141. 0 and 97 are out-of-range ends, 255 is unknown.
   const cesqRsrp = (text) => { const m = /\+CESQ:\s*(?:\d+\s*,\s*){5}(\d+)/.exec(String(text || '')); const i = m ? +m[1] : 0; return i >= 1 && i <= 96 ? i - 141 : null; };
+  // Android telephony (dumpsys telephony.registry): the F50 router leaves its own signal fields empty, so this is the main source there.
+  // type 'nr' reads the 5G values, anything else the LTE values; 2147483647 and other out-of-range numbers read as "no value".
+  const teleSignal = (text, type) => {
+    const t = String(text || ''), g = (re) => { const m = re.exec(t); return m ? m[1] : null; };
+    return type === 'nr'
+      ? { rsrp: cleanRsrp(g(/\bssRsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/\bssSinr\s*=\s*(-?\d+)/)) }
+      : { rsrp: cleanRsrp(g(/CellSignalStrengthLte[^\n]*?\brsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/CellSignalStrengthLte[^\n]*?\brssnr\s*=\s*(-?\d+)/)) };
+  };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
   // o: { R (window.MatchiRadio), type 'lte'|'nr', bands [n], full [n] (all supported, used when the old lock reads empty),
@@ -8235,10 +8243,10 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
           let sg = {};
           for (let k = 0; k < 3; k++) {
             try { sg = (await o.signal()) || {}; } catch (_) { sg = {}; }
-            if (cleanRsrp(sg.rsrp) != null) break;
+            if (cleanRsrp(sg.rsrp) != null || cleanSinr(sg.sinr) != null) break;
             if (k < 2) await R.sleep(2000);
           }
-          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = row.rsrp == null ? null : cleanSinr(sg.sinr); row.active = sg.band || '';
+          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.active = sg.band || '';
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
@@ -8416,7 +8424,14 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
           signal: async () => {
             let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {}; } catch (_) { /* try the modem below */ }
             const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
-            // The router sometimes answers nothing for these. For LTE, ask the modem directly (RSRP only; SINR stays empty).
+            // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
+            if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
+              try {
+                const tv = teleSignal(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength' | head -30", 15000), st.type);
+                if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
+                if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
+              } catch (_) { /* no value */ }
+            }
             if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; } catch (_) { /* no value */ } }
             return g;
           },
@@ -8448,7 +8463,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     busy(false);
   }
 
-  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, open };
+  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, teleSignal, open };
 })();
 /* @end-include web-src/speed-test.js */
 /* PLUGIN-API-BEGIN */

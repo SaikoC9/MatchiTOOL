@@ -127,5 +127,14 @@ async function rest() {
   R = fakeRadio({}); asks = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => { asks++; throw new Error('router empty'); }, speed: async () => ({ ok: true, mbps: 9 }) });
   assert(asks === 3 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
+  // Android telephony: LTE rsrp / rssnr, NR ssRsrp / ssSinr; 2147483647 is "no value"
+  const tele = 'mSignalStrength=SignalStrength:{mCellSignalStrengths=[CellSignalStrengthLte: rssi=-70 rsrp=-95 rsrq=-9 rssnr=14 cqi=2147483647 level=3, CellSignalStrengthNr:{ssRsrp=-101 ssRsrq=-11 ssSinr=2147483647 level=2}]}';
+  let tv = S.teleSignal(tele, 'lte'); assert(tv.rsrp === -95 && tv.sinr === 14, JSON.stringify(tv));
+  tv = S.teleSignal(tele, 'nr'); assert(tv.rsrp === -101 && tv.sinr === null, JSON.stringify(tv));
+  tv = S.teleSignal('', 'lte'); assert(tv.rsrp === null && tv.sinr === null);
+  // SINR is kept even when RSRP is missing
+  R = fakeRadio({});
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => ({ sinr: '9' }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === null && out.results[0].sinr === 9);
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }
