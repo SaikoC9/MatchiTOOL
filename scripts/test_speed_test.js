@@ -118,7 +118,7 @@ async function rest() {
   // signal: junk and placeholder values are "no value"; real ones are kept
   assert.strictEqual(S.cleanRsrp('-95'), -95); assert.strictEqual(S.cleanRsrp(''), null); assert.strictEqual(S.cleanRsrp('0'), null); assert.strictEqual(S.cleanRsrp(undefined), null); assert.strictEqual(S.cleanRsrp('-999'), null);
   assert.strictEqual(S.cleanSinr('12'), 12); assert.strictEqual(S.cleanSinr('0'), 0); assert.strictEqual(S.cleanSinr(''), null);
-  assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,70\nOK'), -71); assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,255'), null); assert.strictEqual(S.cesqRsrp('ERROR'), null);
+  assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,70\nOK'), -70); assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,255'), null); assert.strictEqual(S.cesqRsrp('ERROR'), null);
   // an empty first answer is asked again (up to 6 times, until RSRP and SINR are both there)
   R = fakeRadio({}); let asks = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => (++asks < 3 ? {} : { rsrp: '-95', sinr: '12', band: 'B1' }), speed: async () => ({ ok: true, mbps: 9 }) });
@@ -126,7 +126,7 @@ async function rest() {
   // a signal that never comes is not an error: row keeps its speed, rsrp and sinr stay empty
   R = fakeRadio({}); asks = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => { asks++; throw new Error('router empty'); }, speed: async () => ({ ok: true, mbps: 9 }) });
-  assert(asks === 6 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
+  assert(asks === 9 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
   // Android telephony: LTE rsrp / rssnr, NR ssRsrp / ssSinr; 2147483647 is "no value"
   const tele = 'mSignalStrength=SignalStrength:{mCellSignalStrengths=[CellSignalStrengthLte: rssi=-70 rsrp=-95 rsrq=-9 rssnr=14 cqi=2147483647 level=3, CellSignalStrengthNr:{ssRsrp=-101 ssRsrq=-11 ssSinr=2147483647 level=2}]}';
   let tv = S.teleSignal(tele, 'lte'); assert(tv.rsrp === -95 && tv.sinr === 14, JSON.stringify(tv));
@@ -139,7 +139,29 @@ async function rest() {
   assert(out.results[0].rsrp === null && out.results[0].sinr === 9);
   // AT+CESQ with the 5G fields (F50 answer): LTE 255 = none, ss_rsrp 54 -> -102 dBm, ss_sinr 67 -> 10 dB
   let ce = S.cesqAll('+CESQ: 99,99,255,255,255,255,73,54,67\nOK'); assert(ce.lteRsrp === null && ce.nrRsrp === -102 && ce.nrSinr === 10, JSON.stringify(ce));
-  ce = S.cesqAll('+CESQ: 99,99,255,255,20,70'); assert(ce.lteRsrp === -71 && ce.nrRsrp === null && ce.nrSinr === null, JSON.stringify(ce));
+  ce = S.cesqAll('+CESQ: 99,99,255,255,20,70'); assert(ce.lteRsrp === -70 && ce.nrRsrp === null && ce.nrSinr === null, JSON.stringify(ce));
   ce = S.cesqAll('ERROR'); assert(ce.lteRsrp === null && ce.nrRsrp === null);
+  // network mode: with "4G only" the mode is re-sent after the restart; a band that stays on 5G is skipped, one that recovers is tested; in Auto the row is only marked
+  const withMode = (net) => { const r = fakeRadio({}); r.sent = 0; r.readRadio = async () => ({ net }); r.setNetMode = async () => { r.sent++; return { ok: true }; }; return r; };
+  R = withMode('Only_LTE'); let seq = ['ENDC', 'LTE'];
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => seq.shift() || 'LTE', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(R.sent >= 1 && out.results[0].mbps === 9 && !out.results[0].g5 && !out.results[0].error, 'recovered link: ' + JSON.stringify(out.results[0]));
+  R = withMode('Only_LTE'); let sp = 0;
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'ENDC', signal: async () => ({}), speed: async () => { sp++; return { ok: true, mbps: 9 }; } });
+  assert(sp === 0 && out.results[0].mbps === null && /5G still on/.test(out.results[0].error) && out.restored, 'stuck on 5G: ' + JSON.stringify(out.results[0]));
+  R = withMode('WL_AND_5G');
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'ENDC', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(R.sent === 0 && out.results[0].mbps === 9 && out.results[0].g5 === true && !out.results[0].error, 'auto mode: ' + JSON.stringify(out.results[0]));
+  // no signal before the speed test, a real one after it: the second read is used
+  R = fakeRadio({}); asks = 0;
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => (++asks <= 6 ? {} : { rsrp: '-101', sinr: '-5', band: 'B1' }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === -101 && out.results[0].sinr === -5 && out.results[0].mbps === 9, 'read after the speed test: ' + JSON.stringify(out.results[0]));
+  // a reading that names another band than the locked one is the old band's value: ignored, the row says which band is active
+  R = fakeRadio({});
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => ({ rsrp: '-90', sinr: '10', band: 'LTE BAND 3' }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === null && out.results[0].sinr === null && /3/.test(out.results[0].active) && out.results[0].mbps === 9, 'wrong band: ' + JSON.stringify(out.results[0]));
+  R = fakeRadio({});
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => ({ rsrp: '-90', sinr: '10', band: 'LTE BAND 1' }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === -90 && out.results[0].sinr === 10, 'right band kept');
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }

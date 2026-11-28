@@ -69,8 +69,8 @@
   const numIn = (v, lo, hi) => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
   const cleanRsrp = (v) => numIn(v, -140, -40);
   const cleanSinr = (v) => numIn(v, -30, 50);
-  // AT+CESQ (LTE): last field is the RSRP index, dBm = index - 141. 0 and 97 are out-of-range ends, 255 is unknown.
-  const cesqRsrp = (text) => { const m = /\+CESQ:\s*(?:\d+\s*,\s*){5}(\d+)/.exec(String(text || '')); const i = m ? +m[1] : 0; return i >= 1 && i <= 96 ? i - 141 : null; };
+  // AT+CESQ (LTE): last field is the RSRP index, dBm = index - 140 (same as the Live panel). 0 and 97 are out-of-range ends, 255 is unknown.
+  const cesqRsrp = (text) => { const m = /\+CESQ:\s*(?:\d+\s*,\s*){5}(\d+)/.exec(String(text || '')); const i = m ? +m[1] : 0; return i >= 1 && i <= 96 ? i - 140 : null; };
   // Android telephony (dumpsys telephony.registry): the F50 router leaves its own signal fields empty, so this is the main source there.
   // type 'nr' reads the 5G values, anything else the LTE values; 2147483647 and other out-of-range numbers read as "no value".
   const teleSignal = (text, type) => {
@@ -84,7 +84,7 @@
   const cesqAll = (text) => {
     const m = /\+CESQ:\s*(\d+(?:\s*,\s*\d+){5,8})/.exec(String(text || '')), f = m ? m[1].split(',').map((x) => +x) : [];
     const ok = (i) => Number.isFinite(i) && i >= 1 && i <= 126;
-    return { lteRsrp: f.length >= 6 && f[5] >= 1 && f[5] <= 96 ? f[5] - 141 : null, nrRsrp: f.length >= 9 && ok(f[7]) ? f[7] - 156 : null, nrSinr: f.length >= 9 && ok(f[8]) ? -23 + (f[8] - 1) / 2 : null };
+    return { lteRsrp: f.length >= 6 && f[5] >= 1 && f[5] <= 96 ? f[5] - 140 : null, nrRsrp: f.length >= 9 && ok(f[7]) ? f[7] - 156 : null, nrSinr: f.length >= 9 && ok(f[8]) ? -23 + (f[8] - 1) / 2 : null };
   };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
@@ -94,6 +94,11 @@
     const R = o.R, lte = o.type === 'lte', gf = lte ? 'LTE_BAND_LOCK' : 'NR_BAND_LOCK', param = lte ? 'lte_band_lock' : 'nr_band_lock';
     const name = (b) => (lte ? 'B' : 'n') + b, log = o.log || (() => {});
     const before = await R.readBands();
+    // The radio restart (AT+SFUN) goes straight to the modem, so the modem can come back on 5G whatever the router's network mode says.
+    // The mode is saved here, re-sent after each restart, and the link is checked before every speed test.
+    let origNet = null; if (R.readRadio) { try { const rd = await R.readRadio(); origNet = rd && rd.net ? rd.net : null; } catch (_) { /* mode not readable */ } }
+    const pure4g = lte && origNet === 'Only_LTE';
+    const is5g = (t) => /5G|NR|ENDC|NSA|^SA$/i.test(String(t || '').trim());
     let orig = (lte ? before.lte : before.nr) || [];
     if (!orig.length) orig = (o.full || []).slice();
     if (!orig.length) throw new Error('No band list to restore, so the test was not started');
@@ -114,25 +119,50 @@
           log('Locking ' + name(b) + '…');
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
-          // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
-          // Ask up to 6 times, 3 s apart, until BOTH RSRP and SINR are there; keep the best answer. Signal is a bonus, never a failure.
-          let sg = {};
-          for (let k = 0; k < 6; k++) {
-            let x = {}; try { x = (await o.signal()) || {}; } catch (_) { x = {}; }
-            const got = (v) => (cleanRsrp(v.rsrp) != null) + (cleanSinr(v.sinr) != null);
-            if (got(x) >= got(sg)) sg = x;
-            if (got(sg) === 2) break;
-            if (k < 5) await R.sleep(3000);
+          if (lte && o.link) {
+            if (pure4g && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* checked through the link below */ } }
+            let lk = '';
+            for (let k = 0; k < 5; k++) {
+              try { lk = String((await o.link()) || ''); } catch (_) { lk = ''; }
+              if (lk && !is5g(lk)) break;
+              if (pure4g && k === 1 && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* ignore */ } }
+              if (k < 4) await R.sleep(3000);
+            }
+            row.g5 = is5g(lk);
+            if (row.g5 && pure4g) { row.error = '5G still on after the restart, skipped (not a pure 4G test)'; log(name(b) + ': 5G still on (' + lk + '), speed not tested'); continue; }
           }
-          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.active = sg.band || '';
-          log(name(b) + ' signal: ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB') + (sg.link ? ' · link: ' + sg.link : '')));
+          // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
+          // Ask up to `tries` times, 3 s apart, until BOTH RSRP and SINR are there; keep the best answer. A reading that names another band
+          // than the one just locked is the old band's value: it counts as no value. Signal is a bonus, never a failure.
+          const sameBand = (v) => { const m = String(v && v.band || '').match(/\d+/); return !m || Number(m[0]) === b; };
+          const got = (v) => (sameBand(v) ? (cleanRsrp(v.rsrp) != null) + (cleanSinr(v.sinr) != null) : 0);
+          const readSignal = async (tries) => {
+            let best = {};
+            for (let k = 0; k < tries; k++) {
+              let x = {}; try { x = (await o.signal()) || {}; } catch (_) { x = {}; }
+              if (got(x) >= got(best)) best = x;
+              if (got(best) === 2) break;
+              if (k < tries - 1) await R.sleep(3000);
+            }
+            return best;
+          };
+          const showSignal = (sg, when) => {
+            row.active = sg.band || '';
+            if (!sameBand(sg)) { row.rsrp = null; row.sinr = null; log(name(b) + ' signal' + when + ': the modem still reports ' + sg.band + ', that value was ignored'); return; }
+            row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr);
+            log(name(b) + ' signal' + when + ': ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB') + (sg.link ? ' · link: ' + sg.link : '')));
+          };
+          showSignal(await readSignal(6), '');
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
+          // Still no value: the traffic of the speed test makes Android report a fresh signal, so ask again now.
+          if (row.rsrp == null && row.sinr == null) { const sg2 = await readSignal(3); if (got(sg2) > 0) showSignal(sg2, ' (after the speed test)'); }
         } catch (e) { row.error = e.message; log(name(b) + ': ' + e.message); if (/radio restart/.test(e.message)) { aborted = e.message; break; } }
       }
     } finally {
       try { log('Restoring lock: ' + orig.map(name).join(' ')); const reg = await apply(orig); restored = true; log(reg ? 'Old lock restored.' : 'Old lock restored, not registered.'); } catch (e) { log('Restore FAILED: ' + e.message + '. Use Unlock all in Radio settings.'); }
+      if (pure4g && R.setNetMode) { try { const rd = await R.readRadio(); if (!rd || rd.net !== origNet) await R.setNetMode(origNet); } catch (_) { /* the mode is shown in Radio settings */ } }
       done();
     }
     return { results, ranked: rank(results), restored, aborted, orig };
@@ -287,7 +317,7 @@
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
         const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
-        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : ''].filter(Boolean).join(' \u00B7 ');
+        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.g5 ? '5G active' : ''].filter(Boolean).join(' \u00B7 ');
         const long = note.length > 12;   // a long note (an error) gets its own line under the row, so the number columns keep their width
         [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm' , r.sinr == null ? '-' : r.sinr + ' dB', long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
         if (long) { const nt = el('tr', { className: 'sp-nt' }), td = el('td', { textContent: note }); td.colSpan = 5; nt.append(td); t.append(nt); }
@@ -305,6 +335,7 @@
         const out = await bandTest({
           R, type: st.type, bands, full: st.sup[st.type], log,
           speed: () => measure(run, i, true), stop: () => st.stop,
+          link: async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type' }); return d && d.network_type; },
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: async () => {
             let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (_) { /* try the modem below */ }
@@ -317,7 +348,7 @@
               const L = window.MatchiLive;
               if (L && L.fresh) {
                 const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {};
-                if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr;
+                if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; if (!g.band && c.band) g.band = c.band;
                 // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
                                 dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
               }
