@@ -115,5 +115,17 @@ async function rest() {
   R = fakeRadio();
   await S.bandTest({ R, type: 'nr', bands: [78], full: [], log() {}, stop: () => false, signal: async () => ({}), speed: async () => ({ ok: true, mbps: 1 }) });
   assert(R.calls.filter((c) => c !== 'cycle').every((c) => c.startsWith('NR_BAND_LOCK')) && R.state.nr.join() === '78' && R.state.lte.join() === '1,3,7,28');
+  // signal: junk and placeholder values are "no value"; real ones are kept
+  assert.strictEqual(S.cleanRsrp('-95'), -95); assert.strictEqual(S.cleanRsrp(''), null); assert.strictEqual(S.cleanRsrp('0'), null); assert.strictEqual(S.cleanRsrp(undefined), null); assert.strictEqual(S.cleanRsrp('-999'), null);
+  assert.strictEqual(S.cleanSinr('12'), 12); assert.strictEqual(S.cleanSinr('0'), 0); assert.strictEqual(S.cleanSinr(''), null);
+  assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,70\nOK'), -71); assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,255'), null); assert.strictEqual(S.cesqRsrp('ERROR'), null);
+  // an empty first answer is asked again (up to 3 times); the third answer is used
+  R = fakeRadio({}); let asks = 0;
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => (++asks < 3 ? {} : { rsrp: '-95', sinr: '12', band: 'B1' }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(asks === 3 && out.results[0].rsrp === -95 && out.results[0].sinr === 12, 'signal must be retried: ' + asks);
+  // a signal that never comes is not an error: row keeps its speed, rsrp and sinr stay empty
+  R = fakeRadio({}); asks = 0;
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => { asks++; throw new Error('router empty'); }, speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(asks === 3 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }

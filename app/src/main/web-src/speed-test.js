@@ -65,6 +65,12 @@
     }
     r.ping = ping; return r;
   }
+  // Signal values from the router: a missing, empty or placeholder value (0, junk) is "no value", never a number to show.
+  const numIn = (v, lo, hi) => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
+  const cleanRsrp = (v) => numIn(v, -140, -40);
+  const cleanSinr = (v) => numIn(v, -30, 50);
+  // AT+CESQ (LTE): last field is the RSRP index, dBm = index - 141. 0 and 97 are out-of-range ends, 255 is unknown.
+  const cesqRsrp = (text) => { const m = /\+CESQ:\s*(?:\d+\s*,\s*){5}(\d+)/.exec(String(text || '')); const i = m ? +m[1] : 0; return i >= 1 && i <= 96 ? i - 141 : null; };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
   // o: { R (window.MatchiRadio), type 'lte'|'nr', bands [n], full [n] (all supported, used when the old lock reads empty),
@@ -93,7 +99,14 @@
           log('Locking ' + name(b) + '…');
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
-          try { const s = await o.signal(); row.rsrp = s.rsrp; row.sinr = s.sinr; row.active = s.band || ''; } catch (_) { /* signal is a bonus */ }
+          // The router can answer empty right after a radio restart: ask up to 3 times, 2 s apart. Signal is a bonus, never a failure.
+          let sg = {};
+          for (let k = 0; k < 3; k++) {
+            try { sg = (await o.signal()) || {}; } catch (_) { sg = {}; }
+            if (cleanRsrp(sg.rsrp) != null) break;
+            if (k < 2) await R.sleep(2000);
+          }
+          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = row.rsrp == null ? null : cleanSinr(sg.sinr); row.active = sg.band || '';
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
@@ -128,6 +141,8 @@
     '@keyframes sp-p{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.sp-t.run .v{animation:none}}' +
     '.sp-bar{height:3px;border-radius:3px;background:var(--bd);overflow:hidden}.sp-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width 1s linear}' +
     '.sp-msg{margin:4.5px 0;min-height:16px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}' +
+    '.sp-r{display:flex;align-items:center;gap:8px;padding:5px 10px;border:1px solid var(--bd);border-radius:9px;background:var(--panel2)}.sp-r b{font-size:13px}.sp-r .m{font-weight:700}.sp-r .s{margin-left:auto;color:var(--mut);white-space:nowrap}' +
+    '.sp-r.ok{border-color:#28d99a55}.sp-r.ok b{color:var(--good)}.sp-r.warn{border-color:#ffc85755}.sp-r.warn b{color:#ffc857}.sp-r.bad{border-color:#ff647c55}.sp-r.bad b{color:var(--danger)}' +
     '.sp-band{margin-top:7px;border-top:1px solid var(--bd);padding-top:6px}.sp-band>.t{font-size:14px;font-weight:750;margin-bottom:2px}' +
     '.sp-band select,.sp-band button{min-height:27.5px;padding:2px 9px;font-size:13px}' +
     '.sp-tb{width:100%;border-collapse:collapse;font-size:12.5px}.sp-tb th{text-align:left;padding:2px 7px 2px 0;font-size:11.5px;opacity:.7}.sp-tb td{padding:2px 7px 2px 0;border-top:1px solid var(--bd)}.sp-tb tr.best td{color:var(--good);font-weight:700}';
@@ -164,7 +179,14 @@
     const markSrv = () => { for (const b of $('sp_sg').children) { const on = b.dataset.host === $('sp_host').value.trim(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
     for (const [n, h] of SERVERS) { const b = el('button', { type: 'button', textContent: n, title: h }); b.dataset.host = h; b.onclick = () => { if (st.busy) return; $('sp_host').value = h; markSrv(); }; $('sp_sg').append(b); }
     $('sp_host').addEventListener('input', markSrv); markSrv();
-    const setOut = (t, c) => { const o = $('sp_out'); if (!o) return; o.textContent = t; o.style.color = c || ''; };
+    const setOut = (t, c) => { const o = $('sp_out'); if (!o) return; o.className = 'sp-msg'; o.textContent = t; o.style.color = c || ''; };
+    // One compact result line: icon, main text, and a short status on the right. kind: ok | warn | bad.
+    const showResult = (kind, main, sub) => {
+      const o = $('sp_out'); if (!o) return;
+      o.className = 'sp-msg sp-r ' + kind; o.style.color = ''; o.textContent = '';
+      o.append(el('b', { textContent: kind === 'ok' ? '\u2713' : kind === 'warn' ? '\u25A0' : '!' }), el('span', { className: 'm', textContent: main }));
+      if (sub) o.append(el('span', { className: 's', textContent: sub }));
+    };
     const log = (l) => { const p = $('sp_log'); if (!p) return; p.style.display = 'block'; p.textContent += l + '\n'; p.scrollTop = p.scrollHeight; };
     const tile = (k, o) => {
       const t = $('sp_t_' + k); if (!t) return; const v = o || {};
@@ -242,7 +264,9 @@
       const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => head.append(el('th', { textContent: h }))); t.append(head);
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
-        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null || r.rsrp === '' ? '-' : r.rsrp, r.sinr == null || r.sinr === '' ? '-' : r.sinr, r.error || (r.active ? 'in use: ' + r.active : '')].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
+        const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
+        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : ''].filter(Boolean).join(' \u00B7 ');
+        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm', r.sinr == null ? '-' : r.sinr + ' dB', note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
       }
       box.append(t);
     }
@@ -258,14 +282,21 @@
           speed: () => measure(run, i, true), stop: () => st.stop,
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: async () => {
-            const d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {};
-            return st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
+            let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {}; } catch (_) { /* try the modem below */ }
+            const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
+            // The router sometimes answers nothing for these. For LTE, ask the modem directly (RSRP only; SINR stays empty).
+            if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; } catch (_) { /* no value */ } }
+            return g;
           },
         });
         drawTable(out.ranked);
         const top = out.ranked.find((r) => r.mbps != null);
         st.best = top ? top.band : null;
-        setOut((out.aborted ? 'Stopped: ' + out.aborted + '. ' : 'Done. ') + (top ? 'Fastest: ' + top.label + ' at ' + top.mbps + ' Mbps. ' : 'No band gave a result. ') + (out.restored ? 'Old lock restored.' : 'OLD LOCK NOT RESTORED. Use Unlock all in Radio settings.'), out.restored ? '' : ERR);
+        const bestTxt = top ? top.label + ' \u00B7 ' + top.mbps + ' Mbps' : '';
+        if (!out.restored) showResult('bad', 'Lock not restored. Use Unlock all in Radio settings.', '');
+        else if (out.aborted) showResult('warn', 'Stopped' + (out.aborted !== 'stopped' ? ': ' + out.aborted : '') + (top ? ' \u00B7 best ' + bestTxt : ''), 'Lock restored');
+        else if (top) showResult('ok', 'Fastest: ' + bestTxt, 'Lock restored');
+        else showResult('warn', 'No band gave a result', 'Lock restored');
       } catch (e) { setOut('Band test failed: ' + e.message, ERR); } finally { busy(false); }
     };
     $('sp_lockbest').onclick = async () => {
@@ -285,5 +316,5 @@
     busy(false);
   }
 
-  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, open };
+  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, open };
 })();
