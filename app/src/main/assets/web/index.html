@@ -8295,7 +8295,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     '.sp-r.ok{border-color:#28d99a55}.sp-r.ok b{color:var(--good)}.sp-r.warn{border-color:#ffc85755}.sp-r.warn b{color:#ffc857}.sp-r.bad{border-color:#ff647c55}.sp-r.bad b{color:var(--danger)}' +
     '.sp-band{margin-top:7px;border-top:1px solid var(--bd);padding-top:6px}.sp-band>.t{font-size:14px;font-weight:750;margin-bottom:2px}' +
     '.sp-band select,.sp-band button{min-height:27.5px;padding:2px 9px;font-size:13px}' +
-    '.sp-tb{width:100%;border-collapse:collapse;font-size:12.5px}.sp-tb th{text-align:left;padding:2px 7px 2px 0;font-size:11.5px;opacity:.7}.sp-tb td{padding:2px 7px 2px 0;border-top:1px solid var(--bd)}.sp-tb tr.best td{color:var(--good);font-weight:700}';
+    '.sp-tb{width:100%;table-layout:fixed;border-collapse:collapse;font-size:12.5px}.sp-tb th{text-align:left;padding:2px 6px 2px 0;font-size:11.5px;opacity:.7;white-space:nowrap}.sp-tb td{padding:3px 6px 3px 0;border-top:1px solid var(--bd);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.sp-tb .cb{width:15%}.sp-tb .cm{width:19%}.sp-tb .cr{width:24%}.sp-tb .cs{width:20%}.sp-tb .cn{width:22%}' +
+    '.sp-tb tr.best td{color:var(--good);font-weight:700}.sp-tb tr.sp-nt td{border-top:0;padding:0 0 4px;white-space:normal;overflow:visible;font-size:11.5px;line-height:1.35;color:var(--mut);font-weight:400}';
   const TILE = (k, label, u) => '<div class="sp-t" id="sp_t_' + k + '"><span class="l">' + label + '</span><b class="v">-</b><span class="u">' + u + '</span><span class="s"></span></div>';
 
   function open() {
@@ -8411,12 +8413,15 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     function drawTable(res) {
       const box = $('sp_table'); box.textContent = '';
       const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null);
+      const cols = ['cb', 'cm', 'cr', 'cs', 'cn']; ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h, k) => t.append(el('col', { className: cols[k] })));
       const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => head.append(el('th', { textContent: h }))); t.append(head);
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
         const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
         const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : ''].filter(Boolean).join(' \u00B7 ');
-        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm', r.sinr == null ? '-' : r.sinr + ' dB', note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
+        const long = note.length > 12;   // a long note (an error) gets its own line under the row, so the number columns keep their width
+        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm', r.sinr == null ? '-' : r.sinr + ' dB', long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
+        if (long) { const nt = el('tr', { className: 'sp-nt' }), td = el('td', { textContent: note }); td.colSpan = 5; nt.append(td); t.append(nt); }
       }
       box.append(t);
     }
@@ -8446,7 +8451,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
             if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
               try {
                 const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
-                const tv = teleSignal(txt, st.type); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars' : 'no output'));
+                const tv = teleSignal(txt, st.type), tok = (txt.match(/\b(?:rsrp|rssnr|ssRsrp|ssSinr|csiRsrp|csiSinr)\s*=\s*-?\d+/g) || []).slice(0, 6).join(' '); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars: ' + (tok || 'no rsrp/sinr field') : 'no output'));
                 if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
                 if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
               } catch (e) { dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
