@@ -64,7 +64,7 @@ function mountNetTools() {
       kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
       h('div', { class: 'net-actions' }, btn),
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
-      note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
+      note('Wi-Fi, cable and this console stay reachable while mobile data is off.', 'net-mut'));
   }
   // Indicator light: On / Off + Apply, like the stock page. Apply is off until the choice differs from the router value.
   function viewLight(d) {
@@ -90,7 +90,7 @@ function mountNetTools() {
         h('div', { class: 'net-radios', role: 'radiogroup', 'aria-label': 'Indicator light' }, radio('on', 'On'), radio('off', 'Off')),
         h('div', { class: 'net-actions' }, apply)),
       msg,
-      note('Only the status lights change. Needs a fresh sign-in.', 'net-mut'));
+      note('Only the status lights change.', 'net-mut'));
   }
   // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
@@ -129,7 +129,7 @@ function mountNetTools() {
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'USB tethering'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_auto' }, 'Turn Wi-Fi off while USB tethering is on'), cb),
       stat,
-      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app and a fresh sign-in.', 'net-mut'));
+      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app.', 'net-mut'));
   }
   async function waRead() {
     try {
@@ -139,7 +139,7 @@ function mountNetTools() {
   }
   async function waToggle(want, cb) {
     if (st.waBusy) return;
-    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console. Needs a fresh sign-in.', 'Turn on', false))) { cb.checked = false; return; }
+    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console.', 'Turn on', false))) { cb.checked = false; return; }
     st.waBusy = true; paint('wifi');
     try {
       const r = await api('/api/wifiauto', { method: 'POST', body: JSON.stringify({ enabled: want }) });
@@ -510,7 +510,7 @@ function mountNetTools() {
       const ignored = !reached && sent.reply !== 'success' && !sent.ok ? ' The router ignored the command ' + sent.attempts + ' times. ' + (R.emptyHint ? await R.emptyHint() : '') : '';
       if (!live()) return;
       st.lightMsg = reached
-        ? { bad: false, text: 'The indicator light is ' + want + ' (the router reports ' + now + ').' }
+        ? { bad: false, text: 'The indicator light is ' + want + '.' }
         : { bad: true, text: 'The router did not show the wanted state. It reports: ' + now + '. If this keeps happening the router uses other names for this setting. Press Refresh to read it again.' + ignored };
     } finally {
       if (live()) { st.lightAct = null; if (st.tab === 'light') { paint('light'); setStatus(st.lightMsg && st.lightMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
@@ -623,7 +623,7 @@ function mountNetTools() {
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
     const mk = (label, id, fn) => { const x = h('button', { type: 'button', id }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     // The long explanation is the Info chip in the panel's top right corner; its text opens under the title. Without the tip helper it is a plain note.
-    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
+    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart.';
     const tip = window.MatchiTip ? window.MatchiTip.make(infoText) : null;
     const chip = tip ? tip.firstChild : null, tipBody = tip ? tip.lastChild : null;
     const title = h('h4', {}, 'Limit speed \u00b7 ' + (f.name || '(no name)') + ' (' + f.ip + ')');
@@ -647,7 +647,7 @@ function mountNetTools() {
     const self = N.isSelf(call.ip, st.me);
     const warn = self ? '\n\nThis is the device you are using: this console slows down too.' : !st.me ? '\n\nThis page could not tell which device you are using. If this is it, this console slows down too.' : '';
     const ok = await askConfirm((none ? 'Remove the speed limit?' : 'Limit the speed of this device?') + '\n\n' + (f.name || '(no name)') + '\n' + call.mac + '\n' + call.ip + '\n\n'
-      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc). Needs a fresh sign-in.', none ? 'Remove limit' : 'Apply', !none && self);
+      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc).', none ? 'Remove limit' : 'Apply', !none && self);
     if (!ok) return;
     st.limAct = true; st.limMsg = null; syncButtons(); paint('devices'); setStatus('Applying…');
     const my = ++actId;
