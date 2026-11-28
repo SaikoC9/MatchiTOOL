@@ -117,6 +117,7 @@
   const num = (m) => (m >= 1000 ? (m / 1000).toFixed(2) : m >= 100 ? String(Math.round(m)) : m.toFixed(1));
   const unitOf = (m) => (m >= 1000 ? 'Gbps' : 'Mbps');
   const CSS = '.sp-in{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.sp-in .h{grid-column:1/-1}' +
+    '.sp-sg{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.sp-sg button{min-height:24px;padding:2px 8px;font-size:11.5px;opacity:.7}.sp-sg button.on{opacity:1;background:rgba(100,230,164,.35)}' +
     '.sp-res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}' +
     '.sp-t{background:var(--panel2);border:1px solid var(--bd);border-radius:12px;padding:10px 10px 8px;min-width:0;transition:border-color .2s}' +
     '.sp-t .l{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--acc2)}' +
@@ -138,11 +139,10 @@
     createModal({
       name: MODAL, title: 'Speed test', maxWidth: '560px', showConfirm: false, onClose: () => { st.stop = true; stopBar(); return true; },
       content: '<style>' + CSS + '</style>' +
-        '<div class="sp-in"><div class="h"><input id="sp_host" list="sp_hosts" placeholder="iperf3 server (host)" autocomplete="off" spellcheck="false" aria-label="iperf3 server"></div>' +
+        '<div class="sp-in"><div class="h"><input id="sp_host" placeholder="iperf3 server (host)" autocomplete="off" spellcheck="false" aria-label="iperf3 server"><div class="sp-sg" id="sp_sg"></div></div>' +
         '<input id="sp_port" inputmode="numeric" placeholder="port" aria-label="Port"><select id="sp_secs" aria-label="Test time"><option value="5">5 s</option><option value="10">10 s</option></select>' +
         '<select id="sp_par" aria-label="Streams"><option value="4">4 streams</option><option value="1">1 stream</option></select></div>' +
-        '<datalist id="sp_hosts"><option value="iperf.biznetnetworks.com"><option value="ping.online.net"><option value="speedtest.sin1.sg.leaseweb.net"></datalist>' +
-        '<div class="mut" style="font-size:11px;margin:6px 0 8px">4 streams suit fast links. A busy server is retried on the next port. Uses mobile data (~6 s each way).</div>' +
+                '<div class="mut" style="font-size:11px;margin:6px 0 8px">4 streams suit fast links. A busy server is retried on the next port. Uses mobile data (~6 s each way).</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="sp_run">Run speed test</button><button type="button" id="sp_stop" disabled>Stop</button></div>' +
         '<div class="sp-res">' + TILE('dl', 'Download', 'Mbps') + TILE('ul', 'Upload', 'Mbps') + TILE('ping', 'Ping', 'ms') + '</div>' +
         '<div class="sp-bar" aria-hidden="true"><i id="sp_bar"></i></div><div id="sp_out" class="sp-msg" role="status"></div>' +
@@ -158,6 +158,11 @@
     const st = { stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
     $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5'); $('sp_par').value = store.get('par', '4');
     if ($('sp_par').value === '') $('sp_par').value = '4';
+    // server suggestions: buttons in the page's own style (a native list only shows entries that match the text, so the host could not be changed without clearing it)
+    const SERVERS = [['Biznet', 'iperf.biznetnetworks.com'], ['Online.net', 'ping.online.net'], ['Leaseweb SG', 'speedtest.sin1.sg.leaseweb.net']];
+    const markSrv = () => { for (const b of $('sp_sg').children) { const on = b.dataset.host === $('sp_host').value.trim(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
+    for (const [n, h] of SERVERS) { const b = el('button', { type: 'button', textContent: n, title: h }); b.dataset.host = h; b.onclick = () => { if (st.busy) return; $('sp_host').value = h; markSrv(); }; $('sp_sg').append(b); }
+    $('sp_host').addEventListener('input', markSrv); markSrv();
     const setOut = (t, c) => { const o = $('sp_out'); if (!o) return; o.textContent = t; o.style.color = c || ''; };
     const log = (l) => { const p = $('sp_log'); if (!p) return; p.style.display = 'block'; p.textContent += l + '\n'; p.scrollTop = p.scrollHeight; };
     const tile = (k, o) => {
