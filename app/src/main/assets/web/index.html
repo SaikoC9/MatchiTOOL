@@ -718,136 +718,6 @@ html body #home .matchi-menu-box>button{min-height:32px!important;padding:4px 5p
 html body #home .matchi-menu-box>button::before{left:6px}
 }
 </style>
-<style id="ui-calm">
-/* Calm compact dashboard, laid out like the approved mockup: tool chips, one signal card, 4-column tiles, temperature next to cores, then Radio settings beside a stack of Plugin guard, Refresh and Cell lock. Styling only for the page; the merged tiles come from the live renderer. Plain 150 ms fades. */
-:root{--bg:#0e1116;--acc:#7fa8d6;--acc2:#a9c6e6;--bd:rgba(255,255,255,.07);--good:#7dc4a4;--danger:#d98c98;--mut:#8d97a6;--c-surf:#141a21;--c-line:rgba(255,255,255,.07);--c-soft:rgba(255,255,255,.045);--t-blue:rgba(127,168,214,.085);--t-teal:rgba(124,196,180,.085);--t-violet:rgba(168,153,216,.085);--t-amber:rgba(110,186,220,.085)}
-html body{background:var(--bg)!important;letter-spacing:0}
-html body header{background:#0e1116!important;box-shadow:0 1px 0 rgba(127,168,214,.14)!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;border-bottom:1px solid var(--c-line)!important}
-html body .brand-mark{background:#4f7fae!important;box-shadow:none!important;color:#fff}
-html body .host{background:transparent!important;border-color:var(--c-line)!important}
-html body .hd-reboot{color:#d98c98!important;border-color:rgba(217,140,152,.35)!important}
-html body main{max-width:1100px!important}
-html body #home{background:#11161d!important;border:1px solid var(--c-line)!important;box-shadow:none!important;animation:u-fade .25s ease-out!important;padding:10px!important}
-html body #home button{transition:background-color .15s ease,border-color .15s ease,color .15s ease!important;box-shadow:none!important}
-html body #home button:active{transform:none!important}
-@media(hover:hover){html body #home button:hover{transform:none!important}}
-
-/* Page grid */
-html body #home:not([style*="none"]){display:grid!important;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)!important;grid-template-rows:none!important;gap:6px!important;align-items:start!important;align-content:start!important}
-html body #home .liv{display:contents!important}
-html body #home>.actions-buttons,html body #home .liv-head,html body #home .liv-body,html body #home .liv-foot,html body #home>#matchi_menu_btn,html body #home>.matchi-menu-wrap{grid-column:1/-1!important}
-html body #home>.actions-buttons{order:0}
-html body #home .liv-head{order:1;margin:2px 0 0!important}
-html body #home .liv-body{order:2;display:flex;flex-direction:column;gap:6px}
-html body #home .liv-foot{order:3;margin:0!important}
-html body #home>#matchi_menu_btn,html body #home>.matchi-menu-wrap{order:4}
-html body #home #dash_radio{grid-column:1!important;grid-row:span 3!important;order:10;margin:0!important;align-self:stretch}
-html body #home #guardCard,html body #home .liv-opts,html body #home #dash_cell{align-self:stretch!important}
-html body #home #guardCard{grid-column:2!important;order:11;margin:0!important}
-html body #home .liv-opts{grid-column:2!important;order:12;margin:0!important}
-html body #home #dash_cell{grid-column:2!important;order:13;margin:0!important}
-html body #home #dash_cell .dc-body{display:block!important}
-html body #home #dash_cell .dc-dyn{display:block!important}
-html body #home #dash_cell .dc-c2{grid-column:auto!important;grid-row:auto!important}
-html body #home .liv-body>*{margin-top:0!important}
-@media(max-width:899px){
-html body #home:not([style*="none"]){grid-template-columns:minmax(0,1fr)!important}
-html body #home #dash_radio,html body #home #guardCard,html body #home .liv-opts,html body #home #dash_cell{grid-column:1!important;grid-row:auto!important}
-}
-
-/* Tool chips */
-html body #home .actions-buttons{display:flex!important;flex-wrap:wrap!important;gap:4px!important;margin:0!important}
-html body #home .actions-buttons button{flex:0 0 auto!important;width:auto!important;min-width:0!important;min-height:26px!important;padding:2px 10px!important;font-size:11.5px!important;font-weight:550!important;line-height:1.2!important;border-radius:7px!important;white-space:nowrap!important;background:var(--c-soft)!important;border:1px solid var(--c-line)!important;color:#dfe5ed!important}
-@media(hover:hover){html body #home .actions-buttons button:hover{background:rgba(127,168,214,.16)!important;border-color:rgba(127,168,214,.5)!important;color:#fff!important}}
-html body #home .matchi-menu-box>button{background:var(--c-soft)!important;border:1px solid var(--c-line)!important;border-radius:7px!important}
-html body #home .matchi-menu-box>button::before{background:var(--acc)!important}
-html body #home .matchi-menu-box>button[data-status="on"]::before{background:var(--good)!important}
-html body #home .matchi-menu-box>button[data-status="off"]::before{background:var(--danger)!important}
-html body #home .matchi-menu-box>button[data-status="on"],html body #home .matchi-menu-box>button[data-status="off"]{border-color:var(--c-line)!important}
-
-/* Buttons and fields inside cards */
-html body #dash_radio button,html body #guardCard button,html body #dash_cell button,html body #home .liv-opts button,html body #home .liv-dbtn{background:var(--c-soft)!important;border:1px solid var(--c-line)!important;border-radius:7px!important;color:#dfe5ed}
-@media(hover:hover){html body #dash_radio button:hover,html body #guardCard button:hover,html body #dash_cell button:hover,html body #home .liv-opts button:hover,html body #home .liv-dbtn:hover{background:rgba(255,255,255,.085)!important}}
-html body #home select,html body #home input[type=text]{background:#0f141a!important;border:1px solid var(--c-line)!important;border-radius:7px!important}
-
-/* Cards */
-html body #dash_radio,html body #guardCard,html body #dash_cell,html body #home .liv-opts,html body #home .liv-tile,html body #home .liv-cc,html body #home .liv-top{border:1px solid var(--c-line)!important;border-radius:10px!important;transition:border-color .18s ease}
-html body #dash_radio{background:var(--t-blue)!important;border-color:rgba(127,168,214,.2)!important;padding:8px 10px!important}
-html body #guardCard{background:var(--t-teal)!important;border-color:rgba(124,196,180,.2)!important;padding:8px 10px!important}
-html body #dash_cell{background:var(--t-violet)!important;border-color:rgba(168,153,216,.2)!important;padding:8px 10px!important}
-html body #home .liv-opts{background:var(--t-amber)!important;border-color:rgba(110,186,220,.2)!important;padding:8px 10px!important;gap:6px 10px!important}
-html body #dash_radio .dr-t,html body #dash_cell .dc-t{color:#9cc2ea!important}
-html body #guardCard .gd-title{color:#8fd0c0!important}
-html body #home .liv-title{color:#8fd0c0!important;letter-spacing:.08em!important;font-size:11px!important}
-html body #dash_radio .dr-note{margin:0 0 6px!important}
-html body #dash_radio .dr-h{margin-bottom:4px!important}
-html body #dash_radio .dr-c{margin:3px 0 6px!important;gap:3px!important}
-html body #dash_radio .dr-row{margin-bottom:6px!important}
-@media(hover:hover){html body #dash_radio:hover,html body #guardCard:hover,html body #dash_cell:hover,html body #home .liv-tile:hover,html body #home .liv-cc:hover{border-color:rgba(160,195,235,.4)!important}}
-
-/* Band chips */
-html body #dash_radio .dr-b{min-height:22px!important;padding:1px 8px!important;font-size:11px!important;border-radius:6px!important;opacity:.6;background:transparent!important}
-html body #dash_radio .dr-b.on{opacity:1!important;background:rgba(127,168,214,.16)!important;border-color:rgba(127,168,214,.38)!important;color:#d3e3f4}
-html body #dash_radio .dr-b.add{opacity:1!important;background:rgba(124,196,180,.18)!important;outline:1px dashed rgba(124,196,180,.6)!important}
-html body #dash_radio .dr-b.rm{opacity:.85!important;outline:1px dashed rgba(217,140,152,.55)!important}
-@media(hover:hover){html body #dash_radio .dr-b:hover{opacity:1!important;border-color:rgba(127,168,214,.5)!important}}
-
-/* Live status */
-html body .liv-pulse{animation:none!important;box-shadow:none!important}
-html body .liv-pulse:not(.off){animation:l-breathe 2.4s ease-in-out infinite!important;background:#7cc4b4!important}
-@keyframes l-breathe{0%,100%{opacity:1}50%{opacity:.4}}
-html body .liv-sw{background:rgba(255,255,255,.2)!important}
-html body .liv-sw[aria-checked=true]{background:rgba(125,196,164,.65)!important}
-html body .liv-top{background:rgba(127,168,214,.1)!important;border-color:rgba(127,168,214,.28)!important;padding:8px 12px 8px!important}
-html body .liv-top .liv-hero{background:none!important;border:0!important;padding:0 0 4px!important;gap:12px!important;border-radius:0!important}
-html body .liv-top .liv-box{background:none!important;border:0!important;padding:4px 0 0!important;border-top:1px solid var(--c-line)!important;border-radius:0!important}
-html body .liv-top .liv-box+.liv-box{margin-top:4px}
-html body .liv-top .liv-box h4{margin-bottom:4px!important}
-html body .liv-dbm{font-size:24px!important}
-html body .liv-bat .liv-dbm{font-size:20px!important}
-html body .liv-op{font-size:16px!important}
-html body .liv-badge{background:rgba(127,168,214,.14)!important;border-color:rgba(127,168,214,.32)!important;color:#bcd4ec!important}
-html body .liv-bar{height:5px!important;background:rgba(255,255,255,.07)!important}
-html body .liv-bar i{transition:width .5s ease!important}
-html body .liv-bar i,html body .liv-dbm,html body .liv-q,html body .liv-tile svg,html body .liv-hero svg,html body .liv-tmr .liv-tv{filter:saturate(.62)}
-
-/* Tiles */
-html body .liv-tiles{gap:6px!important}
-html body .liv-tile{padding:5px 10px!important;min-width:0}
-html body .liv-tx{min-width:0;flex:1}
-html body .liv-tv{font-size:15px!important}
-html body .liv-mini{display:block;margin-top:3px;height:16px}
-html body .liv-tiles.liv-t4:not(.liv-cards){display:grid!important;grid-auto-flow:column!important;grid-template-columns:none!important;grid-auto-columns:minmax(0,1fr)!important}
-html body .liv-tn>.liv-tile:nth-child(1){background:var(--t-teal)!important;border-color:rgba(124,196,180,.22)!important}
-html body .liv-tn>.liv-tile:nth-child(2){background:var(--t-amber)!important;border-color:rgba(110,186,220,.22)!important}
-html body .liv-tn>.liv-tile:nth-child(3){background:var(--t-blue)!important;border-color:rgba(127,168,214,.22)!important}
-html body .liv-tn>.liv-tile:nth-child(4){background:var(--t-violet)!important;border-color:rgba(168,153,216,.22)!important}
-html body .liv-dd>.liv-tile{background:var(--t-blue)!important;border-color:rgba(127,168,214,.2)!important}
-html body .liv-body>.liv-t4:not(.liv-tn):not(.liv-dd)>.liv-tile{background:var(--c-surf)!important}
-html body .liv-dd .liv-dbtn{align-self:stretch}
-
-/* Temperature and cores side by side */
-html body .liv-pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px}
-html body #home .liv-pair>.liv-tiles,html body .liv-pair>.liv-tiles{display:block!important;grid-template-columns:none!important;margin:0!important;width:100%}
-html body .liv-temp{display:block!important;background:var(--t-amber)!important;border-color:rgba(110,186,220,.22)!important;width:100%;height:100%}
-html body .liv-tmr{display:flex;justify-content:space-between;gap:8px;margin-top:3px}
-html body .liv-tm{display:flex;flex-direction:column;min-width:0}
-html body .liv-cards{height:100%}
-html body .liv-cm{height:100%;background:var(--t-violet)!important;border-color:rgba(168,153,216,.22)!important;padding:5px 10px!important;max-width:none!important;flex:1 1 auto}
-html body .liv-cch{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
-html body .liv-cmg{display:grid;grid-template-columns:repeat(auto-fit,minmax(38px,1fr));gap:8px}
-html body .liv-cmi{text-align:center;font-size:11.5px;font-weight:650;font-variant-numeric:tabular-nums;color:#bcd0e6}
-html body .liv-cmi.off{opacity:.55}
-html body .liv-cmb{height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:3px}
-html body .liv-cmb i{display:block;height:100%;background:#7fa8d6;transition:width .4s ease}
-html body .liv-cmb i.w{background:#d6b06a}
-html body .liv-cmb i.h{background:#d98c98}
-@media(max-width:640px){
-html body .liv-tiles.liv-t4:not(.liv-cards){grid-auto-flow:row!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
-html body .liv-pair{grid-auto-flow:row}
-}
-@media(prefers-reduced-motion:reduce){html body .liv-pulse{animation:none!important}}
-</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
@@ -1860,8 +1730,8 @@ rm -f $P.g $P.4 $P.6 $P.d
     return `<div class="liv-box"><h4>${antIcon}${title}${has(r.band) ? `<span class="liv-badge">${esc(r.band)}</span>` : ''}<span class="liv-kv">PCI <b>${esc(r.pci)}</b> · Ch <b>${esc(r.chan)}</b>${r.src ? ` · <span class="liv-src" title="${r.src === 'router' ? 'PCI, channel and band as the router reports them' : 'PCI, channel and band read from Android telephony (the router left them empty). They can differ from the router\'s own values.'}">${r.src === 'router' ? 'router' : 'Android'}</span>` : ''}</span></h4>
       <div class="liv-ms">${metric('RSRP', 'rsrp', r.rsrp, 'dBm')}${metric('RSRQ', 'rsrq', r.rsrq, 'dB')}${metric('SINR', 'sinr', r.sinr, 'dB')}</div></div>`;
   }
-  function tile(icon, label, value, sub, attrs, extra) {
-    return `<div class="liv-tile"${attrs || ''}><div class="liv-ti">${icon}</div><div class="liv-tx"><div class="liv-tl">${label}</div><div class="liv-tv">${value}</div>${sub ? `<div class="liv-ts">${esc(sub)}</div>` : ''}${extra || ''}</div></div>`;
+  function tile(icon, label, value, sub, attrs) {
+    return `<div class="liv-tile"${attrs || ''}><div class="liv-ti">${icon}</div><div><div class="liv-tl">${label}</div><div class="liv-tv">${value}</div>${sub ? `<div class="liv-ts">${esc(sub)}</div>` : ''}</div></div>`;
   }
   const dot = (c) => `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="${c}"/></svg>`;
   const fmtUp = (s) => { if (s === undefined) return '—'; const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return (d ? d + 'd ' : '') + h + 'h ' + m + 'm'; };
@@ -1896,20 +1766,23 @@ rm -f $P.g $P.4 $P.6 $P.d
     const boxes = [];
     if (M.hasNr) boxes.push(radioBox('5G NR', M.nr));
     if (M.hasLte || !M.hasNr) boxes.push(radioBox('4G LTE', M.lte));
-    const tmp = (label, v, warn, hot) => `<div class="liv-tm"><span class="liv-tl">${label}</span><span class="liv-tv" style="color:${tcol(v, warn, hot)}">${v !== undefined ? fmt(v, 1) + ' °C' : '—'}</span></div>`;
-    const tiles = `<div class="liv-tiles liv-t3"><div class="liv-tile liv-temp"><div class="liv-tl">Temperature</div><div class="liv-tmr">${tmp('Battery', M.batTemp, 38, 45)}${tmp('System max', M.sysMax, 55, 70)}${tmp('Modem', M.modemTemp, 60, 80)}</div></div></div>`;
+    const tiles = `<div class="liv-tiles liv-t3">
+      ${tile(thermIcon(tcol(M.batTemp, 38, 45)), 'Battery', M.batTemp !== undefined ? fmt(M.batTemp, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.sysMax, 55, 70)), 'System max', M.sysMax !== undefined ? fmt(M.sysMax, 1) + ' °C' : '—')}
+      ${tile(thermIcon(tcol(M.modemTemp, 60, 80)), 'Modem', M.modemTemp !== undefined ? fmt(M.modemTemp, 1) + ' °C' : '—')}</div>`;
     // Speed / devices / month rows: a tile appears only when the router returned its key (never a made-up 0).
     const nt = [];
-    const mini = (k, c, word) => {
-      const n = hist.length; if (n < 2) return '';
-      const mx = Math.max(1024, ...hist.map((h) => h.rx), ...hist.map((h) => h.tx)), X = (i) => (300 - (n - 1 - i) * (300 / 59)).toFixed(1), Y = (v) => (28 - (v / mx) * 26).toFixed(1);
-      return `<svg class="liv-mini" viewBox="0 0 300 30" preserveAspectRatio="none" width="100%" height="16" role="img" aria-label="${word} speed, last ${n} reads, peak ${esc(fmtSpeed(mx))}"><polyline fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${hist.map((h, i) => X(i) + ',' + Y(h[k])).join(' ')}"/></svg>`;
-    };
-    if (M.rx !== undefined) nt.push(tile(dot('#28d99a'), 'Download', fmtSpeed(M.rx), '', '', mini('rx', '#28d99a', 'Download')));
-    if (M.tx !== undefined) nt.push(tile(dot('#ffb020'), 'Upload', fmtSpeed(M.tx), '', '', mini('tx', '#ffb020', 'Upload')));
-    if (M.monthRx !== undefined && M.monthTx !== undefined) nt.push(tile(dot('#55b6ff'), 'This month', fmtBytes(M.monthRx + M.monthTx), '↓ ' + fmtBytes(M.monthRx) + ' · ↑ ' + fmtBytes(M.monthTx)));
+    if (M.rx !== undefined) nt.push(tile(dot('#28d99a'), 'Download', fmtSpeed(M.rx)));
+    if (M.tx !== undefined) nt.push(tile(dot('#ffb020'), 'Upload', fmtSpeed(M.tx)));
     if (M.devs !== undefined) nt.push(tile(dot('#55b6ff'), 'Devices', String(M.devs), 'on Wi-Fi', ' data-liv-dev="1" role="button" tabindex="0" style="cursor:pointer" title="Show connected devices"'));
-    const netRow = nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '';
+    if (M.monthRx !== undefined && M.monthTx !== undefined) nt.push(tile(dot('#55b6ff'), 'This month', fmtBytes(M.monthRx + M.monthTx), '↓ ' + fmtBytes(M.monthRx) + ' · ↑ ' + fmtBytes(M.monthTx)));
+    const spark = () => {
+      const n = hist.length; if (n < 2) return '';
+      const mx = Math.max(1024, ...hist.map((h) => h.rx), ...hist.map((h) => h.tx)), X = (i) => (300 - (n - 1 - i) * (300 / 59)).toFixed(1), Y = (v) => (42 - (v / mx) * 38).toFixed(1);
+      const line = (k, c) => `<polyline fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${hist.map((h, i) => X(i) + ',' + Y(h[k])).join(' ')}"/>`;
+      return `<div class="liv-spark"><div class="liv-ts" style="display:flex;justify-content:space-between"><span>Speed · last ${n} reads</span><span>peak ${esc(fmtSpeed(mx))}</span></div><svg viewBox="0 0 300 44" preserveAspectRatio="none" width="100%" height="44" role="img" aria-label="Download and upload speed, recent readings">${line('rx', '#28d99a')}${line('tx', '#ffb020')}</svg></div>`;
+    };
+    const netRow = (nt.length ? `<div class="liv-tiles liv-t4 liv-tn">${nt.join('')}</div>` : '') + (nt.length ? spark() : '');
     const sys = `<div class="liv-tiles liv-t4">
       ${tile(dot(tcol(M.cpu, 60, 85)), 'CPU', M.cpu !== undefined ? M.cpu.toFixed(1) + ' %' : '—', M.cores && M.cores.some((c) => c.pct !== undefined) ? M.cores.map((c) => c.pct === undefined ? '-' : Math.round(c.pct)).join(' ') : '')}
       ${tile(dot(tcol(M.mem && M.mem.pct, 75, 90)), 'Memory', M.mem ? M.mem.pct + ' %' : '—', M.mem ? M.mem.used + ' / ' + M.mem.total + ' MB' : '')}
@@ -1931,18 +1804,23 @@ rm -f $P.g $P.4 $P.6 $P.d
       const zoom = Math.min(100, Math.max(25, ...live.map((c) => c.pct)));
       const zoomTxt = zoom < 100 ? ' Zoomed: a full pill is ' + Math.round(zoom) + ' %.' : '';
       const coreTxt = (c) => 'Core ' + c.id + ': ' + (!isOn(c.id) ? 'offline' : num(c.pct) ? c.pct.toFixed(1) + ' %' : 'no reading');
-      const cells = cs.map((c) => {
+      const usage = cs.length ? `<div class="liv-cc liv-cu"><div class="liv-cch"><span class="liv-cct">Core usage</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cbars" role="img" title="${zoom < 100 ? 'Zoomed: a full pill is ' + Math.round(zoom) + ' % CPU' : ''}" aria-label="CPU usage per core.${zoomTxt} ${cs.map(coreTxt).join('. ')}">${cs.map((c) => {
+        // Exact value, no minimum height: the fill is the real % of the pill (hover for the number; the CPU tile lists them too). Colours use the CPU tile's own limits (60 / 85 %).
         const on = isOn(c.id), has = on && num(c.pct), p = has ? Math.max(0, Math.min(100, c.pct)) : 0;
-        const f = fr.find((x) => x.id === c.id), mhz = f && f.on && num(f.cur) ? Math.round(f.cur / 1000) : 0, top = f && num(f.max) ? Math.round(f.max / 1000) : 0;
-        const tip = coreTxt(c) + (f ? ' · ' + (!f.on ? 'offline' : mhz > 0 ? mhz + (top > 0 ? ' of ' + top : '') + ' MHz' : 'no MHz reading') : '');
-        return `<div class="liv-cmi${on ? '' : ' off'}" title="${tip}"><div class="liv-cmb"><i class="${p >= 85 ? 'h' : p >= 60 ? 'w' : ''}" style="width:${has && p > 0 ? Math.min(100, 100 * p / zoom) : 0}%"></i></div><span>${!on ? 'off' : mhz > 0 ? mhz : '–'}</span></div>`;
-      }).join('');
-      return `<div class="liv-cards"><div class="liv-cc liv-cm" data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"><div class="liv-cch"><span class="liv-cct">Cores · MHz</span><b class="liv-cca">${avg === undefined ? '—' : Math.round(avg) + '%'}</b></div><div class="liv-cmg" role="img" aria-label="CPU usage and frequency per core.${zoomTxt} ${cs.map(coreTxt).join('. ')}">${cells}</div></div></div>`;
+        return `<div class="liv-cw${on ? '' : ' off'}" title="${coreTxt(c)}"><div class="liv-cb">${has && p > 0 ? `<i class="${p >= 85 ? 'h' : p >= 60 ? 'w' : ''}" style="height:${Math.min(100, 100 * p / zoom)}%;min-height:2px"></i>` : ''}</div></div>`;
+      }).join('')}</div></div>` : '';
+      const freq = fr.length ? `<div class="liv-cc liv-cq" data-liv-cpu="1" role="button" tabindex="0" style="cursor:pointer" title="Open CPU Governor"><div class="liv-cch"><span class="liv-cct">CPU frequency</span><b class="liv-cca">MHz</b></div><div class="liv-cf">${fr.map((f) => {
+        // An online core whose speed file could not be read gives 0: show a dash (no reading), never a fake 0 MHz.
+        const mhz = f.on && num(f.cur) ? Math.round(f.cur / 1000) : 0, mx = num(f.max) ? Math.round(f.max / 1000) : 0, ok = f.on && mhz > 0;
+        const w = ok && mx > 0 ? Math.max(0, Math.min(100, 100 * mhz / mx)) : 0;
+        return `<div class="liv-cfi${f.on ? '' : ' off'}" title="Core ${f.id}: ${!f.on ? 'offline' : ok ? mhz + (mx > 0 ? ' of ' + mx : '') + ' MHz' : 'no reading'}">${!f.on ? 'off' : ok ? mhz : '–'}<span class="liv-cfm"><i style="width:${w}%"></i></span></div>`;
+      }).join('')}</div></div>` : '';
+      return `<div class="liv-tiles liv-cards">${usage}${freq}</div>`;
     })();
     const heat = M.thermalLevel >= 3 ? '<div class="liv-heat critical">Critical temperature · stop heavy use, unplug if safe, and let the device cool.</div>'
       : M.thermalLevel === 2 ? '<div class="liv-heat hot">Device is hot · pause heavy tasks and improve airflow.</div>'
       : M.thermalLevel === 1 ? '<div class="liv-heat warm">Device is warming up · avoid charging while under heavy load.</div>' : '';
-    return '<div class="liv-top">' + hero + boxes.join('') + '</div>' + dataRow(M) + netRow + sys + '<div class="liv-pair">' + tiles + coreCards + '</div>' + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
+    return hero + dataRow(M) + `<div class="liv-grid">${boxes.join('')}</div>` + netRow + tiles + sys + coreCards + heat + (noData ? '<div class="empty-state" style="margin-top:12px">No modem data yet. Check that root access is granted to MatchiTOOL.</div>' : '');
   }
 
   // ---- page + popup --------------------------------------------------------------------------------------
