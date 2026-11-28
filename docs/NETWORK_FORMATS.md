@@ -11,7 +11,7 @@ What the Network window (Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light
 | Devices | `station_list, lan_station_list, wifi_access_sta_num`; singles `queryDeviceAccessControlList`, `hostNameList` |
 | LAN / DHCP | `lan_ipaddr, lan_netmask, dhcpEnabled, dhcpStart, dhcpEnd, dhcpLease_hour, mac_address` |
 | MTU / MSS | `mtu, tcp_mss` |
-| Light | `indicator_light_switch` (same name as the set field; not captured separately, see below) |
+| Light | `indicator_light_switch` (assumed, see below) |
 | APN | profile list (`APN_READ` in net-core.js) |
 
 Opening a tab only reads. The Wi-Fi password is never copied to the page.
@@ -38,9 +38,9 @@ The router restarts after every LAN / DHCP and MTU / MSS apply. Console and Wi-F
 
 ## Indicator light
 
-The set call was captured from the stock Indicator Light page on the F50 (2026-11-28). The read key is assumed to be the same name as the set field, because the stock read was not captured. The tab fails closed: while the router leaves the key empty, or reports a value other than 1 / 0, it shows "Not reported by this router" and sends nothing. After a change the router is read again and success is claimed only if it shows the new state.
+Set call captured from the stock page (2026-11-28). The read key is assumed to match the set field.
 
-If the tab shows "Not reported", capture the read: F12 > Network, filter `goform_get_cmd_process`, open the Indicator Light page, and copy the `cmd=` value. Then change `LIGHT_KEY` and `READ.light` in `net-core.js`.
+If the tab shows "Not reported", capture the read (F12 > Network, filter `goform_get_cmd_process`, open the Indicator Light page) and set `LIGHT_KEY` and `READ.light` in `net-core.js`.
 
 ## This tool's limits (stricter than the router)
 

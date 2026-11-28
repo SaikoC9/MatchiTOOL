@@ -2,8 +2,7 @@
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light.
  * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
  *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
- *  - Light: turns the router's indicator light On / Off (like the stock Indicator Light page; call captured from it), then re-reads the router. Fails closed:
- *    when the router does not report the value, no choice is offered and nothing is sent.
+ *  - Light: indicator light On / Off, then re-reads. Sends nothing if the router does not report the value.
  *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports). Limit speed (docs/LIMIT_SPEED.md): per-device Download / Upload
  *    caps in KB/s, set by the phone with root (POST /api/net/limit, read with GET /api/net/limits); the row shows what the phone reports, not what was asked.
  *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
@@ -67,8 +66,7 @@ function mountNetTools() {
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
       note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
-  // Indicator light: On / Off radios and Apply, like the stock page. The pair only appears when the router reports the current value, and Apply stays off
-  // until the choice differs from it. The router's own word is shown next to the state so a mismatch of names is easy to see.
+  // Indicator light: On / Off + Apply, like the stock page. Apply is off until the choice differs from the router value.
   function viewLight(d) {
     const p = N.parseLight(d);
     if (!p || p.raw === null) return note(NOT + ' (indicator light). Nothing is sent while the value is not reported.');
@@ -92,7 +90,7 @@ function mountNetTools() {
         h('div', { class: 'net-radios', role: 'radiogroup', 'aria-label': 'Indicator light' }, radio('on', 'On'), radio('off', 'Off')),
         h('div', { class: 'net-actions' }, apply)),
       msg,
-      note('Only the router\'s own status lights are switched. Internet, Wi-Fi and this console are not affected. Needs a fresh sign-in.', 'net-mut'));
+      note('Only the status lights change. Needs a fresh sign-in.', 'net-mut'));
   }
   // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
@@ -709,7 +707,7 @@ function mountNetTools() {
       if (!o.data) { st.apnMsg = { bad: false, text: okText }; return; }
       let ppp = null;
       for (let i = 0; i < 10; i++) {
-        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        try { ppp = await readPpp(); } catch (_) { /* retry */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
         progress('Changed. Waiting for mobile data… ' + (i + 1) * 2 + ' s of up to 20 s.');

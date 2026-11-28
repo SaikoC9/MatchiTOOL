@@ -5643,7 +5643,7 @@ function mountPerfMode() {
     apn: APN_READ,
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
-    light: 'indicator_light_switch',   // LIGHT_KEY below
+    light: 'indicator_light_switch',
   };
   // The Devices tab also reads two single commands (NOT multi_data; seen in the stock page's script service.js on the F50, 2026-11-15):
   //   queryDeviceAccessControlList -> {AclMode, WhiteMacList, BlackMacList, WhiteNameList, BlackNameList}  (lists are ";" terminated)
@@ -5720,14 +5720,11 @@ function mountPerfMode() {
     return { ppp, state: connState(ppp), mode: clean(d.dial_mode), modeLabel: modeLabel(d.dial_mode), roaming: onOff(d.roam_setting_option) };
   }
 
-  // ---- Indicator light ----------------------------------------------------------------------------------------------------------
-  // The stock Indicator Light page (#indicator_light, On / Off + Apply). Set call captured from the stock page on the F50 (2026-11-28, AD token added by the host):
-  //   goformId=INDICATOR_LIGHT_SETTING&isTest=false&indicator_light_switch=0   (Off)        ...=1   (On)
-  // The read key is the same name as the field; it was not captured separately. The tab fails closed: while the router leaves it empty (or says something
-  // other than 1 / 0) the value is "not reported" and nothing is ever sent. Needs the fresh sign-in (NetGoform.kt: not in OPEN_SET).
+  // ---- Indicator light
+  // Captured from the stock page: goformId=INDICATOR_LIGHT_SETTING&indicator_light_switch=1 (On) / 0 (Off). Read key assumed same as the field.
+  // Empty or unknown value = not reported, nothing is sent.
   const LIGHT_KEY = 'indicator_light_switch', LIGHT_SET_ID = 'INDICATOR_LIGHT_SETTING';
   const LIGHT_VALUE = { on: '1', off: '0' };
-  // 'on' | 'off' | null (null = not reported, or a value this tool does not know: never guessed).
   function lightState(v) {
     const t = clean(v); if (t === null) return null;
     const s = t.toLowerCase();
@@ -6547,8 +6544,7 @@ function mountPerfMode() {
  * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light.
  * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
  *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
- *  - Light: turns the router's indicator light On / Off (like the stock Indicator Light page; call captured from it), then re-reads the router. Fails closed:
- *    when the router does not report the value, no choice is offered and nothing is sent.
+ *  - Light: indicator light On / Off, then re-reads. Sends nothing if the router does not report the value.
  *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports). Limit speed (docs/LIMIT_SPEED.md): per-device Download / Upload
  *    caps in KB/s, set by the phone with root (POST /api/net/limit, read with GET /api/net/limits); the row shows what the phone reports, not what was asked.
  *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
@@ -6612,8 +6608,7 @@ function mountNetTools() {
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
       note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
   }
-  // Indicator light: On / Off radios and Apply, like the stock page. The pair only appears when the router reports the current value, and Apply stays off
-  // until the choice differs from it. The router's own word is shown next to the state so a mismatch of names is easy to see.
+  // Indicator light: On / Off + Apply, like the stock page. Apply is off until the choice differs from the router value.
   function viewLight(d) {
     const p = N.parseLight(d);
     if (!p || p.raw === null) return note(NOT + ' (indicator light). Nothing is sent while the value is not reported.');
@@ -6637,7 +6632,7 @@ function mountNetTools() {
         h('div', { class: 'net-radios', role: 'radiogroup', 'aria-label': 'Indicator light' }, radio('on', 'On'), radio('off', 'Off')),
         h('div', { class: 'net-actions' }, apply)),
       msg,
-      note('Only the router\'s own status lights are switched. Internet, Wi-Fi and this console are not affected. Needs a fresh sign-in.', 'net-mut'));
+      note('Only the status lights change. Needs a fresh sign-in.', 'net-mut'));
   }
   // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
@@ -7254,7 +7249,7 @@ function mountNetTools() {
       if (!o.data) { st.apnMsg = { bad: false, text: okText }; return; }
       let ppp = null;
       for (let i = 0; i < 10; i++) {
-        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        try { ppp = await readPpp(); } catch (_) { /* retry */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
         progress('Changed. Waiting for mobile data… ' + (i + 1) * 2 + ' s of up to 20 s.');

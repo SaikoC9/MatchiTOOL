@@ -33,7 +33,7 @@
     apn: APN_READ,
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
-    light: 'indicator_light_switch',   // LIGHT_KEY below
+    light: 'indicator_light_switch',
   };
   // The Devices tab also reads two single commands (NOT multi_data; seen in the stock page's script service.js on the F50, 2026-11-15):
   //   queryDeviceAccessControlList -> {AclMode, WhiteMacList, BlackMacList, WhiteNameList, BlackNameList}  (lists are ";" terminated)
@@ -110,14 +110,11 @@
     return { ppp, state: connState(ppp), mode: clean(d.dial_mode), modeLabel: modeLabel(d.dial_mode), roaming: onOff(d.roam_setting_option) };
   }
 
-  // ---- Indicator light ----------------------------------------------------------------------------------------------------------
-  // The stock Indicator Light page (#indicator_light, On / Off + Apply). Set call captured from the stock page on the F50 (2026-11-28, AD token added by the host):
-  //   goformId=INDICATOR_LIGHT_SETTING&isTest=false&indicator_light_switch=0   (Off)        ...=1   (On)
-  // The read key is the same name as the field; it was not captured separately. The tab fails closed: while the router leaves it empty (or says something
-  // other than 1 / 0) the value is "not reported" and nothing is ever sent. Needs the fresh sign-in (NetGoform.kt: not in OPEN_SET).
+  // ---- Indicator light
+  // Captured from the stock page: goformId=INDICATOR_LIGHT_SETTING&indicator_light_switch=1 (On) / 0 (Off). Read key assumed same as the field.
+  // Empty or unknown value = not reported, nothing is sent.
   const LIGHT_KEY = 'indicator_light_switch', LIGHT_SET_ID = 'INDICATOR_LIGHT_SETTING';
   const LIGHT_VALUE = { on: '1', off: '0' };
-  // 'on' | 'off' | null (null = not reported, or a value this tool does not know: never guessed).
   function lightState(v) {
     const t = clean(v); if (t === null) return null;
     const s = t.toLowerCase();
