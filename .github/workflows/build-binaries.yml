@@ -1,4 +1,4 @@
-name: Build jq and curl (arm64 Android)
+name: Build jq, curl and iperf3 (arm64 Android)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,9 @@ on:
       openssl_tag:
         description: openssl/openssl tag (statically linked into curl)
         default: openssl-3.5.9
+      iperf3_tag:
+        description: esnet/iperf tag
+        default: "3.19.1"
   # Called by release-tools.yml. Keep these defaults the same as the three above.
   workflow_call:
     inputs:
@@ -24,6 +27,9 @@ on:
       openssl_tag:
         type: string
         default: openssl-3.5.9
+      iperf3_tag:
+        type: string
+        default: "3.19.1"
       artifact_name:
         type: string
         default: matchitool-binaries-arm64
@@ -123,21 +129,42 @@ jobs:
           $STRIP -o ../curl src/curl
           cd ..; file curl
 
+      # ---------- iperf3 (static, no OpenSSL: client mode only, no RSA auth) ----------
+      - name: Get iperf3 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: esnet/iperf
+          ref: ${{ inputs.iperf3_tag }}
+          path: iperf3-src
+      - name: Build iperf3
+        run: |
+          cd iperf3-src
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export TZ=UTC LC_ALL=C
+          export CFLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=. -g0 -O2"
+          export LDFLAGS="-static -Wl,--build-id=none"
+          ./configure --host=$TRIPLE --disable-shared --enable-static --without-openssl --without-sctp
+          make -j"$(nproc)" iperf3_LDFLAGS="-all-static"
+          $STRIP -o ../iperf3 src/iperf3
+          cd ..; file iperf3
+
       - name: Check and record
         run: |
-          mkdir out; cp jq curl out/
-          for f in jq curl; do
+          mkdir out; cp jq curl iperf3 out/
+          for f in jq curl iperf3; do
             file "out/$f" | grep -q "ARM aarch64" || { echo "$f is not arm64"; exit 1; }
           done
           echo "== dynamic libraries needed (curl may only need bionic: libc, libm, libdl) =="
           "$TC/bin/llvm-readelf" -d out/curl | grep NEEDED || true
           "$TC/bin/llvm-readelf" -d out/jq   | grep NEEDED || echo "jq: static"
+          "$TC/bin/llvm-readelf" -d out/iperf3 | grep NEEDED || echo "iperf3: static"
           {
             echo "## Built binaries"
             echo "| file | source | SHA-256 |"
             echo "|---|---|---|"
             echo "| jq | jqlang/jq @ ${{ inputs.jq_tag }} | \`$(sha256sum out/jq | cut -d' ' -f1)\` |"
             echo "| curl | curl/curl @ ${{ inputs.curl_tag }} + OpenSSL @ ${{ inputs.openssl_tag }} | \`$(sha256sum out/curl | cut -d' ' -f1)\` |"
+            echo "| iperf3 | esnet/iperf @ ${{ inputs.iperf3_tag }} | \`$(sha256sum out/iperf3 | cut -d' ' -f1)\` |"
             echo
             echo "NDK: $(basename "$NDK"), API $API"
           } | tee -a "$GITHUB_STEP_SUMMARY"
