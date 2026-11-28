@@ -9,7 +9,7 @@ const ui = fs.readFileSync(path.join(__dirname, '../app/src/main/web-src/net-too
 const eq = assert.deepStrictEqual;
 
 // ---- tabs and read keys -----------------------------------------------------------------------------------------------------
-eq(N.TABS.map((t) => t[0]), ['data', 'wifi', 'devices', 'apn', 'lan', 'mtu']);
+eq(N.TABS.map((t) => t[0]), ['data', 'wifi', 'devices', 'apn', 'lan', 'mtu', 'light']);
 eq(Object.keys(N.READ), N.TABS.map((t) => t[0]));
 for (const [k, v] of Object.entries(N.READ)) assert(/^[A-Za-z0-9_,]+$/.test(v), 'read list of ' + k + ' has odd characters');
 assert(N.READ.lan.includes('dhcpLease_hour') && N.READ.mtu === 'mtu,tcp_mss' && N.READ.data.startsWith('ppp_status'));
@@ -39,6 +39,20 @@ eq(N.dataNext('connected'), 'off'); eq(N.dataNext('disconnected'), 'on'); eq(N.d
 eq(N.connState('ppp_disconnected'), 'disconnected');   // the real "off" value seen on the F50
 assert(N.dataReached('off', 'disconnected') && !N.dataReached('off', 'connected') && !N.dataReached('off', 'changing'));
 assert(N.dataReached('on', 'connected') && !N.dataReached('on', 'disconnected') && !N.dataReached('on', null) && !N.dataReached('x', 'connected'));
+
+// ---- Indicator light (set call captured from the stock page on the F50, 2026-11-28) ---------------------------------------------------------------
+eq(N.LIGHT_KEY, 'indicator_light_switch'); eq(N.LIGHT_SET_ID, 'INDICATOR_LIGHT_SETTING'); assert.strictEqual(N.READ.light, N.LIGHT_KEY);
+eq(N.lightCall('off'), { goformId: 'INDICATOR_LIGHT_SETTING', indicator_light_switch: '0' });
+eq(N.lightCall('on'), { goformId: 'INDICATOR_LIGHT_SETTING', indicator_light_switch: '1' });
+assert.throws(() => N.lightCall('toggle')); assert.throws(() => N.lightCall('__proto__')); assert.throws(() => N.lightCall(undefined));
+N.lightCall('off').goformId = 'x'; eq(N.lightCall('off').goformId, 'INDICATOR_LIGHT_SETTING');   // callers get a copy
+eq(N.lightState('1'), 'on'); eq(N.lightState('0'), 'off'); eq(N.lightState('On'), 'on'); eq(N.lightState(' off '), 'off'); eq(N.lightState('true'), 'on'); eq(N.lightState('false'), 'off');
+eq(N.lightState(''), null); eq(N.lightState(undefined), null); eq(N.lightState(null), null); eq(N.lightState('2'), null); eq(N.lightState('dim'), null);   // empty / unknown is never "off"
+eq(N.parseLight({ indicator_light_switch: '1' }), { raw: '1', state: 'on' }); eq(N.parseLight({ indicator_light_switch: '0' }), { raw: '0', state: 'off' });
+eq(N.parseLight({ indicator_light_switch: '' }), { raw: null, state: null }); eq(N.parseLight({}), { raw: null, state: null });   // not reported
+eq(N.parseLight({ q: { indicator_light_switch: '0' } }), { raw: '0', state: 'off' }); eq(N.parseLight('junk'), null); eq(N.parseLight(null), null);
+eq(N.lightNext('on'), 'off'); eq(N.lightNext('off'), 'on'); eq(N.lightNext(null), null);
+assert(N.lightReached('on', 'on') && N.lightReached('off', 'off') && !N.lightReached('on', 'off') && !N.lightReached('off', null) && !N.lightReached('x', 'x'));
 
 // ---- Wi-Fi: bands by ChipIndex, password never copied ----------------------------------------------------------------------
 const chip = (i, on, extra) => Object.assign({ ChipIndex: i, AccessPointIndex: '0', AccessPointSwitchStatus: on ? '1' : '0', SSID: 'HomeNet', ApMaxStationNumber: 10, AuthMode: 'WPA2PSKWPA3PSK',
@@ -435,7 +449,8 @@ assert(!/setBands|cellLock|cellUnlock|radioCycle|\.at\(/.test(ui), 'net-tools.js
 const setCalls = ui.match(/R\.setRouter\([^;]*;/g) || [];
 assert(setCalls.length === 4 && /^R\.setRouter\(call, true, level\)/.test(setCalls[0]) && /^R\.setRouter\(steps\[i\], true\)/.test(setCalls[1]) && /^R\.setRouter\(N\.apnAutoCall\(\), true\)/.test(setCalls[2]) && /^R\.setRouter\(call, true, level\)/.test(setCalls[3]),
   'the only router writes: sendRetried (mobile data and the device calls: an empty reply is checked and resent, not trusted), the APN steps, and ONE send for the restart changes (sendTaken: MTU, DHCP, Wi-Fi band, Wi-Fi settings): ' + setCalls.join(' | '));
-assert((ui.match(/await sendRetried\(/g) || []).length === 2, 'mobile data and devApply both send through sendRetried');
+assert((ui.match(/await sendRetried\(/g) || []).length === 3, 'mobile data, devApply and the indicator light all send through sendRetried');
+assert((ui.match(/N\.lightCall\(want\)/g) || []).length === 1, 'the indicator light call is built by net-core.js (lightCall), only for a reported, different value');
 assert((ui.match(/= await sendTaken\(call, /g) || []).length === 4, 'MTU, DHCP, Wi-Fi band and Wi-Fi settings all send through sendTaken (an empty reply is checked, not trusted)');
 assert(/askConfirm\(/.test(ui.slice(0, ui.indexOf('R.setRouter('))), 'a confirm dialog comes before the write');
 assert(!/\bcall\s*=\s*\{/.test(ui) && (ui.match(/call = N\.(renameCall|blockCall|unblockCall)\(/g) || []).length === 3, 'the device call is always built by net-core.js');

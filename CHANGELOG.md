@@ -1,5 +1,6 @@
 # MatchiTOOL 1.4.6
 
+- Added: Network > Light tab. Turns the router indicator light On / Off like the stock page, with a confirm and a re-read. The call (`INDICATOR_LIGHT_SETTING`) was captured from the stock page. Sends nothing when the router does not report the value. See `docs/NETWORK_FORMATS.md`.
 - Added: uninstall wipe. A root watcher removes MatchiTOOL's root-side files, firewall rules, speed limits and programs after you uninstall. Plugins are cleaned from a saved list.
 - Added: home button **Wipe on uninstall** (ON by default) with status and list.
 - Not touched on uninstall: Wi-Fi, LAN IP, IMEI, router settings, USB mode, adb.

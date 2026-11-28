@@ -43,6 +43,8 @@ object NetGoform {
         "SET_USB_NETWORK_PROTOCAL", "REBOOT_DEVICE",
         // USB debugging switch of the stock page (usb_port_switch = 1 / 0)
         "USB_PORT_SETTING",
+        // indicator light On / Off (Network > Light), captured from the stock Indicator Light page
+        "INDICATOR_LIGHT_SETTING",
     )
 
     private val openLower: Set<String> = OPEN_SET.map { it.lowercase() }.toSet()

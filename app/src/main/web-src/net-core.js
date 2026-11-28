@@ -33,13 +33,14 @@
     apn: APN_READ,
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
+    light: 'indicator_light_switch',   // LIGHT_KEY below
   };
   // The Devices tab also reads two single commands (NOT multi_data; seen in the stock page's script service.js on the F50, 2026-11-15):
   //   queryDeviceAccessControlList -> {AclMode, WhiteMacList, BlackMacList, WhiteNameList, BlackNameList}  (lists are ";" terminated)
   //   hostNameList                 -> {devices:[{hostname, mac}]}  (the names the stock page shows; EDIT_HOSTNAME changes these, not station_list)
   const READ_ACL = 'queryDeviceAccessControlList', READ_NAMES = 'hostNameList';
   const TABS = [
-    ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'],
+    ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'], ['light', 'Light'],
   ];
 
   // ---- Small helpers ----------------------------------------------------------------------------------------------------------
@@ -108,6 +109,31 @@
     const ppp = clean(d.ppp_status);
     return { ppp, state: connState(ppp), mode: clean(d.dial_mode), modeLabel: modeLabel(d.dial_mode), roaming: onOff(d.roam_setting_option) };
   }
+
+  // ---- Indicator light ----------------------------------------------------------------------------------------------------------
+  // The stock Indicator Light page (#indicator_light, On / Off + Apply). Set call captured from the stock page on the F50 (2026-11-28, AD token added by the host):
+  //   goformId=INDICATOR_LIGHT_SETTING&isTest=false&indicator_light_switch=0   (Off)        ...=1   (On)
+  // The read key is the same name as the field; it was not captured separately. The tab fails closed: while the router leaves it empty (or says something
+  // other than 1 / 0) the value is "not reported" and nothing is ever sent. Needs the fresh sign-in (NetGoform.kt: not in OPEN_SET).
+  const LIGHT_KEY = 'indicator_light_switch', LIGHT_SET_ID = 'INDICATOR_LIGHT_SETTING';
+  const LIGHT_VALUE = { on: '1', off: '0' };
+  // 'on' | 'off' | null (null = not reported, or a value this tool does not know: never guessed).
+  function lightState(v) {
+    const t = clean(v); if (t === null) return null;
+    const s = t.toLowerCase();
+    return s === '1' || s === 'on' || s === 'true' ? 'on' : s === '0' || s === 'off' || s === 'false' ? 'off' : null;
+  }
+  function parseLight(d) {
+    if (!isObj(d)) return null;
+    const raw = clean(pick(d, LIGHT_KEY));
+    return { raw, state: lightState(raw) };
+  }
+  function lightCall(want) {
+    if (!Object.prototype.hasOwnProperty.call(LIGHT_VALUE, want)) throw new Error('Unknown indicator light action: ' + want);
+    return { goformId: LIGHT_SET_ID, [LIGHT_KEY]: LIGHT_VALUE[want] };
+  }
+  const lightNext = (state) => (state === 'on' ? 'off' : state === 'off' ? 'on' : null);
+  const lightReached = (want, state) => (want === 'on' || want === 'off') && state === want;
 
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
   // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
@@ -889,6 +915,7 @@
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
+    LIGHT_KEY, LIGHT_SET_ID, lightState, parseLight, lightCall, lightNext, lightReached,
     chipLabel, authLabel, parseWifi, wifiSummary, wifiMode, wifiActive,
     WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiPlainPw, wifiEntryPlain, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
     wifiChangeLines, wifiBandCall, wifiBandReached, WIFI_BACKUP_PATH, wifiBackupSnap, wifiBackupWriteSh, WIFI_BACKUP_READ_SH, WIFI_BACKUP_DELETE_SH, parseWifiBackup,
