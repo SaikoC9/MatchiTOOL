@@ -183,5 +183,22 @@ async function rest() {
   // measure reports every raw answer to onRaw
   const raws = []; const mm = await S.measure(async () => 'iperf3: error - the server is busy running a test', { host: 'h.example', port: 5201, secs: 5, streams: 1 }, true, { onRaw: (x) => raws.push(x) });
   assert(raws.length === 3 && raws[0].port === 5201 && raws[2].port === 5203 && /busy/.test(raws[0].raw) && !mm.ok);
+  // LTE row under 5G NSA: LTE fields empty, 5G values exist -> shown, labelled as 5G; not used when the link is plain LTE
+  R = fakeRadio({});
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({ rsrp: '', sinr: '', band: '', nr: { rsrp: -102, sinr: 7, band: 'n78' } }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === -102 && out.results[0].sinr === 7 && out.results[0].sig5 === 'n78' && out.results[0].g5 === true, 'NSA fallback: ' + JSON.stringify(out.results[0]));
+  R = fakeRadio({});
+  out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, link: async () => 'LTE', signal: async () => ({ rsrp: '', sinr: '', nr: { rsrp: -102, sinr: 7 } }), speed: async () => ({ ok: true, mbps: 9 }) });
+  assert(out.results[0].rsrp === null && !out.results[0].sig5, 'plain LTE must not borrow 5G values');
+  // force4g: the mode is set to 4G only for the test and put back; if it cannot be set, 5G rows are mixed and never ranked best
+  {
+    const mk = () => { const r = fakeRadio({}); r.net = 'WL_AND_5G'; r.nets = []; r.readRadio = async () => ({ net: r.net }); r.setNetMode = async (m) => { r.net = m; r.nets.push(m); return { ok: true }; }; return r; };
+    R = mk(); out = await S.bandTest({ R, type: 'lte', bands: [1], force4g: true, full: [], log() {}, stop: () => false, link: async () => 'LTE', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
+    assert(R.nets[0] === 'Only_LTE' && R.net === 'WL_AND_5G' && out.results[0].mbps === 9 && !out.results[0].mixed, 'forced 4G, mode put back: ' + R.nets);
+    R = mk(); R.setNetMode = async () => ({ ok: false }); out = await S.bandTest({ R, type: 'lte', bands: [1], force4g: true, full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 99 }) });
+    assert(out.results[0].mixed === true && out.results[0].mbps === 99, 'cannot hold 4G: mixed');
+    R = mk(); out = await S.bandTest({ R, type: 'lte', bands: [1, 3], full: [], log() {}, stop: () => false, link: async () => '5G', signal: async () => ({}), speed: async () => ({ ok: true, mbps: 50 }) });
+    assert(out.results.every((x) => x.mixed) && S.rank([{ band: 1, mbps: 200, mixed: true }, { band: 3, mbps: 40 }])[0].band === 3, 'mixed never ranks above a clean row');
+  }
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }

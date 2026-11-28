@@ -8231,7 +8231,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     const ok = (i) => Number.isFinite(i) && i >= 1 && i <= 126;
     return { lteRsrp: f.length >= 6 && f[5] >= 1 && f[5] <= 96 ? f[5] - 140 : null, nrRsrp: f.length >= 9 && ok(f[7]) ? f[7] - 156 : null, nrSinr: f.length >= 9 && ok(f[8]) ? -23 + (f[8] - 1) / 2 : null };
   };
-  const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
+  const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || !!a.mixed - !!b.mixed || (b.mbps || 0) - (a.mbps || 0));
 
   // Trace: every step of a band test with the raw answer, so a failure shows WHERE it stopped and WHAT came back (no guessing).
   // t = makeTrace(onChange); t('step', data) adds a line; t.err('step', e) adds an error with its stack; t.text() is the report body.
@@ -8256,8 +8256,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     // The radio restart (AT+SFUN) goes straight to the modem, so the modem can come back on 5G whatever the router's network mode says.
     // The mode is saved here, re-sent after each restart, and the link is checked before every speed test.
     let origNet = null; if (R.readRadio) { try { const rd = await R.readRadio(); origNet = rd && rd.net ? rd.net : null; } catch (_) { /* mode not readable */ } }
-    const pure4g = lte && origNet === 'Only_LTE';
-    tr('network mode', { origNet, pure4g });
+    let pure4g = lte && (origNet === 'Only_LTE' || !!o.force4g);   // pure 4G: the mode is held at 4G only for the test, so 5G cannot add speed to an LTE band
+    const testNet = 'Only_LTE';
+    tr('network mode', { origNet, pure4g, force4g: !!o.force4g });
     const is5g = (t) => /5G|NR|ENDC|NSA|^SA$/i.test(String(t || '').trim());
     let orig = (lte ? before.lte : before.nr) || [];
     if (!orig.length) orig = (o.full || []).slice();
@@ -8278,6 +8279,11 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     const results = []; let aborted = '', restored = false;
     const done = R.beginBusy('Band test running');
     try {
+      if (pure4g && origNet !== testNet) {
+        let r4 = null; try { r4 = R.setNetMode ? await R.setNetMode(testNet) : null; } catch (e) { trErr('set 4G only', e); }
+        tr('set 4G only', r4 && { ok: r4.ok, reply: r4.reply, read: r4.read });
+        if (!r4 || !r4.ok) { pure4g = false; log('Could not set 4G only: LTE rows with 5G active are marked mixed.'); }
+      }
       for (let i = 0; i < o.bands.length; i++) {
         if (o.stop && o.stop()) { aborted = 'stopped'; break; }
         const b = o.bands[i], row = { band: b, label: name(b), mbps: null, rsrp: null, sinr: null, active: '', error: '' };
@@ -8287,26 +8293,29 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
           if (lte && o.link) {
-            if (pure4g && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* checked through the link below */ } }
+            if (pure4g && R.setNetMode) { try { await R.setNetMode(testNet); } catch (_) { /* checked through the link below */ } }
             let lk = '';
             for (let k = 0; k < 5; k++) {
               try { lk = String((await o.link()) || ''); } catch (_) { lk = ''; }
               if (lk && !is5g(lk)) break;
-              if (pure4g && k === 1 && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* ignore */ } }
+              if (pure4g && k === 1 && R.setNetMode) { try { await R.setNetMode(testNet); } catch (_) { /* ignore */ } }
               if (k < 4) await R.sleep(3000);
             }
-            row.g5 = is5g(lk); tr('link after lock', { network_type: lk, g5: row.g5 });
+            row.g5 = is5g(lk); row.mixed = row.g5 && !pure4g; tr('link after lock', { network_type: lk, g5: row.g5 });
             if (row.g5 && pure4g) { row.error = '5G still on after the restart, skipped (not a pure 4G test)'; log(name(b) + ': 5G still on (' + lk + '), speed not tested'); continue; }
           }
           // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
           // Ask up to `tries` times, 3 s apart, until BOTH RSRP and SINR are there; keep the best answer. A reading that names another band
           // than the one just locked is the old band's value: it counts as no value. Signal is a bonus, never a failure.
-          const sameBand = (v) => { const m = String(v && v.band || '').match(/\d+/); return !m || Number(m[0]) === b; };
+          // NSA: with 5G on top of the locked LTE band the LTE fields stay empty (F50: rsrp=2147483647); the 5G values are then the only real ones, shown and labelled as 5G.
+          const nsa = lte && row.g5;
+          const pick = (v) => { const x = v || {}, n = x.nr; if (nsa && n && cleanRsrp(x.rsrp) == null && cleanSinr(x.sinr) == null && (cleanRsrp(n.rsrp) != null || cleanSinr(n.sinr) != null)) return { rsrp: n.rsrp, sinr: n.sinr, band: '', fromNr: true, nrBand: n.band || '5G', link: x.link, dbg: x.dbg }; return x; };
+          const sameBand = (v) => { if (v && v.fromNr) return true; const m = String(v && v.band || '').match(/\d+/); return !m || Number(m[0]) === b; };
           const got = (v) => (sameBand(v) ? (cleanRsrp(v.rsrp) != null) + (cleanSinr(v.sinr) != null) : 0);
           const readSignal = async (tries) => {
             let best = {};
             for (let k = 0; k < tries; k++) {
-              let x = {}; try { x = (await o.signal()) || {}; } catch (_) { x = {}; }
+              let x = {}; try { x = pick(await o.signal()); } catch (_) { x = {}; }
               if (got(x) >= got(best)) best = x;
               if (got(best) === 2) break;
               if (k < tries - 1) await R.sleep(3000);
@@ -8315,9 +8324,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
             return best;
           };
           const showSignal = (sg, when) => {
-            row.active = sg.band || '';
+            row.active = sg.fromNr ? '' : (sg.band || ''); row.sig5 = sg.fromNr ? sg.nrBand : '';
             if (!sameBand(sg)) { row.rsrp = null; row.sinr = null; log(name(b) + ' signal' + when + ': the modem still reports ' + sg.band + ', that value was ignored'); return; }
-            row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr);
+            row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); if (sg.fromNr) log(name(b) + ': LTE values are empty while 5G is on; showing the 5G ' + sg.nrBand + ' signal');
             log(name(b) + ' signal' + when + ': ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB') + (sg.link ? ' · link: ' + sg.link : '')));
           };
           showSignal(await readSignal(6), '');
@@ -8386,6 +8395,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
         '<div class="sp-band" id="sp_band"><div class="t">Band test</div>' +
         '<div class="mut" style="font-size:11.5px;margin:0 0 4.5px">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
         '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4.5px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:11.5px"></span></div>' +
+        '<label class="mut" style="display:flex;gap:6px;align-items:center;font-size:11.5px;margin:0 0 4.5px"><input type="checkbox" id="sp_4g"> LTE test: hold 4G only during the test (your mode is put back after)</label>' +
         '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4.5px;margin-bottom:7px"></div>' +
         '<div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button><button type="button" id="sp_diag" title="Read-only checks. No band change, no radio restart.">Diagnose</button><button type="button" id="sp_copy" title="Copy the step-by-step report of the last Diagnose or band test">Copy report</button></div>' +
         '<div class="mut" id="sp_last" style="font-size:11.5px;margin-top:4.5px"></div>' +
@@ -8396,6 +8406,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     const st = { trace: null, stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
     $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5'); $('sp_par').value = store.get('par', '4');
     if ($('sp_par').value === '') $('sp_par').value = '4';
+    $('sp_4g').checked = store.get('force4g', '1') === '1'; $('sp_4g').onchange = () => store.set('force4g', $('sp_4g').checked ? '1' : '0');
     // server suggestions: buttons in the page's own style (a native list only shows entries that match the text, so the host could not be changed without clearing it)
     const SERVERS = [['Biznet', 'iperf.biznetnetworks.com'], ['Online.net', 'ping.online.net'], ['Leaseweb SG', 'speedtest.sin1.sg.leaseweb.net']];
     const markSrv = () => { for (const b of $('sp_sg').children) { const on = b.dataset.host === $('sp_host').value.trim(); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } };
@@ -8517,13 +8528,14 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
       let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (e) { T('signal: router read ERROR', e && e.message); }
       const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
       g.link = String(d.network_type == null ? '' : d.network_type).trim(); T('signal: router fields', d);
+      g.nr = { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band };   // kept for an LTE row that runs under 5G NSA
       // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
       // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
       const dbg = []; 
       try {
         const L = window.MatchiLive;
         if (L && L.fresh) {
-          const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; T('signal: Live fresh()', x);
+          const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; T('signal: Live fresh()', x); if (x.nr) { if (cleanRsrp(x.nr.rsrp) != null) g.nr.rsrp = x.nr.rsrp; if (cleanSinr(x.nr.sinr) != null) g.nr.sinr = x.nr.sinr; if (x.nr.band) g.nr.band = x.nr.band; }
           if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; if (!g.band && c.band) g.band = c.band;
           // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
                           dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
@@ -8535,6 +8547,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
         try {
           const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
           const tv = teleSignal(txt, st.type), tok = (txt.match(/\b(?:rsrp|rssnr|ssRsrp|ssSinr|csiRsrp|csiSinr)\s*=\s*-?\d+/g) || []).slice(0, 6).join(' '); T('signal: telephony raw', txt.slice(0, 700)); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars: ' + (tok || 'no rsrp/sinr field') : 'no output'));
+          const tn = teleSignal(txt, 'nr'); if (cleanRsrp(g.nr.rsrp) == null && tn.rsrp != null) g.nr.rsrp = tn.rsrp; if (cleanSinr(g.nr.sinr) == null && tn.sinr != null) g.nr.sinr = tn.sinr;
           if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
           if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
         } catch (e) { T('signal: telephony ERROR', e && e.message); dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
@@ -8554,13 +8567,13 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     };
     function drawTable(res) {
       const box = $('sp_table'); box.textContent = '';
-      const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null);
+      const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null && !r.mixed);
       const cols = ['cb', 'cm', 'cr', 'cs', 'cn']; ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h, k) => t.append(el('col', { className: cols[k] })));
       const head = el('tr'); ['Band', 'Mbps', 'RSRP', 'SINR', 'Note'].forEach((h) => head.append(el('th', { textContent: h }))); t.append(head);
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
         const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
-        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.g5 ? '5G active' : ''].filter(Boolean).join(' \u00B7 ');
+        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.mixed ? 'mixed with 5G, not ranked' : '', r.sig5 ? 'signal is 5G ' + r.sig5 : ''].filter(Boolean).join(' \u00B7 ');
         const long = note.length > 12;   // a long note (an error) gets its own line under the row, so the number columns keep their width
         [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm' , r.sinr == null ? '-' : r.sinr + ' dB', long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
         if (long) { const nt = el('tr', { className: 'sp-nt' }), td = el('td', { textContent: note }); td.colSpan = 5; nt.append(td); t.append(nt); }
@@ -8577,19 +8590,20 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
       const tr = newTrace('Band test ' + (st.type === 'nr' ? 'n' : 'B') + bands.join(' '));
       try {
         const out = await bandTest({
-          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr,
+          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr, force4g: st.type === 'lte' && $('sp_4g').checked,
           speed: () => measure(run, i, true, { onRaw }), stop: () => st.stop,
           link: async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type' }); return d && d.network_type; },
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: signalNow,
         });
         drawTable(out.ranked);
-        const top = out.ranked.find((r) => r.mbps != null);
+        const top = out.ranked.find((r) => r.mbps != null && !r.mixed);
         st.best = top ? top.band : null;
         const bestTxt = top ? top.label + ' \u00B7 ' + top.mbps + ' Mbps' : '';
         if (!out.restored) showResult('bad', 'Lock not restored. Use Unlock all in Radio settings.', '');
         else if (out.aborted) showResult('warn', 'Stopped' + (out.aborted !== 'stopped' ? ': ' + out.aborted : '') + (top ? ' \u00B7 best ' + bestTxt : ''), 'Lock restored');
         else if (top) showResult('ok', 'Fastest: ' + bestTxt, 'Lock restored');
+        else if (out.ranked.some((r) => r.mixed && r.mbps != null)) showResult('warn', 'Every speed was mixed with 5G, none ranked', 'Lock restored');
         else showResult('warn', 'No band gave a result', 'Lock restored');
       } catch (e) { tr.err('band test', e); setOut('Band test failed: ' + e.message + '. Copy report shows the step.', ERR); } finally { endTrace(); $('sp_last').textContent = 'Report ready: Copy report.'; busy(false); }
     };
