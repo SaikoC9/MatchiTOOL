@@ -6922,7 +6922,7 @@ function mountNetTools() {
   const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu, light: viewLight };
 
   // ---- window state ---------------------------------------------------------------------------------------------------------
-  const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = st.only ? '' : (t || ''); };   // the Devices-only window shows no status / updated line
+  const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = (st.only || /^Updated /.test(t || '')) ? '' : (t || ''); };   // no "Updated <time>" line anywhere; the Devices-only window shows no status at all
   // The progress banner at the top of the APN and MTU / MSS tabs while a change is running: what is happening now, in words (the small status line is easy to miss).
   const progress = (t) => { st.prog = t || ''; const e = $('matchi_net_prog'); if (e) e.textContent = st.prog; setStatus(st.prog); };
   const progNote = () => (st.prog ? h('p', { class: 'net-p net-prog', id: 'matchi_net_prog', role: 'status', 'aria-live': 'polite' }, st.prog) : null);

@@ -167,7 +167,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(calls.length, 1); assert.deepStrictEqual(calls[0], { op: 'get', params: { multi_data: '1', cmd: N.READ.data } });
   assert(/Connected/.test(bodyText()) && /ipv4_ipv6_connected/.test(bodyText()) && /Automatic/.test(bodyText()), 'data tab: ' + bodyText());
   assert.strictEqual(doc.getElementById('matchi_net_tab_data').attrs['aria-selected'], 'true');
-  assert(/Updated/.test(doc.getElementById('matchi_net_status').textContent));
+  assert(!/Updated/.test(doc.getElementById('matchi_net_status').textContent));
   assert.strictEqual(doc.getElementById('matchi_net_tabs').children.length, 7);
 
   await click(tabBtn('wifi'));
@@ -790,7 +790,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert.strictEqual(doc.getElementById('matchi_net_status').textContent, '', 'no Updated line');
   await click(doc.getElementById('matchi_net_refresh')); assert(/My-Phone/.test(bodyText()) && doc.getElementById('matchi_net_status').textContent === '', 'refresh keeps it');
   modalOpts.onClose(); assert.strictEqual(busyNow, 0);
-  await click(btn); assert.strictEqual(modalOpts.title, 'Network'); assert(modalOpts.content.includes('matchi_net_tabs'), 'tabs are back'); assert(/Updated/.test(doc.getElementById('matchi_net_status').textContent));
+  await click(btn); assert.strictEqual(modalOpts.title, 'Network'); assert(modalOpts.content.includes('matchi_net_tabs'), 'tabs are back'); assert(!/Updated/.test(doc.getElementById('matchi_net_status').textContent));
   modalOpts.onClose(); assert.strictEqual(busyNow, 0);
   console.log('net tools ui ok: 7 tabs read once each (get only), password never on the page, Wi-Fi band and settings changes, indicator light On / Off, root read only from its button, close releases the pause');
 })().catch((e) => { console.error(e); process.exit(1); });
