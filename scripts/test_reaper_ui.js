@@ -1,5 +1,5 @@
 'use strict';
-// The "Wipe on uninstall" card (web-src/reaper-ui.js): the status wording, the OFF confirmation, and that the page includes the card.
+// The "Wipe on uninstall" card (web-src/reaper-ui.js): the status wording and that the page includes the card.
 const assert = require('assert'), fs = require('fs'), path = require('path');
 const ui = require('../app/src/main/web-src/reaper-ui.js');
 const t = (n, f) => { f(); };
@@ -32,11 +32,6 @@ t('switch OFF: says nothing watches; a leftover watcher is flagged', () => {
   const off = ui.statusView({ ok: true, installed: false, running: false, stub: false }, false, '');
   assert.strictEqual(off.level, 'warn'); assert.ok(/Nothing is watching/.test(off.text)); assert.ok(/items below stay/.test(off.text));
   assert.ok(/still there/.test(ui.statusView(ok, false, '').text));
-});
-t('OFF asks with the host text and a closing question', () => {
-  const a = ui.offAsk('If you turn this off BEFORE uninstalling, nothing watches.');
-  assert.ok(a.startsWith('If you turn this off BEFORE')); assert.ok(/Turn it off anyway\?$/.test(a));
-  assert.ok(/Turn it off anyway\?/.test(ui.offAsk(undefined)));
 });
 t('the page includes the card; the card builds no markup from text and has no uninstall action', () => {
   const page = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/web/index.html'), 'utf8');

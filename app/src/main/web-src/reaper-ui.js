@@ -2,7 +2,7 @@
    a status line with what is really installed and running, and the read-only list of what the wipe removes and what it leaves.
    The host (WebRoutesReaper.kt) sends the texts and the list (built from Footprint.kt); this file only shows them and never builds markup from text.
    GET /api/reaper (saved switch, texts, list) needs no sign-in beyond the session; GET /api/reaper/status and POST /api/reaper need the fresh sign-in (root).
-   Pure helpers (statusView, offAsk) are tested by scripts/test_reaper_ui.js. */
+   Pure helper (statusView) is tested by scripts/test_reaper_ui.js. */
 (function () {
   'use strict';
 
@@ -24,12 +24,7 @@
     return { text: 'Watching' + ver + '. Boot script in place.', level: 'good' };
   }
 
-  /* The confirmation before the switch is turned OFF (the person is about to leave root-side leftovers behind). */
-  function offAsk(offText) {
-    return String(offText || '') + '\n\nTurn it off anyway?';
-  }
-
-  const H = { statusView, offAsk };
+  const H = { statusView };
   if (typeof module !== 'undefined' && module.exports) { module.exports = H; return; }
   if (typeof document === 'undefined') return;
 
@@ -47,22 +42,23 @@
     '#reaperpop .rp-tog[aria-checked=false]{background:#ff647c24!important;border:1px solid var(--danger)!important;color:var(--danger)!important}' +
     '#reaperpop .rp-tog:disabled{opacity:.5}' +
     '#reaperpop .rp-tog:focus,#reaperpop .rp-tog:focus-visible{outline:none!important;outline-offset:0!important}' +
-    '#reaperpop .rp-p{color:var(--mut);font-size:12.5px;line-height:1.5;margin:0 0 12px!important}' +
-    '#reaperpop .rp-st{display:flex;gap:11px;align-items:center;border:1px solid var(--bd);border-radius:12px;padding:10px 12px;margin:0 0 14px;background:var(--panel2)}' +
-    '#reaperpop .rp-ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:800;line-height:1;color:var(--mut);background:#91a5c21f;border:1px solid #91a5c240}' +
-    '#reaperpop .rp-stx{flex:1 1 auto;min-width:0}#reaperpop .rp-sh{font-size:13px;font-weight:750;color:var(--fg)}#reaperpop .rp-sd{font-size:11.5px;line-height:1.4;color:var(--mut);overflow-wrap:anywhere}' +
+    '#reaperpop .rp-p{color:#8fa2bf;font-size:12.5px;line-height:1.5;margin:0 0 12px!important}' +
+    '#reaperpop .rp-st{display:flex;gap:11px;align-items:center;border:1px solid #1e3050;border-radius:12px;padding:10px 12px;margin:0 0 14px;background:#0c1627}' +
+    '#reaperpop .rp-ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:800;line-height:1;color:#8fa2bf;background:#08111f;border:1px solid #1e3050}' +
+    '#reaperpop .rp-stx{flex:1 1 auto;min-width:0}#reaperpop .rp-sh{font-size:13px;font-weight:750;color:var(--fg)}#reaperpop .rp-sd{font-size:11.5px;line-height:1.4;color:#8fa2bf;overflow-wrap:anywhere}' +
     '#reaperpop .rp-st.good{border-color:#28d99a55;background:#28d99a14}#reaperpop .rp-st.good .rp-ic{color:var(--good);background:#28d99a22;border-color:#28d99a55}' +
     '#reaperpop .rp-st.warn{border-color:#f5b94255;background:#f5b94212}#reaperpop .rp-st.warn .rp-ic{color:#f5b942;background:#f5b94222;border-color:#f5b94255}' +
     '#reaperpop .rp-st.bad{border-color:#ff647c55;background:#ff647c12}#reaperpop .rp-st.bad .rp-ic{color:var(--danger);background:#ff647c22;border-color:#ff647c55}' +
+    'html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-chk,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-full,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .popx{background:#08111f!important;border:1px solid #2d4469!important;color:#f2f7ff!important;box-shadow:none!important;transform:none!important}html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-chk:hover,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-full:hover,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .popx:hover{background:#14233c!important}' +
     '#reaperpop .rp-chk{flex:none}' +
-    '#reaperpop .rp-lbl{margin:0 0 6px;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}' +
-    '#reaperpop .rp-list{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--panel2)}' +
-    '#reaperpop .rp-g{display:flex;gap:11px;align-items:flex-start;padding:9px 12px;border-top:1px solid var(--bd)}#reaperpop .rp-g:first-child{border-top:0}' +
-    '#reaperpop .rp-gi{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:9px;font-weight:850;letter-spacing:.02em;color:var(--acc2);background:#168cff1c;border:1px solid #168cff3a}' +
+    '#reaperpop .rp-lbl{margin:0 0 6px;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#86adea}' +
+    '#reaperpop .rp-list{border:1px solid #1e3050;border-radius:12px;overflow:hidden;background:#0c1627}' +
+    '#reaperpop .rp-g{display:flex;gap:11px;align-items:flex-start;padding:9px 12px;border-top:1px solid #1e3050}#reaperpop .rp-g:first-child{border-top:0}' +
+    '#reaperpop .rp-gi{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:9px;font-weight:850;letter-spacing:.02em;color:#86adea;background:#08111f;border:1px solid #1e3050}' +
     '#reaperpop .rp-gb{flex:1 1 auto;min-width:0}#reaperpop .rp-gt{font-weight:750;font-size:13px;color:var(--fg)}' +
-    '#reaperpop .rp-gd{color:var(--mut);font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}' +
-    '#reaperpop .rp-g ul{margin:3px 0 0;padding-left:16px;color:var(--mut);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}' +
-    '#reaperpop .rp-more{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--bd);color:var(--mut);font-size:11.5px;line-height:1.45}#reaperpop .rp-more:empty{display:none}' +
+    '#reaperpop .rp-gd{color:#8fa2bf;font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}' +
+    '#reaperpop .rp-g ul{margin:3px 0 0;padding-left:16px;color:#8fa2bf;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}' +
+    '#reaperpop .rp-more{margin:10px 0 0;padding-top:8px;border-top:1px solid #1e3050;color:#8fa2bf;font-size:11.5px;line-height:1.45}#reaperpop .rp-more:empty{display:none}' +
     '#reaperpop .rp-note{margin-top:6px;color:var(--fg);font-size:12px;line-height:1.45}#reaperpop .rp-note:empty{display:none}' +
     '#reaperpop .popfoot{justify-content:space-between;align-items:center;gap:10px}' +
     '@media(max-width:420px){#reaperpop .rp-hd{flex-wrap:wrap}#reaperpop .rp-st{flex-wrap:wrap}}';
@@ -133,7 +129,6 @@
   async function flip() {
     if (!info || busy) return;
     const want = !info.enabled;
-    if (!want && !(await askConfirm(offAsk(info.offText), 'Turn off', true))) return;
     busy = true; paint();
     try {
       const r = await api('/api/reaper', { method: 'POST', body: JSON.stringify({ enabled: want }) });

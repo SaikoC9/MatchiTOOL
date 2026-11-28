@@ -74,10 +74,10 @@
   // Android telephony (dumpsys telephony.registry): the F50 router leaves its own signal fields empty, so this is the main source there.
   // type 'nr' reads the 5G values, anything else the LTE values; 2147483647 and other out-of-range numbers read as "no value".
   const teleSignal = (text, type) => {
-    const t = String(text || ''), g = (re) => { const m = re.exec(t); return m ? m[1] : null; };
+    const t = String(text || ''), first = (re, clean) => { let m; const g = new RegExp(re.source, 'g'); while ((m = g.exec(t))) { const v = clean(m[1]); if (v != null) return v; } return null; };
     return type === 'nr'
-      ? { rsrp: cleanRsrp(g(/\bssRsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/\bssSinr\s*=\s*(-?\d+)/)) }
-      : { rsrp: cleanRsrp(g(/CellSignalStrengthLte[^\n]*?\brsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/CellSignalStrengthLte[^\n]*?\brssnr\s*=\s*(-?\d+)/)) };
+      ? { rsrp: first(/\b(?:ssRsrp|csiRsrp)\s*=\s*(-?\d+)/, cleanRsrp), sinr: first(/\b(?:ssSinr|csiSinr)\s*=\s*(-?\d+)/, cleanSinr) }
+      : { rsrp: first(/\brsrp\s*=\s*(-?\d+)/, cleanRsrp), sinr: first(/\brssnr\s*=\s*(-?\d+)/, cleanSinr) };
   };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
@@ -115,6 +115,7 @@
             if (k < 2) await R.sleep(2000);
           }
           row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.active = sg.band || '';
+          log(name(b) + ' signal: ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB')));
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
@@ -293,14 +294,24 @@
             let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {}; } catch (_) { /* try the modem below */ }
             const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
             // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
+            // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
+            const dbg = [];
+            try {
+              const L = window.MatchiLive;
+              if (L && L.fresh) { const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; dbg.push('live ' + (cleanRsrp(c.rsrp) == null ? 'empty' : 'ok')); }
+              else dbg.push('live panel not loaded');
+            } catch (e) { dbg.push('live failed: ' + String(e && e.message || e).slice(0, 60)); }
+            dbg.push('router ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
             if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
               try {
-                const tv = teleSignal(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength' | head -30", 15000), st.type);
+                const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
+                const tv = teleSignal(txt, st.type); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars' : 'no output'));
                 if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
                 if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
-              } catch (_) { /* no value */ }
+              } catch (e) { dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
             }
-            if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; } catch (_) { /* no value */ } }
+            if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; else dbg.push('AT+CESQ no value'); } catch (e) { dbg.push('AT+CESQ failed: ' + String(e && e.message || e).slice(0, 60)); } }
+            g.dbg = dbg.join(', ');
             return g;
           },
         });

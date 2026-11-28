@@ -1981,7 +1981,16 @@ rm -f $P.g $P.4 $P.6 $P.d
   }
   // Read-only view of the last reading for the Radio settings and Cell lock cards (items 22 and 24). Nothing here talks to the router.
   // ageMs is null before the first good read. noService is true only for a fresh reading that says not registered / searching / denied, or zero bars and no signal value.
-  window.MatchiLive = Object.freeze({ snapshot: () => {
+  // fresh(): read the signal NOW with the same sources the Live panel uses (router, then Android telephony, then the modem), for the Speed test band test,
+  // which needs the value of the band it just locked and cannot use a reading taken before the lock. Returns {lte:{rsrp,sinr}, nr:{rsrp,sinr}}; a missing value is undefined.
+  async function freshSignal() {
+    teleAt = 0;   // force a new telephony read in the next slow read
+    try { await collectFast(); } catch (_) { /* the slow read still runs */ }
+    try { await collectSlow(); } catch (_) { /* use what is there */ }
+    const pick = (r) => ({ rsrp: r && r.rsrp, sinr: r && r.sinr });
+    return last ? { lte: pick(last.lte), nr: pick(last.nr) } : { lte: {}, nr: {} };
+  }
+  window.MatchiLive = Object.freeze({ fresh: freshSignal, snapshot: () => {
     if (!last) return null;
     const ageMs = lastOk ? Date.now() - lastOk : null;
     const noService = ageMs !== null && ageMs <= 60000 && (/Not registered|Searching|Denied/i.test(last.reg || '') || (last.bars === 0 && last.prim === undefined));
@@ -8206,10 +8215,10 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
   // Android telephony (dumpsys telephony.registry): the F50 router leaves its own signal fields empty, so this is the main source there.
   // type 'nr' reads the 5G values, anything else the LTE values; 2147483647 and other out-of-range numbers read as "no value".
   const teleSignal = (text, type) => {
-    const t = String(text || ''), g = (re) => { const m = re.exec(t); return m ? m[1] : null; };
+    const t = String(text || ''), first = (re, clean) => { let m; const g = new RegExp(re.source, 'g'); while ((m = g.exec(t))) { const v = clean(m[1]); if (v != null) return v; } return null; };
     return type === 'nr'
-      ? { rsrp: cleanRsrp(g(/\bssRsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/\bssSinr\s*=\s*(-?\d+)/)) }
-      : { rsrp: cleanRsrp(g(/CellSignalStrengthLte[^\n]*?\brsrp\s*=\s*(-?\d+)/)), sinr: cleanSinr(g(/CellSignalStrengthLte[^\n]*?\brssnr\s*=\s*(-?\d+)/)) };
+      ? { rsrp: first(/\b(?:ssRsrp|csiRsrp)\s*=\s*(-?\d+)/, cleanRsrp), sinr: first(/\b(?:ssSinr|csiSinr)\s*=\s*(-?\d+)/, cleanSinr) }
+      : { rsrp: first(/\brsrp\s*=\s*(-?\d+)/, cleanRsrp), sinr: first(/\brssnr\s*=\s*(-?\d+)/, cleanSinr) };
   };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
@@ -8247,6 +8256,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
             if (k < 2) await R.sleep(2000);
           }
           row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.active = sg.band || '';
+          log(name(b) + ' signal: ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB')));
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
@@ -8425,14 +8435,24 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
             let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {}; } catch (_) { /* try the modem below */ }
             const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
             // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
+            // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
+            const dbg = [];
+            try {
+              const L = window.MatchiLive;
+              if (L && L.fresh) { const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; dbg.push('live ' + (cleanRsrp(c.rsrp) == null ? 'empty' : 'ok')); }
+              else dbg.push('live panel not loaded');
+            } catch (e) { dbg.push('live failed: ' + String(e && e.message || e).slice(0, 60)); }
+            dbg.push('router ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
             if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
               try {
-                const tv = teleSignal(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength' | head -30", 15000), st.type);
+                const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
+                const tv = teleSignal(txt, st.type); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars' : 'no output'));
                 if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
                 if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
-              } catch (_) { /* no value */ }
+              } catch (e) { dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
             }
-            if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; } catch (_) { /* no value */ } }
+            if (st.type !== 'nr' && cleanRsrp(g.rsrp) == null) { try { const v = cesqRsrp(await R.at('AT+CESQ')); if (v != null) g.rsrp = v; else dbg.push('AT+CESQ no value'); } catch (e) { dbg.push('AT+CESQ failed: ' + String(e && e.message || e).slice(0, 60)); } }
+            g.dbg = dbg.join(', ');
             return g;
           },
         });
@@ -11034,7 +11054,7 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
    a status line with what is really installed and running, and the read-only list of what the wipe removes and what it leaves.
    The host (WebRoutesReaper.kt) sends the texts and the list (built from Footprint.kt); this file only shows them and never builds markup from text.
    GET /api/reaper (saved switch, texts, list) needs no sign-in beyond the session; GET /api/reaper/status and POST /api/reaper need the fresh sign-in (root).
-   Pure helpers (statusView, offAsk) are tested by scripts/test_reaper_ui.js. */
+   Pure helper (statusView) is tested by scripts/test_reaper_ui.js. */
 (function () {
   'use strict';
 
@@ -11056,12 +11076,7 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     return { text: 'Watching' + ver + '. Boot script in place.', level: 'good' };
   }
 
-  /* The confirmation before the switch is turned OFF (the person is about to leave root-side leftovers behind). */
-  function offAsk(offText) {
-    return String(offText || '') + '\n\nTurn it off anyway?';
-  }
-
-  const H = { statusView, offAsk };
+  const H = { statusView };
   if (typeof module !== 'undefined' && module.exports) { module.exports = H; return; }
   if (typeof document === 'undefined') return;
 
@@ -11079,22 +11094,23 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
     '#reaperpop .rp-tog[aria-checked=false]{background:#ff647c24!important;border:1px solid var(--danger)!important;color:var(--danger)!important}' +
     '#reaperpop .rp-tog:disabled{opacity:.5}' +
     '#reaperpop .rp-tog:focus,#reaperpop .rp-tog:focus-visible{outline:none!important;outline-offset:0!important}' +
-    '#reaperpop .rp-p{color:var(--mut);font-size:12.5px;line-height:1.5;margin:0 0 12px!important}' +
-    '#reaperpop .rp-st{display:flex;gap:11px;align-items:center;border:1px solid var(--bd);border-radius:12px;padding:10px 12px;margin:0 0 14px;background:var(--panel2)}' +
-    '#reaperpop .rp-ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:800;line-height:1;color:var(--mut);background:#91a5c21f;border:1px solid #91a5c240}' +
-    '#reaperpop .rp-stx{flex:1 1 auto;min-width:0}#reaperpop .rp-sh{font-size:13px;font-weight:750;color:var(--fg)}#reaperpop .rp-sd{font-size:11.5px;line-height:1.4;color:var(--mut);overflow-wrap:anywhere}' +
+    '#reaperpop .rp-p{color:#8fa2bf;font-size:12.5px;line-height:1.5;margin:0 0 12px!important}' +
+    '#reaperpop .rp-st{display:flex;gap:11px;align-items:center;border:1px solid #1e3050;border-radius:12px;padding:10px 12px;margin:0 0 14px;background:#0c1627}' +
+    '#reaperpop .rp-ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:800;line-height:1;color:#8fa2bf;background:#08111f;border:1px solid #1e3050}' +
+    '#reaperpop .rp-stx{flex:1 1 auto;min-width:0}#reaperpop .rp-sh{font-size:13px;font-weight:750;color:var(--fg)}#reaperpop .rp-sd{font-size:11.5px;line-height:1.4;color:#8fa2bf;overflow-wrap:anywhere}' +
     '#reaperpop .rp-st.good{border-color:#28d99a55;background:#28d99a14}#reaperpop .rp-st.good .rp-ic{color:var(--good);background:#28d99a22;border-color:#28d99a55}' +
     '#reaperpop .rp-st.warn{border-color:#f5b94255;background:#f5b94212}#reaperpop .rp-st.warn .rp-ic{color:#f5b942;background:#f5b94222;border-color:#f5b94255}' +
     '#reaperpop .rp-st.bad{border-color:#ff647c55;background:#ff647c12}#reaperpop .rp-st.bad .rp-ic{color:var(--danger);background:#ff647c22;border-color:#ff647c55}' +
+    'html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-chk,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-full,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .popx{background:#08111f!important;border:1px solid #2d4469!important;color:#f2f7ff!important;box-shadow:none!important;transform:none!important}html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-chk:hover,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .rp-full:hover,html body #reaperpop.card.pop.open:not(#_):not(#__):not(#___):not(#____) .popx:hover{background:#14233c!important}' +
     '#reaperpop .rp-chk{flex:none}' +
-    '#reaperpop .rp-lbl{margin:0 0 6px;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}' +
-    '#reaperpop .rp-list{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--panel2)}' +
-    '#reaperpop .rp-g{display:flex;gap:11px;align-items:flex-start;padding:9px 12px;border-top:1px solid var(--bd)}#reaperpop .rp-g:first-child{border-top:0}' +
-    '#reaperpop .rp-gi{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:9px;font-weight:850;letter-spacing:.02em;color:var(--acc2);background:#168cff1c;border:1px solid #168cff3a}' +
+    '#reaperpop .rp-lbl{margin:0 0 6px;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#86adea}' +
+    '#reaperpop .rp-list{border:1px solid #1e3050;border-radius:12px;overflow:hidden;background:#0c1627}' +
+    '#reaperpop .rp-g{display:flex;gap:11px;align-items:flex-start;padding:9px 12px;border-top:1px solid #1e3050}#reaperpop .rp-g:first-child{border-top:0}' +
+    '#reaperpop .rp-gi{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:9px;font-weight:850;letter-spacing:.02em;color:#86adea;background:#08111f;border:1px solid #1e3050}' +
     '#reaperpop .rp-gb{flex:1 1 auto;min-width:0}#reaperpop .rp-gt{font-weight:750;font-size:13px;color:var(--fg)}' +
-    '#reaperpop .rp-gd{color:var(--mut);font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}' +
-    '#reaperpop .rp-g ul{margin:3px 0 0;padding-left:16px;color:var(--mut);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}' +
-    '#reaperpop .rp-more{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--bd);color:var(--mut);font-size:11.5px;line-height:1.45}#reaperpop .rp-more:empty{display:none}' +
+    '#reaperpop .rp-gd{color:#8fa2bf;font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}' +
+    '#reaperpop .rp-g ul{margin:3px 0 0;padding-left:16px;color:#8fa2bf;font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}' +
+    '#reaperpop .rp-more{margin:10px 0 0;padding-top:8px;border-top:1px solid #1e3050;color:#8fa2bf;font-size:11.5px;line-height:1.45}#reaperpop .rp-more:empty{display:none}' +
     '#reaperpop .rp-note{margin-top:6px;color:var(--fg);font-size:12px;line-height:1.45}#reaperpop .rp-note:empty{display:none}' +
     '#reaperpop .popfoot{justify-content:space-between;align-items:center;gap:10px}' +
     '@media(max-width:420px){#reaperpop .rp-hd{flex-wrap:wrap}#reaperpop .rp-st{flex-wrap:wrap}}';
@@ -11165,7 +11181,6 @@ setInterval(function(){if(!document.hidden)hostPing()},30000);
   async function flip() {
     if (!info || busy) return;
     const want = !info.enabled;
-    if (!want && !(await askConfirm(offAsk(info.offText), 'Turn off', true))) return;
     busy = true; paint();
     try {
       const r = await api('/api/reaper', { method: 'POST', body: JSON.stringify({ enabled: want }) });

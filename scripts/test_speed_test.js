@@ -131,6 +131,7 @@ async function rest() {
   const tele = 'mSignalStrength=SignalStrength:{mCellSignalStrengths=[CellSignalStrengthLte: rssi=-70 rsrp=-95 rsrq=-9 rssnr=14 cqi=2147483647 level=3, CellSignalStrengthNr:{ssRsrp=-101 ssRsrq=-11 ssSinr=2147483647 level=2}]}';
   let tv = S.teleSignal(tele, 'lte'); assert(tv.rsrp === -95 && tv.sinr === 14, JSON.stringify(tv));
   tv = S.teleSignal(tele, 'nr'); assert(tv.rsrp === -101 && tv.sinr === null, JSON.stringify(tv));
+  tv = S.teleSignal('CellSignalStrengthLte: rssi=-80 rsrp=2147483647 rssnr=2147483647 CellSignalStrengthLte: rsrp=-88 rssnr=7', 'lte'); assert(tv.rsrp === -88 && tv.sinr === 7, JSON.stringify(tv));
   tv = S.teleSignal('', 'lte'); assert(tv.rsrp === null && tv.sinr === null);
   // SINR is kept even when RSRP is missing
   R = fakeRadio({});
