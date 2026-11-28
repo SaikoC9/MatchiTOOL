@@ -718,6 +718,89 @@ html body #home .matchi-menu-box>button{min-height:32px!important;padding:4px 5p
 html body #home .matchi-menu-box>button::before{left:6px}
 }
 </style>
+<style id="ui-calm">
+/* Calm compact dashboard: one soft palette, flat surfaces, tool chips across the top, 150 ms fades only. Styling only: no markup or script depends on it. */
+:root{--bg:#0e1116;--acc:#7fa8d6;--acc2:#a9c6e6;--bd:rgba(255,255,255,.07);--good:#7dc4a4;--danger:#d98c98;--mut:#8d97a6;--c-surf:#141a21;--c-line:rgba(255,255,255,.07);--c-soft:rgba(255,255,255,.045)}
+html body{background:var(--bg)!important;letter-spacing:0}
+html body header{background:#0e1116!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;border-bottom:1px solid var(--c-line)!important}
+html body .brand-mark{background:#4f7fae!important;box-shadow:none!important;color:#fff}
+html body .host{background:transparent!important;border-color:var(--c-line)!important}
+html body .hd-reboot{color:#d98c98!important;border-color:rgba(217,140,152,.35)!important}
+html body main{max-width:1400px!important}
+html body #home{background:#11161d!important;border:1px solid var(--c-line)!important;box-shadow:none!important;animation:none!important;padding:10px!important}
+html body #home button{transition:background-color .15s ease,border-color .15s ease!important;box-shadow:none!important}
+@media(hover:hover){html body #home button:hover{transform:none!important}}
+html body #home button:active{transform:none!important}
+
+/* Tool buttons: small chips that wrap, no fixed columns */
+html body #home .actions-buttons{display:flex!important;flex-wrap:wrap!important;gap:4px!important;margin:0!important}
+html body #home .actions-buttons button{flex:0 0 auto!important;width:auto!important;min-width:0!important;min-height:26px!important;padding:2px 10px!important;font-size:11.5px!important;font-weight:550!important;line-height:1.2!important;border-radius:7px!important;white-space:nowrap!important;background:var(--c-soft)!important;border:1px solid var(--c-line)!important;color:#dfe5ed!important}
+@media(hover:hover){html body #home .actions-buttons button:hover{background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.14)!important}}
+
+/* Plugin actions and all other buttons in the dashboard: flat */
+html body #home .matchi-menu-box>button{background:var(--c-soft)!important;border:1px solid var(--c-line)!important;border-radius:7px!important}
+html body #home .matchi-menu-box>button::before{background:var(--acc)!important}
+html body #home .matchi-menu-box>button[data-status="on"]::before{background:var(--good)!important}
+html body #home .matchi-menu-box>button[data-status="off"]::before{background:var(--danger)!important}
+html body #home .matchi-menu-box>button[data-status="on"],html body #home .matchi-menu-box>button[data-status="off"]{border-color:var(--c-line)!important}
+html body #dash_radio button,html body #guardCard button,html body #dash_cell button,html body #home .liv-opts button{background:var(--c-soft)!important;border:1px solid var(--c-line)!important;border-radius:7px!important;color:#dfe5ed}
+@media(hover:hover){html body #dash_radio button:hover,html body #guardCard button:hover,html body #dash_cell button:hover,html body #home .liv-opts button:hover{background:rgba(255,255,255,.085)!important}}
+html body #home select,html body #home input[type=text]{background:#0f141a!important;border:1px solid var(--c-line)!important;border-radius:7px!important}
+
+/* Cards */
+html body #dash_radio,html body #guardCard,html body #dash_cell,html body #home .liv-box,html body #home .liv-tile,html body #home .liv-cc,html body #home .liv-spark{background:var(--c-surf)!important;border:1px solid var(--c-line)!important;border-radius:10px!important}
+html body #dash_radio,html body #guardCard,html body #dash_cell{margin-top:6px!important;padding:8px 10px!important}
+html body #dash_radio .dr-note{margin:0 0 6px!important}
+html body #dash_radio .dr-h{margin-bottom:4px!important}
+html body #dash_radio .dr-c{margin:3px 0 6px!important;gap:3px!important}
+html body #dash_radio .dr-row{margin-bottom:6px!important}
+
+/* Band chips: neutral when off, one soft tint when ticked */
+html body #dash_radio .dr-b{min-height:22px!important;padding:1px 8px!important;font-size:11px!important;border-radius:6px!important;opacity:.6;background:transparent!important}
+html body #dash_radio .dr-b.on{opacity:1!important;background:rgba(127,168,214,.16)!important;border-color:rgba(127,168,214,.38)!important;color:#d3e3f4}
+html body #dash_radio .dr-b.add{opacity:1!important;background:rgba(214,176,106,.16)!important;outline:1px dashed rgba(214,176,106,.55)!important}
+html body #dash_radio .dr-b.rm{opacity:.85!important;outline:1px dashed rgba(217,140,152,.55)!important}
+
+/* Live status */
+html body #home .liv-head{margin-bottom:6px!important}
+html body #home .liv-title,html body .liv-title{letter-spacing:.08em!important;font-size:11px!important}
+html body #home .liv-pulse{animation:none!important;box-shadow:none!important}
+html body #home .liv-sw{background:rgba(255,255,255,.2)!important}
+html body #home .liv-sw[aria-checked=true]{background:rgba(125,196,164,.65)!important}
+html body #home .liv-hero{background:var(--c-surf)!important;border:1px solid var(--c-line)!important;padding:8px 12px!important;gap:12px!important;border-radius:10px!important}
+html body #home .liv-dbm{font-size:22px!important}html body #home .liv-op{font-size:16px!important}
+html body #home .liv-badge{background:rgba(127,168,214,.14)!important;border-color:rgba(127,168,214,.32)!important;color:#bcd4ec!important}
+html body #home .liv-grid{gap:5px!important;margin-top:5px!important}
+html body #home .liv-box{padding:6px 10px 8px!important}
+html body #home .liv-tiles{gap:5px!important;margin-top:5px!important}
+html body #home .liv-tile{padding:4px 9px!important}
+html body #home .liv-tiles.liv-t4:not(.liv-cards){display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:640px){html body #home .liv-tiles.liv-t4:not(.liv-cards){grid-template-columns:repeat(2,minmax(0,1fr))}}
+html body #home .liv-bar{height:4px!important;background:rgba(255,255,255,.07)!important}
+html body #home .liv-bar i,html body #home .liv-dbm,html body #home .liv-q,html body #home .liv-tile svg,html body #home .liv-hero svg,html body #home .liv-spark svg{filter:saturate(.62)}
+html body #home .liv-spark{margin-top:5px!important;padding:3px 8px!important}
+html body #home .liv-spark svg{height:20px!important}
+html body #home .liv-cards{gap:5px!important}
+html body #home .liv-cb{height:24px!important;background:rgba(255,255,255,.07)!important}
+html body #home .liv-cb i{background:#7fa8d6!important}
+html body #home .liv-cb i.w{background:#d6b06a!important}
+html body #home .liv-cb i.h{background:#d98c98!important}
+html body #home .liv-cfm{background:rgba(255,255,255,.07)!important}
+html body #home .liv-cfm i{background:#7fa8d6!important}
+html body #home .liv-cfi{color:#bcd0e6!important}
+html body #home .liv-chip[aria-pressed=true]{background:rgba(127,168,214,.16)!important;border-color:rgba(127,168,214,.38)!important;color:#d3e3f4!important}
+html body #home .liv-opts{margin-top:6px!important}
+html body #home .liv-heat{border-radius:8px!important}
+
+/* Wide screens: tool chips span the full width, then settings on the left and live status on the right, with no gaps between left cards */
+@media(min-width:1000px){
+html body #home:not([style*="none"]){grid-template-columns:clamp(330px,26vw,400px) minmax(0,1fr)!important;grid-template-rows:auto repeat(6,auto) 1fr!important;gap:6px 10px!important}
+html body #home>.actions-buttons{grid-column:1/-1!important;grid-row:1!important}
+html body #home>.liv{grid-column:2!important;grid-row:2/span 7!important;border-left:0!important;padding-left:0!important}
+html body #home>:not(.actions-buttons):not(.liv){grid-column:1!important}
+html body #home>#dash_radio,html body #home>#guardCard{margin-top:0!important}
+}
+</style>
 </head>
 <body>
 <header><div class="brand"><span class="brand-mark">M</span>MatchiTOOL</div>
