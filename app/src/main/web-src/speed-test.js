@@ -48,7 +48,7 @@
     const i = s.indexOf('{'), j = s.lastIndexOf('}');
     if (i < 0 || j <= i) return { ok: false, error: (s.trim().split('\n').pop() || 'No answer').slice(0, 160) };
     let d; try { d = JSON.parse(s.slice(i, j + 1)); } catch (_) { return { ok: false, error: 'Bad iperf3 reply' }; }
-    if (d.error) return { ok: false, error: String(d.error).slice(0, 160) };
+    if (d.error) return { ok: false, error: /Terminated\(15\)|^interrupt/.test(String(d.error)) ? 'No data came through in time (weak or stalled link)' : String(d.error).slice(0, 160) };
     const e = d.end || {}, r = e.sum_received || e.sum_sent;
     if (!r || !(r.bits_per_second >= 0)) return { ok: false, error: 'No result' };
     return { ok: true, mbps: Math.round(r.bits_per_second / 1e4) / 100, retrans: e.sum_sent && Number.isFinite(e.sum_sent.retransmits) ? e.sum_sent.retransmits : null };
@@ -89,6 +89,11 @@
   };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
+  // A call that never answers must not freeze the test: after ms it fails with its name, and the trace shows where.
+  const withTimeout = (p, ms, label) => new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error(label + ' did not answer in ' + Math.round(ms / 1000) + ' s')), ms);
+    Promise.resolve(p).then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
   // Trace: every step of a band test with the raw answer, so a failure shows WHERE it stopped and WHAT came back (no guessing).
   // t = makeTrace(onChange); t('step', data) adds a line; t.err('step', e) adds an error with its stack; t.text() is the report body.
   const clip = (v, n) => { let s; try { s = typeof v === 'string' ? v : v === undefined ? 'undefined' : JSON.stringify(v); } catch (_) { s = String(v); } s = String(s == null ? '' : s).replace(/\r/g, ''); return s.length > n ? s.slice(0, n) + '…(+' + (s.length - n) + ' chars)' : s; };
@@ -107,6 +112,9 @@
     const R = o.R, lte = o.type === 'lte', gf = lte ? 'LTE_BAND_LOCK' : 'NR_BAND_LOCK', param = lte ? 'lte_band_lock' : 'nr_band_lock';
     const name = (b) => (lte ? 'B' : 'n') + b, log = o.log || (() => {}), tr = o.trace || (() => {}), trErr = o.trace && o.trace.err ? o.trace.err : (() => {});
     tr('start', { type: o.type, bands: o.bands, full: o.full });
+    // Who is using the CPU, at the moments that matter (the report names the process instead of guessing).
+    const cpu = async (when) => { if (!o.cpu) return; try { tr('cpu ' + when, await withTimeout(o.cpu(), 8000, 'cpu snapshot')); } catch (e) { tr('cpu ' + when + ' ERROR', e.message); } };
+    await cpu('before start');
     let before; try { before = await R.readBands(); } catch (e) { trErr('readBands', e); throw e; }
     tr('readBands', { lteRaw: before.lteRaw, nrRaw: before.nrRaw, lte: before.lte, nr: before.nr });
     // The radio restart (AT+SFUN) goes straight to the modem, so the modem can come back on 5G whatever the router's network mode says.
@@ -131,6 +139,7 @@
       if (!cyc) throw new Error('radio restart not confirmed');
       const w0 = Date.now(), reg = await R.waitRegistered(0, { everyMs: 3000, timeoutMs: 90000 });
       tr('waitRegistered', (reg ? 'registered' : 'NOT registered') + ' after ' + Math.round((Date.now() - w0) / 1000) + ' s');
+      await cpu('after restart ' + what);
       return reg;
     };
     // The network must be what the test says (LTE = 4G only, 5G NR = 5G on). If it cannot be set the test stops here: no band is locked, nothing is restarted.
@@ -183,7 +192,7 @@
           const readSignal = async (tries) => {
             let best = {};
             for (let k = 0; k < tries; k++) {
-              let x = {}; try { x = pick(await o.signal()); } catch (_) { x = {}; }
+              let x = {}; try { x = pick(await withTimeout(o.signal(), o.signalTimeoutMs || 45000, 'signal read')); } catch (e) { x = {}; tr('signal read ERROR', e.message); }
               if (got(x) >= got(best)) best = x;
               if (got(best) === 2) break;
               if (k < tries - 1) await R.sleep(3000);
@@ -199,9 +208,18 @@
           };
           showSignal(await readSignal(6), '');
           log('Testing speed on ' + name(b) + '…');
-          tr('speed start ' + name(b));
+          // Mobile data can still be down after the radio restart. Wait for the internet (30 s at most) instead of starting a speed test that can only time out.
+          if (o.net) {
+            let up = false; const n0 = Date.now();
+            for (;;) { tr('internet check'); try { up = !!(await withTimeout(o.net(), 12000, 'internet check')); } catch (e) { up = false; tr('internet check ERROR', e.message); } if (up || Date.now() - n0 > (o.netWaitMs == null ? 30000 : o.netWaitMs)) break; await R.sleep(3000); }
+            tr('internet before speed', { up, waitedS: Math.round((Date.now() - n0) / 1000) });
+            if (!up) { row.error = 'no internet on ' + name(b) + ' (mobile data did not come up in 30 s)'; log(name(b) + ': ' + row.error + ', next band'); continue; }
+          }
+          tr('speed start ' + name(b)); await cpu('before speed ' + name(b));
           const t = await o.speed();
           tr('speed result ' + name(b), t);
+          if (o.cleanup) { try { tr('iperf3 left running?', await withTimeout(o.cleanup(), 8000, 'cleanup')); } catch (e) { tr('cleanup ERROR', e.message); } }
+          await cpu('after speed ' + name(b));
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
           // Still no value: the traffic of the speed test makes Android report a fresh signal, so ask again now.
           if (row.rsrp == null && row.sinr == null) { const sg2 = await readSignal(3); if (got(sg2) > 0) showSignal(sg2, ' (after the speed test)'); }
@@ -314,6 +332,9 @@
       T('shell call', { ms: Date.now() - t0, keys: Object.keys(r).join(','), success: r.success, error: r.error, len: r.content == null ? null : String(r.content).length });
       return r.content != null ? r.content : (r.error ? 'ERROR: ' + r.error : '');
     };
+    // Top processes by CPU (a few lines), and a check for an iperf3 of ours that is still running after a test (it is stopped: nothing else may keep a core busy).
+    const cpuNow = async () => String(await R.sh("top -b -n 1 -m 6 2>&1 | head -n 12 | cut -c1-110", 12000)).trim();
+    const cleanup = async () => String(await R.sh("P=$(pgrep -f '[f]iles/iperf3' 2>/dev/null); if [ -n \"$P\" ]; then echo \"STILL RUNNING pid $P: stopped\"; kill $P 2>/dev/null; sleep 1; kill -9 $P 2>/dev/null; else echo none; fi", 12000)).trim();
     const onRaw = (x) => T('iperf3 ' + (x.download ? 'download' : 'upload') + ' try ' + x.try + ' port ' + x.port, { ok: x.ok, error: x.error, raw: String(x.raw == null ? '' : x.raw).slice(0, 700) });
     // ---- trace: kept in the browser after every line, so a page that dies in the middle of a radio restart still has its last step ----
     const SAVE_MAX = 60000;
@@ -391,7 +412,7 @@
 
     // One signal read: router, then the Live panel, Android telephony, the modem. Every raw answer goes to the trace.
     const signalNow = async () => {
-      let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (e) { T('signal: router read ERROR', e && e.message); }
+      let d = {}; T('signal: asking router'); try { d = (await withTimeout(R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' }), 12000, 'router read')) || {}; } catch (e) { T('signal: router read ERROR', e && e.message); }
       const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
       g.link = String(d.network_type == null ? '' : d.network_type).trim(); T('signal: router fields', d);
       g.nr = { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band };   // kept for an LTE row that runs under 5G NSA
@@ -401,7 +422,7 @@
       try {
         const L = window.MatchiLive;
         if (L && L.fresh) {
-          const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; T('signal: Live fresh()', x); if (x.nr) { if (cleanRsrp(x.nr.rsrp) != null) g.nr.rsrp = x.nr.rsrp; if (cleanSinr(x.nr.sinr) != null) g.nr.sinr = x.nr.sinr; if (x.nr.band) g.nr.band = x.nr.band; }
+          T('signal: asking Live fresh()'); const x = await withTimeout(L.fresh(), 12000, 'Live fresh()'), c = (st.type === 'nr' ? x.nr : x.lte) || {}; T('signal: Live fresh()', x); if (x.nr) { if (cleanRsrp(x.nr.rsrp) != null) g.nr.rsrp = x.nr.rsrp; if (cleanSinr(x.nr.sinr) != null) g.nr.sinr = x.nr.sinr; if (x.nr.band) g.nr.band = x.nr.band; }
           if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; if (!g.band && c.band) g.band = c.band;
           // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
                           dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
@@ -411,7 +432,7 @@
       dbg.push('router ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
       if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
         try {
-          const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
+          T('signal: asking telephony'); const txt = String(await withTimeout(R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000), 20000, 'telephony read'));
           const tv = teleSignal(txt, st.type), tok = (txt.match(/\b(?:rsrp|rssnr|ssRsrp|ssSinr|csiRsrp|csiSinr)\s*=\s*-?\d+/g) || []).slice(0, 6).join(' '); T('signal: telephony raw', txt.slice(0, 700)); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars: ' + (tok || 'no rsrp/sinr field') : 'no output'));
           const tn = teleSignal(txt, 'nr'); if (cleanRsrp(g.nr.rsrp) == null && tn.rsrp != null) g.nr.rsrp = tn.rsrp; if (cleanSinr(g.nr.sinr) == null && tn.sinr != null) g.nr.sinr = tn.sinr;
           if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
@@ -420,7 +441,7 @@
       }
       if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
         try {
-          const raw = await R.at('AT+CESQ'), c = cesqAll(raw); T('signal: AT+CESQ raw', raw);
+          T('signal: asking AT+CESQ'); const raw = await withTimeout(R.at('AT+CESQ'), 12000, 'AT+CESQ'), c = cesqAll(raw); T('signal: AT+CESQ raw', raw);
           const rs = st.type === 'nr' ? c.nrRsrp : c.lteRsrp;
           if (cleanRsrp(g.rsrp) == null && rs != null) g.rsrp = rs;
           if (st.type === 'nr') { if (cleanSinr(g.sinr) == null && c.nrSinr != null) g.sinr = c.nrSinr; }
@@ -456,8 +477,9 @@
       const tr = newTrace('Band test ' + (st.type === 'nr' ? 'n' : 'B') + bands.join(' '));
       try {
         const out = await bandTest({
-          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr, force4g: st.type === 'lte',
+          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr, force4g: st.type === 'lte', cpu: cpuNow, cleanup,
           speed: () => measure(run, i, true, { onRaw }), stop: () => st.stop,
+          net: async () => /NETOK/.test(String(await run('command -v ping >/dev/null 2>&1 && { ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; } && echo NETOK || echo NONET', 10000))),
           link: async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type' }); return d && d.network_type; },
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: signalNow,
@@ -499,7 +521,7 @@
       if (st.busy) return;
       st.stop = false; busy(true); $('sp_log').textContent = ''; $('sp_last').textContent = '';
       const tr = newTrace('Diagnose'); setOut('Diagnose running (read-only)…');
-      const step = async (name, fn) => { const t0 = Date.now(); try { const v = await fn(); tr(name + ' [' + (Date.now() - t0) + ' ms]', v); return v; } catch (e) { tr.err(name + ' [' + (Date.now() - t0) + ' ms]', e); return undefined; } };
+      const step = async (name, fn, ms) => { const t0 = Date.now(); tr('> ' + name); try { const v = await withTimeout(fn(), ms || 40000, name); tr(name + ' [' + (Date.now() - t0) + ' ms]', v); return v; } catch (e) { tr.err(name + ' [' + (Date.now() - t0) + ' ms]', e); return undefined; } };
       try {
         tr('page', { radio: !!R, live: !!(window.MatchiLive && window.MatchiLive.fresh), shell: typeof runShellWithRoot, confirm: typeof askConfirm, busyNow: R && R.isBusy ? R.isBusy() : null });
         if (!R) { setOut('Radio tools not available on this page.', ERR); return; }
@@ -514,9 +536,12 @@
         await step('AT C5GREG', async () => R.tidy(await R.at('AT+C5GREG?', 0)));
         await step('registered', async () => R.isRegistered(0));
         await step('NR supported bands (AT)', async () => R.tidy(await R.at('AT+SP5GCMDS="get nr support_band"', 0)));
+        await step('cpu now (top)', cpuNow);
         await step('signal read', async () => signalNow());
         let host = '', port = '', secs = 3; try { const i = inputs(); host = i.host; port = i.port; } catch (e) { tr('speed inputs', 'skipped: ' + e.message); }
-        if (host) await step('speed (3 s, 1 stream, download + ping)', async () => { const r = await measure(run, { host, port, secs, streams: 1 }, true, { ping: true, onRaw }); return r; });
+        if (host) await step('speed (3 s, 1 stream, download + ping)', async () => { const r = await measure(run, { host, port, secs, streams: 1 }, true, { ping: true, onRaw }); return r; }, 70000);
+        await step('iperf3 left running?', cleanup);
+        await step('cpu after speed (top)', cpuNow);
         tr('done', 'read-only, nothing was changed');
         $('sp_log').style.display = 'block'; $('sp_log').textContent = st.trace.text();
         setOut('Diagnose done. Press Copy report and send it.');
@@ -526,5 +551,5 @@
     busy(false);
   }
 
-  window.MatchiSpeed = { makeTrace, validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, cesqAll, teleSignal, open };
+  window.MatchiSpeed = { withTimeout, makeTrace, validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, cesqAll, teleSignal, open };
 })();

@@ -214,5 +214,19 @@ async function rest() {
     const r2 = fakeRadio({ noReg: 3 }); r2.readRadio = async () => ({ net: 'Only_LTE' }); r2.setNetMode = async () => ({ ok: true });
     out = await S.bandTest({ R: r2, type: 'lte', bands: [3, 1, 7], full: [], log() {}, stop: () => false, link: async () => (r2.state.lte[0] === 7 ? 'ENDC' : 'LTE'), signal: async () => ({}), speed: async () => ({ ok: true, mbps: 80 }) });
     assert(out.results.length === 3 && /registration/.test(out.results[0].error) && out.results[1].mbps === 80 && /5G still on/.test(out.results[2].error) && !out.aborted && out.restored, '4G: skip and go on: ' + JSON.stringify(out.results)); }
+  // a signal read that never answers does not freeze the test: the row keeps its speed, the trace names the hang
+  { await assert.rejects(() => S.withTimeout(new Promise(() => {}), 30, 'Live fresh()'), /Live fresh\(\) did not answer/); assert.strictEqual(await S.withTimeout(Promise.resolve(7), 30, 'x'), 7);
+    const r = fakeRadio({}), t = S.makeTrace();
+    out = await S.bandTest({ R: r, type: 'lte', bands: [1], full: [], log() {}, trace: t, signalTimeoutMs: 20, stop: () => false, signal: () => new Promise(() => {}), speed: async () => ({ ok: true, mbps: 9 }) });
+    assert(out.results[0].mbps === 9 && !out.results[0].error && out.restored && /signal read ERROR: signal read did not answer/.test(t.text()), 'hung signal: ' + t.text()); }
+  // no internet after the lock: the band is skipped with the reason (no speed test that can only time out), the next band is tried
+  { const r = fakeRadio({}); let sp7 = 0, up = false;
+    out = await S.bandTest({ R: r, type: 'lte', bands: [41, 3], full: [], log() {}, stop: () => false, signalTimeoutMs: 50, netWaitMs: 40, net: async () => up, signal: async () => (r.state.lte[0] === 3 ? (up = true, {}) : {}), speed: async () => { sp7++; return { ok: true, mbps: 20 }; } });
+    assert(/no internet on B41/.test(out.results[0].error) && out.results[1].mbps === 20 && sp7 === 1 && out.restored, 'no internet: ' + JSON.stringify(out.results)); }
+  assert.strictEqual(S.parse('{"error":"interrupt - the client has terminated by signal Terminated(15)"}').error, 'No data came through in time (weak or stalled link)');
+  // CPU snapshots and the leftover-iperf3 check are written to the trace at the right moments
+  { const r = fakeRadio({}), t = S.makeTrace(); let cl = 0;
+    await S.bandTest({ R: r, type: 'lte', bands: [1], full: [], log() {}, trace: t, stop: () => false, cpu: async () => 'PID %CPU\n123 99 iperf3', cleanup: async () => { cl++; return 'none'; }, signal: async () => ({}), speed: async () => ({ ok: true, mbps: 9 }) });
+    const x = t.text(); assert(/cpu before start/.test(x) && /cpu after restart B1/.test(x) && /cpu before speed B1/.test(x) && /cpu after speed B1/.test(x) && /123 99 iperf3/.test(x) && cl === 1 && /iperf3 left running\?: none/.test(x), x); }
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }
