@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_binary_hashes as gen
 
 SCRIPT = Path(__file__).resolve().parent / 'update_binary_hashes.py'
-NAMES = ('curl', 'jq', 'sendat', 'zreq')
+NAMES = ('curl', 'jq', 'iperf3', 'sendat', 'zreq')
 sha = lambda b: hashlib.sha256(b).hexdigest()
 fails = []
 
@@ -102,6 +102,20 @@ with tempfile.TemporaryDirectory() as tmp:
     for n in NAMES:
         (new / n).write_bytes((root / 'app/src/main/assets/bin' / n).read_bytes())
     check(run(new, root).returncode == 0 and kt.read_text() == before, 'an unchanged set should leave BinaryHashes.kt alone')
+
+# 6. a first-time binary (iperf3): not in assets/bin, a placeholder in the docs -> copied, placeholder replaced
+with tempfile.TemporaryDirectory() as tmp:
+    root, new = layout(tmp)
+    (root / 'app/src/main/assets/bin/iperf3').unlink()
+    for f in ('NOTICE.md', 'docs/BINARIES.md'):
+        t = (root / f).read_text().replace(sha(b'old iperf3'), 'iperf3-hash-pending')
+        (root / f).write_text(t)
+    for n in NAMES:
+        (new / n).write_bytes(f'old {n}'.encode() if n != 'iperf3' else b'first iperf3')
+    r = run(new, root)
+    check(r.returncode == 0, f'first-time run failed: {r.stdout}{r.stderr}')
+    check((root / 'app/src/main/assets/bin/iperf3').read_bytes() == b'first iperf3', 'iperf3 was not copied')
+    check('iperf3-hash-pending' not in (root / 'NOTICE.md').read_text() + (root / 'docs/BINARIES.md').read_text() and sha(b'first iperf3') in (root / 'NOTICE.md').read_text(), 'placeholder not replaced by the hash')
 
 if fails:
     print('update_binary_hashes test FAILED:')

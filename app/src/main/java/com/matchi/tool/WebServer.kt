@@ -60,7 +60,7 @@ class WebServer(internal val ctx: Context, port: Int, bindAddress: String = "127
         }
     }
 
-    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)
+    private val BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", "iperf3", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)
 
     // Uninstall reaper (Phase 5): the plugin snapshot it reads at wipe time is rebuilt whenever a plugin ledger changes (and when a plugin is installed,
     // approved, switched or deleted: see WebRoutesPlugins). Nothing runs until the first change; the first write is 30 s after start, when root is ready.

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Put freshly built binaries into app/src/main/assets/bin and write their new SHA-256 into NOTICE.md and docs/BINARIES.md.
 
-Usage: update_binary_hashes.py <folder holding curl, jq, sendat and zreq> [repo root]
+Usage: update_binary_hashes.py <folder holding curl, jq, iperf3, sendat and zreq> [repo root]
 
 For each binary: if its hash differs from the one in assets/bin, the old hash is replaced by the new one in NOTICE.md
 (it must be there, scripts/check_repo.py needs it) and in docs/BINARIES.md (if it is there), and the file is copied over.
-Nothing is written unless all four binaries can be handled. Only hashes change: the version words in those two files
+Nothing is written unless all five binaries can be handled. A binary that is not in assets/bin yet (iperf3, the first time) takes
+the place of the text `<name>-hash-pending` in NOTICE.md (it must be there) and in docs/BINARIES.md (if it is there). Only hashes change: the version words in those two files
 (Go, curl, OpenSSL, jq) are for a person to update. When the repo has BinaryHashes.kt (the list the app checks its copies against),
 it is written again from the new files, with scripts/gen_binary_hashes.py.
 """
@@ -15,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_binary_hashes
 
-NAMES = ('curl', 'jq', 'sendat', 'zreq')
+NAMES = ('curl', 'jq', 'iperf3', 'sendat', 'zreq')
 
 
 def sha(path):
@@ -42,14 +43,17 @@ def main(argv):
         if old_h == new_h:
             report.append(f'{name}: unchanged')
             continue
-        if old_h is None or old_h not in texts[notice]:
-            print(f'error: the current {name} hash is not written in NOTICE.md, so the new one cannot be put in its place; '
+        # a first-time binary has a placeholder in the docs instead of an old hash
+        mark = old_h if old_h is not None else f'{name}-hash-pending'
+        if mark not in texts[notice]:
+            what = 'the current hash' if old_h is not None else f'the text {mark}'
+            print(f'error: {what} of {name} is not written in NOTICE.md, so the new hash cannot be put in its place; '
                   'add it by hand. Nothing was changed')
             return 1
         for path in texts:
-            texts[path] = texts[path].replace(old_h, new_h)
+            texts[path] = texts[path].replace(mark, new_h)
         copies.append((new_file, old_file))
-        report.append(f'{name}: {old_h[:12]} -> {new_h[:12]}')
+        report.append(f'{name}: {mark[:12]} -> {new_h[:12]}')
     for path, text in texts.items():
         path.write_text(text, encoding='utf-8')
     for new_file, old_file in copies:

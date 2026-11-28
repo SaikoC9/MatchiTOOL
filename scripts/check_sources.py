@@ -150,7 +150,7 @@ for fn in ('createFixedToast', 'requestInterval', 'createModal', 'runShellWithRo
     assert f'function {fn}' in html or f'async function {fn}' in html, f'plugin host helper missing: {fn}'
 assert 'matchi_changeip_btn' in dict(tools)['Change_IP.js'] and 'svc data disable' in (root / 'app/src/main/web-src/changeip-core.js').read_text(), 'Change IP tool missing'   # the switch script is in changeip-core.js
 assert 'installBundledBinary("bin/curl"' in server and 'files/curl' in html, 'bundled curl is not installed or not on the wrapper search path'
-assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)' in server and 'installBundledBinary("bin/$tool"' in server, 'jq, sha256, zreq, matchi-sampler, matchi-doctor and matchi-guard are not installed at start-up'
+assert 'BUNDLED_TOOLS = listOf("jq", "sha256", "zreq", "iperf3", LiveEngine.BINARY, "matchi-doctor", GuardHost.BINARY)' in server and 'installBundledBinary("bin/$tool"' in server, 'jq, sha256, zreq, iperf3, matchi-sampler, matchi-doctor and matchi-guard are not installed at start-up'
 # UFI removal, stage 2 (see UFI_REMOVAL_PATH.txt): the UFI plugin format, UFI_DATA poller, plugin store and UFI-only helpers must stay gone from the page.
 for needle in ('ufiParse', 'ufiInject', 'ufiImport', 'ufiBuild', 'ufiCheck', 'ufiHash', 'ufiT(', 'ufiModalEl', 'UFI_DATA', 'UFIPOLL', 'ufiDataStart', 'plugin_store_open',
                'plugin_ufi_', 'storeParseUfi', 'storeInstall', 'plugCompat', 'pluginLanFix', '__matchiCompat', 'downloadUrl',

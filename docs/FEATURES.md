@@ -35,6 +35,8 @@ AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Scre
 - **Full diagnose:** copy or download.
 - **Device diagnostics:** Android build, root identity, kernel, interfaces, routes, storage, optional tools.
 - **Advanced Network Diagnostics:** IPv4/IPv6 addresses and routes, gateway and public-IP ping, DNS lookup. Filtered ICMP is a limit, not an outage.
+- **Speed test** (Network Diagnostics): download and upload in Mbps with `iperf3`. You enter the server.
+- **Band test** (same window): tests each ticked band (LTE or 5G NR, up to 6), ranks them by speed and signal, then restores your old lock. **Lock best** is optional.
 - **Firmware manifest preflight:** reads XML or scatter files, lists partitions, warns on critical ones, shows SHA-256. Never flashes.
 
 ## USB and Wi-Fi

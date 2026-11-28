@@ -25,7 +25,9 @@ class BinaryHashesFileTest {
     }
 
     @Test fun everyBundledToolIsListed() {
-        assertEquals(listOf("curl", "jq", "matchi-doctor", "matchi-guard", "matchi-sampler", "sendat", "sha256", "zreq"), BinaryHashes.names().sorted())
+        // iperf3 is listed once its file is in assets/bin (gen_binary_hashes.py: OPTIONAL)
+        val want = listOf("curl", "jq", "matchi-doctor", "matchi-guard", "matchi-sampler", "sendat", "sha256", "zreq") + (if (File(binDir(), "iperf3").isFile) listOf("iperf3") else emptyList())
+        assertEquals(want.sorted(), BinaryHashes.names().sorted())
     }
 
     @Test fun everyHashLooksLikeSha256() {
