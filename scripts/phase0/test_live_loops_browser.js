@@ -251,16 +251,16 @@ async function scenario(name, run, opts = {}) {
   });
   await scenario('phase 5: speed graph', async ({ page, st, run1 }) => {
     await run1(2);
-    ok(await page.locator('#liv_inline .liv-spark').count() === 0, 'no graph until there are 2 readings');
+    ok(await page.locator('#liv_inline .liv-mini').count() === 0, 'no graph until there are 2 readings');
     await run1(40);
-    ok(await page.locator('#liv_inline .liv-spark polyline').count() === 2, 'graph has a download and an upload line');
-    ok(await page.locator('#liv_inline .liv-spark').innerText().then((t) => /last \d+ reads/.test(t) && /peak 2\.00 KB\/s/.test(t)), 'caption shows the number of reads and the peak');
+    ok(await page.locator('#liv_inline .liv-mini polyline').count() === 2, 'download and upload each have a line');
+    ok(await page.locator('#liv_inline .liv-mini').first().getAttribute('aria-label').then((t) => /last \d+ reads/.test(t) && /peak 2\.00 KB\/s/.test(t)), 'label shows the number of reads and the peak');
     await run1(300);
-    ok(await page.locator('#liv_inline .liv-spark').innerText().then((t) => /last 60 reads/.test(t)), 'keeps the last 60 reads only');
+    ok(await page.locator('#liv_inline .liv-mini').first().getAttribute('aria-label').then((t) => /last 60 reads/.test(t)), 'keeps the last 60 reads only');
   }, { extra: { realtime_rx_thrpt: '2048', realtime_tx_thrpt: '1024' } });
   await scenario('phase 5: no graph when the router has no speed keys', async ({ page, st, run1 }) => {
     await run1(30);
-    ok(await page.locator('#liv_inline .liv-spark').count() === 0, 'no graph without realtime_rx_thrpt / realtime_tx_thrpt');
+    ok(await page.locator('#liv_inline .liv-mini').count() === 0, 'no graph without realtime_rx_thrpt / realtime_tx_thrpt');
   });
 
 
