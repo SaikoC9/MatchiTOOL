@@ -40,7 +40,7 @@ AT Radio, Network Diagnostics, Live Status, Memory Cleaner, Change IP, SMS, Scre
 ## USB and Wi-Fi
 
 - **USB controls:** debugging on/off, USB Ethernet modes (RNDIS, CDC-ECM), live gadget state, restore of the firmware's saved USB config. Support depends on ROM and kernel.
-- **Indicator light** (Network > Light): On / Off, like the stock page. Re-reads the router after the change. Sends nothing if the router does not report the value.
+- **Indicator light** (Network > Light): On / Off, like the stock page.
 - **Wi-Fi off while USB tethering** (Network > Wi-Fi, off by default): router Wi-Fi goes off during tethering and returns after. Needs the router password saved in the app.
 
 ## Live device status
