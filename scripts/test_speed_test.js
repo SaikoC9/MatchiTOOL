@@ -119,14 +119,14 @@ async function rest() {
   assert.strictEqual(S.cleanRsrp('-95'), -95); assert.strictEqual(S.cleanRsrp(''), null); assert.strictEqual(S.cleanRsrp('0'), null); assert.strictEqual(S.cleanRsrp(undefined), null); assert.strictEqual(S.cleanRsrp('-999'), null);
   assert.strictEqual(S.cleanSinr('12'), 12); assert.strictEqual(S.cleanSinr('0'), 0); assert.strictEqual(S.cleanSinr(''), null);
   assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,70\nOK'), -71); assert.strictEqual(S.cesqRsrp('+CESQ: 99,99,255,255,20,255'), null); assert.strictEqual(S.cesqRsrp('ERROR'), null);
-  // an empty first answer is asked again (up to 3 times); the third answer is used
+  // an empty first answer is asked again (up to 6 times, until RSRP and SINR are both there)
   R = fakeRadio({}); let asks = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => (++asks < 3 ? {} : { rsrp: '-95', sinr: '12', band: 'B1' }), speed: async () => ({ ok: true, mbps: 9 }) });
   assert(asks === 3 && out.results[0].rsrp === -95 && out.results[0].sinr === 12, 'signal must be retried: ' + asks);
   // a signal that never comes is not an error: row keeps its speed, rsrp and sinr stay empty
   R = fakeRadio({}); asks = 0;
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => { asks++; throw new Error('router empty'); }, speed: async () => ({ ok: true, mbps: 9 }) });
-  assert(asks === 3 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
+  assert(asks === 6 && out.results[0].mbps === 9 && out.results[0].rsrp === null && out.results[0].sinr === null && !out.results[0].error);
   // Android telephony: LTE rsrp / rssnr, NR ssRsrp / ssSinr; 2147483647 is "no value"
   const tele = 'mSignalStrength=SignalStrength:{mCellSignalStrengths=[CellSignalStrengthLte: rssi=-70 rsrp=-95 rsrq=-9 rssnr=14 cqi=2147483647 level=3, CellSignalStrengthNr:{ssRsrp=-101 ssRsrq=-11 ssSinr=2147483647 level=2}]}';
   let tv = S.teleSignal(tele, 'lte'); assert(tv.rsrp === -95 && tv.sinr === 14, JSON.stringify(tv));

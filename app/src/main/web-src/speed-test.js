@@ -114,15 +114,18 @@
           log('Locking ' + name(b) + '…');
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
-          // The router can answer empty right after a radio restart: ask up to 3 times, 2 s apart. Signal is a bonus, never a failure.
+          // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
+          // Ask up to 6 times, 3 s apart, until BOTH RSRP and SINR are there; keep the best answer. Signal is a bonus, never a failure.
           let sg = {};
-          for (let k = 0; k < 3; k++) {
-            try { sg = (await o.signal()) || {}; } catch (_) { sg = {}; }
-            if (cleanRsrp(sg.rsrp) != null || cleanSinr(sg.sinr) != null) break;
-            if (k < 2) await R.sleep(2000);
+          for (let k = 0; k < 6; k++) {
+            let x = {}; try { x = (await o.signal()) || {}; } catch (_) { x = {}; }
+            const got = (v) => (cleanRsrp(v.rsrp) != null) + (cleanSinr(v.sinr) != null);
+            if (got(x) >= got(sg)) sg = x;
+            if (got(sg) === 2) break;
+            if (k < 5) await R.sleep(3000);
           }
-          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.nr5g = !!sg.nr && (row.rsrp != null || row.sinr != null); row.active = sg.band || '';
-          log(name(b) + ' signal: ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB') + (row.nr5g ? ' (5G values shown, the modem reports no LTE value)' : '')));
+          row.rsrp = cleanRsrp(sg.rsrp); row.sinr = cleanSinr(sg.sinr); row.active = sg.band || '';
+          log(name(b) + ' signal: ' + (row.rsrp == null && row.sinr == null ? 'not available' + (sg.dbg ? ' (' + sg.dbg + ')' : '') : (row.rsrp == null ? '-' : row.rsrp + ' dBm') + ' / ' + (row.sinr == null ? '-' : row.sinr + ' dB') + (sg.link ? ' · link: ' + sg.link : '')));
           log('Testing speed on ' + name(b) + '…');
           const t = await o.speed();
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
@@ -284,10 +287,9 @@
       for (const r of res) {
         const tr = el('tr', { className: r === top ? 'best' : '' });
         const act = String(r.active || '').match(/\d+/), lteT = st.type !== 'nr';
-        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : '', r.nr5g ? '5G signal' : ''].filter(Boolean).join(' \u00B7 ');
-        const g5 = r.nr5g ? ' 5G' : '';   // LTE row filled with the 5G reading: say so in the cell itself, so it is not read as an LTE value
+        const note = r.error || [r === top ? 'Best' : '', act && Number(act[0]) !== r.band ? 'on ' + (lteT ? 'B' : 'n') + act[0] : ''].filter(Boolean).join(' \u00B7 ');
         const long = note.length > 12;   // a long note (an error) gets its own line under the row, so the number columns keep their width
-        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm' + g5, r.sinr == null ? '-' : r.sinr + ' dB' + g5, long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
+        [r.label, r.mbps == null ? '-' : r.mbps, r.rsrp == null ? '-' : r.rsrp + ' dBm' , r.sinr == null ? '-' : r.sinr + ' dB', long ? '' : note].forEach((v) => tr.append(el('td', { textContent: String(v) }))); t.append(tr);
         if (long) { const nt = el('tr', { className: 'sp-nt' }), td = el('td', { textContent: note }); td.colSpan = 5; nt.append(td); t.append(nt); }
       }
       box.append(t);
@@ -297,29 +299,27 @@
       let i; try { i = inputs(); } catch (e) { setOut(e.message, ERR); return; }
       const bands = [...st.tick].sort((a, b) => a - b), n = bands.length;
       if (!(await askConfirm('Test ' + bands.map((b) => (st.type === 'nr' ? 'n' : 'B') + b).join(' ') + '?\n\n~' + Math.ceil(n * 1.7) + ' min. Internet is off during radio restarts. Old lock is restored at the end. If it fails: Unlock all in Radio settings.', 'Start test', true))) return;
-      // Network mode "4G only" (Only_LTE): the modem has no 5G link, so a 5G reading is never a valid stand-in for an LTE band.
-      let noNr = false; try { const rd = await R.readRadio(); noNr = !!rd && rd.net === 'Only_LTE'; } catch (_) { /* unknown mode: keep the 5G fallback */ }
       st.stop = false; st.best = null; $('sp_log').textContent = ''; $('sp_table').textContent = ''; busy(true);
-      if (noNr) log('Network mode is 4G only: only LTE values will be used.'); setOut('Band test running. Keep this open.');
+      setOut('Band test running. Keep this open.');
       try {
         const out = await bandTest({
           R, type: st.type, bands, full: st.sup[st.type], log,
           speed: () => measure(run, i, true), stop: () => st.stop,
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
           signal: async () => {
-            let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band' })) || {}; } catch (_) { /* try the modem below */ }
+            let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (_) { /* try the modem below */ }
             const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
+            g.link = String(d.network_type == null ? '' : d.network_type).trim();
             // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
             // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
-            const dbg = []; let nrAlt = { rsrp: null, sinr: null }, cesqNr = { rsrp: null, sinr: null };
+            const dbg = []; 
             try {
               const L = window.MatchiLive;
               if (L && L.fresh) {
-                const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}, n = x.nr || {};
+                const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {};
                 if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr;
                 // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
-                if (st.type !== 'nr') nrAlt = { rsrp: cleanRsrp(n.rsrp), sinr: cleanSinr(n.sinr) };
-                dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
+                                dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
               }
               else dbg.push('live panel not loaded');
             } catch (e) { dbg.push('live failed: ' + String(e && e.message || e).slice(0, 60)); }
@@ -338,15 +338,9 @@
                 const rs = st.type === 'nr' ? c.nrRsrp : c.lteRsrp;
                 if (cleanRsrp(g.rsrp) == null && rs != null) g.rsrp = rs;
                 if (st.type === 'nr') { if (cleanSinr(g.sinr) == null && c.nrSinr != null) g.sinr = c.nrSinr; }
-                else cesqNr = { rsrp: c.nrRsrp, sinr: c.nrSinr };
+                
                 dbg.push('AT+CESQ ' + (c.lteRsrp == null && c.nrRsrp == null ? 'no value' : 'ok'));
               } catch (e) { dbg.push('AT+CESQ failed: ' + String(e && e.message || e).slice(0, 60)); }
-            }
-            // Last resort, only for an LTE band when no LTE value was found anywhere and the radio can really be on 5G (not "4G only"):
-            // take the 5G RSRP and SINR together (never mixed with an LTE one) and mark the row.
-            if (st.type !== 'nr' && !noNr && cleanRsrp(g.rsrp) == null && cleanSinr(g.sinr) == null) {
-              const a = cleanRsrp(nrAlt.rsrp) != null || cleanSinr(nrAlt.sinr) != null ? nrAlt : cesqNr;
-              if (cleanRsrp(a.rsrp) != null || cleanSinr(a.sinr) != null) { g.rsrp = a.rsrp; g.sinr = a.sinr; g.nr = true; dbg.push('no LTE value, 5G used'); }
             }
             g.dbg = dbg.join(', ');
             return g;
