@@ -38,9 +38,7 @@ The router restarts after every LAN / DHCP and MTU / MSS apply. Console and Wi-F
 
 ## Indicator light
 
-Set call captured from the stock page (2026-11-28). The read key is assumed to match the set field.
-
-If the tab shows "Not reported", capture the read (F12 > Network, filter `goform_get_cmd_process`, open the Indicator Light page) and set `LIGHT_KEY` and `READ.light` in `net-core.js`.
+Set call captured from the stock page.
 
 ## This tool's limits (stricter than the router)
 
