@@ -137,5 +137,9 @@ async function rest() {
   R = fakeRadio({});
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => ({ sinr: '9' }), speed: async () => ({ ok: true, mbps: 9 }) });
   assert(out.results[0].rsrp === null && out.results[0].sinr === 9);
+  // AT+CESQ with the 5G fields (F50 answer): LTE 255 = none, ss_rsrp 54 -> -102 dBm, ss_sinr 67 -> 10 dB
+  let ce = S.cesqAll('+CESQ: 99,99,255,255,255,255,73,54,67\nOK'); assert(ce.lteRsrp === null && ce.nrRsrp === -102 && ce.nrSinr === 10, JSON.stringify(ce));
+  ce = S.cesqAll('+CESQ: 99,99,255,255,20,70'); assert(ce.lteRsrp === -71 && ce.nrRsrp === null && ce.nrSinr === null, JSON.stringify(ce));
+  ce = S.cesqAll('ERROR'); assert(ce.lteRsrp === null && ce.nrRsrp === null);
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }
