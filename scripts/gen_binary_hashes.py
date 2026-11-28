@@ -13,7 +13,9 @@ from pathlib import Path
 
 # The files the app copies out of assets/bin and runs. matchi_logd.sh and imei_apply.sh are read as text and handed to the root shell,
 # they are never copied to disk as programs, so they are not listed here.
-NAMES = ('curl', 'jq', 'matchi-doctor', 'matchi-guard', 'matchi-sampler', 'sendat', 'sha256', 'zreq')
+NAMES = ('curl', 'jq', 'matchi-doctor', 'matchi-guard', 'matchi-sampler', 'sendat', 'sha256', 'zreq', 'iperf3')
+# Listed only once the file is in assets/bin (the first release-tools run adds it); until then the app has no hash for it and does not run it.
+OPTIONAL = ('iperf3',)
 TARGET = 'app/src/main/java/com/matchi/tool/BinaryHashes.kt'
 
 
@@ -21,6 +23,8 @@ def render(root):
     lines = []
     for name in NAMES:
         f = root / 'app/src/main/assets/bin' / name
+        if not f.is_file() and name in OPTIONAL:
+            continue
         if not f.is_file():
             raise SystemExit(f'error: {f} is missing')
         lines.append(f'        "{name}" to "{hashlib.sha256(f.read_bytes()).hexdigest()}",')

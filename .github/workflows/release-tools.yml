@@ -1,6 +1,6 @@
 name: Release tools (build, compare, hashes, PR)
 
-# One run builds curl, jq, sendat and zreq, builds sendat and zreq a second time and compares the two builds, records
+# One run builds curl, jq, iperf3, sendat and zreq, builds sendat and zreq a second time and compares the two builds, records
 # build provenance, and opens a pull request that puts the binaries into assets/bin with their new SHA-256 values in
 # NOTICE.md and docs/BINARIES.md.
 # docs/BUILD_BINARIES.md (step 3) says what to test before it is merged.
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       check_native:
-        description: Build curl and jq a second time and compare (takes about as long again)
+        description: Build curl, jq and iperf3 a second time and compare (takes about as long again)
         type: boolean
         default: false
 
@@ -73,16 +73,17 @@ jobs:
           if [ -d parts/tools-native-again ]; then
             same tools-native tools-native-again curl
             same tools-native tools-native-again jq
+            same tools-native tools-native-again iperf3
           else
-            echo "curl and jq: not built a second time in this run"
+            echo "curl, jq and iperf3: not built a second time in this run"
           fi
       - name: Collect
         run: |
           set -eu
           mkdir out
-          cp parts/tools-native/curl parts/tools-native/jq parts/tools-sendat/sendat parts/tools-zreq/zreq out/
-          chmod 755 out/curl out/jq out/sendat out/zreq
-          (cd out && sha256sum curl jq sendat zreq > SHA256SUMS)
+          cp parts/tools-native/curl parts/tools-native/jq parts/tools-native/iperf3 parts/tools-sendat/sendat parts/tools-zreq/zreq out/
+          chmod 755 out/curl out/jq out/iperf3 out/sendat out/zreq
+          (cd out && sha256sum curl jq iperf3 sendat zreq > SHA256SUMS)
           {
             echo "## Binaries"
             echo "| file | SHA-256 |"
