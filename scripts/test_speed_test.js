@@ -163,5 +163,25 @@ async function rest() {
   R = fakeRadio({});
   out = await S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, stop: () => false, signal: async () => ({ rsrp: '-90', sinr: '10', band: 'LTE BAND 1' }), speed: async () => ({ ok: true, mbps: 9 }) });
   assert(out.results[0].rsrp === -90 && out.results[0].sinr === 10, 'right band kept');
+  // trace: every step is recorded with its raw answer, errors keep their message, the radio restart log is no longer thrown away
+  R = fakeRadio({ failLock: 3 }); R.radioCycle = async (ui) => { ui.log('slot 0 off: OK'); return true; };
+  let changes = 0; const tr = S.makeTrace(() => changes++);
+  await S.bandTest({ R, type: 'lte', bands: [1, 3], full: [], log() {}, trace: tr, stop: () => false, signal: async () => ({ rsrp: '-90', sinr: '10', band: 'B1' }), speed: async () => ({ ok: true, mbps: 9, port: 5201 }) });
+  const tx = tr.text();
+  assert(/start: /.test(tx) && /readBands/.test(tx) && /old lock to restore: B1 B3 B7 B28/.test(tx), tx);
+  assert(/setBands B1/.test(tx) && /radio restart: slot 0 off: OK/.test(tx) && /radioCycle returned: true/.test(tx) && /waitRegistered: registered/.test(tx), tx);
+  assert(/speed result B1: .*"mbps":9/.test(tx) && /signal read B1/.test(tx), tx);
+  assert(/band B3 ERROR: the router did not report the new lock/.test(tx), 'a refused lock must show in the trace: ' + tx);
+  assert(/--- restore/.test(tx) && /restored/.test(tx) && /end: /.test(tx) && changes === tr.rows.length, tx);
+  // a failing router read is traced with its message and still thrown
+  R = fakeRadio(); R.readBands = async () => { throw new Error('router down'); };
+  const tr2 = S.makeTrace(); await assert.rejects(() => S.bandTest({ R, type: 'lte', bands: [1], full: [], log() {}, trace: tr2, stop: () => false, signal: async () => ({}), speed: async () => ({}) }));
+  assert(/readBands ERROR: router down/.test(tr2.text()));
+  // long values are cut, the row count is capped
+  const tr3 = S.makeTrace(null, 5); for (let k = 0; k < 20; k++) tr3('x' + k, 'y'.repeat(2000));
+  assert(tr3.rows.length <= 5 && tr3.rows[tr3.rows.length - 1].data.length < 1000);
+  // measure reports every raw answer to onRaw
+  const raws = []; const mm = await S.measure(async () => 'iperf3: error - the server is busy running a test', { host: 'h.example', port: 5201, secs: 5, streams: 1 }, true, { onRaw: (x) => raws.push(x) });
+  assert(raws.length === 3 && raws[0].port === 5201 && raws[2].port === 5203 && /busy/.test(raws[0].raw) && !mm.ok);
   console.log('speed test ok: input checks, iperf3 script, parser, band test restores the old lock in every case, busy server retry, ping');
 }

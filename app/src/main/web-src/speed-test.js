@@ -60,6 +60,7 @@
       const text = await run(script(i.host, port, i.secs, download, { streams: i.streams, ping: !!o.ping && k === 0 }), (i.secs + OMIT + 30) * 1000);
       if (k === 0) ping = parsePing(text);
       r = parse(text); r.port = port;
+      if (o.onRaw) { try { o.onRaw({ try: k + 1, port, download, ok: r.ok, error: r.error || '', raw: text }); } catch (_) { /* never break the test */ } }
       if (r.ok || !/busy/i.test(r.error || '') || port >= 65535) break;
       port += 1;
     }
@@ -88,25 +89,47 @@
   };
   const rank = (results) => results.slice().sort((a, b) => (a.mbps == null) - (b.mbps == null) || (b.mbps || 0) - (a.mbps || 0));
 
+  // Trace: every step of a band test with the raw answer, so a failure shows WHERE it stopped and WHAT came back (no guessing).
+  // t = makeTrace(onChange); t('step', data) adds a line; t.err('step', e) adds an error with its stack; t.text() is the report body.
+  const clip = (v, n) => { let s; try { s = typeof v === 'string' ? v : v === undefined ? 'undefined' : JSON.stringify(v); } catch (_) { s = String(v); } s = String(s == null ? '' : s).replace(/\r/g, ''); return s.length > n ? s.slice(0, n) + '…(+' + (s.length - n) + ' chars)' : s; };
+  function makeTrace(onChange, cap) {
+    const max = cap || 400, rows = [], t0 = Date.now();
+    const t = (step, data) => { rows.push({ t: Date.now() - t0, step: String(step), data: data === undefined ? '' : clip(data, 900) }); if (rows.length > max) rows.splice(1, rows.length - max); if (onChange) { try { onChange(rows); } catch (_) { /* never break the test */ } } };
+    t.err = (step, e) => t(step + ' ERROR', (e && e.message ? e.message : String(e)) + (e && e.stack ? '\n' + String(e.stack).split('\n').slice(0, 4).join('\n') : ''));
+    t.rows = rows;
+    t.text = () => rows.map((r) => '[+' + (r.t / 1000).toFixed(1) + 's] ' + r.step + (r.data ? ': ' + r.data : '')).join('\n');
+    return t;
+  }
+
   // o: { R (window.MatchiRadio), type 'lte'|'nr', bands [n], full [n] (all supported, used when the old lock reads empty),
   //      speed() -> {ok,mbps,error}, signal() -> {rsrp,sinr,band}, log(line), stop() -> bool, progress(i, n) }
   async function bandTest(o) {
     const R = o.R, lte = o.type === 'lte', gf = lte ? 'LTE_BAND_LOCK' : 'NR_BAND_LOCK', param = lte ? 'lte_band_lock' : 'nr_band_lock';
-    const name = (b) => (lte ? 'B' : 'n') + b, log = o.log || (() => {});
-    const before = await R.readBands();
+    const name = (b) => (lte ? 'B' : 'n') + b, log = o.log || (() => {}), tr = o.trace || (() => {}), trErr = o.trace && o.trace.err ? o.trace.err : (() => {});
+    tr('start', { type: o.type, bands: o.bands, full: o.full });
+    let before; try { before = await R.readBands(); } catch (e) { trErr('readBands', e); throw e; }
+    tr('readBands', { lteRaw: before.lteRaw, nrRaw: before.nrRaw, lte: before.lte, nr: before.nr });
     // The radio restart (AT+SFUN) goes straight to the modem, so the modem can come back on 5G whatever the router's network mode says.
     // The mode is saved here, re-sent after each restart, and the link is checked before every speed test.
     let origNet = null; if (R.readRadio) { try { const rd = await R.readRadio(); origNet = rd && rd.net ? rd.net : null; } catch (_) { /* mode not readable */ } }
     const pure4g = lte && origNet === 'Only_LTE';
+    tr('network mode', { origNet, pure4g });
     const is5g = (t) => /5G|NR|ENDC|NSA|^SA$/i.test(String(t || '').trim());
     let orig = (lte ? before.lte : before.nr) || [];
     if (!orig.length) orig = (o.full || []).slice();
     if (!orig.length) throw new Error('No band list to restore, so the test was not started');
+    tr('old lock to restore', orig.map(name).join(' '));
     const apply = async (list) => {
-      const r = await R.setBands([[gf, param, R.bandText(list)]], lte ? { lte: list } : { nr: list });
+      const what = list.map(name).join(' ');
+      let r; try { r = await R.setBands([[gf, param, R.bandText(list)]], lte ? { lte: list } : { nr: list }); } catch (e) { trErr('setBands ' + what, e); throw e; }
+      tr('setBands ' + what, { ok: r.ok, bad: r.bad, notes: r.notes, sent: r.sent, readLte: r.read && r.read.lteRaw, readNr: r.read && r.read.nrRaw });
       if (!r.ok) throw new Error('the router did not report the new lock' + (r.bad && r.bad.length ? ' (' + r.bad.join('; ') + ')' : ''));
-      if (!(await R.radioCycle({ log: () => {}, toast: () => {} }))) throw new Error('radio restart not confirmed');
-      return R.waitRegistered(0, { everyMs: 3000, timeoutMs: 90000 });
+      const cyc = await R.radioCycle({ log: (l) => tr('radio restart', l), toast: () => {} });
+      tr('radioCycle returned', cyc);
+      if (!cyc) throw new Error('radio restart not confirmed');
+      const w0 = Date.now(), reg = await R.waitRegistered(0, { everyMs: 3000, timeoutMs: 90000 });
+      tr('waitRegistered', (reg ? 'registered' : 'NOT registered') + ' after ' + Math.round((Date.now() - w0) / 1000) + ' s');
+      return reg;
     };
     const results = []; let aborted = '', restored = false;
     const done = R.beginBusy('Band test running');
@@ -116,7 +139,7 @@
         const b = o.bands[i], row = { band: b, label: name(b), mbps: null, rsrp: null, sinr: null, active: '', error: '' };
         results.push(row); if (o.progress) o.progress(i, o.bands.length);
         try {
-          log('Locking ' + name(b) + '…');
+          log('Locking ' + name(b) + '…'); tr('--- band ' + name(b) + ' (' + (i + 1) + '/' + o.bands.length + ')');
           if (!(await apply([b]))) { row.error = 'no registration in 90 s'; log(name(b) + ': no registration'); continue; }
           await R.sleep(4000);
           if (lte && o.link) {
@@ -128,7 +151,7 @@
               if (pure4g && k === 1 && R.setNetMode) { try { await R.setNetMode(origNet); } catch (_) { /* ignore */ } }
               if (k < 4) await R.sleep(3000);
             }
-            row.g5 = is5g(lk);
+            row.g5 = is5g(lk); tr('link after lock', { network_type: lk, g5: row.g5 });
             if (row.g5 && pure4g) { row.error = '5G still on after the restart, skipped (not a pure 4G test)'; log(name(b) + ': 5G still on (' + lk + '), speed not tested'); continue; }
           }
           // Android telephony and the router can answer empty (or still show the old band) for a while after a radio restart.
@@ -144,6 +167,7 @@
               if (got(best) === 2) break;
               if (k < tries - 1) await R.sleep(3000);
             }
+            tr('signal read ' + name(b), { best, tries });
             return best;
           };
           const showSignal = (sg, when) => {
@@ -154,16 +178,18 @@
           };
           showSignal(await readSignal(6), '');
           log('Testing speed on ' + name(b) + '…');
+          tr('speed start ' + name(b));
           const t = await o.speed();
+          tr('speed result ' + name(b), t);
           if (t.ok) { row.mbps = t.mbps; log(name(b) + ': ' + t.mbps + ' Mbps'); } else { row.error = t.error || 'speed test failed'; log(name(b) + ': ' + row.error); }
           // Still no value: the traffic of the speed test makes Android report a fresh signal, so ask again now.
           if (row.rsrp == null && row.sinr == null) { const sg2 = await readSignal(3); if (got(sg2) > 0) showSignal(sg2, ' (after the speed test)'); }
-        } catch (e) { row.error = e.message; log(name(b) + ': ' + e.message); if (/radio restart/.test(e.message)) { aborted = e.message; break; } }
+        } catch (e) { row.error = e.message; log(name(b) + ': ' + e.message); trErr('band ' + name(b), e); if (/radio restart/.test(e.message)) { aborted = e.message; break; } }
       }
     } finally {
-      try { log('Restoring lock: ' + orig.map(name).join(' ')); const reg = await apply(orig); restored = true; log(reg ? 'Old lock restored.' : 'Old lock restored, not registered.'); } catch (e) { log('Restore FAILED: ' + e.message + '. Use Unlock all in Radio settings.'); }
+      try { log('Restoring lock: ' + orig.map(name).join(' ')); tr('--- restore'); const reg = await apply(orig); restored = true; tr('restored', { registered: reg }); log(reg ? 'Old lock restored.' : 'Old lock restored, not registered.'); } catch (e) { trErr('restore', e); log('Restore FAILED: ' + e.message + '. Use Unlock all in Radio settings.'); }
       if (pure4g && R.setNetMode) { try { const rd = await R.readRadio(); if (!rd || rd.net !== origNet) await R.setNetMode(origNet); } catch (_) { /* the mode is shown in Radio settings */ } }
-      done();
+      done(); tr('end', { restored, aborted });
     }
     return { results, ranked: rank(results), restored, aborted, orig };
   }
@@ -217,12 +243,13 @@
         '<div class="mut" style="font-size:11.5px;margin:0 0 4.5px">Locks each ticked band, tests download, reads signal, then restores your old lock. Internet is off during radio restarts.</div>' +
         '<div style="display:flex;gap:7px;align-items:center;margin-bottom:4.5px"><select id="sp_type"><option value="lte">LTE bands</option><option value="nr">5G NR bands</option></select><span class="mut" id="sp_bmsg" style="font-size:11.5px"></span></div>' +
         '<div id="sp_chips" style="display:flex;flex-wrap:wrap;gap:4.5px;margin-bottom:7px"></div>' +
-        '<div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button></div>' +
+        '<div style="display:flex;gap:7px;flex-wrap:wrap"><button type="button" id="sp_btest" disabled>Test ticked bands</button><button type="button" id="sp_lockbest" disabled>Lock best</button><button type="button" id="sp_diag" title="Read-only checks. No band change, no radio restart.">Diagnose</button><button type="button" id="sp_copy" title="Copy the step-by-step report of the last Diagnose or band test">Copy report</button></div>' +
+        '<div class="mut" id="sp_last" style="font-size:11.5px;margin-top:4.5px"></div>' +
         '<div id="sp_table" style="margin-top:7px"></div><pre id="sp_log" style="display:none;margin:7px 0 0;padding:6px 8px;max-height:92px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:10.5px;line-height:1.35;background:var(--bg);border:1px solid var(--bd);border-radius:9px"></pre></div></div>',
     });
     showModal(MODAL);
     const $ = (id) => document.getElementById(id);
-    const st = { stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
+    const st = { trace: null, stop: false, busy: false, sup: { lte: [], nr: [] }, tick: new Set(), best: null, type: 'lte', loaded: false };
     $('sp_host').value = store.get('host', ''); $('sp_port').value = store.get('port', '5201'); $('sp_secs').value = store.get('secs', '5'); $('sp_par').value = store.get('par', '4');
     if ($('sp_par').value === '') $('sp_par').value = '4';
     // server suggestions: buttons in the page's own style (a native list only shows entries that match the text, so the host could not be changed without clearing it)
@@ -257,8 +284,40 @@
       store.set('host', host); store.set('port', port); store.set('secs', secs); store.set('par', streams);
       return { host, port: +port, secs: +secs, streams: +streams };
     };
-    const busy = (on) => { st.busy = on; $('sp_run').disabled = on; $('sp_stop').disabled = !on; $('sp_btest').disabled = on || !st.tick.size; $('sp_lockbest').disabled = on || !st.best; $('sp_type').disabled = on; };
-    const run = async (sc, ms) => ((await runShellWithRoot(sc, ms)) || {}).content;
+    const busy = (on) => { st.busy = on; $('sp_run').disabled = on; $('sp_stop').disabled = !on; $('sp_btest').disabled = on || !st.tick.size; $('sp_lockbest').disabled = on || !st.best; $('sp_type').disabled = on; $('sp_diag').disabled = on; };
+    const T = (step, data) => { if (st.trace) st.trace(step, data); };
+    // The shell call's whole answer is traced (an {error} used to look like an empty answer and ended as "No answer").
+    const run = async (sc, ms) => {
+      const t0 = Date.now(); let r;
+      try { r = (await runShellWithRoot(sc, ms)) || {}; } catch (e) { T('shell call THREW', { ms: Date.now() - t0, error: e && e.message }); throw e; }
+      T('shell call', { ms: Date.now() - t0, keys: Object.keys(r).join(','), success: r.success, error: r.error, len: r.content == null ? null : String(r.content).length });
+      return r.content != null ? r.content : (r.error ? 'ERROR: ' + r.error : '');
+    };
+    const onRaw = (x) => T('iperf3 ' + (x.download ? 'download' : 'upload') + ' try ' + x.try + ' port ' + x.port, { ok: x.ok, error: x.error, raw: String(x.raw == null ? '' : x.raw).slice(0, 700) });
+    // ---- trace: kept in the browser after every line, so a page that dies in the middle of a radio restart still has its last step ----
+    const SAVE_MAX = 60000;
+    const newTrace = (title) => {
+      st.trace = makeTrace((rows) => {
+        const body = st.trace.text(); store.set('trace', title + '\n' + (body.length > SAVE_MAX ? '…(older lines cut)\n' + body.slice(-SAVE_MAX) : body));
+      });
+      store.set('trace_open', '1');
+      return st.trace;
+    };
+    const endTrace = () => store.set('trace_open', '0');
+    const header = (title) => [
+      'MatchiTOOL ' + title, 'Time: ' + new Date().toISOString(), 'Page version: ' + (typeof PAGE_VERSION === 'string' ? PAGE_VERSION : '?'), 'Page: ' + location.origin, 'Browser: ' + navigator.userAgent,
+      'Server: ' + ($('sp_host') ? $('sp_host').value.trim() : '') + ':' + ($('sp_port') ? $('sp_port').value.trim() : '') + '  secs ' + ($('sp_secs') ? $('sp_secs').value : '') + '  streams ' + ($('sp_par') ? $('sp_par').value : ''),
+      'Type: ' + st.type + '  ticked: ' + [...st.tick].join(' '), '',
+    ].join('\n');
+    const copyReport = async () => {
+      const cur = st.trace ? header('Band test / Diagnose report') + st.trace.text() : store.get('trace', '');
+      if (!cur) { toast('No report yet. Run Diagnose or a band test first.', 'red'); return; }
+      try { await navigator.clipboard.writeText(cur); toast('Report copied', 'green'); return; } catch (_) { /* plain HTTP: no clipboard API, try the old way */ }
+      const ta = el('textarea', { value: cur, readOnly: true }); ta.style.cssText = 'width:100%;height:140px;margin-top:7px;font:10.5px ui-monospace,monospace;box-sizing:border-box';
+      const box = $('sp_last'); box.textContent = ''; box.append(ta); ta.focus(); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (_) { /* select by hand */ }
+      toast(ok ? 'Report copied' : 'Report selected: copy it by hand', ok ? 'green' : 'red');
+    };
     const speedTile = (k, r, i) => {
       if (!r.ok) { tile(k, { state: 'err', v: '-', u: 'Mbps', s: 'failed' }); return; }
       tile(k, { state: 'ok', v: num(r.mbps), u: unitOf(r.mbps), s: [i.streams + (i.streams > 1 ? ' streams' : ' stream'), 'port ' + r.port, r.retrans > 0 ? r.retrans + ' retransmits' : ''].filter(Boolean).join(' · ') });
@@ -309,6 +368,46 @@
     st.loaded = true; loadBands();
     $('sp_type').onchange = () => { st.type = $('sp_type').value; st.tick.clear(); st.best = null; drawChips(); busy(false); };
 
+    // One signal read: router, then the Live panel, Android telephony, the modem. Every raw answer goes to the trace.
+    const signalNow = async () => {
+      let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (e) { T('signal: router read ERROR', e && e.message); }
+      const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
+      g.link = String(d.network_type == null ? '' : d.network_type).trim(); T('signal: router fields', d);
+      // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
+      // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
+      const dbg = []; 
+      try {
+        const L = window.MatchiLive;
+        if (L && L.fresh) {
+          const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {}; T('signal: Live fresh()', x);
+          if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; if (!g.band && c.band) g.band = c.band;
+          // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
+                          dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
+        }
+        else dbg.push('live panel not loaded');
+      } catch (e) { T('signal: Live fresh() ERROR', e && e.message); dbg.push('live failed: ' + String(e && e.message || e).slice(0, 60)); }
+      dbg.push('router ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
+      if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
+        try {
+          const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
+          const tv = teleSignal(txt, st.type), tok = (txt.match(/\b(?:rsrp|rssnr|ssRsrp|ssSinr|csiRsrp|csiSinr)\s*=\s*-?\d+/g) || []).slice(0, 6).join(' '); T('signal: telephony raw', txt.slice(0, 700)); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars: ' + (tok || 'no rsrp/sinr field') : 'no output'));
+          if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
+          if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
+        } catch (e) { T('signal: telephony ERROR', e && e.message); dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
+      }
+      if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
+        try {
+          const raw = await R.at('AT+CESQ'), c = cesqAll(raw); T('signal: AT+CESQ raw', raw);
+          const rs = st.type === 'nr' ? c.nrRsrp : c.lteRsrp;
+          if (cleanRsrp(g.rsrp) == null && rs != null) g.rsrp = rs;
+          if (st.type === 'nr') { if (cleanSinr(g.sinr) == null && c.nrSinr != null) g.sinr = c.nrSinr; }
+          
+          dbg.push('AT+CESQ ' + (c.lteRsrp == null && c.nrRsrp == null ? 'no value' : 'ok'));
+        } catch (e) { T('signal: AT+CESQ ERROR', e && e.message); dbg.push('AT+CESQ failed: ' + String(e && e.message || e).slice(0, 60)); }
+      }
+      g.dbg = dbg.join(', '); T('signal: merged', { g });
+      return g;
+    };
     function drawTable(res) {
       const box = $('sp_table'); box.textContent = '';
       const t = el('table', { className: 'sp-tb' }), top = res.find((r) => r.mbps != null);
@@ -329,53 +428,16 @@
       let i; try { i = inputs(); } catch (e) { setOut(e.message, ERR); return; }
       const bands = [...st.tick].sort((a, b) => a - b), n = bands.length;
       if (!(await askConfirm('Test ' + bands.map((b) => (st.type === 'nr' ? 'n' : 'B') + b).join(' ') + '?\n\n~' + Math.ceil(n * 1.7) + ' min. Internet is off during radio restarts. Old lock is restored at the end. If it fails: Unlock all in Radio settings.', 'Start test', true))) return;
-      st.stop = false; st.best = null; $('sp_log').textContent = ''; $('sp_table').textContent = ''; busy(true);
+      st.stop = false; st.best = null; $('sp_log').textContent = ''; $('sp_table').textContent = ''; $('sp_last').textContent = ''; busy(true);
       setOut('Band test running. Keep this open.');
+      const tr = newTrace('Band test ' + (st.type === 'nr' ? 'n' : 'B') + bands.join(' '));
       try {
         const out = await bandTest({
-          R, type: st.type, bands, full: st.sup[st.type], log,
-          speed: () => measure(run, i, true), stop: () => st.stop,
+          R, type: st.type, bands, full: st.sup[st.type], log, trace: tr,
+          speed: () => measure(run, i, true, { onRaw }), stop: () => st.stop,
           link: async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type' }); return d && d.network_type; },
           progress: (k, m) => setOut('Band test ' + (k + 1) + ' of ' + m + '… keep this open'),
-          signal: async () => {
-            let d = {}; try { d = (await R.zte('get', { multi_data: '1', cmd: 'lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,wan_active_band,nr5g_action_band,network_type' })) || {}; } catch (_) { /* try the modem below */ }
-            const g = st.type === 'nr' ? { rsrp: d.Z5g_rsrp, sinr: d.Z5g_SINR, band: d.nr5g_action_band } : { rsrp: d.lte_rsrp, sinr: d.lte_snr, band: d.wan_active_band };
-            g.link = String(d.network_type == null ? '' : d.network_type).trim();
-            // The router often answers nothing for these (the F50 does). Fill the gaps from Android telephony (RSRP and SINR), then the modem (RSRP).
-            // First choice: the Live panel's own reading (router, Android telephony, modem), taken fresh after the lock.
-            const dbg = []; 
-            try {
-              const L = window.MatchiLive;
-              if (L && L.fresh) {
-                const x = await L.fresh(), c = (st.type === 'nr' ? x.nr : x.lte) || {};
-                if (cleanRsrp(c.rsrp) != null) g.rsrp = c.rsrp; if (cleanSinr(c.sinr) != null) g.sinr = c.sinr; if (!g.band && c.band) g.band = c.band;
-                // The Live panel's 5G reading is only remembered here. It is a last resort (see below), used after every LTE source has been tried.
-                                dbg.push('live ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
-              }
-              else dbg.push('live panel not loaded');
-            } catch (e) { dbg.push('live failed: ' + String(e && e.message || e).slice(0, 60)); }
-            dbg.push('router ' + (cleanRsrp(g.rsrp) == null ? 'empty' : 'ok'));
-            if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
-              try {
-                const txt = String(await R.sh("dumpsys telephony.registry 2>/dev/null | grep -E 'mSignalStrength|CellSignalStrength' | head -40", 15000));
-                const tv = teleSignal(txt, st.type), tok = (txt.match(/\b(?:rsrp|rssnr|ssRsrp|ssSinr|csiRsrp|csiSinr)\s*=\s*-?\d+/g) || []).slice(0, 6).join(' '); dbg.push('telephony ' + (txt.trim() ? txt.length + ' chars: ' + (tok || 'no rsrp/sinr field') : 'no output'));
-                if (cleanRsrp(g.rsrp) == null && tv.rsrp != null) g.rsrp = tv.rsrp;
-                if (cleanSinr(g.sinr) == null && tv.sinr != null) g.sinr = tv.sinr;
-              } catch (e) { dbg.push('telephony failed: ' + String(e && e.message || e).slice(0, 60)); }
-            }
-            if (cleanRsrp(g.rsrp) == null || cleanSinr(g.sinr) == null) {
-              try {
-                const raw = await R.at('AT+CESQ'), c = cesqAll(raw);
-                const rs = st.type === 'nr' ? c.nrRsrp : c.lteRsrp;
-                if (cleanRsrp(g.rsrp) == null && rs != null) g.rsrp = rs;
-                if (st.type === 'nr') { if (cleanSinr(g.sinr) == null && c.nrSinr != null) g.sinr = c.nrSinr; }
-                
-                dbg.push('AT+CESQ ' + (c.lteRsrp == null && c.nrRsrp == null ? 'no value' : 'ok'));
-              } catch (e) { dbg.push('AT+CESQ failed: ' + String(e && e.message || e).slice(0, 60)); }
-            }
-            g.dbg = dbg.join(', ');
-            return g;
-          },
+          signal: signalNow,
         });
         drawTable(out.ranked);
         const top = out.ranked.find((r) => r.mbps != null);
@@ -385,7 +447,7 @@
         else if (out.aborted) showResult('warn', 'Stopped' + (out.aborted !== 'stopped' ? ': ' + out.aborted : '') + (top ? ' \u00B7 best ' + bestTxt : ''), 'Lock restored');
         else if (top) showResult('ok', 'Fastest: ' + bestTxt, 'Lock restored');
         else showResult('warn', 'No band gave a result', 'Lock restored');
-      } catch (e) { setOut('Band test failed: ' + e.message, ERR); } finally { busy(false); }
+      } catch (e) { tr.err('band test', e); setOut('Band test failed: ' + e.message + '. Copy report shows the step.', ERR); } finally { endTrace(); $('sp_last').textContent = 'Report ready: Copy report.'; busy(false); }
     };
     $('sp_lockbest').onclick = async () => {
       if (st.busy || st.best == null) return;
@@ -401,8 +463,45 @@
         setOut(reg ? n + ' locked.' : n + ' locked, not registered yet.', reg ? '' : ERR);
       } catch (e) { setOut('Lock failed: ' + e.message, ERR); } finally { done(); busy(false); }
     };
+    $('sp_copy').onclick = copyReport;
+    {
+      const last = store.get('trace', '');
+      if (last) $('sp_last').textContent = store.get('trace_open', '0') === '1'
+        ? 'The last band test or Diagnose did NOT finish (the page was closed or lost the host). Copy report shows the last step it reached.'
+        : 'A report from the last run is saved. Copy report copies it.';
+    }
+
+    // ---- Diagnose: read-only. No band is changed, the radio is not restarted. Every step is timed and its raw answer is kept in the report. ----
+    $('sp_diag').onclick = async () => {
+      if (st.busy) return;
+      st.stop = false; busy(true); $('sp_log').textContent = ''; $('sp_last').textContent = '';
+      const tr = newTrace('Diagnose'); setOut('Diagnose running (read-only)…');
+      const step = async (name, fn) => { const t0 = Date.now(); try { const v = await fn(); tr(name + ' [' + (Date.now() - t0) + ' ms]', v); return v; } catch (e) { tr.err(name + ' [' + (Date.now() - t0) + ' ms]', e); return undefined; } };
+      try {
+        tr('page', { radio: !!R, live: !!(window.MatchiLive && window.MatchiLive.fresh), shell: typeof runShellWithRoot, confirm: typeof askConfirm, busyNow: R && R.isBusy ? R.isBusy() : null });
+        if (!R) { setOut('Radio tools not available on this page.', ERR); return; }
+        await step('root shell', async () => String(await R.sh('id; echo ROOT_OK', 15000)).trim());
+        await step('tools on the device', async () => String(await R.sh('for c in sendat timeout ping dumpsys svc; do printf "%s=" $c; command -v $c || echo MISSING; done', 15000)).trim());
+        await step('iperf3 binary', async () => String(await run(FIND.concat(['ls -l "$B" 2>&1', '"$B" --version 2>&1 | head -n 2']).join('\n'), 15000)).trim());
+        await step('router password saved', async () => { const c = await api('/api/zte/config'); return { passwordSet: c && c.passwordSet }; });
+        await step('router read (bands)', async () => { const b = await R.readBands(); return { lteRaw: b.lteRaw, nrRaw: b.nrRaw, lte: b.lte, nr: b.nr }; });
+        await step('router read (network mode)', async () => R.readRadio());
+        await step('router read (network_type)', async () => { const d = await R.zte('get', { multi_data: '1', cmd: 'network_type,wan_active_band,nr5g_action_band,lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR' }); return d; });
+        await step('AT CEREG', async () => R.tidy(await R.at('AT+CEREG?', 0)));
+        await step('AT C5GREG', async () => R.tidy(await R.at('AT+C5GREG?', 0)));
+        await step('registered', async () => R.isRegistered(0));
+        await step('NR supported bands (AT)', async () => R.tidy(await R.at('AT+SP5GCMDS="get nr support_band"', 0)));
+        await step('signal read', async () => signalNow());
+        let host = '', port = '', secs = 3; try { const i = inputs(); host = i.host; port = i.port; } catch (e) { tr('speed inputs', 'skipped: ' + e.message); }
+        if (host) await step('speed (3 s, 1 stream, download + ping)', async () => { const r = await measure(run, { host, port, secs, streams: 1 }, true, { ping: true, onRaw }); return r; });
+        tr('done', 'read-only, nothing was changed');
+        $('sp_log').style.display = 'block'; $('sp_log').textContent = st.trace.text();
+        setOut('Diagnose done. Press Copy report and send it.');
+      } catch (e) { tr.err('diagnose', e); setOut('Diagnose failed: ' + e.message + '. Copy report has the steps.', ERR); }
+      finally { endTrace(); busy(false); }
+    };
     busy(false);
   }
 
-  window.MatchiSpeed = { validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, cesqAll, teleSignal, open };
+  window.MatchiSpeed = { makeTrace, validHost, validPort, validSecs, validStreams, script, parse, parsePing, measure, rank, bandTest, cleanRsrp, cleanSinr, cesqRsrp, cesqAll, teleSignal, open };
 })();
