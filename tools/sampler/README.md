@@ -1,4 +1,4 @@
-# matchi-sampler (own build)
+# matchi-sampler
 
 Prints one line per second for the Live panel: CPU rows, core speeds, temperatures, load, uptime, memory. Replaces the shell loop in `LiveSampler.kt` (`LiveScript.body`) with one small program that starts no child process per round. It prints **the same line**, so the Kotlin parser is unchanged.
 

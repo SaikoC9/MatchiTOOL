@@ -8,7 +8,7 @@ For 1.4.6. Android deletes only the app's own folder on uninstall. A small root 
 - It decides the app is gone only when app data, APK, `pm path` and boot state agree 3 times, 20 s apart. If unclear, it does nothing.
 - Updates and downgrades keep app data and write an `updating` marker, so they never wipe.
 - Order: boot scripts, firewall, speed limits, programs, plugin stop commands, files. Last: reaper, its boot script, its log.
-- A failed step keeps the boot script and a one-line log, and retries at boot (max 5).
+- A failed step keeps the boot script and a one-line log, and retries at boot (max 5). After the fifth failed try it removes the folder, itself and the boot script anyway. Only the log stays (`gave-up left=...`).
 - It never talks to the router.
 
 ## Switch
@@ -34,6 +34,10 @@ Home button **Wipe on uninstall**, ON by default.
 | Plugin processes (`MATCHI_PLUGIN` tag) | stopped |
 | Plugin paths in the ledger under `/data/local` | removed |
 | `/data/local/adguardhome/`, always | removed |
+| OpenWrt VM plugin: every process that runs from `/data/local/matchi_owrt/` (`cloud-hypervisor`, `owrt-vm.sh`) | stopped first |
+| OpenWrt VM network: chains `OWRT_FWD`, `OWRT_IN` (filter), `OWRT_NAT`, `OWRT_PRE` (nat) with their jumps, policy rules pref 5000-5002 for `192.168.66.0/24`, taps `owrt-lan`, `owrt-wan`, address `192.168.88.2/24` on `br0` | removed |
+| OpenWrt VM: `ip_forward` and KVM halt polling | put back to the values saved in `run/` |
+| `/data/local/matchi_owrt/`, always | removed |
 
 ## Stays
 
@@ -59,6 +63,10 @@ The app keeps `reaper/plugins.snap` and `reaper/plugins.manifest` current (root-
 | `X command` | runs it only if its sha256 is in the manifest (60 s total) |
 
 The whole snapshot is skipped if not root-owned, group/other writable, or a symlink.
+
+## OpenWrt VM
+
+The plugin sets up its network inside `owrt-vm.sh`, so the plugin ledger cannot see it. Left behind, the VM stays the hotspot DHCP server, `OWRT_IN` blocks Android's DHCP on `br0`, and clients cannot reach the console. The reaper knows the names itself (`Footprint.OWRT_*`). Rules match by pref and guest net. `br0` and its own address are never touched.
 
 ## Limits
 

@@ -29,6 +29,11 @@ echo "Filesystem 1K-blocks Used Available Use% Mounted on"
 echo "/dev/x 1000000 1000 $(cat "$FAKE_DIR/free_kb" 2>/dev/null || echo 900000) 1% /data"
 FAKE
 printf '#!/bin/sh\nexit 0\n' > "$work/bin/log"
+# fake ps: the real script reads command lines with "ps -A -o PID,ARGS" (toybox); the ps on a PC wants lower case names
+cat > "$work/bin/ps" <<'FAKE'
+#!/bin/sh
+/bin/ps -A -o pid,args | sed '1s/.*/PID ARGS/'
+FAKE
 printf '#!/bin/sh\ncase "$1" in ro.build.fingerprint) echo fake/fp;; *) echo;; esac\n' > "$work/bin/getprop"
 chmod +x "$work/bin/"*
 export FAKE_DIR="$work" MATCHI_DIR="$work/mt" LOGD_TICK=${LOGD_TICK_TEST:-1} LOGD_SELF="$work/matchi_logd.sh" PATH="$work/bin:$PATH"
@@ -41,9 +46,16 @@ echo "magisk line 1" > "$work/fm/magisk.log"; printf 'version=1.2\n' > "$work/fm
 echo "audit line" > "$work/fm/audit.log"; echo "updater line" > "$work/mt/tmp/matchi_update.log"; echo "app event line" > "$work/mt/events.log"
 export MATCHI_MAGISK_LOGS="$work/fm/none.log $work/fm/magisk.log" MATCHI_MODULES_DIR="$work/fm/modules" MATCHI_APP_AUDIT="$work/fm/audit.log" EXTRAS_DELAY=1 EXTRAS_EVERY=2
 mkdir -p "$L"; echo old > "$L/dmesg.log.2"; echo older > "$L/logcat.log.2"; touch -d "3 days ago" "$L/dmesg.log.2" "$L/logcat.log.2"
+# A pid file left over from an earlier boot names a process that is alive but is NOT the capture script: it must not block the start.
+sleep 300 & other=$!
+echo "$other" > "$L/logd.pid"
 sh "$work/matchi_logd.sh"       # parent must return at once and leave a detached child
 sleep 5
 [ -s "$L/logcat.log" ] && ok "logcat.log is being written" || bad "logcat.log missing"
+[ "$(cat "$L/logd.pid" 2>/dev/null)" != "$other" ] && ok "stale pid file naming another live process did not block the start" || bad "stale pid file blocked the start"
+kill -0 "$other" 2>/dev/null && ok "the unrelated process was left alone" || bad "the unrelated process was killed"
+grep -q "logd.pid held $other" "$L/events.log" && ok "events.log says the stale pid was ignored" || bad "no note about the stale pid"
+kill "$other" 2>/dev/null
 [ -s "$L/dmesg.log" ] && ok "dmesg.log is being written" || bad "dmesg.log missing"
 [ -f "$L/context.txt" ] && grep -q 'build=fake/fp' "$L/context.txt" && ok "context header written" || bad "context header missing"
 grep -q '^state=running' "$L/status" 2>/dev/null && ok "status file says running" || bad "status missing/not running"
@@ -78,4 +90,6 @@ kill -0 "$pid" 2>/dev/null && bad "script still running after TERM" || ok "scrip
 if ps 2>/dev/null | grep -q "[f]ake_marker_none"; then :; fi
 i=0; n=1; while [ "$n" -gt 0 ] && [ $i -lt 10 ]; do sleep 0.5; n=$(pgrep -f "$work/bin" 2>/dev/null | wc -l); i=$((i+1)); done
 [ "$n" -eq 0 ] && ok "no capture processes left" || bad "$n capture processes left"
+# The app's own root commands must not kill a bare "$(cat logd.pid)" any more (see BootLogdModel.PID_FN).
+if grep -n 'kill' "$here/../app/src/main/java/com/matchi/tool/BootLogd.kt" | grep -qF 'logd.pid'; then bad "BootLogd.kt kills a pid straight from logd.pid"; else ok "BootLogd.kt only kills what logd_pid confirms"; fi
 [ $fail -eq 0 ] && echo "ALL OK" || { echo "FAILED"; exit 1; }

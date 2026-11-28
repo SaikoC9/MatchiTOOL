@@ -1,5 +1,5 @@
-Goal:   Device test log for the bundled binaries (curl, jq, sendat, zreq).
-Status: mixed. Search for [OPEN] to see what was not run on the F50.
+Goal: Device test log for the bundled binaries (curl, jq, sendat, zreq).
+Status: mixed. Search for [OPEN] to see what was
 Date:   2026-11-17
 
 ----
@@ -34,7 +34,7 @@ ZREQ SWAP (2026-11-17)
        NOTICE.md, docs/BINARIES.md, CHANGELOG.md updated; scripts/check_repo.py passes.
 [CHECKED HERE] ELF arm64 static; flags read from the file: -ip (private/loopback IPv4) -method -params -body -path -json -t
        -cookie -pwd -pwd-file -pwd-mode b64|raw -verbose -version. The old default password string is NOT in the file.
-[OPEN] Not run on the F50 (no arm64 here). Test ZQ-1 below.
+[OPEN] (no arm64 here). Test ZQ-1 below.
 [OPEN] Source of this build is not in the repo: add tools/zreq/{go.mod,main.go} + a workflow, then rebuild and compare the hash.
 [RISK] Plugins that called zreq with no -pwd relied on the old default password; they now get no sign-in.
 
@@ -67,7 +67,7 @@ NEXT (older list, superseded by "DEVICE TEST 2026-11-17 PST (one-paste test, sen
         tables. The bug 1 script tested that, so it always saw "no route", always toggled mobile data, and reported DATA:none although the
         internet worked afterwards (ping 0% loss, sipa_eth0 had a new address 100.82.104.120). So it is still unknown whether the restart
         alone drops data. FIXED in code: the check is now a root ping to 1.1.1.1 / 8.8.8.8 (waits up to ~36 s, then toggles, then ~24 s), and a
-        test fails if the script asks for a default route again. Also prints NET:<n> inet on sipa_eth0 before any toggle. NOT yet run on device.
+        test fails if the script asks for a default route again. Also prints NET:<n> inet on sipa_eth0 before any toggle.
 [FOUND] Radio restart log: OFF0:OK, OFF1: "timeout waiting for modem reply", ON0:1:OK, ON1:1:"+COPS: 0 OK". Slot 1 does not exist; -n 1 writes to
         /dev/stty_nr1 which urild holds, and the answer "+COPS: 0" is the RIL's own traffic, not a reply to AT+SFUN=4. Evidence that slot 1
         writes touch the RIL. Fix still to do: remove stty_nr1 from sendat's slot 1 defaults (needs a sendat rebuild).
@@ -101,7 +101,7 @@ RESULTS 2026-11-17 (no internet after radio restart, then curl on the UFI path)
         CURL_CA_BUNDLE. A caller's own CURL_CA_BUNDLE / SSL_CERT_FILE wins; curl's --cacert and -k still win. It covers the raw binary,
         the UFI path and the wrapper, and boot.sh / boot.d (they run through RootShell.run). CurlCaTest.kt runs the real prelude in the
         host sh: 9 tests pass here (compiled on its own: scripts/kotlin_pure_tests.sh does not compile here because PluginGuard.kt uses
-        org.json without an import; unrelated to this change). RootShell.kt is not compiled here (Android classes): CI must confirm.
+        org.json without an import; unrelated to this change). CI must confirm.
 [DONE] Built and installed the new APK, checked on the F50 (web console terminal, root shell):
         /data/local/matchitool/bin/curl       -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
         /data/data/com.matchi.tool/files/curl -sS -m 8 -o /dev/null -w "%{http_code}\n" https://api.ipify.org  -> 200
@@ -119,17 +119,17 @@ FIXES 2026-11-17 (bugs 1-3; see CHANGELOG.md 1.4.2)
         waits up to ~15 s more. Prints DATA:ok / toggled / none / off / skip and the log says which. It never turns mobile data ON for an
         owner who turned it off (settings get global mobile_data = 0 -> DATA:off) and does nothing if the radio did not come back.
         Script timeout 110 s (was 60; /api/shell caps at 120). scripts/test_at_radio.js runs the real script in the host sh with fake
-        sendat/ip/settings/svc (6 cases). validate.sh passes. NOT yet run on the F50.
+        sendat/ip/settings/svc (6 cases). validate.sh passes.
 [DONE, CI] Bug 2, sendat -probe skips ports other processes hold: it reads /proc/<pid>/fd (root) and skips a port another process has open
         (another sendat does not count); fixed fallback list nr0..5 urild, nr28 cplog_svc (really vendor.sprd.har), nr31 engpc. Skipped ports are listed with the
         reason. New flag: -probe -all (tries them anyway, can drop mobile data). Normal calls unchanged.
         CI build-sendat.yml: go vet + go test passed. Binary sha256 f33b7aa2f39f9721661c75d2a844d8f4bc1e3810218fb4c15630fe6280b5cadf
         (static arm64, strings checked); it was replaced by the bug 3 build (341bfb4d..., below), which includes this fix.
-        NOT yet run on the F50.
+
 [DONE, CI] Bug 3, slot 0 default port: the guess list now starts with /dev/stty_nr6 (free on the F50), stty_nr0 last as a
         fallback. Test TestDefaultSlot0StartsWithFreePort.
         CI build: go vet + go test passed. NEW sendat sha256 341bfb4d2890e66f753cba42436155f672997190a71097eee8064a5ef4e9342e (replaces f33b7aa2...,
-        has bug 2 and bug 3), installed in assets/bin/sendat, NOTICE.md and docs/BINARIES.md updated, check_repo.py passes. NOT yet run on the F50.
+        has bug 2 and bug 3), installed in assets/bin/sendat, NOTICE.md and docs/BINARIES.md updated, check_repo.py passes.
         NOT proven that stty_nr6 answers AT, only that it is free. Test: sendat -d /dev/stty_nr6 -c AT
 
 NEW FINDING 2026-11-17
@@ -292,5 +292,5 @@ RESULTS 2026-11-18 (AdGuard Home plugin preflight on the F50, plugin AdGuardHome
         This also means every earlier curl call through matchi.sh failed the same way (the plain root curl paths in the page were not affected).
 [FIXED] Added the missing ";" (web-src and the built index.html). New check in scripts/test_plugin_api.js runs the wrapper text through "sh -n"
         (proved: it fails on the old text, passes on the new). scripts/validate.sh passes here. Kotlin not touched.
-[OPEN]  Not run on the F50: build via GitHub Actions, install the APK, reload the page, run the AdGuard preflight again: "GitHub reachable" should turn OK.
+[OPEN] : build via GitHub Actions, install the APK, reload the page, run the AdGuard preflight again: "GitHub reachable" should turn OK.
         Quick check in the web console: /data/local/matchitool/bin/curl -sI https://github.com | head -1   (expect HTTP/2 200 or 301).

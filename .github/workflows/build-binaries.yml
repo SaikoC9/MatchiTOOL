@@ -1,9 +1,5 @@
 name: Build jq and curl (arm64 Android)
 
-# Builds jq and curl from pinned upstream release tags with the Android NDK, so the
-# executables in app/src/main/assets/bin have a source and a recipe (docs/BUILD_BINARIES.md).
-# Run it by hand, or let release-tools.yml call it. By hand: download the artifact, review it, copy the files into assets/bin,
-# then write the printed SHA-256 values into NOTICE.md and docs/BINARIES.md.
 on:
   workflow_dispatch:
     inputs:

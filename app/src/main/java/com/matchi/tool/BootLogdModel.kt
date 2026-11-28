@@ -11,6 +11,15 @@ object BootLogdModel {
     const val CONF_PATH = "$BASE_DIR/logd.conf"
     const val MAX_PAGE_LINES = 500
 
+    /**
+     * Shell function for the app's root calls (needs $L set to [LOG_DIR]): prints the pid of the running capture script and returns 0,
+     * or returns 1 when there is none. A pid file left by a hard kill or a reboot can name a process that has nothing to do with the
+     * capture, so the number only counts when `ps` shows matchi_logd.sh as that process (same rule as is_logd in the script).
+     */
+    const val PID_FN = "logd_pid() { p=\$(cat \"\$L/logd.pid\" 2>/dev/null); case \$p in ''|*[!0-9]*) return 1;; esac; " +
+        "kill -0 \"\$p\" 2>/dev/null || return 1; o=\$(ps -A -o PID,ARGS 2>/dev/null); [ -n \"\$o\" ] || { echo \"\$p\"; return 0; }; " +
+        "printf '%s\\n' \"\$o\" | { while read -r q a; do if [ \"\$q\" = \"\$p\" ]; then case \$a in *matchi_logd.sh*) echo \"\$p\"; exit 0;; esac; exit 1; fi; done; exit 1; }; }\n"
+
     data class Config(val fileKb: Int = 2048, val files: Int = 10, val minFreeMb: Int = 200, val retainDays: Int = 0) {
         /** Same limits the script applies, so what the page shows is what runs. */
         fun clamped() = Config(fileKb.coerceIn(64, 16384), files.coerceIn(2, 40), minFreeMb.coerceIn(50, 5000), retainDays.coerceIn(0, 365))

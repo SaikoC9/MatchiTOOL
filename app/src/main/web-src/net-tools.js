@@ -1,7 +1,8 @@
 /*
- * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
+ * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light.
  * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
  *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
+ *  - Light: indicator light On / Off, then re-reads. Sends nothing if the router does not report the value.
  *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports). Limit speed (docs/LIMIT_SPEED.md): per-device Download / Upload
  *    caps in KB/s, set by the phone with root (POST /api/net/limit, read with GET /api/net/limits); the row shows what the phone reports, not what was asked.
  *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
@@ -29,7 +30,7 @@ function mountNetTools() {
   const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, wa: null, waBusy: false, prog: '', lim: null, limErr: '', limForm: null, limAct: false, limMsg: null };
   let epoch = 0, actId = 0, limSeq = 0;
   // Any write or wait in progress (one change at a time, whichever tab it started on).
-  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct || st.limAct);
+  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct || st.limAct || st.lightAct);
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
   const h = (tag, attrs, ...kids) => {
@@ -63,7 +64,33 @@ function mountNetTools() {
       kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
       h('div', { class: 'net-actions' }, btn),
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
-      note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
+      note('Wi-Fi, cable and this console stay reachable while mobile data is off.', 'net-mut'));
+  }
+  // Indicator light: On / Off + Apply, like the stock page. Apply is off until the choice differs from the router value.
+  function viewLight(d) {
+    const p = N.parseLight(d);
+    if (!p || p.raw === null) return note(NOT + ' (indicator light). Nothing is sent while the value is not reported.');
+    const word = p.state === 'on' ? 'On' : p.state === 'off' ? 'Off' : null;
+    const top = kv([['Indicator light', word, p.state ? '' : '(unknown value: ' + p.raw + ')']]);
+    const msg = st.lightMsg ? note(st.lightMsg.text, st.lightMsg.bad ? 'net-warn' : '') : null;
+    if (!p.state) return h('div', {}, top, msg, note('The router reports a value this tool does not know, so it is not changed here.', 'net-mut'));
+    const busy = anyAct();
+    if (!st.lightSel || st.lightSel.base !== p.state) st.lightSel = { base: p.state, value: p.state };
+    const radio = (v, label) => {
+      const id = 'matchi_light_' + v, r = h('input', { type: 'radio', name: 'matchi_light', id, value: v });
+      r.checked = st.lightSel.value === v; if (busy) r.disabled = true;
+      r.onchange = () => { st.lightSel.value = v; const a = $('matchi_light_apply'); if (a) a.disabled = busy || v === p.state; };
+      return h('label', { for: id, class: 'net-radio' }, r, ' ' + label);
+    };
+    const apply = h('button', { type: 'button', id: 'matchi_light_apply' }, st.lightAct ? 'Applying…' : 'Apply');
+    apply.disabled = busy || st.lightSel.value === p.state;
+    apply.onclick = () => lightApply(st.lightSel.value);
+    return h('div', {}, top,
+      h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Indicator light'),
+        h('div', { class: 'net-radios', role: 'radiogroup', 'aria-label': 'Indicator light' }, radio('on', 'On'), radio('off', 'Off')),
+        h('div', { class: 'net-actions' }, apply)),
+      msg,
+      note('Only the status lights change.', 'net-mut'));
   }
   // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
@@ -102,7 +129,7 @@ function mountNetTools() {
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'USB tethering'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_auto' }, 'Turn Wi-Fi off while USB tethering is on'), cb),
       stat,
-      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app and a fresh sign-in.', 'net-mut'));
+      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app.', 'net-mut'));
   }
   async function waRead() {
     try {
@@ -112,7 +139,7 @@ function mountNetTools() {
   }
   async function waToggle(want, cb) {
     if (st.waBusy) return;
-    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console. Needs a fresh sign-in.', 'Turn on', false))) { cb.checked = false; return; }
+    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console.', 'Turn on', false))) { cb.checked = false; return; }
     st.waBusy = true; paint('wifi');
     try {
       const r = await api('/api/wifiauto', { method: 'POST', body: JSON.stringify({ enabled: want }) });
@@ -350,7 +377,7 @@ function mountNetTools() {
     }
     return h('section', { class: 'net-sec' }, out);
   }
-  const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu };
+  const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu, light: viewLight };
 
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = st.only ? '' : (t || ''); };   // the Devices-only window shows no status / updated line
@@ -450,6 +477,43 @@ function mountNetTools() {
         : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' + ignored };
     } finally {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
+    }
+  }
+  // ---- indicator light -------------------------------------------------------------------------------------------------------
+  const readLight = async () => N.parseLight(await R.zte('get', { multi_data: '1', cmd: N.READ.light }));
+  async function lightApply(want) {
+    if (st.lightAct || (want !== 'on' && want !== 'off')) return;
+    const cur = st.cache.light && st.cache.light.d ? N.parseLight(st.cache.light.d) : null;
+    if (!cur || !cur.state || cur.state === want) return;   // fail closed: only a reported, different value is ever changed
+    const ok = await askConfirm(want === 'off' ? 'Turn the indicator light off?\n\nThe router\'s status lights go dark. Restore: choose On and Apply.' : 'Turn the indicator light on?', want === 'off' ? 'Turn off' : 'Turn on', false);
+    if (!ok) return;
+    const my = ++actId;
+    st.lightAct = want; st.lightMsg = null; syncButtons(); paint('light'); setStatus('Sending…');
+    const live = () => my === actId;
+    try {
+      let sent;
+      try { sent = await sendRetried(N.lightCall(want), async () => { const q = await readLight(); return !!q && N.lightReached(want, q.state); }, live); }
+      catch (e) { if (live()) st.lightMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
+      if (sent === null || !live()) return;
+      let q = null; const t0 = Date.now();
+      for (;;) {
+        try { q = await readLight(); } catch (_) { /* keep waiting; the last real value is shown below */ }
+        if (!live()) return;
+        if (q) st.cache.light = { d: { [N.LIGHT_KEY]: q.raw === null ? '' : q.raw }, at: Date.now() };
+        if (q && N.lightReached(want, q.state)) break;
+        if (Date.now() - t0 >= 10000) break;
+        await R.sleep(1500);
+        if (!live()) return;
+      }
+      const reached = !!q && N.lightReached(want, q.state);
+      const now = q && q.raw !== null ? q.raw : 'no answer';
+      const ignored = !reached && sent.reply !== 'success' && !sent.ok ? ' The router ignored the command ' + sent.attempts + ' times. ' + (R.emptyHint ? await R.emptyHint() : '') : '';
+      if (!live()) return;
+      st.lightMsg = reached
+        ? { bad: false, text: 'The indicator light is ' + want + '.' }
+        : { bad: true, text: 'The router did not show the wanted state. It reports: ' + now + '. If this keeps happening the router uses other names for this setting. Press Refresh to read it again.' + ignored };
+    } finally {
+      if (live()) { st.lightAct = null; if (st.tab === 'light') { paint('light'); setStatus(st.lightMsg && st.lightMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   // ---- devices: rename, block, unblock ----------------------------------------------------------------------------
@@ -559,7 +623,7 @@ function mountNetTools() {
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
     const mk = (label, id, fn) => { const x = h('button', { type: 'button', id }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     // The long explanation is the Info chip in the panel's top right corner; its text opens under the title. Without the tip helper it is a plain note.
-    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
+    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart.';
     const tip = window.MatchiTip ? window.MatchiTip.make(infoText) : null;
     const chip = tip ? tip.firstChild : null, tipBody = tip ? tip.lastChild : null;
     const title = h('h4', {}, 'Limit speed \u00b7 ' + (f.name || '(no name)') + ' (' + f.ip + ')');
@@ -583,7 +647,7 @@ function mountNetTools() {
     const self = N.isSelf(call.ip, st.me);
     const warn = self ? '\n\nThis is the device you are using: this console slows down too.' : !st.me ? '\n\nThis page could not tell which device you are using. If this is it, this console slows down too.' : '';
     const ok = await askConfirm((none ? 'Remove the speed limit?' : 'Limit the speed of this device?') + '\n\n' + (f.name || '(no name)') + '\n' + call.mac + '\n' + call.ip + '\n\n'
-      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc). Needs a fresh sign-in.', none ? 'Remove limit' : 'Apply', !none && self);
+      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc).', none ? 'Remove limit' : 'Apply', !none && self);
     if (!ok) return;
     st.limAct = true; st.limMsg = null; syncButtons(); paint('devices'); setStatus('Applying…');
     const my = ++actId;
@@ -643,7 +707,7 @@ function mountNetTools() {
       if (!o.data) { st.apnMsg = { bad: false, text: okText }; return; }
       let ppp = null;
       for (let i = 0; i < 10; i++) {
-        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        try { ppp = await readPpp(); } catch (_) { /* retry */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
         progress('Changed. Waiting for mobile data… ' + (i + 1) * 2 + ' s of up to 20 s.');
@@ -1171,6 +1235,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]){margin:0 0 0 6px!important}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(100px,30%) 1fr;gap:6px;align-items:center;margin:3px 0}
 #matchi_net_modal .net-frow label{line-height:1.25}
+#matchi_net_modal .net-radios{display:flex;gap:20px;align-items:center;margin:6px 0}
+#matchi_net_modal .net-radio{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+#matchi_net_modal .net-radio input[type=radio]{width:16px!important;min-width:16px!important;height:16px!important;min-height:0!important;padding:0!important;margin:0!important}
 #matchi_net_modal .net-frow :is(input:not([type=checkbox]),select){box-sizing:border-box;width:100%;min-height:28px!important;height:28px;padding:0 8px!important}
 #matchi_net_modal .net-frow input[type=checkbox]{justify-self:start;align-self:center;flex:0 0 auto;width:32px!important;min-width:32px!important;height:18px!important;min-height:0!important;max-height:18px!important;padding:0!important;margin:0!important;border:0!important;border-radius:999px!important;box-sizing:border-box}
 #matchi_net_modal .net-prog{padding:5px 8px;border-radius:7px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
@@ -1221,7 +1288,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     release(); st.release = R.beginBusy('Network window open');
     st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false; st.lim = null; st.limErr = ''; st.limForm = null; st.limAct = false; st.limMsg = null; limSeq++;
     createModal({
-      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
+      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.lightAct = null; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
       content: (st.only ? '' : '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

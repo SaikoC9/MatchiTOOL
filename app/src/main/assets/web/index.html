@@ -3089,7 +3089,7 @@ rm -f $P.g $P.4 $P.6 $P.d
   const GATEERR = /sign in again|Session too old|not encrypted|Skipped|cancelled/i;
   const useAt = () => pwSet === false || (atMode && Date.now() - atSince < 60000);
   const markAt = () => { atMode = true; atSince = Date.now(); };
-  const setMode = (t) => { const m = el('matchi_sms_mode'); if (m) m.textContent = t || ''; };
+  const setMode = (t) => { const m = el('matchi_sms_mode'); if (!m) return; const x = /^Deleting/.test(t || '') ? t : ''; m.textContent = x; m.style.display = x ? '' : 'none'; };   // only the delete progress shows; the "using the modem directly" notes are not shown
   const at = async (command, q) => {   // q = background check: never opens a dialog or toast
     const r = await api('/api/at', { method: 'POST', quiet: !!q, body: JSON.stringify({ command, slot: 0 }) });
     if (r.error) throw new Error(r.error);
@@ -3499,8 +3499,184 @@ rm -f $P.g $P.4 $P.6 $P.d
     });
     return [...g.values()].sort((x, y) => tsOf(y.items[y.items.length - 1].date) - tsOf(x.items[x.items.length - 1].date));
   }
+  // ---- Look: chat-style window (inbox, conversation with its own composer, New message) -------------------------------------
+  const CSS = `
+§ .modal{padding:0!important;height:min(560px,84vh)!important;height:min(560px,84dvh)!important;max-height:none!important;overflow:hidden!important;position:relative}
+§ .title{display:flex;align-items:center;gap:6px;margin:0!important;padding:10px 10px 8px 14px;font-size:14.5px;font-weight:700;flex:none}
+§ .sx-ttl{flex:1;min-width:0}
+§ .sx-who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+§ .mbody{padding:0!important;display:flex;flex-direction:column;overflow:hidden!important;min-height:0;flex:1 1 auto}
+§ .mfoot{margin:0!important;position:static!important;padding:6px 12px!important;border-top:1px solid var(--bd);background:var(--panel)}
+§ .sx-ib{width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:8px;background:transparent;box-shadow:none;display:grid;place-items:center;color:var(--mut);flex:none}
+§ .sx-ib:hover,§ .sx-ib[aria-expanded=true]{background:var(--panel2);color:var(--fg)}
+§ .sx-ib:disabled{opacity:.4}
+§ .sx-ib svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+§ .sx-new{height:28px;min-height:0;padding:0 10px 0 8px;border:0;border-radius:8px;background:var(--acc);color:#06121f;font-weight:700;font-size:12px;display:flex;align-items:center;gap:4px;box-shadow:none;flex:none}
+§ .sx-new:hover{background:var(--acc2)}
+§ .sx-new svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+§ .sx-tools{display:flex;gap:8px;padding:0 10px 8px 14px;align-items:center;flex:none}
+§ .sx-search{flex:1;min-width:0;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);display:flex;align-items:center;gap:6px;padding:0 8px;color:var(--mut);margin:0;font-size:12px}
+§ .sx-search svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;flex:none}
+§ .sx-search input{flex:1;min-width:0;width:auto;height:100%;background:none!important;border:0!important;box-shadow:none!important;color:var(--fg);padding:0!important;min-height:0!important;border-radius:0!important}
+§ .sx-seg{display:flex;background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:2px;flex:none}
+§ .sx-segb{border:0;background:none;box-shadow:none;min-height:0;padding:5px 10px;border-radius:8px;font-size:12px;color:var(--mut);font-weight:500}
+§ .sx-segb.on{background:var(--panel2);color:var(--fg);font-weight:600}
+§ .sx-mode{flex:none;padding:0 18px 8px;font-size:12px}
+§ .sx-list{flex:1;min-height:0;overflow:auto;padding:0 6px 6px}
+§ .sx-list.thread{padding:8px 12px;display:flex;flex-direction:column;gap:3px}
+§ .sx-row{display:flex;gap:10px;align-items:center;padding:7px 9px;margin:0 0 6px;border-radius:10px;border:1px solid var(--bd);background:var(--panel2);box-shadow:none;width:100%;text-align:left;min-height:0;font-weight:400}
+§ .sx-row:hover{background:#192a44;border-color:rgba(139,170,211,.3)}
+§ .sx-row.unread{border-color:rgba(85,168,255,.45)}
+§ .sx-av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:11.5px;flex:none;color:#06121f}
+§ .sx-rb{flex:1;min-width:0;display:block}
+§ .sx-rt,§ .sx-rp{display:flex;gap:8px;align-items:center}
+§ .sx-rt b{font-size:12.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+§ .sx-rt time{font-size:10.5px;color:var(--mut);flex:none}
+§ .sx-rp{margin-top:1px}
+§ .sx-rp>span{flex:1;min-width:0;color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+§ .sx-row.unread .sx-rp>span{color:var(--fg)}
+§ .sx-badge{background:var(--acc);color:#06121f;font-size:10.5px;font-weight:700;line-height:1;min-width:16px;height:16px;border-radius:8px;display:grid;place-items:center;padding:0 5px;flex:none;font-style:normal}
+§ .sx-cnt{font-size:10.5px;color:var(--mut);flex:none;font-style:normal}
+§ .sx-day{align-self:center;font-size:10.5px;color:var(--mut);background:var(--bg);border-radius:20px;padding:1px 9px;margin:6px 0 4px}
+§ .sx-b{max-width:86%;padding:6px 10px;font-size:12.5px;line-height:1.4;border-radius:14px;border-bottom-left-radius:4px;background:#1a2a42;white-space:pre-wrap;word-break:break-word;align-self:flex-start}
+§ .sx-b.out{align-self:flex-end;background:#2b6fd1;color:#fff;border-radius:14px;border-bottom-right-radius:4px}
+§ .sx-mt{font-size:10px;color:var(--mut);margin:1px 6px 5px;display:flex;gap:8px;align-items:center;align-self:flex-start}
+§ .sx-mt.out{align-self:flex-end}
+§ .sx-del{border:0;background:none;box-shadow:none;min-height:0;padding:0;font-size:10.5px;font-weight:400;color:var(--mut);opacity:0;transition:opacity .15s}
+§ .sx-del:hover{color:var(--danger)}
+§ .sx-list:hover .sx-del,§ .sx-del:focus-visible{opacity:1}
+@media(hover:none){§ .sx-del{opacity:1}}
+§ .sx-comp{flex:none;padding:7px 10px 8px;border-top:1px solid var(--bd);background:var(--panel)}
+§ .sx-to{align-items:center;gap:8px;margin-bottom:6px;padding:0 4px}
+§ .sx-to label{color:var(--mut);font-size:12px;margin:0}
+§ .sx-to input{flex:1;min-width:0;width:auto;background:none!important;border:0!important;border-bottom:1px solid var(--bd)!important;border-radius:0!important;box-shadow:none!important;color:var(--fg);padding:5px 0!important;min-height:0!important}
+§ .sx-to input:focus{border-bottom-color:var(--acc)!important}
+§ .sx-cbox{display:flex;gap:8px;align-items:flex-end;background:var(--bg);border:1px solid var(--bd);border-radius:18px;padding:3px 3px 3px 12px}
+§ .sx-cbox:focus-within{border-color:var(--acc)}
+§ .sx-cbox textarea{flex:1;min-width:0;width:auto;background:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;color:var(--fg);font:inherit;resize:none;outline:0;padding:4px 0!important;max-height:100px;min-height:28px!important;height:28px;overflow-y:hidden;line-height:20px;font-size:12.5px}
+§ .sx-send{width:28px;height:28px;min-height:0;padding:0;border:0;border-radius:50%;background:var(--acc);color:#06121f;display:grid;place-items:center;flex:none;box-shadow:none}
+§ .sx-send:disabled{background:var(--panel2);color:var(--mut);cursor:default;opacity:1}
+§ .sx-send svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+§ .sx-cmeta{display:flex;justify-content:space-between;font-size:10px;color:var(--mut);padding:3px 8px 0}
+§ .sx-menu{position:absolute;right:10px;top:42px;z-index:5;background:var(--panel2);border:1px solid var(--bd);border-radius:12px;padding:5px;min-width:200px;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+§ .sx-mi{display:block;width:100%;text-align:left;border:0;background:none;box-shadow:none;min-height:0;padding:6px 9px;border-radius:7px;font-size:12px;font-weight:500;color:var(--fg)}
+§ .sx-mi:hover{background:rgba(255,255,255,.06)}
+§ .sx-mi:disabled{opacity:.4}
+§ .sx-mi.dng{color:var(--danger)}
+§ .sx-menu hr{border:0;border-top:1px solid var(--bd);margin:4px 2px}
+`;
+  function injectCss() {
+    if (document.getElementById('matchi_sms_css')) return;
+    const s = document.createElement('style'); s.id = 'matchi_sms_css';
+    s.textContent = CSS.replace(/§/g, '#matchi_sms_modal:not(#_):not(#__):not(#___)');
+    document.head.appendChild(s);
+  }
+  const IC = {
+    refresh: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+    more: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+    back: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+    send: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    search: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  };
+  const cl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const svgEl = (k) => document.importNode(new DOMParser().parseFromString(IC[k], 'image/svg+xml').documentElement, true);   // fixed icon strings, no page data
+  const ibtn = (id, icon, label, fn) => { const b = cl('button', 'sx-ib'); b.type = 'button'; if (id) b.id = id; b.title = label; b.setAttribute('aria-label', label); b.appendChild(svgEl(icon)); b.onclick = fn; return b; };
+  const AVC = ['#82c2ff', '#39d6a0', '#ffc66b', '#c9a7ff', '#ff9db0', '#7fe0e6'];
+  const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+  function avatar(number, key) {
+    const a = cl('span', 'sx-av', String(number || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '#');
+    a.style.background = AVC[hue(key) % AVC.length]; return a;
+  }
+  const parseD = (s) => { const m = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(s || '')); return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null; };
+  const dayDiff = (d) => { const f = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); return Math.round((f(new Date()) - f(d)) / 864e5); };
+  const hm = (s) => { const d = parseD(s); return d ? String(s).slice(11, 16) : ''; };
+  function shortTime(s) {
+    const d = parseD(s); if (!d) return String(s || '').slice(0, 16);
+    const n = dayDiff(d);
+    if (n <= 0) return hm(s);
+    if (n === 1) return 'Yesterday';
+    if (n < 7) return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+  }
+  function dayLabel(s) {
+    const d = parseD(s); if (!d) return '';
+    const n = dayDiff(d);
+    return n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  let newMode = false, search = '', hidCount = 0, busyOn = false, sending = false, curMode = 'inbox', menuOff = null;
+  const showEl = (id, on, disp) => { const e = el(id); if (e) e.style.display = on ? (disp || '') : 'none'; };
+
+  function closeMenu() {
+    const m = el('matchi_sms_menu'); if (m) m.remove();
+    if (menuOff) { document.removeEventListener('pointerdown', menuOff, true); menuOff = null; }
+    const b = el('matchi_sms_more'); if (b) b.setAttribute('aria-expanded', 'false');
+  }
+  function openMenu(anchor, items) {
+    const was = !!el('matchi_sms_menu'); closeMenu(); if (was) return;
+    const bg = el(MODAL), modal = bg && bg.querySelector('.modal'); if (!modal) return;
+    const m = cl('div', 'sx-menu'); m.id = 'matchi_sms_menu'; m.setAttribute('role', 'menu');
+    for (const it of items) {
+      if (it === '-') { m.appendChild(cl('hr')); continue; }
+      const b = cl('button', 'sx-mi' + (it.dng ? ' dng' : ''), it.t); b.type = 'button'; b.disabled = !!it.off;
+      b.onclick = () => { closeMenu(); it.run(); }; m.appendChild(b);
+    }
+    modal.appendChild(m); anchor.setAttribute('aria-expanded', 'true');
+    menuOff = (e) => { if (!m.contains(e.target) && !anchor.contains(e.target)) closeMenu(); };
+    document.addEventListener('pointerdown', menuOff, true);
+  }
+  async function copyNum(n) { try { await navigator.clipboard.writeText(n); createToast('Number copied', 'green'); } catch (_) { createToast(n, 'orange', 6000); } }
+  const inboxItems = () => [
+    hidCount ? { t: 'Show ' + hidCount + ' hidden message' + (hidCount === 1 ? '' : 's'), run: () => { setHidden([]); load(); } } : null,
+    hidCount ? '-' : null,
+    { t: cur.length ? 'Delete all messages (' + cur.length + ')…' : 'Delete all messages', dng: true, off: !cur.length, run: deleteAll },
+  ].filter(Boolean);
+  const threadItems = (c) => [
+    { t: 'Copy number', run: () => copyNum(c.number) },
+    '-',
+    { t: 'Delete conversation (' + c.items.length + ')…', dng: true, run: () => delMsgs(c.items, 'Delete all ' + c.items.length + ' message' + (c.items.length === 1 ? '' : 's') + ' with ' + c.number + '?') },
+  ];
+
+  // The title bar changes with the view: inbox (refresh, menu, New), conversation (back, contact, menu), New message (back).
+  function setHead(mode, c) {
+    const bg = el(MODAL), h = bg && bg.querySelector('h3.title'); if (!h) return;
+    h.textContent = '';
+    const back = () => { newMode = false; openKey = null; paint(); };
+    if (mode === 'inbox') {
+      const r = ibtn('matchi_sms_refresh', 'refresh', 'Refresh inbox', () => load());
+      const m = ibtn('matchi_sms_more', 'more', 'More actions', () => openMenu(m, inboxItems()));
+      const n = cl('button', 'sx-new'); n.type = 'button'; n.id = 'matchi_sms_new'; n.append(svgEl('plus'), document.createTextNode('New'));
+      n.onclick = () => { newMode = true; openKey = null; paint(); const x = el('matchi_sms_num'); if (x) { x.value = ''; x.focus(); } };
+      h.append(cl('span', 'sx-ttl', 'Messages'), r, m, n);
+    } else if (mode === 'thread') {
+      const m = ibtn('matchi_sms_more', 'more', 'More actions', () => openMenu(m, threadItems(c)));
+      h.append(ibtn('matchi_sms_back', 'back', 'Back', back), avatar(c.number, c.key), cl('span', 'sx-who', c.number), m);
+    } else {
+      h.append(ibtn('matchi_sms_back', 'back', 'Back', back), cl('span', 'sx-ttl', 'New message'));
+    }
+    if (busyOn) for (const id of ['matchi_sms_more', 'matchi_sms_refresh']) { const b = el(id); if (b) b.disabled = true; }
+  }
+
+  function updateComposer() {
+    const t = el('matchi_sms_text'), s = el('matchi_sms_send'); if (!t || !s) return;
+    const v = t.value;
+    s.disabled = sending || !v.trim();
+    t.style.height = '28px'; const hh = Math.max(28, Math.min(t.scrollHeight, 100)); t.style.height = hh + 'px'; t.style.overflowY = t.scrollHeight > 100 ? 'auto' : 'hidden';
+    const parts = v ? smsParts(v).length : 0;
+    el('matchi_sms_cc').textContent = v.length + ' / ' + (isGsm7(v) ? 160 : 70);
+    el('matchi_sms_parts').textContent = parts > 1 ? parts + ' messages' : '';
+  }
+  // A message just sent shows in the conversation at once; the refresh a moment later replaces it with the real one.
+  function addPending(text) {
+    const box = el('matchi_sms_list'); if (!box || curMode !== 'thread') return;
+    const m = cl('div', 'sx-mt out'); m.appendChild(cl('time', '', 'Just now'));
+    box.append(cl('div', 'sx-b out', text), m); box.scrollTop = box.scrollHeight;
+  }
+
   function busy(on, text) {
-    for (const id of ['matchi_sms_delall', 'matchi_sms_view', 'matchi_sms_refresh']) { const b = el(id); if (b) b.disabled = on; }
+    busyOn = on;
+    for (const id of ['matchi_sms_more', 'matchi_sms_refresh']) { const b = el(id); if (b) b.disabled = on; }
     if (text !== undefined) setMode(text);
   }
   // Deletes the given messages one after the other (each through the same m.del() as the single Delete: router, Android store, modem).
@@ -3525,47 +3701,36 @@ rm -f $P.g $P.4 $P.6 $P.d
   function renderConvList(box, convs) {
     for (const c of convs) {
       const last = c.items[c.items.length - 1];
-      const row = mk('div', 'border-top:1px solid var(--bd);padding:9px 2px;display:flex;gap:10px;align-items:center;cursor:pointer');
-      row.setAttribute('role', 'button'); row.tabIndex = 0;
-      const left = mk('div', 'flex:1;min-width:0');
-      left.append(mk('b', 'font-size:13.5px', c.number), mutDiv((last.out ? '→ ' : '') + last.text.replace(/\s+/g, ' '), 'font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'));
-      const right = mutDiv('', 'text-align:right;font-size:11.5px;flex:none');
-      right.append(mk('div', '', last.date.slice(0, 16)), mk('div', 'font-weight:700', c.items.length + (c.items.length === 1 ? ' message' : ' messages')));
+      const row = cl('button', 'sx-row'); row.type = 'button';
+      const rt = cl('span', 'sx-rt'); rt.append(cl('b', '', c.number), cl('time', '', shortTime(last.date)));
+      const rp = cl('span', 'sx-rp'); rp.append(cl('span', '', (last.out ? 'You: ' : '') + last.text.replace(/\s+/g, ' ')));
       const rem = new Map(fresh); let nNew = 0;   // newest first: a repeated text counts only as often as it is new
       for (let i = c.items.length - 1; i >= 0; i--) { const m = c.items[i]; if (m.out) continue; const k = sig(m), r = rem.get(k) || 0; if (r > 0) { rem.set(k, r - 1); nNew++; } }
-      if (nNew) { const pill = mk('span', 'display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:999px;background:#168cff;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center', String(nNew)); pill.title = nNew + ' new'; left.firstChild.after(pill); }
-      row.append(left, right);
-      const go = () => { openKey = c.key; const n = el('matchi_sms_num'); if (n) n.value = c.number; paint(); };
-      row.onclick = go;
-      row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+      if (nNew) { const b = cl('i', 'sx-badge', String(nNew)); b.title = nNew + ' new'; rp.append(b); row.classList.add('unread'); }
+      else if (c.items.length > 1) rp.append(cl('i', 'sx-cnt', String(c.items.length)));
+      const rb = cl('span', 'sx-rb'); rb.append(rt, rp);
+      row.append(avatar(c.number, c.key), rb);
+      row.onclick = () => { openKey = c.key; paint(); };
       box.appendChild(row);
     }
   }
   function renderThread(box, c) {
-    const bar = mk('div', 'display:flex;gap:8px;align-items:center;margin:0 0 8px;position:sticky;top:0;background:var(--panel);padding:2px 0 8px;border-bottom:1px solid var(--bd);box-shadow:0 8px 8px -8px #000a;z-index:1');   // var(--card) does not exist: the bar was drawn in the page colour (black strip) instead of the window colour
-    const back = mk('button', 'padding:3px 10px', '← Back');
-    back.onclick = () => { openKey = null; paint(); };
-    const delc = mk('button', 'padding:3px 8px', 'Delete conversation');
-    delc.onclick = () => delMsgs(c.items, 'Delete all ' + c.items.length + ' message' + (c.items.length === 1 ? '' : 's') + ' with ' + c.number + '?');
-    bar.append(back, mk('b', 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis', c.number), delc);
-    box.appendChild(bar);
-    const col = mk('div', 'display:flex;flex-direction:column;gap:6px');
+    let day = '';
     for (const m of c.items) {
-      const bub = mk('div', 'max-width:85%;padding:7px 10px;border-radius:12px;align-self:' + (m.out ? 'flex-end' : 'flex-start') + ';background:' + (m.out ? 'rgba(90,150,255,.18)' : 'rgba(255,255,255,.07)'));
-      const meta = mutDiv('', 'display:flex;gap:8px;align-items:center;font-size:11px;margin-top:4px');
-      const del = mk('button', 'padding:1px 6px;font-size:11px;margin-left:auto', 'Delete');
+      const dl = dayLabel(m.date);
+      if (dl && dl !== day) { day = dl; box.appendChild(cl('span', 'sx-day', dl)); }
+      const meta = cl('div', 'sx-mt' + (m.out ? ' out' : ''));
+      const del = cl('button', 'sx-del', 'Delete'); del.type = 'button';
       del.onclick = () => delMsgs([m], 'Delete this message?');
-      meta.append(mk('span', '', m.date), del);
-      bub.append(mk('div', 'white-space:pre-wrap;word-break:break-word', m.text), meta);
-      col.appendChild(bub);
+      meta.append(cl('time', '', hm(m.date)), del);
+      box.append(cl('div', 'sx-b' + (m.out ? ' out' : ''), m.text), meta);
     }
-    box.appendChild(col);
     box.scrollTop = box.scrollHeight;   // newest message at the bottom, in view
   }
   function renderFlat(box, list) {
       for (const m of list) {
         const row = document.createElement('div');
-        row.style.cssText = 'border-top:1px solid var(--bd);padding:8px 0';
+        row.style.cssText = 'border-top:1px solid var(--bd);padding:8px 10px';
         const head = document.createElement('div');
         head.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:13px';
         const who = document.createElement('b'); who.textContent = (m.out ? '→ ' : '← ') + m.number;
@@ -3603,13 +3768,27 @@ rm -f $P.g $P.4 $P.6 $P.d
   function paint() {
     const box = el('matchi_sms_list'); if (!box) return;
     box.textContent = '';
-    const vb = el('matchi_sms_view'); if (vb) vb.textContent = view === 'conv' ? 'View: Conversations' : 'View: All messages';
-    const da = el('matchi_sms_delall'); if (da) da.textContent = cur.length ? 'Delete all (' + cur.length + ')' : 'Delete all';
-    if (!cur.length) { box.appendChild(mutDiv('No messages.')); return; }
-    if (view === 'list') return renderFlat(box, cur);
-    const convs = groups(cur), open = openKey && convs.find((c) => c.key === openKey);
-    if (open) return renderThread(box, open);
-    openKey = null; renderConvList(box, convs);
+    closeMenu();
+    const convs = groups(cur), open = !newMode && view === 'conv' && openKey && convs.find((c) => c.key === openKey);
+    if (!open) openKey = null;
+    const mode = newMode ? 'new' : open ? 'thread' : 'inbox';
+    curMode = mode;
+    setHead(mode, open);
+    box.className = 'sx-list ' + mode;
+    showEl('matchi_sms_tools', mode === 'inbox', 'flex');
+    showEl('matchi_sms_comp', mode !== 'inbox');
+    showEl('matchi_sms_to', mode === 'new', 'flex');
+    const foot = el(MODAL).querySelector('.mfoot');
+    if (foot) { if (mode === 'inbox') foot.style.removeProperty('display'); else foot.style.setProperty('display', 'none', 'important'); }
+    const t = el('matchi_sms_text'); if (t) t.placeholder = open ? 'Message ' + open.number : 'Message';
+    if (mode === 'thread') { const n = el('matchi_sms_num'); if (n) n.value = open.number; return renderThread(box, open); }
+    if (mode === 'new') { box.appendChild(mutDiv('Enter a number, then write your message.', 'padding:18px;text-align:center')); return; }
+    if (!cur.length) { box.appendChild(mutDiv('No messages.', 'padding:18px;text-align:center')); return; }
+    const ql = search.trim().toLowerCase();
+    const shown = ql ? cur.filter((m) => (String(m.number) + ' ' + m.text).toLowerCase().includes(ql)) : cur;
+    if (!shown.length) { box.appendChild(mutDiv('No matches.', 'padding:18px;text-align:center')); return; }
+    if (view === 'list') return renderFlat(box, shown);
+    renderConvList(box, groups(shown));
   }
   async function deleteAll() {
     if (!cur.length) return createToast('No messages', 'red');
@@ -3626,8 +3805,7 @@ rm -f $P.g $P.4 $P.6 $P.d
       const all = await fetchAll();
       const list = all.filter((m) => !hid.has(hk(m)));
       if (my !== loadSeq) return list;
-      const hb = el('matchi_sms_hid');
-      if (hb) { const n = all.length - list.length; hb.style.display = n ? '' : 'none'; hb.textContent = 'Show ' + n + ' hidden message' + (n === 1 ? '' : 's'); }
+      hidCount = all.length - list.length;
       if (!list.length) { cur = []; openKey = null; paint(); return list; }
       cur = list;
       noteMsgs(list, true);   // what is on screen now counts as read
@@ -3642,7 +3820,8 @@ rm -f $P.g $P.4 $P.6 $P.d
     const num = el('matchi_sms_num').value.trim(), text = el('matchi_sms_text').value;
     if (!/^\+?[0-9]{3,20}(;\+?[0-9]{3,20})*;?$/.test(num)) return createToast('Enter a valid number', 'red');   // one or more numbers, each with an optional leading +
     if (!text) return createToast('Message is empty', 'red');
-    const btn = el('matchi_sms_send'); btn.disabled = true;
+    if (sending) return;
+    sending = true; updateComposer();
     try {
       let ok = false, via = '', apiErr = '', unconfirmed = false;
       let left = num.split(';').map((n) => n.trim()).filter(Boolean);   // numbers that have NOT received the text yet
@@ -3675,9 +3854,12 @@ rm -f $P.g $P.4 $P.6 $P.d
       }
       if (unconfirmed) createToast('Sent, but not in the sent box. Check before resending.', 'orange', 9000);
       else createToast('Message sent' + via, 'green');
-      el('matchi_sms_text').value = ''; setTimeout(load, 1500);
+      el('matchi_sms_text').value = ''; updateComposer();
+      if (curMode === 'new' && num.indexOf(';') < 0) { newMode = false; openKey = groupKey(num); paint(); }
+      addPending(text);
+      setTimeout(load, 1500);
     } catch (e) { createToast(e.message, 'red'); }
-    btn.disabled = false;
+    sending = false; updateComposer();
   }
 
   async function loadCfg() {
@@ -3687,23 +3869,27 @@ rm -f $P.g $P.4 $P.6 $P.d
     } catch (_) {}
   }
   function open() {
+    injectCss();
+    newMode = false; openKey = null; search = '';
     createModal({
-      name: MODAL, title: 'SMS', maxWidth: '620px', showConfirm: false, onClose: () => { fresh = new Map(); return true; },
+      name: MODAL, title: 'Messages', maxWidth: '560px', showConfirm: false, onClose: () => { fresh = new Map(); closeMenu(); return true; },
       content:
-        '<div style="display:flex;gap:8px;margin-bottom:8px"><input id="matchi_sms_num" placeholder="Number, e.g. +639171234567" inputmode="tel" autocomplete="off"></div>' +
-        '<textarea id="matchi_sms_text" rows="3" placeholder="Message" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:9px;font:inherit"></textarea>' +
-        '<div style="display:flex;gap:8px;margin:8px 0"><button type="button" id="matchi_sms_send">Send</button><button type="button" id="matchi_sms_refresh">Refresh inbox</button><button type="button" id="matchi_sms_view">View: Conversations</button><button type="button" id="matchi_sms_delall" style="margin-left:auto">Delete all</button></div>' +
-        '<div id="matchi_sms_mode" class="mut" style="font-size:12px;margin-bottom:6px"></div>' +
-        '<div id="matchi_sms_list" style="max-height:45vh;overflow:auto"></div>' +
-        '<button type="button" id="matchi_sms_hid" style="display:none;margin-top:8px"></button>' +
-        '',
+        '<div id="matchi_sms_tools" class="sx-tools"><label class="sx-search">' + IC.search + '<input id="matchi_sms_q" placeholder="Search messages" autocomplete="off"></label>' +
+        '</div>' +
+        '<div id="matchi_sms_mode" class="mut sx-mode" style="display:none"></div>' +
+        '<div id="matchi_sms_list" class="sx-list inbox"></div>' +
+        '<div id="matchi_sms_comp" class="sx-comp" style="display:none">' +
+        '<div id="matchi_sms_to" class="sx-to" style="display:none"><label for="matchi_sms_num">To</label><input id="matchi_sms_num" placeholder="Number, e.g. +639171234567" inputmode="tel" autocomplete="off"></div>' +
+        '<div class="sx-cbox"><textarea id="matchi_sms_text" rows="1" placeholder="Message"></textarea><button type="button" id="matchi_sms_send" class="sx-send" aria-label="Send" disabled>' + IC.send + '</button></div>' +
+        '<div class="sx-cmeta"><span id="matchi_sms_parts"></span><span id="matchi_sms_cc">0 / 160</span></div></div>',
     });
     showModal(MODAL);
     el('matchi_sms_send').onclick = send;
-    el('matchi_sms_refresh').onclick = () => load();
-    el('matchi_sms_view').onclick = () => { view = view === 'conv' ? 'list' : 'conv'; openKey = null; paint(); };
-    el('matchi_sms_delall').onclick = deleteAll;
-    el('matchi_sms_hid').onclick = () => { setHidden([]); load(); };
+    el('matchi_sms_q').oninput = (e) => { search = e.target.value; paint(); };
+    const t = el('matchi_sms_text');
+    t.oninput = updateComposer;
+    t.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !(window.matchMedia && matchMedia('(pointer:coarse)').matches)) { e.preventDefault(); send(); } };
+    paint();
     loadCfg().then(() => load(), () => load());
   }
 
@@ -5457,13 +5643,14 @@ function mountPerfMode() {
     apn: APN_READ,
     lan: 'lan_ipaddr,lan_netmask,dhcpEnabled,dhcpStart,dhcpEnd,dhcpLease_hour,mac_address',
     mtu: 'mtu,tcp_mss',
+    light: 'indicator_light_switch',
   };
   // The Devices tab also reads two single commands (NOT multi_data; seen in the stock page's script service.js on the F50, 2026-11-15):
   //   queryDeviceAccessControlList -> {AclMode, WhiteMacList, BlackMacList, WhiteNameList, BlackNameList}  (lists are ";" terminated)
   //   hostNameList                 -> {devices:[{hostname, mac}]}  (the names the stock page shows; EDIT_HOSTNAME changes these, not station_list)
   const READ_ACL = 'queryDeviceAccessControlList', READ_NAMES = 'hostNameList';
   const TABS = [
-    ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'],
+    ['data', 'Data'], ['wifi', 'Wi-Fi'], ['devices', 'Devices'], ['apn', 'APN'], ['lan', 'LAN / DHCP'], ['mtu', 'MTU / MSS'], ['light', 'Light'],
   ];
 
   // ---- Small helpers ----------------------------------------------------------------------------------------------------------
@@ -5532,6 +5719,28 @@ function mountPerfMode() {
     const ppp = clean(d.ppp_status);
     return { ppp, state: connState(ppp), mode: clean(d.dial_mode), modeLabel: modeLabel(d.dial_mode), roaming: onOff(d.roam_setting_option) };
   }
+
+  // ---- Indicator light
+  // Captured from the stock page: goformId=INDICATOR_LIGHT_SETTING&indicator_light_switch=1 (On) / 0 (Off). Read key assumed same as the field.
+  // Empty or unknown value = not reported, nothing is sent.
+  const LIGHT_KEY = 'indicator_light_switch', LIGHT_SET_ID = 'INDICATOR_LIGHT_SETTING';
+  const LIGHT_VALUE = { on: '1', off: '0' };
+  function lightState(v) {
+    const t = clean(v); if (t === null) return null;
+    const s = t.toLowerCase();
+    return s === '1' || s === 'on' || s === 'true' ? 'on' : s === '0' || s === 'off' || s === 'false' ? 'off' : null;
+  }
+  function parseLight(d) {
+    if (!isObj(d)) return null;
+    const raw = clean(pick(d, LIGHT_KEY));
+    return { raw, state: lightState(raw) };
+  }
+  function lightCall(want) {
+    if (!Object.prototype.hasOwnProperty.call(LIGHT_VALUE, want)) throw new Error('Unknown indicator light action: ' + want);
+    return { goformId: LIGHT_SET_ID, [LIGHT_KEY]: LIGHT_VALUE[want] };
+  }
+  const lightNext = (state) => (state === 'on' ? 'off' : state === 'off' ? 'on' : null);
+  const lightReached = (want, state) => (want === 'on' || want === 'off') && state === want;
 
   // ---- Wi-Fi ------------------------------------------------------------------------------------------------------------------
   // Bands are told apart by ChipIndex (AccessPointIndex is "0" in both entries on the F50). Chip 0 = 2.4 GHz and chip 1 = 5 GHz: chip 1 is the one that is on
@@ -6313,6 +6522,7 @@ function mountPerfMode() {
     READ, READ_ACL, READ_NAMES, TABS, ROOT_READ_SH,
     clean, num, toList, pick, normMac, maskSecrets, isPassKey, stripPass,
     connState, modeLabel, onOff, parseData, dataCall, dataNext, dataReached,
+    LIGHT_KEY, LIGHT_SET_ID, lightState, parseLight, lightCall, lightNext, lightReached,
     chipLabel, authLabel, parseWifi, wifiSummary, wifiMode, wifiActive,
     WIFI_AUTH, WIFI_BANDS, WIFI_MAX_STATIONS, wifiAuthKnown, b64Ascii, b64Dec, utf8Len, wifiSsidError, wifiHasPassword, wifiPlainPw, wifiEntryPlain, wifiSnapOk, wifiSnapOf, wifiFormCheck, wifiSaveCall, wifiWantPw, wifiPwChange, wifiSame, wifiReached,
     wifiChangeLines, wifiBandCall, wifiBandReached, WIFI_BACKUP_PATH, wifiBackupSnap, wifiBackupWriteSh, WIFI_BACKUP_READ_SH, WIFI_BACKUP_DELETE_SH, parseWifiBackup,
@@ -6331,9 +6541,10 @@ function mountPerfMode() {
 /* @end-include web-src/net-core.js */
 /* @include web-src/net-tools.js */
 /*
- * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS.
+ * Network window. Button "Network" in the top button row. Tabs: Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light.
  * Every tab reads. The tabs that write ask for a confirmation first and read the router again afterwards, so success is never claimed without the re-read:
  *  - Data: switches mobile data off / on (re-reads ppp_status every 2 s for at most 30 s).
+ *  - Light: indicator light On / Off, then re-reads. Sends nothing if the router does not report the value.
  *  - Devices: renames, blocks and unblocks devices (re-reads the lists, says what the router reports). Limit speed (docs/LIMIT_SPEED.md): per-device Download / Upload
  *    caps in KB/s, set by the phone with root (POST /api/net/limit, read with GET /api/net/limits); the row shows what the phone reports, not what was asked.
  *  - APN: reads the profile list, switches back to Auto, uses / adds / edits / deletes profiles (then checks that mobile data is connected;
@@ -6361,7 +6572,7 @@ function mountNetTools() {
   const st = { tab: 'data', cache: {}, root: null, rootErr: '', rootBusy: false, loading: false, release: null, act: null, actMsg: null, devAct: false, devMsg: null, me: '', apnAct: false, apnMsg: null, apnForm: null, mtuAct: false, mtuMsg: null, mtuForm: null, lanAct: false, lanMsg: null, lanForm: null, lanIp: '', wifiAct: false, wifiMsg: null, wifiForm: null, wifiBandSel: null, wa: null, waBusy: false, prog: '', lim: null, limErr: '', limForm: null, limAct: false, limMsg: null };
   let epoch = 0, actId = 0, limSeq = 0;
   // Any write or wait in progress (one change at a time, whichever tab it started on).
-  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct || st.limAct);
+  const anyAct = () => !!(st.act || st.devAct || st.apnAct || st.mtuAct || st.lanAct || st.wifiAct || st.limAct || st.lightAct);
 
   // ---- tiny DOM helper (text only) ------------------------------------------------------------------------------------------
   const h = (tag, attrs, ...kids) => {
@@ -6395,7 +6606,33 @@ function mountNetTools() {
       kv([['Mobile data', word, p.ppp ? '(' + p.ppp + ')' : ''], ['Connection mode', p.modeLabel], ['Data roaming', p.roaming]]),
       h('div', { class: 'net-actions' }, btn),
       st.actMsg ? note(st.actMsg.text, st.actMsg.bad ? 'net-warn' : '') : null,
-      note('Wi-Fi, cable and this console stay reachable while mobile data is off. Needs a fresh sign-in.', 'net-mut'));
+      note('Wi-Fi, cable and this console stay reachable while mobile data is off.', 'net-mut'));
+  }
+  // Indicator light: On / Off + Apply, like the stock page. Apply is off until the choice differs from the router value.
+  function viewLight(d) {
+    const p = N.parseLight(d);
+    if (!p || p.raw === null) return note(NOT + ' (indicator light). Nothing is sent while the value is not reported.');
+    const word = p.state === 'on' ? 'On' : p.state === 'off' ? 'Off' : null;
+    const top = kv([['Indicator light', word, p.state ? '' : '(unknown value: ' + p.raw + ')']]);
+    const msg = st.lightMsg ? note(st.lightMsg.text, st.lightMsg.bad ? 'net-warn' : '') : null;
+    if (!p.state) return h('div', {}, top, msg, note('The router reports a value this tool does not know, so it is not changed here.', 'net-mut'));
+    const busy = anyAct();
+    if (!st.lightSel || st.lightSel.base !== p.state) st.lightSel = { base: p.state, value: p.state };
+    const radio = (v, label) => {
+      const id = 'matchi_light_' + v, r = h('input', { type: 'radio', name: 'matchi_light', id, value: v });
+      r.checked = st.lightSel.value === v; if (busy) r.disabled = true;
+      r.onchange = () => { st.lightSel.value = v; const a = $('matchi_light_apply'); if (a) a.disabled = busy || v === p.state; };
+      return h('label', { for: id, class: 'net-radio' }, r, ' ' + label);
+    };
+    const apply = h('button', { type: 'button', id: 'matchi_light_apply' }, st.lightAct ? 'Applying…' : 'Apply');
+    apply.disabled = busy || st.lightSel.value === p.state;
+    apply.onclick = () => lightApply(st.lightSel.value);
+    return h('div', {}, top,
+      h('section', { class: 'net-sec net-form' }, h('h4', {}, 'Indicator light'),
+        h('div', { class: 'net-radios', role: 'radiogroup', 'aria-label': 'Indicator light' }, radio('on', 'On'), radio('off', 'Off')),
+        h('div', { class: 'net-actions' }, apply)),
+      msg,
+      note('Only the status lights change.', 'net-mut'));
   }
   // A band choice (2.4 GHz only / 5 GHz only / Off, its own Apply, like the stock page), then ONE form for the band that is on. The password is
   // never read into the page: the field starts empty and "empty" means "keep the current one" (net-core.js reads it from the router at apply time).
@@ -6434,7 +6671,7 @@ function mountNetTools() {
     return h('section', { class: 'net-sec net-form' }, h('h4', {}, 'USB tethering'),
       h('div', { class: 'net-frow' }, h('label', { for: 'matchi_wifi_auto' }, 'Turn Wi-Fi off while USB tethering is on'), cb),
       stat,
-      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app and a fresh sign-in.', 'net-mut'));
+      note('While a PC is connected over USB and the link is up, the router turns its own Wi-Fi off, and turns it on again (same band) when the link is gone, even if the cable is still plugged in. Wi-Fi that was already off is never turned on by this. Keep a cable connection to this console while it is on: Wi-Fi devices lose the connection when Wi-Fi goes off. Needs the router password saved in this app.', 'net-mut'));
   }
   async function waRead() {
     try {
@@ -6444,7 +6681,7 @@ function mountNetTools() {
   }
   async function waToggle(want, cb) {
     if (st.waBusy) return;
-    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console. Needs a fresh sign-in.', 'Turn on', false))) { cb.checked = false; return; }
+    if (want && !(await askConfirm('Turn Wi-Fi off while USB tethering is on?\n\nWhen the PC link over USB is up, the router switches its Wi-Fi off, and every device on Wi-Fi loses its connection. It switches Wi-Fi on again when the link is gone. Keep a cable connection to this console.', 'Turn on', false))) { cb.checked = false; return; }
     st.waBusy = true; paint('wifi');
     try {
       const r = await api('/api/wifiauto', { method: 'POST', body: JSON.stringify({ enabled: want }) });
@@ -6682,7 +6919,7 @@ function mountNetTools() {
     }
     return h('section', { class: 'net-sec' }, out);
   }
-  const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu };
+  const VIEWS = { data: viewData, wifi: viewWifi, devices: viewDevices, apn: viewApn, lan: viewLan, mtu: viewMtu, light: viewLight };
 
   // ---- window state ---------------------------------------------------------------------------------------------------------
   const setStatus = (t) => { const s = $('matchi_net_status'); if (s) s.textContent = st.only ? '' : (t || ''); };   // the Devices-only window shows no status / updated line
@@ -6782,6 +7019,43 @@ function mountNetTools() {
         : { bad: true, text: 'The router did not reach the wanted state within 30 seconds. It reports: ' + now + '. Press Refresh to read it again.' + ignored };
     } finally {
       if (live()) { st.act = null; if (st.tab === 'data') { paint('data'); setStatus(st.actMsg && st.actMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
+    }
+  }
+  // ---- indicator light -------------------------------------------------------------------------------------------------------
+  const readLight = async () => N.parseLight(await R.zte('get', { multi_data: '1', cmd: N.READ.light }));
+  async function lightApply(want) {
+    if (st.lightAct || (want !== 'on' && want !== 'off')) return;
+    const cur = st.cache.light && st.cache.light.d ? N.parseLight(st.cache.light.d) : null;
+    if (!cur || !cur.state || cur.state === want) return;   // fail closed: only a reported, different value is ever changed
+    const ok = await askConfirm(want === 'off' ? 'Turn the indicator light off?\n\nThe router\'s status lights go dark. Restore: choose On and Apply.' : 'Turn the indicator light on?', want === 'off' ? 'Turn off' : 'Turn on', false);
+    if (!ok) return;
+    const my = ++actId;
+    st.lightAct = want; st.lightMsg = null; syncButtons(); paint('light'); setStatus('Sending…');
+    const live = () => my === actId;
+    try {
+      let sent;
+      try { sent = await sendRetried(N.lightCall(want), async () => { const q = await readLight(); return !!q && N.lightReached(want, q.state); }, live); }
+      catch (e) { if (live()) st.lightMsg = { bad: true, text: 'Not sent: ' + N.maskSecrets(e.message) }; return; }
+      if (sent === null || !live()) return;
+      let q = null; const t0 = Date.now();
+      for (;;) {
+        try { q = await readLight(); } catch (_) { /* keep waiting; the last real value is shown below */ }
+        if (!live()) return;
+        if (q) st.cache.light = { d: { [N.LIGHT_KEY]: q.raw === null ? '' : q.raw }, at: Date.now() };
+        if (q && N.lightReached(want, q.state)) break;
+        if (Date.now() - t0 >= 10000) break;
+        await R.sleep(1500);
+        if (!live()) return;
+      }
+      const reached = !!q && N.lightReached(want, q.state);
+      const now = q && q.raw !== null ? q.raw : 'no answer';
+      const ignored = !reached && sent.reply !== 'success' && !sent.ok ? ' The router ignored the command ' + sent.attempts + ' times. ' + (R.emptyHint ? await R.emptyHint() : '') : '';
+      if (!live()) return;
+      st.lightMsg = reached
+        ? { bad: false, text: 'The indicator light is ' + want + '.' }
+        : { bad: true, text: 'The router did not show the wanted state. It reports: ' + now + '. If this keeps happening the router uses other names for this setting. Press Refresh to read it again.' + ignored };
+    } finally {
+      if (live()) { st.lightAct = null; if (st.tab === 'light') { paint('light'); setStatus(st.lightMsg && st.lightMsg.bad ? 'Check the result above' : 'Updated ' + clock()); } syncButtons(); }
     }
   }
   // ---- devices: rename, block, unblock ----------------------------------------------------------------------------
@@ -6891,7 +7165,7 @@ function mountNetTools() {
     const err = h('p', { class: 'net-p net-warn', id: 'matchi_lim_err' }, '');
     const mk = (label, id, fn) => { const x = h('button', { type: 'button', id }, label); if (busy) x.disabled = true; x.onclick = fn; return x; };
     // The long explanation is the Info chip in the panel's top right corner; its text opens under the title. Without the tip helper it is a plain note.
-    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart. Needs a fresh sign-in.';
+    const infoText = 'Leave a field empty for Unlimited; empty in both removes the limit. ' + N.LIMIT_MIN + ' to ' + N.LIMIT_MAX + ' KB/s (1 MB/s = 1000 KB/s). IPv4 is limited by address and IPv6 by the device MAC (best effort). The limit follows the device by its address, so it is put back after the next refresh if the address changes, and after a restart.';
     const tip = window.MatchiTip ? window.MatchiTip.make(infoText) : null;
     const chip = tip ? tip.firstChild : null, tipBody = tip ? tip.lastChild : null;
     const title = h('h4', {}, 'Limit speed \u00b7 ' + (f.name || '(no name)') + ' (' + f.ip + ')');
@@ -6915,7 +7189,7 @@ function mountNetTools() {
     const self = N.isSelf(call.ip, st.me);
     const warn = self ? '\n\nThis is the device you are using: this console slows down too.' : !st.me ? '\n\nThis page could not tell which device you are using. If this is it, this console slows down too.' : '';
     const ok = await askConfirm((none ? 'Remove the speed limit?' : 'Limit the speed of this device?') + '\n\n' + (f.name || '(no name)') + '\n' + call.mac + '\n' + call.ip + '\n\n'
-      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc). Needs a fresh sign-in.', none ? 'Remove limit' : 'Apply', !none && self);
+      + (none ? 'Download and Upload go back to Unlimited.' : N.limitText(call.down, call.up) + '.\nOnly IPv4 traffic is limited.') + warn + '\n\nThe phone does this with root (tc).', none ? 'Remove limit' : 'Apply', !none && self);
     if (!ok) return;
     st.limAct = true; st.limMsg = null; syncButtons(); paint('devices'); setStatus('Applying…');
     const my = ++actId;
@@ -6975,7 +7249,7 @@ function mountNetTools() {
       if (!o.data) { st.apnMsg = { bad: false, text: okText }; return; }
       let ppp = null;
       for (let i = 0; i < 10; i++) {
-        try { ppp = await readPpp(); } catch (_) { /* keep waiting */ }
+        try { ppp = await readPpp(); } catch (_) { /* retry */ }
         if (my !== actId) return;
         if (ppp && ppp.state === 'connected') break;
         progress('Changed. Waiting for mobile data… ' + (i + 1) * 2 + ' s of up to 20 s.');
@@ -7503,6 +7777,9 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
 html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not(#f):not(#g) td.net-rowact>button:not(.mt-tip-btn):not([role=switch]){margin:0 0 0 6px!important}
 #matchi_net_modal .net-frow{display:grid;grid-template-columns:minmax(100px,30%) 1fr;gap:6px;align-items:center;margin:3px 0}
 #matchi_net_modal .net-frow label{line-height:1.25}
+#matchi_net_modal .net-radios{display:flex;gap:20px;align-items:center;margin:6px 0}
+#matchi_net_modal .net-radio{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+#matchi_net_modal .net-radio input[type=radio]{width:16px!important;min-width:16px!important;height:16px!important;min-height:0!important;padding:0!important;margin:0!important}
 #matchi_net_modal .net-frow :is(input:not([type=checkbox]),select){box-sizing:border-box;width:100%;min-height:28px!important;height:28px;padding:0 8px!important}
 #matchi_net_modal .net-frow input[type=checkbox]{justify-self:start;align-self:center;flex:0 0 auto;width:32px!important;min-width:32px!important;height:18px!important;min-height:0!important;max-height:18px!important;padding:0!important;margin:0!important;border:0!important;border-radius:999px!important;box-sizing:border-box}
 #matchi_net_modal .net-prog{padding:5px 8px;border-radius:7px;background:rgba(90,150,255,.14);border:1px solid rgba(90,150,255,.4)}
@@ -7553,7 +7830,7 @@ html body #matchi_net_modal.modal-bg:not(#a):not(#b):not(#c):not(#d):not(#e):not
     release(); st.release = R.beginBusy('Network window open');
     st.cache = {}; st.root = null; st.rootErr = ''; st.rootBusy = false; st.tab = first; epoch++; actId++; st.act = null; st.actMsg = null; st.devAct = false; st.devMsg = null; st.me = ''; st.apnAct = false; st.apnMsg = null; st.apnForm = null; st.mtuAct = false; st.mtuMsg = null; st.mtuForm = null; st.lanAct = false; st.lanMsg = null; st.lanForm = null; st.lanIp = ''; st.wifiAct = false; st.wifiMsg = null; st.wifiForm = null; st.wifiBandSel = null; st.wa = null; st.waBusy = false; st.prog = ''; st.loading = false; st.lim = null; st.limErr = ''; st.limForm = null; st.limAct = false; st.limMsg = null; limSeq++;
     createModal({
-      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
+      name: MODAL, title: st.only ? 'Devices' : 'Network', maxWidth: '640px', showConfirm: false, onClose: () => { epoch++; actId++; st.act = null; st.devAct = false; st.apnAct = false; st.apnForm = null; st.mtuAct = false; st.lanAct = false; st.wifiAct = false; st.limAct = false; st.lightAct = null; st.limForm = null; st.prog = ''; limSeq++; release(); return true; },
       content: (st.only ? '' : '<div class="net-top"><div id="matchi_net_tabs" role="tablist" aria-label="Network sections"></div></div>') + '<button type="button" id="matchi_net_refresh">Refresh</button>' +
         '<div id="matchi_net_body" role="tabpanel" aria-live="polite"></div><div id="matchi_net_status" role="status"></div>',
     });

@@ -68,6 +68,9 @@ const ANSWERS = {
   lan: { lan_ipaddr: '192.168.0.1', lan_netmask: '255.255.255.0', dhcpEnabled: '1', dhcpStart: '192.168.0.2', dhcpEnd: '192.168.0.253', dhcpLease_hour: '24h', mac_address: '02:00:00:00:00:01' },
   mtu: null,   // built from mtuState below
 };
+let lightNow = '1', lightStuck = false;   // the fake router's indicator light
+const LK = 'indicator_light_switch', LSET = 'INDICATOR_LIGHT_SETTING';   // captured from the stock page
+
 // The APN part of the fake router: the real F50 layout (numbered slots, "($)" fields) and the stock APN_PROC_EX behaviour.
 const DEFS = 'default($)default($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)', DITO_S = 'DITO($)internet.dito.ph($)manual($)*99#($)none($)($)($)IPv4v6($)($)($)($)($)';
 const apnState = { mode: 'auto', slots: [DEFS].concat(Array(19).fill('')), used: ['DITO', 'internet.dito.ph'], idx: '' }; let apnBreak = false, failOn = null;
@@ -92,7 +95,7 @@ const lanAnswer = () => { if (lanDown > 0) { lanDown--; throw new Error(lanReadE
 const rootOut = () => ROOT_OUT.replace('mtu 1500 qdisc', 'mtu ' + mtuState.ifMtu + ' qdisc');
 const ROOT_OUT = '##route\n1.1.1.1 dev sipa_eth0 src 100.95.85.97\n##link\n14: sipa_eth0: <NOARP,UP,LOWER_UP> mtu 1500 qdisc x\n##filter\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n-A INPUT -p tcp -j TCPMSS --set-mss 1460\n##mangle\n##filter6\n##mangle6\n##end\n';
 const R = {
-  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd);   // ACL / names are single commands, handled below if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
+  zte: async (op, params) => { calls.push({ op, params }); if (failNext) { const e = failNext; failNext = null; throw e; } if (params.cmd === LK) return { [LK]: lightNow }; const tab = Object.keys(N.READ).find((k) => N.READ[k] === params.cmd);   // ACL / names are single commands, handled below if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
     if (params.cmd === 'queryDeviceAccessControlList') return aclMissing ? {} : { AclMode: '2', WhiteMacList: '', BlackMacList: black, WhiteNameList: '', BlackNameList: blackNames };
     if (params.cmd === 'hostNameList') { const d = ANSWERS.devices; return { devices: [...d.station_list, ...d.lan_station_list].map((e) => ({ hostname: hostOverride && e.mac_addr === 'AA:BB:CC:DD:EE:02' ? hostOverride : e.hostname, mac: e.mac_addr.toLowerCase() })) }; }
     if (tab === 'data') return Object.assign({}, ANSWERS.data, { ppp_status: pppNow });
@@ -123,6 +126,7 @@ const R = {
     if (params.goformId === 'SET_DEVICE_MTU') { if (mtuDown > 0) throw new Error('Failed to fetch'); /* a router that is down answers nothing */ retryLevels.push(level || 0); if (ignoreMtu > 0) { ignoreMtu--; return 'empty'; } if (restartOldMtu) { mtuDown = 2; return 'empty'; } if (!stuckMtu) { mtuState.mtu = Number(params.mtu); mtuState.mss = Number(params.tcp_mss); if (followWan) mtuState.ifMtu = mtuState.mtu; mtuDown = 2; } return; }
     if (params.goformId === 'DHCP_SETTING') { if (lanDown > 0) throw new Error('Failed to fetch'); if (!stuckLan) { lanState.ip = params.lanIp; lanState.mask = params.lanNetmask; lanState.start = params.dhcpStart; lanState.end = params.dhcpEnd; lanState.lease = Number(params.dhcpLease); lanState.dhcp = '1'; lanDown = 2; } return; }
     if (params.goformId === 'switchWiFiChip' || params.goformId === 'switchWiFiModule' || params.goformId === 'setAccessPointInfo') { if (wifiDown > 0) throw new Error('Failed to fetch'); wifiWrite(params); return; }
+    if (params.goformId === LSET) { if (!lightStuck) lightNow = params[LK]; return; }
     if (params.goformId === 'EDIT_HOSTNAME') { if (!stuck) hostOverride = params.hostname; return; }
     if (!stuck) pppNow = params.goformId === 'DISCONNECT_NETWORK' ? 'ppp_disconnected' : 'ipv4_ipv6_connected'; },
 };
@@ -164,7 +168,7 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   assert(/Connected/.test(bodyText()) && /ipv4_ipv6_connected/.test(bodyText()) && /Automatic/.test(bodyText()), 'data tab: ' + bodyText());
   assert.strictEqual(doc.getElementById('matchi_net_tab_data').attrs['aria-selected'], 'true');
   assert(/Updated/.test(doc.getElementById('matchi_net_status').textContent));
-  assert.strictEqual(doc.getElementById('matchi_net_tabs').children.length, 6);
+  assert.strictEqual(doc.getElementById('matchi_net_tabs').children.length, 7);
 
   await click(tabBtn('wifi'));
   let t = bodyText();
@@ -736,6 +740,39 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   let prevented = false; tabBtn('data').onkeydown({ key: 'ArrowRight', preventDefault() { prevented = true; } }); await flush();
   assert(prevented && doc.getElementById('matchi_net_tab_wifi').attrs['aria-selected'] === 'true');
 
+  // ---- Indicator light tab: reads, offers the other state, asks first, sends one call, claims success only after the re-read --------------------------
+  const readsBefore = calls.length;
+  await click(tabBtn('light'));
+  assert.strictEqual(calls.length, readsBefore + 1); assert.deepStrictEqual(calls[calls.length - 1], { op: 'get', params: { multi_data: '1', cmd: LK } });
+  const lightApplyBtn = () => doc.getElementById('matchi_light_apply'), lightRadio = (v) => doc.getElementById('matchi_light_' + v);
+  assert(/Indicator light/.test(bodyText()) && /On/.test(bodyText()), 'light tab: ' + bodyText());
+  assert(lightRadio('on').checked === true && lightRadio('off').checked === false, 'the radio shows the router value');
+  assert.strictEqual(lightApplyBtn().disabled, true, 'Apply stays off while the choice equals the router value');
+  sets.length = 0; confirms.length = 0;
+  lightRadio('off').onchange(); assert.strictEqual(lightApplyBtn().disabled, false);
+  confirmAnswer = false; await click(lightApplyBtn());   // declined: nothing is sent
+  assert.strictEqual(confirms.length, 1); assert.strictEqual(sets.length, 0);
+  confirmAnswer = true; await click(lightApplyBtn());
+  assert.strictEqual(sets.length, 1); assert.deepStrictEqual(sets[0].params, { goformId: LSET, [LK]: '0' }); assert.strictEqual(sets[0].allowEmpty, true);
+  assert(/The indicator light is off/.test(bodyText()) && lightRadio('off').checked === true, 'after off: ' + bodyText());
+  assert.strictEqual(lightApplyBtn().disabled, true, 'Apply is off again once the router shows the choice');
+  lightRadio('on').onchange(); confirmAnswer = true; await click(lightApplyBtn());
+  assert.strictEqual(sets.length, 2); assert.deepStrictEqual(sets[1].params, { goformId: LSET, [LK]: '1' }); assert(/The indicator light is on/.test(bodyText()), 'after on: ' + bodyText());
+  // the router takes the call but never shows the change: no success is claimed
+  lightStuck = true; lightRadio('off').onchange(); { const realNow = Date.now; let fake = realNow(); Date.now = () => (fake += 5000); await click(lightApplyBtn()); Date.now = realNow; } lightStuck = false;
+  assert(/did not show the wanted state/.test(bodyText()) && !/The indicator light is off/.test(bodyText()), 'stuck: ' + bodyText());
+  assert.strictEqual(doc.getElementById('matchi_net_refresh').disabled, false, 'window usable again after a failed change');
+  // a send that throws (old sign-in): shown, nothing claimed
+  lightNow = '1'; await click(doc.getElementById('matchi_net_refresh')); lightRadio('off').onchange(); setFail = new Error('Session too old for root commands'); await click(lightApplyBtn());
+  assert(/Not sent: Session too old/.test(bodyText()) && !/The indicator light is/.test(bodyText()), 'refused: ' + bodyText());
+  // fail closed: a router that does not report the value gets no radios, no Apply and NO set call
+  lightNow = ''; sets.length = 0; await click(doc.getElementById('matchi_net_refresh'));
+  assert(/Not reported by this router/.test(bodyText()) && !lightApplyBtn() && !lightRadio('on'), 'not reported: ' + bodyText()); assert.strictEqual(sets.length, 0);
+  // an unknown value is shown as it is and is not changed either
+  lightNow = 'dim'; await click(doc.getElementById('matchi_net_refresh'));
+  assert(/unknown value: dim/.test(bodyText()) && !lightApplyBtn() && sets.length === 0, 'unknown: ' + bodyText());
+  lightNow = '1'; await click(doc.getElementById('matchi_net_refresh')); await click(tabBtn('wifi'));   // leave the window as the next steps expect it (Wi-Fi tab)
+
   // closing releases the Live Status pause exactly once and lets the window close
   assert.strictEqual(busyNow, 1);
   assert.strictEqual(modalOpts.onClose(), true); assert.strictEqual(busyNow, 0); assert.strictEqual(released, 1);
@@ -755,5 +792,5 @@ const tabBtn = (id) => doc.getElementById('matchi_net_tab_' + id);
   modalOpts.onClose(); assert.strictEqual(busyNow, 0);
   await click(btn); assert.strictEqual(modalOpts.title, 'Network'); assert(modalOpts.content.includes('matchi_net_tabs'), 'tabs are back'); assert(/Updated/.test(doc.getElementById('matchi_net_status').textContent));
   modalOpts.onClose(); assert.strictEqual(busyNow, 0);
-  console.log('net tools ui ok: 6 tabs read once each (get only), password never on the page, Wi-Fi band and settings changes, root read only from its button, close releases the pause');
+  console.log('net tools ui ok: 7 tabs read once each (get only), password never on the page, Wi-Fi band and settings changes, indicator light On / Off, root read only from its button, close releases the pause');
 })().catch((e) => { console.error(e); process.exit(1); });

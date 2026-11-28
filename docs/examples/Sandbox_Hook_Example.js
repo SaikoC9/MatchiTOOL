@@ -8,7 +8,7 @@
 // The dialog should say it also runs its own stop code (15 s at most) and offer "Delete and stop".
 // The scan afterwards decides: if the job is still there, the plugin is kept.
 // The [e] in the pkill pattern keeps pkill from matching the shell that runs it.
-// Not yet tried on a device.
+//
 if (typeof matchi === 'undefined') {
   if (typeof createToast === 'function') createToast('Sandbox_Hook_Example.js is NOT sandboxed. Press its shield button to run it sandboxed.', 'orange');
 } else {

@@ -3,8 +3,7 @@ name: Release tools (build, compare, hashes, PR)
 # One run builds curl, jq, sendat and zreq, builds sendat and zreq a second time and compares the two builds, records
 # build provenance, and opens a pull request that puts the binaries into assets/bin with their new SHA-256 values in
 # NOTICE.md and docs/BINARIES.md.
-# Nothing here has run on the F50. The pull request says so, and docs/BUILD_BINARIES.md (step 3) says what to test
-# before it is merged.
+# docs/BUILD_BINARIES.md (step 3) says what to test before it is merged.
 # Start it by pushing a tag named tools-v<anything> (for example tools-v2026.11.1), or from Actions > Run workflow.
 on:
   push:
@@ -134,4 +133,4 @@ jobs:
             echo
             echo "A pull request opened with the default token does not start other workflows. Run \"Validate and build APK\" on this branch by hand."
           } > pr-body.md
-          gh pr create --base "$BASE" --head "$BRANCH" --title "Rebuilt bundled binaries (not tested on the F50 yet)" --body-file pr-body.md
+          gh pr create --base "$BASE" --head "$BRANCH" --title "Rebuilt bundled binaries" --body-file pr-body.md

@@ -43,7 +43,8 @@ object BootLogd {
             append("if [ ! -d /data/adb/magisk ] && [ ! -d /data/adb/ksu ] && [ ! -d /data/adb/ap ]; then echo 'NOTE=No Magisk folder found; the script is installed but may not start at boot'; fi\n")
             append("mkdir -p /data/adb/service.d \"\$D\" \"\$L\" || { echo 'ERROR=cannot create folders'; exit 0; }\n")
             // stop a running copy first so the new script and settings apply
-            append("[ -f \"\$L/logd.pid\" ] && kill \$(cat \"\$L/logd.pid\") 2>/dev/null; sleep 1\n")
+            append(BootLogdModel.PID_FN)
+            append("P=\$(logd_pid) && kill \$P 2>/dev/null; sleep 1\n")
             append("cat > \"\$S.new\" <<'$EOF_MARK'\n").append(script.trimEnd('\n')).append("\n$EOF_MARK\n")
             append("chmod 755 \"\$S.new\" && chown 0:0 \"\$S.new\" 2>/dev/null; mv \"\$S.new\" \"\$S\" || { echo 'ERROR=cannot write script'; exit 0; }\n")
             append("chcon u:object_r:magisk_file:s0 \"\$S\" 2>/dev/null\n")
@@ -65,7 +66,7 @@ object BootLogd {
 
     /** Stops capture and removes the script. [purge] also deletes the captured files. */
     fun uninstall(ctx: Context, purge: Boolean): JSONObject {
-        val cmd = "L=${BootLogdModel.LOG_DIR}\n[ -f \"\$L/logd.pid\" ] && kill \$(cat \"\$L/logd.pid\") 2>/dev/null\nsleep 1\n" +
+        val cmd = "L=${BootLogdModel.LOG_DIR}\n" + BootLogdModel.PID_FN + "P=\$(logd_pid) && kill \$P 2>/dev/null\nsleep 1\n" +
             "rm -f ${BootLogdModel.SCRIPT_PATH} ${BootLogdModel.CONF_PATH}\n" +
             (if (purge) "rm -rf \"\$L\"\n" else "") + "echo REMOVED=1"
         val r = RootShell.run(ctx, cmd, 20_000)
@@ -87,9 +88,9 @@ object BootLogd {
     /** Installed state, running state, heartbeat, restarts and disk use, from one root call. */
     fun status(ctx: Context): JSONObject {
         val bundled = BootLogdModel.scriptVersion(bundledScript(ctx))
-        val cmd = "L=${BootLogdModel.LOG_DIR}; S=${BootLogdModel.SCRIPT_PATH}\n" +
+        val cmd = "L=${BootLogdModel.LOG_DIR}; S=${BootLogdModel.SCRIPT_PATH}\n" + BootLogdModel.PID_FN +
             "if [ -f \"\$S\" ]; then echo INSTALLED_SCRIPT=1; sed -n 's/^# MATCHI_LOGD_VERSION=/INSTALLED_VERSION=/p' \"\$S\" | head -n 1; fi\n" +
-            "if [ -f \"\$L/logd.pid\" ] && kill -0 \$(cat \"\$L/logd.pid\") 2>/dev/null; then echo ALIVE=1; else echo ALIVE=0; fi\n" +
+            "if logd_pid >/dev/null; then echo ALIVE=1; else echo ALIVE=0; fi\n" +
             "[ -f \"\$L/status\" ] && cat \"\$L/status\"\n" +
             "echo \"NOW=\$(date '+%F %T')\"\n"
         val r = RootShell.run(ctx, cmd, 15_000)

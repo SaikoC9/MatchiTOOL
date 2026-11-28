@@ -114,6 +114,44 @@ if a[:2] == ['qdisc', 'del']:
     dev = a[3]; lines = [l for l in lines if not (l.startswith('qdisc|%s|' % dev))]; save(); sys.exit(0)
 sys.exit(2)
 F
+# fake ip: state "rule|TEXT" (as "ip rule show" prints it), "link|NAME", "addr|DEV|CIDR" in ctl/ip_state; only what the reaper uses
+cat > "$work/bin/ip" <<'F'
+#!/usr/bin/env python3
+import sys, os
+d = os.environ['FAKE_CTL']; st = d + '/ip_state'; a = sys.argv[1:]
+open(d + '/ip_calls', 'a').write(' '.join(a) + '\n')
+lines = [l.rstrip('\n') for l in open(st)] if os.path.exists(st) else []
+def save(): open(st, 'w').write(''.join(l + '\n' for l in lines))
+if a and a[0] == '-4': a = a[1:]
+if a[:2] == ['rule', 'show']:
+    for l in lines:
+        if l.startswith('rule|'): print(l[5:])
+    sys.exit(0)
+if a[:2] == ['rule', 'del']:
+    pref = a[a.index('pref') + 1]; kind = a[a.index('pref') + 2]; net = a[a.index('pref') + 3]
+    for l in lines:
+        if l.startswith('rule|' + pref + ':') and (kind + ' ' + net) in l:
+            lines.remove(l); save(); sys.exit(0)
+    sys.exit(2)
+if a[:2] == ['addr', 'show']:
+    dev = a[3]
+    for l in lines:
+        if l.startswith('addr|' + dev + '|'): print('    inet ' + l.split('|')[2] + ' scope global ' + dev)
+    sys.exit(0)
+if a[:2] == ['addr', 'del']:
+    dev = a[a.index('dev') + 1]; t = 'addr|%s|%s' % (dev, a[2])
+    if t in lines: lines.remove(t); save(); sys.exit(0)
+    sys.exit(2)
+if a[:2] == ['link', 'show']:
+    sys.exit(0 if ('link|' + a[3]) in lines else 1)
+if a[:2] == ['link', 'set']:
+    sys.exit(0)
+if a[:2] == ['link', 'del']:
+    t = 'link|' + a[3]
+    if t in lines: lines.remove(t); save(); sys.exit(0)
+    sys.exit(1)
+sys.exit(2)
+F
 chmod +x "$work/bin/"*
 export PATH="$work/bin:$PATH" FW_STATE="$work/fw" FAKE_CTL="$work/ctl" MR_WATCH_S=1 MR_CONFIRM_S=1 MR_SETTLE_S=0 MR_RETRY_S=2
 
@@ -238,7 +276,66 @@ for i in 1 2 3 4 5; do wipe >/dev/null; done
 grep -q 'retry=5' "$LOGF" && ok "five failing runs in a row reach retry=5" || bad "counter after 5 runs: $(cat "$LOGF" 2>&1)"
 world; touch "$work/ctl/tc_fail"; echo "2026-01-01 00:00:00 retry=5 left=tc-root " > "$LOGF"
 wipe; rc=$?
-[ "$rc" = 0 ] && [ -f "$STUB" ] && [ -f "$B/keepme" ] && ok "after 5 tries it gives up and stops (exit 0), touching nothing more" || bad "retry limit: exit $rc"
+[ "$rc" = 0 ] && ok "after 5 tries the last pass ends the watching (exit 0)" || bad "retry limit: exit $rc"
+[ ! -e "$STUB" ] && [ ! -e "$D" ] && [ ! -e "$B" ] && [ ! -e "$B/keepme" ] && ok "... and it does NOT leave the folder, the reaper or the boot stub behind (the old hole)" || bad "gave up but left files: $(find "$work/data" -name '*atchi*' | tr '\n' ' ')"
+[ -f "$LOGF" ] && grep -q 'gave-up left=.*tc-root' "$LOGF" && ! grep -q 'retry=' "$LOGF" && [ "$(wc -l < "$LOGF")" = 1 ] && ok "... only the one-line log stays and names what is left (gave-up, tc-root)" || bad "give-up log: $(cat "$LOGF" 2>&1)"
+
+# ======================================================================== G. OpenWrt VM plugin: made inside owrt-vm.sh, so only the reaper's own list can undo it
+OW="$work/data/local/matchi_owrt"
+owrt_world() {
+  world
+  mkdir -p "$OW/run" "$work/proc/sys/net/ipv4" "$work/sys/module/kvm/parameters" "$work/dev/net"
+  echo x > "$OW/rootfs.img"; echo x > "$OW/Image"; echo x > "$OW/vm.conf"; echo 0 > "$OW/run/ip_forward"; echo 200000 > "$OW/run/halt_poll_ns"; : > "$OW/run/tun_link"
+  echo 1 > "$work/proc/sys/net/ipv4/ip_forward"; echo 0 > "$work/sys/module/kvm/parameters/halt_poll_ns"; ln -s /dev/null "$work/dev/net/tun"
+  mkdir -p "$work/data/local/matchi_owrt2"; echo x > "$work/data/local/matchi_owrt2/f"
+  cat >> "$work/fw.iptables" <<FW
+filter|-N OWRT_FWD
+filter|-A FORWARD -j OWRT_FWD
+filter|-A OWRT_FWD -i br0 -o br0 -j ACCEPT
+filter|-A OWRT_FWD -i owrt-wan -o sipa_eth0 -j ACCEPT
+filter|-N OWRT_IN
+filter|-A INPUT -j OWRT_IN
+filter|-A OWRT_IN -i br0 -p udp -m udp --dport 67 -j DROP
+nat|-N OWRT_NAT
+nat|-A POSTROUTING -j OWRT_NAT
+nat|-A OWRT_NAT -s 192.168.66.0/24 -o sipa_eth0 -j MASQUERADE
+nat|-N OWRT_PRE
+nat|-A PREROUTING -j OWRT_PRE
+nat|-A OWRT_PRE -i br0 -p tcp -m tcp --dport 2223 -j DNAT --to-destination 192.168.66.2:22
+FW
+  printf 'rule|0:\tfrom all lookup local\nrule|5000:\tfrom all to 192.168.66.0/24 lookup main\nrule|5001:\tfrom 192.168.66.0/24 to 192.168.0.0/24 lookup br0\nrule|5002:\tfrom 192.168.66.0/24 lookup sipa_eth0\nrule|5001:\tfrom 10.9.9.0/24 lookup other\nrule|5100:\tfrom all to 192.168.66.0/24 lookup main\nrule|32766:\tfrom all lookup main\nlink|owrt-lan\nlink|owrt-wan\nlink|br0\naddr|br0|192.168.0.1/24\naddr|br0|192.168.88.2/24\n' > "$work/ctl/ip_state"
+}
+owrt_world
+ln -sf /bin/sleep "$OW/cloud-hypervisor"; "$OW/cloud-hypervisor" 300 & o1=$!
+printf 'while :; do sleep 1; done\n' > "$OW/owrt-vm.sh"; sh "$OW/owrt-vm.sh" boot & o2=$!
+ln -sf /bin/sleep "$work/decoy/cloud-hypervisor"; "$work/decoy/cloud-hypervisor" 300 & o3=$!
+sleep 1
+env MR_ROOT="$work" sh "$REAPER" wipe; rc=$?
+[ "$rc" = 0 ] && ok "OpenWrt VM left running with its network up: wipe finishes clean (exit 0)" || bad "OpenWrt wipe: exit $rc, left: $(cat "$LOGF" 2>&1)"
+! alive $o1 && ! alive $o2 && ok "VM process (cloud-hypervisor) and its manager script (owrt-vm.sh boot) stopped" || bad "OpenWrt VM process still running"
+alive $o3 && ok "a cloud-hypervisor that does NOT run from the plugin folder is left alone" || bad "foreign cloud-hypervisor killed"
+[ ! -e "$OW" ] && ok "/data/local/matchi_owrt removed (VM files, run/, vm.conf), even with an empty plugin snapshot" || bad "matchi_owrt left: $(ls "$OW" 2>&1 | tr '\n' ' ')"
+[ -f "$work/data/local/matchi_owrt2/f" ] && ok "look-alike folder matchi_owrt2 kept" || bad "matchi_owrt2 removed"
+fw | grep -q 'OWRT_' && bad "OWRT_ chains or jumps still in the filter table: $(fw | grep OWRT_ | tr '\n' ' ')" || ok "OWRT_FWD / OWRT_IN (the DHCP drop on br0) / OWRT_NAT / OWRT_PRE and their jumps removed"
+fw | grep -q 'dport 22 ' && fw | grep -q 'dport 80' && ok "foreign firewall rules kept" || bad "foreign firewall rule removed"
+ipst=$(cat "$work/ctl/ip_state" 2>/dev/null)
+echo "$ipst" | grep -q -e '^rule|5000:' -e 'rule|5002:' -e 'rule|5001:.*192.168.66.0/24' && bad "policy rules of the VM still there" || ok "policy rules 5000-5002 for 192.168.66.0/24 removed"
+echo "$ipst" | grep -q 'rule|5001:.*10.9.9.0/24' && echo "$ipst" | grep -q 'rule|5100:' && echo "$ipst" | grep -q 'rule|32766:' && ok "foreign rules kept (same pref 5001 with another net, pref 5100, main)" || bad "foreign ip rule removed: $ipst"
+echo "$ipst" | grep -q '^link|owrt-' && bad "owrt-lan / owrt-wan still there" || ok "tap interfaces owrt-lan and owrt-wan removed"
+echo "$ipst" | grep -q '^addr|br0|192.168.88.2/24' && bad "192.168.88.2 still on br0" || ok "192.168.88.2 taken off br0"
+echo "$ipst" | grep -q '^addr|br0|192.168.0.1/24' && echo "$ipst" | grep -q '^link|br0' && ok "br0 itself and its own address 192.168.0.1 untouched" || bad "br0 damaged: $ipst"
+[ "$(cat "$work/proc/sys/net/ipv4/ip_forward")" = 0 ] && [ "$(cat "$work/sys/module/kvm/parameters/halt_poll_ns")" = 200000 ] && ok "ip_forward and KVM halt polling put back to the values the VM manager saved" || bad "saved values not restored: fwd=$(cat "$work/proc/sys/net/ipv4/ip_forward") halt=$(cat "$work/sys/module/kvm/parameters/halt_poll_ns")"
+[ ! -L "$work/dev/net/tun" ] && ok "/dev/net/tun link the VM manager made is removed" || bad "tun link left"
+kill $o3 2>/dev/null; wait $o3 2>/dev/null
+# a VM whose network cannot be undone must not keep the folder for ever: five failing runs, then the last pass removes the files
+owrt_world; touch "$work/ctl/tc_fail"
+for i in 1 2 3 4 5; do wipe >/dev/null; done
+wipe; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$B" ] && [ ! -e "$OW" ] && [ ! -e "$STUB" ] && ok "OpenWrt leftovers + failing step: after the last try folder, VM folder and stub are still gone" || bad "folders kept after give-up (exit $rc): $(find "$work/data" -name '*atchi*' | tr '\n' ' ')"
+# no ip tool at all: the OpenWrt step must not break the wipe
+owrt_world; mv "$work/bin/ip" "$work/bin/ip.off"
+wipe; rc=$?; mv "$work/bin/ip.off" "$work/bin/ip"
+[ "$rc" = 0 ] && ok "no ip command on the phone: wipe still finishes clean" || bad "no ip: exit $rc"
 
 # ======================================================================== F. the reaper never kills itself or its parent
 world

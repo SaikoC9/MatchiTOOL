@@ -21,6 +21,9 @@ class ReaperSettingsTest {
         for (t in Footprint.LEGACY_TMP) assertTrue(t, all.contains(t.substringAfterLast('/')))
         for (p in Footprint.PROCESS_NAMES) assertTrue(p, all.contains(p))
         assertTrue(all.contains(Footprint.REAPER_LOG.substringAfterLast('/')))
+        for (c in Footprint.OWRT_FILTER_CHAINS + Footprint.OWRT_NAT_CHAINS + Footprint.OWRT_LINKS) assertTrue(c, all.contains(c))
+        assertTrue(all.contains(Footprint.OWRT_DIR.substringAfterLast('/')))
+        assertTrue(all.contains("cloud-hypervisor"))
     }
 
     @Test fun listNeverPromisesWhatStaysBehind() {

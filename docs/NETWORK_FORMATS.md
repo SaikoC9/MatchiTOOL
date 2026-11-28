@@ -1,6 +1,6 @@
 # Network tools: router calls and files
 
-What the Network window (Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS) sends to the F50 router and stores on the device. Captured from the stock page or its script. Code: `app/src/main/web-src/net-core.js`. If this file and the code disagree, the code is right.
+What the Network window (Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS, Light) sends to the F50 router and stores on the device. Captured from the stock page or its script. Code: `app/src/main/web-src/net-core.js`. If this file and the code disagree, the code is right.
 
 ## Reads (`goform_get_cmd_process`)
 
@@ -11,6 +11,7 @@ What the Network window (Data, Wi-Fi, Devices, APN, LAN / DHCP, MTU / MSS) sends
 | Devices | `station_list, lan_station_list, wifi_access_sta_num`; singles `queryDeviceAccessControlList`, `hostNameList` |
 | LAN / DHCP | `lan_ipaddr, lan_netmask, dhcpEnabled, dhcpStart, dhcpEnd, dhcpLease_hour, mac_address` |
 | MTU / MSS | `mtu, tcp_mss` |
+| Light | `indicator_light_switch` (assumed, see below) |
 | APN | profile list (`APN_READ` in net-core.js) |
 
 Opening a tab only reads. The Wi-Fi password is never copied to the page.
@@ -31,8 +32,15 @@ All need a fresh sign-in (`NetGoform.kt`: every set call except names in `OPEN_S
 | LAN pool / lease | `DHCP_SETTING`, `lanIp`, `lanNetmask`, `lanDhcpType=SERVER`, `dhcpStart`, `dhcpEnd`, `dhcpLease` (hours), `dhcp_reboot_flag=1`, `mac_ip_reset=0` |
 | Router IP change | same `DHCP_SETTING` with new `lanIp`, pool moved into the new subnet, `mac_ip_reset=1` |
 | MTU / MSS | `SET_DEVICE_MTU`, `mtu`, `tcp_mss` (both always sent) |
+| Indicator light On / Off | `INDICATOR_LIGHT_SETTING`, `indicator_light_switch=1` (On) or `0` (Off) |
 
 The router restarts after every LAN / DHCP and MTU / MSS apply. Console and Wi-Fi are gone for about 1-2 minutes.
+
+## Indicator light
+
+Set call captured from the stock page (2026-11-28). The read key is assumed to match the set field.
+
+If the tab shows "Not reported", capture the read (F12 > Network, filter `goform_get_cmd_process`, open the Indicator Light page) and set `LIGHT_KEY` and `READ.light` in `net-core.js`.
 
 ## This tool's limits (stricter than the router)
 
