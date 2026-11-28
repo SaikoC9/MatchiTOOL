@@ -1,6 +1,5 @@
 # MatchiTOOL 1.4.6
 
-- Changed: the unread SMS count is no longer shown on the browser tab (icon and title); it stays on the SMS button.
 - Changed: Network Diagnostics look. Online / Limited / Offline banner, four tiles (gateway, IPv4, IPv6, DNS), address, route and DNS lists, raw output folded. Same read-only checks.
 - Changed: Speed test. 4 streams, first second skipped, so fast links no longer read low. Busy server retried on the next port. Ping and jitter added. Result tiles and progress bar. Stop works before the upload. Bands load only when Band test is opened.
 - Added: Network > Light tab. Indicator light On / Off, like the stock page.
